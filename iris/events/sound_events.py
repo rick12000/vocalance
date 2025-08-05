@@ -1,0 +1,91 @@
+from iris.events.base_event import BaseEvent, EventPriority
+from pydantic import Field
+from typing import Optional, List, Dict, Literal
+
+# === SOUND TRAINING EVENTS ===
+
+class SoundTrainingRequestEvent(BaseEvent):
+    sound_label: str
+    num_samples: int
+    priority: EventPriority = EventPriority.NORMAL
+
+class CancelSoundTrainingCommand(BaseEvent):
+    label: str = Field(..., description="Label for the sound training to cancel.")
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundTrainingInitiatedEvent(BaseEvent):
+    sound_name: str
+    total_samples: int
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundTrainingProgressEvent(BaseEvent):
+    label: str
+    current_sample: int
+    total_samples: int
+    is_last_sample: bool = False
+    priority: EventPriority = EventPriority.LOW
+
+class SoundTrainingCompleteEvent(BaseEvent):
+    sound_name: str
+    success: bool
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundTrainingFailedEvent(BaseEvent):
+    sound_name: str
+    reason: str
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundTrainingStatusEvent(BaseEvent):
+    message: str
+    status_type: Literal["info", "warning", "error", "success"]
+    priority: EventPriority = EventPriority.LOW
+
+# === SOUND MANAGEMENT EVENTS ===
+
+class DeleteSoundCommand(BaseEvent):
+    label: str = Field(..., description="Label of the sound to delete.")
+    priority: EventPriority = EventPriority.NORMAL
+
+class ResetAllSoundsCommand(BaseEvent):
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundDeletedEvent(BaseEvent):
+    label: str
+    success: bool
+    priority: EventPriority = EventPriority.LOW
+
+class AllSoundsResetEvent(BaseEvent):
+    success: bool
+    priority: EventPriority = EventPriority.LOW
+
+class RequestSoundListEvent(BaseEvent):
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundListUpdatedEvent(BaseEvent):
+    sounds: List[str]
+    priority: EventPriority = EventPriority.LOW
+
+class SoundModelChangedEvent(BaseEvent):
+    priority: EventPriority = EventPriority.LOW
+
+# === SOUND MAPPING EVENTS ===
+
+class MapSoundToCommandPhraseCommand(BaseEvent):
+    sound_label: str = Field(..., description="Label of the sound to map.")
+    command_phrase: str = Field(..., description="Command phrase to map to the sound.")
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundToCommandMappingUpdatedEvent(BaseEvent):
+    sound_label: str
+    command_phrase: str
+    success: bool
+    priority: EventPriority = EventPriority.LOW
+
+class RequestSoundMappingsEvent(BaseEvent):
+    """Event to request all current sound-to-command mappings"""
+    priority: EventPriority = EventPriority.NORMAL
+
+class SoundMappingsResponseEvent(BaseEvent):
+    """Response event with all current sound-to-command mappings"""
+    mappings: Dict[str, str] = Field(default_factory=dict)
+    priority: EventPriority = EventPriority.LOW

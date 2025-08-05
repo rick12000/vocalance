@@ -1,0 +1,60 @@
+/* Custom CSS for Iris documentation */
+
+/* Improve code block styling */
+.highlight {
+    background-color: #f8f8f8;
+    border: 1px solid #e1e4e5;
+    border-radius: 4px;
+    margin: 1em 0;
+}
+
+/* Style for mermaid diagrams */
+.mermaid {
+    text-align: center;
+    margin: 2em 0;
+}
+
+/* Improve table styling */
+.rst-content table.docutils {
+    border: 1px solid #e1e4e5;
+    border-collapse: collapse;
+}
+
+.rst-content table.docutils th,
+.rst-content table.docutils td {
+    border: 1px solid #e1e4e5;
+    padding: 8px 12px;
+}
+
+/* Custom styling for admonitions */
+.rst-content .admonition {
+    margin: 1.5em 0;
+    padding: 1em;
+    border-left: 4px solid #2563eb;
+    background-color: #f8f9fa;
+}
+
+/* Logo styling */
+.wy-side-nav-search .wy-dropdown > a img.logo {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Improve navigation */
+.wy-nav-side {
+    background: #343131;
+}
+
+.wy-nav-top {
+    background: #2563eb;
+}
+
+/* Code copy button styling */
+.copybtn {
+    opacity: 0.3;
+    transition: opacity 0.2s;
+}
+
+.copybtn:hover {
+    opacity: 1;
+}

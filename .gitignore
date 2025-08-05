@@ -1,0 +1,31 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Vosk Speech Model (Download separately)
+vosk-model-*/
+
+qwen*
+
+# User-specific data
+deprecated_spots.json
+
+# Virtual environment
+venv/
+.venv/
+
+# IDE/Editor specific files
+.vscode/
+.idea/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Egg info
+*.egg-info/
+
+/cache
+
+_build/

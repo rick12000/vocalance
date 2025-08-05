@@ -1,0 +1,52 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+Task: Evaluate and refactor the attached service code to simplify and streamline its logic.
+
+Goals:
+Simplify logic: Do more with less. Reduce code size without sacrificing key functionality.
+
+Remove:
+
+Redundancy and repetition
+
+Dead/zombie code
+
+Hardcoded values
+
+Prefer: Readable, maintainable, and flexible code over complex or over-engineered solutions.
+
+Trade-off philosophy:
+Prefer a 90-line codebase that delivers 90% of the value over a 180-line codebase that delivers 100%. Simpler wins unless the extra complexity is justified.
+
+Coding Guidelines:
+Avoid over-planning for rare edge cases.
+
+Use try/except and loops only when necessary (e.g., for robustness in event-driven flows).
+
+Centralize:
+
+Logic and operations
+
+Type definitions with informative, reusable structures
+
+Component reuse: Favor existing utilities or patterns if available.
+
+Integration Awareness:
+Maintain compatibility with other services, connectors, and the UI.
+
+If dependencies or connectors can be streamlined, do so.
+
+Don't break existing integration or external contracts.
+
+Final Output:
+Refactored code
+
+Brief summary:
+
+Major simplifications made
+
+Any functionality intentionally removed (and why) — this is discouraged and should be justified
+
