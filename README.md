@@ -1,19 +1,6 @@
-<div align="center">
-  <img src="assets/logo/iris_logo_full_size.png" alt="Iris Logo" width="300"/>
+<div style="width:100%; display:flex; justify-content:center;">
+  <img src="assets/repo/banner_github.png" alt="Iris Logo" style="width:100%; max-width:1000px; height:auto;"/>
 </div>
-
-<br>
-
-<div align="center">
-
-[![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://iris.readthedocs.io/)
-[![Python versions](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://python.org)
-
-</div>
-
----
-
-**Iris** is a comprehensive voice command assistant designed specifically for accessibility, featuring advanced speech recognition, AI-powered dictation, and intelligent screen interaction. Built with privacy-first principles, all processing happens locally on your device.
 
 ## ✨ Core Features
 
