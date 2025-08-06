@@ -2,9 +2,6 @@
 __pycache__/
 *.pyc
 
-# Vosk Speech Model (Download separately)
-vosk-model-*/
-
 qwen*
 
 # User-specific data
