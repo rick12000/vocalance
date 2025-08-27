@@ -111,4 +111,42 @@ class EnhancedVoskSTT:
                 
             except Exception as e:
                 logger.error(f"Streaming recognition error: {e}")
-                return None 
+                return None
+    
+    def _is_nonsense(self, text: str) -> bool:
+        """Check if text appears to be nonsense"""
+        if not text or len(text.strip()) < 2:
+            return True
+        
+        # Check for repetitive patterns
+        words = text.split()
+        if len(words) > 1 and len(set(words)) == 1:
+            return True
+        
+        return False
+    
+    async def shutdown(self) -> None:
+        """Shutdown Vosk STT and cleanup resources"""
+        try:
+            logger.info("Shutting down EnhancedVoskSTT")
+            
+            with self._recognizer_lock:
+                # Clear Vosk components
+                if hasattr(self, '_recognizer') and self._recognizer is not None:
+                    del self._recognizer
+                    self._recognizer = None
+                    logger.info("Vosk recognizer deleted")
+                
+                if hasattr(self, '_model') and self._model is not None:
+                    del self._model
+                    self._model = None
+                    logger.info("Vosk model deleted")
+                
+                # Clear duplicate filter
+                if hasattr(self, '_duplicate_filter'):
+                    del self._duplicate_filter
+            
+            logger.info("EnhancedVoskSTT shutdown complete")
+            
+        except Exception as e:
+            logger.error(f"Error during EnhancedVoskSTT shutdown: {e}", exc_info=True) 

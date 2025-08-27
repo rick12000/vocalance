@@ -649,3 +649,40 @@ class StreamlinedSoundRecognizer:
             'sound_mappings': self.mappings.copy(),
             'model_ready': len(self.embeddings) > 0
         }
+    
+    async def shutdown(self) -> None:
+        """Shutdown sound recognizer and cleanup TensorFlow resources"""
+        try:
+            logger.info("Shutting down StreamlinedSoundRecognizer")
+            
+            # Clear TensorFlow model and free GPU/CPU memory
+            if hasattr(self, 'yamnet_model') and self.yamnet_model is not None:
+                del self.yamnet_model
+                self.yamnet_model = None
+                logger.info("YAMNet model deleted")
+            
+            # Clear TensorFlow session and backend
+            if tf is not None:
+                try:
+                    tf.keras.backend.clear_session()
+                    logger.info("TensorFlow session cleared")
+                except Exception as e:
+                    logger.warning(f"Error clearing TensorFlow session: {e}")
+            
+            # Clear numpy arrays to free memory
+            if hasattr(self, 'embeddings') and self.embeddings is not None:
+                del self.embeddings
+                self.embeddings = np.array([])
+            
+            if hasattr(self, 'labels'):
+                self.labels.clear()
+            
+            # Clear scaler
+            if hasattr(self, 'scaler'):
+                del self.scaler
+                self.scaler = StandardScaler()
+            
+            logger.info("StreamlinedSoundRecognizer shutdown complete")
+            
+        except Exception as e:
+            logger.error(f"Error during StreamlinedSoundRecognizer shutdown: {e}", exc_info=True)

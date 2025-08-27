@@ -215,7 +215,33 @@ class WhisperSpeechToText:
     def reset_context(self):
         """Reset context and cache"""
         with self._model_lock:
-            self._text_cache.clear()
+            if hasattr(self, '_text_cache'):
+                self._text_cache.clear()
             logger.debug("Whisper context and cache reset")
+    
+    async def shutdown(self) -> None:
+        """Shutdown Whisper STT and cleanup resources"""
+        try:
+            logger.info("Shutting down WhisperSpeechToText")
+            
+            with self._model_lock:
+                # Clear the model to free memory
+                if hasattr(self, '_model') and self._model is not None:
+                    del self._model
+                    self._model = None
+                    logger.info("Whisper model deleted")
+                
+                # Clear duplicate filter
+                if hasattr(self, '_duplicate_filter'):
+                    del self._duplicate_filter
+                
+                # Clear noise samples
+                if hasattr(self, '_noise_samples'):
+                    self._noise_samples.clear()
+            
+            logger.info("WhisperSpeechToText shutdown complete")
+            
+        except Exception as e:
+            logger.error(f"Error during WhisperSpeechToText shutdown: {e}", exc_info=True)
     
  

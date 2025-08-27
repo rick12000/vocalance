@@ -183,13 +183,24 @@ class AudioRecorder:
         except Exception as e:
             self.logger.error(f"Recording thread error: {e}", exc_info=True)
         finally:
-            if self._stream:
-                try:
+            self._cleanup_stream()
+
+    def _cleanup_stream(self):
+        """Properly cleanup audio stream with detailed error handling"""
+        if self._stream:
+            try:
+                if hasattr(self._stream, 'active') and self._stream.active:
                     self._stream.stop()
-                    self._stream.close()
-                except:
-                    pass
+                    self.logger.debug(f"{self.mode} stream stopped")
+                
+                self._stream.close()
+                self.logger.debug(f"{self.mode} stream closed")
+                
+            except Exception as e:
+                self.logger.error(f"Error cleaning up {self.mode} audio stream: {e}", exc_info=True)
+            finally:
                 self._stream = None
+                self.logger.info(f"{self.mode} audio stream cleanup completed")
 
     def _get_timeout(self, chunks_collected: int) -> float:
         """Get adaptive timeout based on speech length"""
@@ -228,6 +239,11 @@ class AudioRecorder:
             self._is_recording = False
             if self._thread:
                 self._thread.join(timeout=2.0)
+                if self._thread.is_alive():
+                    self.logger.warning(f"{self.mode} recording thread did not terminate cleanly")
+            
+            # Ensure stream is cleaned up even if thread didn't terminate properly
+            self._cleanup_stream()
 
     def set_active(self, active: bool):
         """Set recorder active state"""

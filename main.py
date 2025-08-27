@@ -316,10 +316,11 @@ async def main():
         event_bus = EventBus()
         gui_event_loop = asyncio.new_event_loop()
         
-        # Start GUI event loop in thread
+        # Start GUI event loop in thread (not daemon to ensure proper cleanup)
         gui_thread = threading.Thread(
             target=lambda: (asyncio.set_event_loop(gui_event_loop), gui_event_loop.run_forever()),
-            daemon=True
+            daemon=False,
+            name="GUIEventLoop"
         )
         gui_thread.start()
         
@@ -366,6 +367,9 @@ async def main():
         
         services = await service_initializer.initialize_all(progress_tracker)
         
+        # Store GUI thread reference for cleanup
+        services['gui_thread'] = gui_thread
+        
         # Show main window
         progress_tracker.start_step("Launching interface...")
         app_tk_root.deiconify()
@@ -394,7 +398,7 @@ async def main():
             logging.info("KeyboardInterrupt received")
         finally:
             logging.info("Starting cleanup...")
-            await _cleanup_services(services, event_bus, gui_event_loop)
+            await _cleanup_services(services, event_bus, gui_event_loop, gui_thread)
         
         logging.info("Application shutdown complete")
         
@@ -405,8 +409,10 @@ async def main():
 
 
 
-async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_event_loop: asyncio.AbstractEventLoop):
+async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_event_loop: asyncio.AbstractEventLoop, gui_thread: threading.Thread):
     """Clean up all services during shutdown"""
+    cleanup_errors = []
+    
     try:
         # Stop audio service first
         if 'audio' in services and hasattr(services['audio'], 'stop_processing'):
@@ -414,7 +420,20 @@ async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_e
         
         await asyncio.sleep(0.3)
         
-        # Stop mark service tasks on GUI loop before stopping event bus
+        # Stop event bus first while GUI loop is still running
+        if not gui_event_loop.is_closed():
+            try:
+                stop_future = asyncio.run_coroutine_threadsafe(
+                    event_bus.stop_worker(), gui_event_loop
+                )
+                stop_future.result(timeout=5.0)
+                logging.info("Event bus stopped successfully")
+            except Exception as e:
+                error_msg = f"Error stopping event bus: {e}"
+                logging.error(error_msg)
+                cleanup_errors.append(error_msg)
+        
+        # Stop mark service tasks on GUI loop
         if 'mark' in services and hasattr(services['mark'], 'stop_service_tasks'):
             try:
                 if not gui_event_loop.is_closed():
@@ -423,27 +442,51 @@ async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_e
                     )
                     stop_future.result(timeout=3)
             except Exception as e:
-                logging.error(f"Error stopping mark service: {e}")
+                error_msg = f"Error stopping mark service: {e}"
+                logging.error(error_msg)
+                cleanup_errors.append(error_msg)
         
-        # Stop GUI event loop before stopping event bus to avoid loop conflicts
+        # Now stop GUI event loop after event bus is shutdown
         if not gui_event_loop.is_closed():
             gui_event_loop.call_soon_threadsafe(gui_event_loop.stop)
+            
+            # Wait for GUI thread to terminate properly
+            try:
+                gui_thread.join(timeout=5.0)
+                if gui_thread.is_alive():
+                    logging.warning("GUI thread did not terminate cleanly within timeout")
+                else:
+                    logging.info("GUI thread terminated successfully")
+            except Exception as e:
+                error_msg = f"Error joining GUI thread: {e}"
+                logging.error(error_msg)
+                cleanup_errors.append(error_msg)
+            
             await asyncio.sleep(0.3)
         
-        # Stop event bus after GUI loop is stopped
-        await event_bus.stop_worker()
-        
-        # Shutdown services with shutdown methods
-        for service_name in ['centralized_parser', 'automation', 'command_storage', 'stt', 'dictation']:
+        # Shutdown services with shutdown methods in proper order
+        shutdown_order = ['sound_service', 'centralized_parser', 'automation', 'command_storage', 'stt', 'dictation']
+        for service_name in shutdown_order:
             if service_name in services and hasattr(services[service_name], 'shutdown'):
                 try:
+                    logging.info(f"Shutting down {service_name}...")
                     await services[service_name].shutdown()
+                    logging.info(f"{service_name} shutdown completed")
                 except Exception as e:
-                    logging.error(f"Error shutting down {service_name}: {e}")
+                    error_msg = f"Error shutting down {service_name}: {e}"
+                    logging.error(error_msg, exc_info=True)
+                    cleanup_errors.append(error_msg)
         
-        logging.info("All services cleaned up")
+        if cleanup_errors:
+            logging.warning(f"Cleanup completed with {len(cleanup_errors)} errors")
+            for error in cleanup_errors:
+                logging.error(f"Cleanup error: {error}")
+        else:
+            logging.info("All services cleaned up successfully")
+            
     except Exception as e:
-        logging.error(f"Error during cleanup: {e}")
+        logging.error(f"Critical error during cleanup: {e}", exc_info=True)
+        # Continue with cleanup even if there are errors
 
 
 if __name__ == "__main__":

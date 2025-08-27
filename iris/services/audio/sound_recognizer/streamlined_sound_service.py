@@ -331,3 +331,21 @@ class StreamlinedSoundService:
                 command_phrase=event_data.command_phrase,
                 success=False
             ))
+    
+    async def shutdown(self) -> None:
+        """Shutdown sound service and cleanup resources"""
+        try:
+            logger.info("Shutting down StreamlinedSoundService")
+            
+            # Cancel any active training
+            if self._training_active:
+                self.cancel_training()
+            
+            # Shutdown the recognizer (which will cleanup TensorFlow resources)
+            if hasattr(self, 'recognizer') and self.recognizer:
+                await self.recognizer.shutdown()
+            
+            logger.info("StreamlinedSoundService shutdown complete")
+            
+        except Exception as e:
+            logger.error(f"Error during StreamlinedSoundService shutdown: {e}", exc_info=True)

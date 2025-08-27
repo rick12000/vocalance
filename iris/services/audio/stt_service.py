@@ -268,8 +268,21 @@ class StreamlinedSpeechToTextService:
         """Shutdown STT service"""
         try:
             logger.info("Shutting down STT service")
-            self.vosk_engine = None
-            self.whisper_engine = None
+            
+            # Properly shutdown Vosk engine
+            if hasattr(self, 'vosk_engine') and self.vosk_engine is not None:
+                await self.vosk_engine.shutdown()
+                self.vosk_engine = None
+            
+            # Properly shutdown Whisper engine
+            if hasattr(self, 'whisper_engine') and self.whisper_engine is not None:
+                await self.whisper_engine.shutdown()
+                self.whisper_engine = None
+            
+            # Clear duplicate filter
+            if hasattr(self, '_duplicate_filter'):
+                del self._duplicate_filter
+            
             logger.info("STT service shutdown complete")
         except Exception as e:
-            logger.error(f"Error during STT service shutdown: {e}")
+            logger.error(f"Error during STT service shutdown: {e}", exc_info=True)

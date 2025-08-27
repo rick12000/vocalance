@@ -382,11 +382,36 @@ class LLMService:
         return self._model_loaded and self.llm is not None
     
     async def shutdown(self) -> None:
-        """Shutdown service"""
+        """Shutdown service and properly cleanup LLM model"""
         try:
+            logger.info("Shutting down LLM service...")
             self._model_loaded = False
-            if self.llm:
-                self.llm = None
+            
+            with self._processing_lock:
+                if self.llm:
+                    # Properly close the Llama model to free memory
+                    try:
+                        # Llama-cpp-python models need to be explicitly closed
+                        if hasattr(self.llm, 'close'):
+                            self.llm.close()
+                        elif hasattr(self.llm, '__del__'):
+                            # Force garbage collection of the model
+                            del self.llm
+                        self.llm = None
+                        logger.info("LLM model properly closed and freed")
+                    except Exception as model_cleanup_error:
+                        logger.error(f"Error closing LLM model: {model_cleanup_error}")
+                        # Force deletion even if close fails
+                        self.llm = None
+                
+                # Clear model downloader references
+                if hasattr(self, 'model_downloader'):
+                    self.model_downloader = None
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
             logger.info("LLM service shutdown complete")
         except Exception as e:
             logger.error(f"Shutdown error: {e}", exc_info=True) 
