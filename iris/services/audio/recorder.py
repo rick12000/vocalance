@@ -24,18 +24,18 @@ class AudioRecorder:
         
         # Mode-specific configuration
         if mode == "command":
-            self.chunk_size = 960  # 60ms at 16kHz
-            self.energy_threshold = getattr(app_config.vad, 'command_energy_threshold', 0.002)
-            self.silence_timeout = 0.35
-            self.max_duration = 3.0
-            self.pre_roll_chunks = 4
+            self.chunk_size = app_config.audio.command_chunk_size
+            self.energy_threshold = app_config.vad.command_energy_threshold
+            self.silence_timeout = app_config.vad.command_silence_timeout
+            self.max_duration = app_config.vad.command_max_recording_duration
+            self.pre_roll_chunks = app_config.vad.command_pre_roll_buffers
             self.enable_streaming = True
         else:  # dictation
-            self.chunk_size = 2048
-            self.energy_threshold = getattr(app_config.vad, 'dictation_energy_threshold', app_config.vad.energy_threshold * 0.6)
-            self.silence_timeout = 3.0
-            self.max_duration = 12.0
-            self.pre_roll_chunks = 3
+            self.chunk_size = app_config.audio.chunk_size
+            self.energy_threshold = app_config.vad.dictation_energy_threshold
+            self.silence_timeout = app_config.vad.dictation_silence_timeout
+            self.max_duration = app_config.vad.dictation_max_recording_duration
+            self.pre_roll_chunks = app_config.vad.dictation_pre_roll_buffers
             self.enable_streaming = False
         
         self.sample_rate = app_config.audio.sample_rate

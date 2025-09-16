@@ -1,0 +1,10 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+When executing code in the terminal, ALWAYS use:
+conda activate iris_env_new
+pip install .
+Then execute the program

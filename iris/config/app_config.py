@@ -120,8 +120,8 @@ class VADConfig(BaseModel):
     
     # Enhanced dictation mode settings (balanced for accuracy and speed)
     dictation_energy_threshold: float = Field(default=0.0035, description="Slightly higher threshold for dictation to reduce noise while maintaining sensitivity.")
-    dictation_silence_timeout: float = Field(default=1.5, description="Reduced from 4.0s for faster dictation processing.")
-    dictation_max_recording_duration: float = Field(default=5.0, description="Reduced from 20s for faster processing.")
+    dictation_silence_timeout: float = Field(default=0.5, description="Reduced from 4.0s for faster dictation processing.")
+    dictation_max_recording_duration: float = Field(default=8.0, description="Reduced from 20s for faster processing.")
     dictation_pre_roll_buffers: int = Field(default=2, description="Further reduced pre-roll buffers for minimal latency.")
     dictation_progressive_silence: bool = Field(default=True, description="Enable progressive silence detection to handle natural speech patterns.")
     dictation_inter_sentence_pause_threshold: float = Field(default=0.35, description="Reduced pause threshold for faster continuous speech processing.")
@@ -130,7 +130,7 @@ class VADConfig(BaseModel):
     # Additional settings for fast speech handling
     dictation_fast_speech_energy_threshold: float = Field(default=0.0015, description="Further optimized energy threshold for detecting fast/quiet speech.")
     dictation_adaptive_timeout_enabled: bool = Field(default=True, description="Enable adaptive timeout based on speech patterns.")
-    dictation_min_silence_for_segment_end: float = Field(default=1.0, description="Reduced from 1.2s for faster segment processing.")
+    dictation_min_silence_for_segment_end: float = Field(default=0.5, description="Reduced from 1.2s for faster segment processing.")
     
     # Quality-focused settings for better transcription
     dictation_chunk_overlap_duration: float = Field(default=0.25, description="Reduced overlap duration for faster processing.")

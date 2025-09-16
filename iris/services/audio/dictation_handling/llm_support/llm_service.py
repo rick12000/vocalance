@@ -35,6 +35,7 @@ class LLMService:
         # Get model configuration
         self.model_info = config.llm.get_model_info()
         self.model_filename = config.llm.get_model_filename()
+        self.model_path: Optional[str] = None  # Will be set during initialization
         self.context_length = config.llm.context_length
         self.n_threads = config.llm.n_threads
         
@@ -56,18 +57,18 @@ class LLMService:
             else:
                 logger.info(f"Model {self.model_filename} found locally")
             
-            # Get the model path
-            model_path = self.model_downloader.get_model_path(self.model_filename)
+            # Get the model path and store it in instance variable
+            self.model_path = self.model_downloader.get_model_path(self.model_filename)
             
-            if not os.path.exists(model_path):
-                logger.error(f"Model file not found after download: {model_path}")
+            if not os.path.exists(self.model_path):
+                logger.error(f"Model file not found after download: {self.model_path}")
                 return False
             
-            logger.info(f"Loading LLM model: {os.path.basename(model_path)}")
+            logger.info(f"Loading LLM model: {os.path.basename(self.model_path)}")
             
             # Load model in executor to avoid blocking
             loop = asyncio.get_event_loop()
-            self.llm = await loop.run_in_executor(None, self._load_model, model_path)
+            self.llm = await loop.run_in_executor(None, self._load_model, self.model_path)
             
             if self.llm:
                 self._model_loaded = True
