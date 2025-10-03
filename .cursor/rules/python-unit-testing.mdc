@@ -4,114 +4,28 @@ globs:
 alwaysApply: false
 ---
 
-### 2.2 Recommended Approaches
+# Testing Guidelines
 
-*   **Behavior-Driven Development (BDD):** Describe the expected behavior of your code in a human-readable format (e.g., using Gherkin syntax) and use testing frameworks like `behave` or `pytest-bdd` to execute these descriptions as tests.
-*   **Focus on a single aspect per test:**  Each test should verify a single, well-defined aspect of the code's behavior. This makes it easier to identify the cause of failures and keeps tests simple.
-
-### 2.3 Anti-patterns and Code Smells
-
-*   **Testing implementation details:** Tests should focus on the *behavior* of the code, not its implementation. Avoid writing tests that rely on internal data structures or algorithms, as these tests will break when the implementation changes.
-*   **Large, complex tests:** Break down large tests into smaller, more focused tests. This improves readability and makes it easier to debug failures.
-*   **Ignoring test failures:** Never ignore failing tests. Investigate and fix them promptly.
-*   **Over-mocking:** Mock only the dependencies that are necessary to isolate the code under test. Over-mocking can lead to tests that pass even when the code is broken.
-*   **Non-deterministic tests:** Avoid tests that rely on external factors or random data, as these tests can produce inconsistent results.
-
-
-### 2.5 Error Handling
-
-*   **Test error conditions:** Write tests to verify that your code handles errors correctly. Use `assertRaises` or context managers like `pytest.raises` to assert that exceptions are raised when expected.
-*   **Provide informative error messages:** When an assertion fails, provide a clear and informative error message that helps you understand the cause of the failure.
-*   **Avoid catching generic exceptions:** Catch only the specific exceptions that you expect to handle. Catching generic exceptions can mask underlying problems.
-
-### 3.1 Optimization Techniques
-
-*   **Reduce test execution time:** Identify and optimize slow-running tests. Use profiling tools to pinpoint performance bottlenecks.
-*   **Parallel test execution:** Use tools like `pytest-xdist` to run your tests in parallel, reducing the overall test execution time.
-*   **Selective test execution:** Run only the tests that are relevant to the code changes you've made. This can be achieved using test selection features provided by your testing framework.
-
-## 5. Testing Approaches
-
-### 5.1 Unit Testing Strategies
-
-*   **Test-Driven Development (TDD):**  Write tests before writing the code itself. This allows you to drive the design by thinking about the expected behavior and edge cases first.
-*   **Black-box testing:**  Test the code based only on its inputs and outputs, without knowledge of its internal workings.
-*   **White-box testing:**  Test the code based on its internal structure and logic. This requires knowledge of the code's implementation.
-*   **Boundary value analysis:** Test the code at the boundaries of its input ranges to identify potential errors.
-*   **Equivalence partitioning:** Divide the input domain into equivalence partitions and test one value from each partition.
-
-### 5.2 Integration Testing
-
-*   **Test interactions between components:** Integration tests verify that different components of your application work together correctly.
-*   **Use mock objects:** Use mock objects to simulate the behavior of external dependencies during integration tests.
-*   **Test data persistence:** Ensure that data is correctly persisted to and retrieved from the database.
-
-### 5.3 End-to-End Testing
-
-*   **Test the entire application workflow:** End-to-end tests verify that the entire application workflow works correctly, from the user interface to the backend systems.
-*   **Use automated testing tools:** Use automated testing tools, such as Selenium or Cypress, to automate end-to-end tests.
-*   **Focus on critical paths:** Focus on testing the critical paths through your application to ensure that the most important functionality is working correctly.
-
-### 5.4 Test Organization
-
-*   **Group related tests:** Group related tests into test classes or test suites.
-*   **Use descriptive names:** Use descriptive names for your tests to make it easy to understand their purpose.
-*   **Keep tests short and focused:** Keep tests short and focused on a single aspect of the code's behavior.
-*   **Automate test execution:** Automate test execution using continuous integration tools.
-
-### 5.5 Mocking and Stubbing
-
-*   **Use mock objects:** Mock objects are used to replace real dependencies with simulated objects that can be controlled and inspected during testing.
-*   **Use stubs:** Stubs are simplified versions of real dependencies that provide predefined responses to specific calls.
-*   **Choose the right tool:** Choose the right mocking or stubbing tool for your needs. Popular tools include `unittest.mock` (part of the standard library) and `pytest-mock`.
-*   **Avoid over-mocking:** Mock only the dependencies that are necessary to isolate the code under test.
-
-## 6. Common Pitfalls and Gotchas
-
-### 6.1 Frequent Mistakes
-
-*   **Testing implementation details:** As mentioned earlier, testing implementation instead of behavior.
-*   **Ignoring test failures:** Treat failing tests as critical errors, not warnings.
-*   **Writing tests that are too complex:** Overly complex tests can be difficult to understand and maintain.
-*   **Not using test fixtures:** Failing to use test fixtures can lead to inconsistent testing environments and unreliable results.
-*   **Ignoring code coverage:** While not a perfect measure, low code coverage indicates areas of code that are not being tested.
-
-### 6.2 Edge Cases
-
-*   **Empty inputs:** Test what happens when you pass empty lists, strings, or dictionaries to your code.
-*   **Null or None values:** Test how your code handles null or None values.
-*   **Invalid data types:** Test how your code handles invalid data types.
-*   **Boundary conditions:** Test the behavior of your code at the boundaries of its input ranges.
-*   **Unexpected exceptions:** Ensure that your code handles unexpected exceptions gracefully.
-
-### 6.3 Version-Specific Issues
-
-*   **Compatibility with older Python versions:** Be aware of potential compatibility issues when running tests on older Python versions. Use conditional imports or version checks to handle these issues.
-*   **Changes in unittest features:** Be aware of changes in unittest features and deprecations across different Python versions. Refer to the official documentation for details.
-
-### 6.4 Compatibility Concerns
-
-*   **Dependencies with C extensions:** Testing code that depends on libraries with C extensions can be tricky. Consider using mock objects or specialized testing tools.
-*   **Integration with external systems:** Testing code that integrates with external systems, such as databases or APIs, can require setting up test environments or using mock objects.
-
-### 6.5 Debugging Strategies
-
-*   **Logging:** Use logging to record debugging information to a file and identify at which point in a sequence the root cause of the issue is located.
-*   **Isolate the problem:** Try to isolate the problem by running only the failing test or a small subset of tests.
-
-## 7. Tooling and Environment
-
-### 7.1 Recommended Tools
-
-*   **pytest:** Your default unit testing tool. Use this always, except when you need to mock objects, in which case you may use **unittest**.
-*   Whichever tool you choose, always use it consistently, don't adopt different syntax or tools depending on the test or module.
-
-### 7.4 Checks
-
-*   **Run tests before deployment:** Always run your tests before submitting your work.
-
-
-
+- Use pytest for all testing, use unittest for mocking.
+- Use pytest.mark.parametrize for testing functions with categorical input values:
+    - For literals, you should automatically cycle through all possible Literal values in your parametrization.
+    - For ordinal categories or discrete inputs (eg. n_observations, n_recommendations, etc.) pick some sensible ranges (eg. 0 if allowed, or minimum otherwise, then a sensible every day value, say 10, then a very large value, if it's not computationally expensive, say 1000).
+- Mock external APIs and I/O only, do not use mocking as a crutch to abstract away components who's behaviour you need to test.
+- Use fixtures to store toy data, mocked objects or any other object you plan to reference in the main tests, particularly if it will be used more than once. If the toy data is small and specific to the one test it's called in, it's ok to define it inside the test function.
+- Never define nested functions (function def is inside another function) unless explicitly required because of scope (eg. nested generator builders).
+- Avoid defining helper functions at the top of a test module, tests should be simple and mostly check existing methods' outputs. Very complex tests may require helper functions, but this should be limited.
+- ALL fixtures need to be defined in the tests/conftest.py file, NEVER define them directly in a test module.
+- Do not test initialization of classes. Do not use asserts that just check if an attribute of a class exists, or is equal to what you just defined it as, these are bloated tests that accomplish little, but add maintenance cost.
+- If you're testing a function or method that returns a shaped object, always check the shape (should it be the same as the input's? Should it be different? Should it be a specific size based on the inputs you passed to the function? etc. based on these questions formulate asserts that check those shape aspects)
+- Test the intent behind a function or method, not form or attributes. Read through the function or method carefully, understand its goals and approach, then write meaningful tests that check quality of outputs relative to intent.
+- Do not add strings after asserts, eg. do NOT do this:
+    assert len(final_alphas) == len(initial_alphas), "Alpha count should remain consistent"
+    after any assert statement, it should just be assert len(final_alphas) == len(initial_alphas)
+- Keep comments to a minimum, comments should just explain more obscure asserts or tests.
+- Each unit test should be a function, functions should not be grouped in testing classes and should not have self attributes.
+- When testing mathematical functions, understand the derivations and test assumptions and outputs given mathematical constraints and theory.
+- Do not write excessive amounts of tests, focus on the most important aspects of each function.
+- Avoid lenghty code repetition. If multiple tests share the same set ups or fixture processing but only differ in asserts, join them in a single test and add comments before each assert.
 
 
 

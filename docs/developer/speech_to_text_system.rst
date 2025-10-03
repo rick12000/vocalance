@@ -694,7 +694,6 @@ Architecture
        # Optimized timeout constants
        ZERO_TIMEOUT = 0.02      # Instant execution
        INSTANT_TIMEOUT = 0.05   # Near-instant for recognized commands
-       QUICK_TIMEOUT = 0.15     # Fast for single words
        DEFAULT_TIMEOUT = 0.4    # Standard timeout
        AMBIGUOUS_TIMEOUT = 0.6  # Longer for ambiguous commands
 
@@ -741,7 +740,7 @@ Architecture
        
        # Check for numeric commands
        if text_lower.isdigit():
-           return self.ZERO_TIMEOUT if int(text_lower) <= 20 else self.QUICK_TIMEOUT
+           return self.ZERO_TIMEOUT
        
        # Check ambiguous prefixes
        for prefix, group in self._ambiguity_groups.items():

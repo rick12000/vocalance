@@ -17,7 +17,9 @@ import os
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from iris.config.app_config import GlobalAppConfig
+from iris.config.app_config import GlobalAppConfig, AudioConfig, VADConfig
+from iris.config.stt_config import STTConfig
+from iris.config.dictation_config import DictationConfig
 from iris.event_bus import EventBus
 from iris.services.storage.unified_storage_service import UnifiedStorageService
 from iris.services.storage.storage_adapters import StorageAdapterFactory
@@ -212,3 +214,172 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     recognizer.yamnet_model = mock_yamnet_model
     
     return recognizer
+
+
+@pytest.fixture
+def mock_audio_config():
+    """Mock audio configuration for testing."""
+    return AudioConfig(
+        sample_rate=16000,
+        chunk_size=320,
+        command_chunk_size=960,
+        channels=1,
+        dtype="int16",
+        device=None,
+        enable_dual_mode_processing=True
+    )
+
+
+@pytest.fixture
+def mock_vad_config():
+    """Mock VAD configuration for testing."""
+    return VADConfig(
+        command_energy_threshold=0.003,
+        dictation_energy_threshold=0.002,
+        command_silence_timeout=0.4,
+        dictation_silence_timeout=1.5,
+        command_max_recording_duration=5.0,
+        dictation_max_recording_duration=30.0,
+        command_pre_roll_buffers=3,
+        dictation_pre_roll_buffers=5
+    )
+
+
+@pytest.fixture
+def mock_stt_config():
+    """Mock STT configuration for testing."""
+    return STTConfig(
+        default_engine="vosk",
+        model_path="test/model/path",
+        whisper_model="base",
+        whisper_device="cpu",
+        sample_rate=16000,
+        command_debounce_interval=0.02,
+        dictation_debounce_interval=0.1
+    )
+
+
+@pytest.fixture
+def mock_dictation_config():
+    """Mock dictation configuration for testing."""
+    return DictationConfig(
+        start_trigger="green",
+        stop_trigger="amber",
+        type_trigger="type",
+        smart_start_trigger="smart green",
+        dictation_stt_engine="whisper",
+        command_stt_engine="vosk"
+    )
+
+
+@pytest.fixture
+def mock_global_config(mock_audio_config, mock_vad_config, mock_stt_config, mock_dictation_config):
+    """Mock global app configuration for testing."""
+    config = Mock()
+    config.audio = mock_audio_config
+    config.vad = mock_vad_config
+    config.stt = mock_stt_config
+    config.dictation = mock_dictation_config
+    config.model_paths = Mock()
+    config.model_paths.vosk_model = "test/vosk/model"
+    return config
+
+
+@pytest.fixture
+def mock_event_bus():
+    """Mock event bus for testing."""
+    return Mock()
+
+
+@pytest.fixture
+def test_audio_bytes():
+    """Generate test audio bytes for testing."""
+    sample_rate = 16000
+    duration = 1.0  # 1 second
+    samples = int(sample_rate * duration)
+    
+    # Generate sine wave test audio
+    t = np.linspace(0, duration, samples)
+    frequency = 440  # A4 note
+    audio_data = (np.sin(2 * np.pi * frequency * t) * 32767).astype(np.int16)
+    
+    return audio_data.tobytes()
+
+
+@pytest.fixture
+def quiet_audio_bytes():
+    """Generate quiet audio bytes for testing silence detection."""
+    sample_rate = 16000
+    duration = 0.5
+    samples = int(sample_rate * duration)
+    
+    # Generate low-amplitude noise
+    audio_data = (np.random.normal(0, 0.001, samples) * 32767).astype(np.int16)
+    
+    return audio_data.tobytes()
+
+
+@pytest.fixture
+def command_test_phrases():
+    """Common command phrases for testing."""
+    return [
+        "click",
+        "enter",
+        "right click", 
+        "down",
+        "ctrl c",
+        "mark a",
+        "go to b",
+        "1",
+        "25",
+        "golf"
+    ]
+
+
+@pytest.fixture
+def mock_vosk_model():
+    """Mock Vosk model for testing."""
+    model = Mock()
+    recognizer = Mock()
+    
+    # Mock recognition results
+    def mock_accept_waveform(audio_bytes):
+        return True
+    
+    def mock_final_result():
+        return '{"text": "test command"}'
+    
+    def mock_result():
+        return '{"text": "test command"}'
+    
+    def mock_partial_result():
+        return '{"partial": "test"}'
+    
+    recognizer.AcceptWaveform = mock_accept_waveform
+    recognizer.FinalResult = mock_final_result
+    recognizer.Result = mock_result
+    recognizer.PartialResult = mock_partial_result
+    recognizer.Reset = Mock()
+    
+    return model, recognizer
+
+
+@pytest.fixture
+def mock_whisper_model():
+    """Mock Whisper model for testing."""
+    model = Mock()
+    
+    # Mock segment for transcription results
+    mock_segment = Mock()
+    mock_segment.text = "test dictation text"
+    mock_segment.avg_logprob = -0.5
+    
+    # Mock transcribe method
+    def mock_transcribe(audio, **kwargs):
+        segments = [mock_segment]
+        info = Mock()
+        return segments, info
+    
+    model.transcribe = mock_transcribe
+    
+    return model
