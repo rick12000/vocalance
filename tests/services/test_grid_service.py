@@ -6,11 +6,11 @@ import pytest_asyncio
 import asyncio
 from unittest.mock import Mock
 
-from iris.services.grid.grid_service import GridService
-from iris.events.command_events import GridCommandParsedEvent
-from iris.events.grid_events import GridVisibilityChangedEventData
-from iris.events.core_events import CommandExecutedStatusEvent
-from iris.config.command_types import GridShowCommand, GridSelectCommand, GridCancelCommand
+from iris.app.services.grid.grid_service import GridService
+from iris.app.events.command_events import GridCommandParsedEvent
+from iris.app.events.grid_events import GridVisibilityChangedEventData
+from iris.app.events.core_events import CommandExecutedStatusEvent
+from iris.app.config.command_types import GridShowCommand, GridSelectCommand, GridCancelCommand
 
 
 @pytest_asyncio.fixture
@@ -138,7 +138,7 @@ async def test_grid_select_cell(grid_service):
     
     event_bus.subscribe(CommandExecutedStatusEvent, capture_event)
     
-    from iris.events.grid_events import ClickGridCellRequestEventData
+    from iris.app.events.grid_events import ClickGridCellRequestEventData
     event_bus.subscribe(ClickGridCellRequestEventData, capture_event)
     
     command = GridSelectCommand(selected_number=5)

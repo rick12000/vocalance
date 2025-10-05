@@ -18,15 +18,15 @@ import os
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from iris.config.app_config import GlobalAppConfig, AudioConfig, VADConfig
-from iris.config.stt_config import STTConfig
-from iris.config.dictation_config import DictationConfig
-from iris.event_bus import EventBus
-from iris.services.storage.unified_storage_service import UnifiedStorageService
-from iris.services.storage.storage_adapters import StorageAdapterFactory
-from iris.services.audio.vosk_stt import EnhancedVoskSTT
-from iris.services.audio.whisper_stt import WhisperSpeechToText
-from iris.services.audio.stt_service import SpeechToTextService
+from iris.app.config.app_config import GlobalAppConfig, AudioConfig, VADConfig
+from iris.app.config.stt_config import STTConfig
+from iris.app.config.dictation_config import DictationConfig
+from iris.app.event_bus import EventBus
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService
+from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
+from iris.app.services.audio.whisper_stt import WhisperSpeechToText
+from iris.app.services.audio.stt_service import SpeechToTextService
 
 
 @pytest.fixture
@@ -220,7 +220,7 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     monkeypatch.setattr("iris.services.audio.sound_recognizer.streamlined_sound_recognizer.tf", tf_mock)
     
     # Import after mocking
-    from iris.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
+    from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
     
     recognizer = StreamlinedSoundRecognizer(mock_config, mock_storage_factory)
     recognizer.yamnet_model = mock_yamnet_model
@@ -231,7 +231,7 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
 @pytest.fixture
 def vosk_model_path():
     """Get the path to the Vosk model."""
-    return "assets/vosk-model-small-en-us-0.15"
+    return "iris/app/assets/vosk-model-small-en-us-0.15"
 
 
 @pytest.fixture
@@ -442,7 +442,7 @@ def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, mock_duplicate_filt
          patch('iris.services.audio.vosk_stt.vosk.KaldiRecognizer', return_value=mock_vosk_recognizer), \
          patch('iris.services.audio.vosk_stt.DuplicateTextFilter', return_value=mock_duplicate_filter):
 
-        from iris.services.audio.vosk_stt import EnhancedVoskSTT
+        from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
         instance = EnhancedVoskSTT(
             model_path="fake_model_path",
             sample_rate=16000,
@@ -474,7 +474,7 @@ def whisper_stt_instance(mock_whisper_model, mock_duplicate_filter, stt_config):
     with patch('iris.services.audio.whisper_stt.WhisperModel', return_value=mock_whisper_model), \
          patch('iris.services.audio.whisper_stt.DuplicateTextFilter', return_value=mock_duplicate_filter):
 
-        from iris.services.audio.whisper_stt import WhisperSpeechToText
+        from iris.app.services.audio.whisper_stt import WhisperSpeechToText
         instance = WhisperSpeechToText(
             model_name="base",
             device="cpu",
@@ -516,7 +516,7 @@ def mock_recognizer():
 @pytest.fixture
 def preprocessor():
     """Create a standard AudioPreprocessor instance."""
-    from iris.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
+    from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
     return AudioPreprocessor(
         target_sr=16000,
         silence_threshold=0.005,

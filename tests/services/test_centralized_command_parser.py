@@ -6,16 +6,16 @@ import pytest_asyncio
 import asyncio
 from unittest.mock import Mock, AsyncMock
 
-from iris.services.centralized_command_parser import CentralizedCommandParser
-from iris.events.stt_events import CommandTextRecognizedEvent
-from iris.events.core_events import CustomSoundRecognizedEvent, ProcessCommandPhraseEvent
-from iris.events.command_events import (
+from iris.app.services.centralized_command_parser import CentralizedCommandParser
+from iris.app.events.stt_events import CommandTextRecognizedEvent
+from iris.app.events.core_events import CustomSoundRecognizedEvent, ProcessCommandPhraseEvent
+from iris.app.events.command_events import (
     DictationCommandParsedEvent, AutomationCommandParsedEvent,
     MarkCommandParsedEvent, GridCommandParsedEvent, CommandNoMatchEvent
 )
-from iris.events.dictation_events import DictationStatusChangedEvent
-from iris.events.sound_events import SoundToCommandMappingUpdatedEvent, SoundMappingsResponseEvent
-from iris.config.command_types import (
+from iris.app.events.dictation_events import DictationStatusChangedEvent
+from iris.app.events.sound_events import SoundToCommandMappingUpdatedEvent, SoundMappingsResponseEvent
+from iris.app.config.command_types import (
     DictationStartCommand, DictationStopCommand,
     MarkCreateCommand, MarkExecuteCommand, MarkDeleteCommand,
     GridShowCommand, GridSelectCommand, GridCancelCommand,

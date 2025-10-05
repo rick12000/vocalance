@@ -66,7 +66,11 @@ docs = [
 ]
 
 [tool.setuptools]
-packages = {find = {exclude = ["tests*", "examples*", "docs*", "build*", "cache*", "dist*", "*.egg-info*", "assets*"]}}
+packages = {find = {exclude = ["tests*", "examples*", "docs*", "build*", "cache*", "dist*", "*.egg-info*"]}}
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["assets/**/*", "app/assets/**/*"]
 
 [tool.pytest.ini_options]
 markers = [

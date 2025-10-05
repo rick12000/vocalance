@@ -6,13 +6,13 @@ import pytest_asyncio
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris.services.mark_service import MarkService
-from iris.events.command_events import MarkCommandParsedEvent
-from iris.events.mark_events import (
+from iris.app.services.mark_service import MarkService
+from iris.app.events.command_events import MarkCommandParsedEvent
+from iris.app.events.mark_events import (
     MarkCreatedEventData, MarkDeletedEventData, MarkOperationSuccessEventData,
     MarkVisualizationStateChangedEventData
 )
-from iris.config.command_types import (
+from iris.app.config.command_types import (
     MarkCreateCommand, MarkExecuteCommand, MarkDeleteCommand,
     MarkVisualizeCommand, MarkResetCommand, MarkVisualizeCancelCommand
 )

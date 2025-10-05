@@ -6,11 +6,11 @@ import pytest_asyncio
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 
-from iris.services.audio.stt_service import SpeechToTextService, STTMode
-from iris.events.core_events import CommandAudioSegmentReadyEvent, DictationAudioSegmentReadyEvent
-from iris.events.stt_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent
-from iris.events.dictation_events import DictationModeDisableOthersEvent
-from iris.events.command_management_events import CommandMappingsUpdatedEvent
+from iris.app.services.audio.stt_service import SpeechToTextService, STTMode
+from iris.app.events.core_events import CommandAudioSegmentReadyEvent, DictationAudioSegmentReadyEvent
+from iris.app.events.stt_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent
+from iris.app.events.dictation_events import DictationModeDisableOthersEvent
+from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
 
 
 @pytest_asyncio.fixture
@@ -207,7 +207,7 @@ async def test_empty_text_triggers_sound_recognition(stt_service_with_mocked_eng
     
     service.vosk_engine.recognize = Mock(return_value="")
     
-    from iris.events.core_events import ProcessAudioChunkForSoundRecognitionEvent
+    from iris.app.events.core_events import ProcessAudioChunkForSoundRecognitionEvent
     captured_events = []
     async def capture_event(event):
         captured_events.append(event)

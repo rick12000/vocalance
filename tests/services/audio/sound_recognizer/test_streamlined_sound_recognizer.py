@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch, MagicMock
 from sklearn.metrics.pairwise import cosine_similarity
 import asyncio
 
-from iris.services.audio.sound_recognizer.streamlined_sound_recognizer import (
+from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import (
     StreamlinedSoundRecognizer,
     AudioPreprocessor
 )

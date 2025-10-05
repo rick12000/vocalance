@@ -74,7 +74,7 @@ html_theme_options = {
 html_static_path = ["_static"]
 
 # Custom logo
-html_logo = "../assets/logo/iris_logo_full_size.png"
+html_logo = "../iris/app/assets/logo/iris_logo_full_size.png"
 
 # The root toctree document (updated from deprecated master_doc)
 root_doc = "index"

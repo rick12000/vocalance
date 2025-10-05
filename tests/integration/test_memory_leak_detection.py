@@ -16,8 +16,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from iris.config.app_config import GlobalAppConfig
-from iris.event_bus import EventBus
+from iris.app.config.app_config import GlobalAppConfig
+from iris.app.event_bus import EventBus
 
 
 class MemoryProfiler:
@@ -148,7 +148,7 @@ async def event_bus():
 @pytest.mark.memory
 async def test_event_bus_memory_lifecycle(memory_profiler):
     async def test_eventbus(profiler):
-        from iris.events.stt_events import CommandTextRecognizedEvent
+        from iris.app.events.stt_events import CommandTextRecognizedEvent
 
         event_bus = EventBus()
         await event_bus.start_worker()
@@ -172,7 +172,7 @@ async def test_event_bus_memory_lifecycle(memory_profiler):
 @pytest.mark.slow
 async def test_whisper_stt_memory_lifecycle(memory_profiler, app_config):
     async def test_whisper(profiler):
-        from iris.services.audio.whisper_stt import WhisperSpeechToText
+        from iris.app.services.audio.whisper_stt import WhisperSpeechToText
 
         whisper = WhisperSpeechToText(model_name="base", device="cpu", sample_rate=16000, config=app_config)
         await asyncio.sleep(0.5)
@@ -196,8 +196,8 @@ async def test_whisper_stt_memory_lifecycle(memory_profiler, app_config):
 @pytest.mark.memory
 async def test_llm_service_memory_lifecycle(memory_profiler, event_bus, app_config):
     async def test_llm(profiler):
-        from iris.services.audio.dictation_handling.llm_support.llm_service import LLMService
-        from iris.services.storage.llm_model_downloader import LLMModelDownloader
+        from iris.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
+        from iris.app.services.storage.llm_model_downloader import LLMModelDownloader
 
         downloader = LLMModelDownloader(app_config)
         if not downloader.model_exists(app_config.llm.get_model_filename()):
@@ -255,11 +255,11 @@ async def test_audio_buffer_memory_patterns(memory_profiler):
 @pytest.mark.slow
 async def test_service_initialization_memory(memory_profiler, app_config):
     async def test_services(profiler):
-        from iris.services.storage.unified_storage_service import UnifiedStorageService
-        from iris.services.storage.storage_adapters import StorageAdapterFactory
-        from iris.services.grid.grid_service import GridService
-        from iris.services.automation_service import AutomationService
-        from iris.services.centralized_command_parser import CentralizedCommandParser
+        from iris.app.services.storage.unified_storage_service import UnifiedStorageService
+        from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+        from iris.app.services.grid.grid_service import GridService
+        from iris.app.services.automation_service import AutomationService
+        from iris.app.services.centralized_command_parser import CentralizedCommandParser
 
         event_bus = EventBus()
         await event_bus.start_worker()

@@ -27,8 +27,8 @@ from typing import Optional
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from iris.config.app_config import GlobalAppConfig
-from iris.services.audio.recorder import AudioRecorder
+from iris.app.config.app_config import GlobalAppConfig
+from iris.app.services.audio.recorder import AudioRecorder
 
 
 class AlignedSampleRecorder:

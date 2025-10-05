@@ -7,7 +7,7 @@ import pytest
 import numpy as np
 from unittest.mock import patch
 
-from iris.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
+from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
 
 
 class TestAudioPreprocessorDetailed:

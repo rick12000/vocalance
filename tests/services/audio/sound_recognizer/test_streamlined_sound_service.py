@@ -8,8 +8,8 @@ import numpy as np
 from unittest.mock import Mock, AsyncMock, patch
 import asyncio
 
-from iris.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
-from iris.events.core_events import ProcessAudioChunkForSoundRecognitionEvent, CustomSoundRecognizedEvent
+from iris.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
+from iris.app.events.core_events import ProcessAudioChunkForSoundRecognitionEvent, CustomSoundRecognizedEvent
 
 
 class TestStreamlinedSoundService:

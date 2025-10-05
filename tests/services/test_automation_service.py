@@ -7,10 +7,10 @@ import asyncio
 import time
 from unittest.mock import Mock, patch, call
 
-from iris.services.automation_service import AutomationService
-from iris.events.command_events import AutomationCommandParsedEvent
-from iris.events.core_events import CommandExecutedStatusEvent
-from iris.config.command_types import ExactMatchCommand, ParameterizedCommand
+from iris.app.services.automation_service import AutomationService
+from iris.app.events.command_events import AutomationCommandParsedEvent
+from iris.app.events.core_events import CommandExecutedStatusEvent
+from iris.app.config.command_types import ExactMatchCommand, ParameterizedCommand
 
 
 @pytest_asyncio.fixture
@@ -292,7 +292,7 @@ async def test_command_mappings_update_clears_cooldowns(mock_hotkey, automation_
     service = automation_service
     event_bus = service._event_bus
     
-    from iris.events.command_management_events import CommandMappingsUpdatedEvent
+    from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
     
     command = ExactMatchCommand(
         command_key="copy",

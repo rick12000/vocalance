@@ -3,9 +3,8 @@ include LICENSE
 include README.md
 include pyproject.toml
 
-# Include UI assets
-recursive-include assets/logo *
-recursive-include assets *
+# Include UI assets (now in iris/app/assets/)
+recursive-include iris/app/assets *
 
 # Exclude build artifacts and cache
 prune build
@@ -19,6 +18,6 @@ prune .cursor
 prune .vscode
 prune .conda
 
-# Exclude large model files
-exclude *.gguf
-exclude vosk-model-*
+# Exclude large model files from root level only (not in iris/app/assets/)
+global-exclude *.gguf
+# Note: vosk models in iris/app/assets/ will be included via recursive-include above

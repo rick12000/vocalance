@@ -14,7 +14,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import asyncio
 
-from iris.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
+from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
 
 
 class TestSoundRecognitionIntegration:
