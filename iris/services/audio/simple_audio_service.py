@@ -8,6 +8,7 @@ Provides clear separation of concerns and optimized threading.
 import logging
 import threading
 import asyncio
+import time
 from typing import Optional
 
 from iris.event_bus import EventBus
@@ -20,7 +21,8 @@ from iris.events.core_events import (
     StopRecordingCommand,
     AudioRecordingStateEvent,
     RequestAudioSampleForTrainingCommand,
-    AudioSampleForTrainingReadyEvent
+    AudioSampleForTrainingReadyEvent,
+    AudioDetectedEvent
 )
 from iris.events.base_event import BaseEvent
 from iris.events.dictation_events import DictationModeDisableOthersEvent, AudioModeChangeRequestEvent
@@ -61,12 +63,12 @@ class SimpleAudioService:
     def _initialize_recorders(self):
         """Initialize both command and dictation recorders"""
         try:
-            # Command recorder - optimized for speed with streaming support
+            # Command recorder - optimized for speed
             self._command_recorder = AudioRecorder(
                 app_config=self._config,
                 mode="command",
                 on_audio_segment=self._on_command_audio_segment,
-                on_streaming_chunk=self._on_command_streaming_chunk  # New: streaming callback
+                on_audio_detected=self._on_audio_detected
             )
             
             # Dictation recorder - optimized for accuracy
@@ -76,7 +78,7 @@ class SimpleAudioService:
                 on_audio_segment=self._on_dictation_audio_segment
             )
             
-            logger.info("Dual audio recorders initialized with streaming optimization")
+            logger.info("Dual audio recorders initialized")
             
         except Exception as e:
             logger.error(f"Failed to initialize audio recorders: {e}", exc_info=True)
@@ -93,6 +95,14 @@ class SimpleAudioService:
             logger.debug(f"Command audio: {len(segment_bytes)} bytes")
         except Exception as e:
             logger.error(f"Error handling command audio: {e}")
+    
+    def _on_audio_detected(self):
+        """Handle audio detection event for Markov fast-track"""
+        try:
+            event = AudioDetectedEvent(timestamp=time.time())
+            self._publish_audio_event(event)
+        except Exception as e:
+            logger.error(f"Error publishing audio detected event: {e}")
 
     def _on_dictation_audio_segment(self, segment_bytes: bytes):
         """Handle dictation mode audio segments - optimized for accuracy"""
@@ -107,21 +117,14 @@ class SimpleAudioService:
         except Exception as e:
             logger.error(f"Error handling dictation audio: {e}", exc_info=True)
 
-    def _on_command_streaming_chunk(self, audio_bytes: bytes, is_final: bool) -> str:
-        """Handle streaming command recognition for early termination"""
+    def _on_audio_detected(self):
+        """Handle audio detection callback from command recorder"""
         try:
-            # Direct STT processing for ultra-low latency - bypass event bus
-            # This is a fast path for instant command recognition
-            if hasattr(self, '_streaming_stt_engine'):
-                recognized_text = self._streaming_stt_engine.recognize_streaming(audio_bytes, is_final)
-                if recognized_text:
-                    logger.debug(f"Streaming recognition: '{recognized_text}'")
-                    return recognized_text
-            return ""
+            event = AudioDetectedEvent(timestamp=time.time())
+            self._publish_audio_event(event)
         except Exception as e:
-            logger.error(f"Error in streaming chunk processing: {e}")
-            return ""
-    
+            logger.error(f"Error handling audio detected: {e}")
+
     def _publish_audio_event(self, event_data: BaseEvent):
         """Unified event publication method"""
         if self._main_event_loop and not self._main_event_loop.is_closed():
@@ -210,8 +213,6 @@ class SimpleAudioService:
         except Exception as e:
             logger.error(f"Error stopping audio processing: {e}", exc_info=True)
 
-            # Legacy sound manager callback method removed - no longer needed with StreamlinedSoundService
-
     def get_status(self) -> dict:
         """Get current audio service status"""
         return {
@@ -230,11 +231,6 @@ class SimpleAudioService:
             logger.info("Audio service shutdown complete")
         except Exception as e:
             logger.error(f"Error during audio service shutdown: {e}", exc_info=True)
-
-    def set_streaming_stt_engine(self, stt_engine):
-        """Set the STT engine for streaming recognition (called by STT service)"""
-        self._streaming_stt_engine = stt_engine
-        logger.info("Streaming STT engine configured for direct processing")
 
     def setup_subscriptions(self):
         self.init_listeners()

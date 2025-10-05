@@ -77,54 +77,6 @@ class EnhancedVoskSTT:
                 logger.error(f"Recognition error: {e}")
                 return ""
     
-    def recognize_streaming(self, audio_bytes: bytes, is_final: bool = False) -> Optional[str]:
-        """
-        Streaming recognition for real-time partial results
-        
-        Args:
-            audio_bytes: Raw audio bytes to process
-            is_final: Whether this is the final audio chunk
-            
-        Returns:
-            Partial or final recognized text
-        """
-        if not audio_bytes:
-            return None
-        
-        with self._recognizer_lock:
-            try:
-                if self._recognizer.AcceptWaveform(audio_bytes):
-                    # Final result available
-                    result = json.loads(self._recognizer.Result())
-                    recognized_text = result.get("text", "")
-                else:
-                    # Partial result
-                    partial_result = json.loads(self._recognizer.PartialResult())
-                    recognized_text = partial_result.get("partial", "")
-                
-                if recognized_text:
-                    normalized_text = recognized_text.lower().strip()
-                    if not self._is_nonsense(normalized_text):
-                        return normalized_text
-                
-                return None
-                
-            except Exception as e:
-                logger.error(f"Streaming recognition error: {e}")
-                return None
-    
-    def _is_nonsense(self, text: str) -> bool:
-        """Check if text appears to be nonsense"""
-        if not text or len(text.strip()) < 2:
-            return True
-        
-        # Check for repetitive patterns
-        words = text.split()
-        if len(words) > 1 and len(set(words)) == 1:
-            return True
-        
-        return False
-    
     async def shutdown(self) -> None:
         """Shutdown Vosk STT and cleanup resources"""
         try:

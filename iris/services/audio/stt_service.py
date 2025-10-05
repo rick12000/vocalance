@@ -20,6 +20,8 @@ from iris.services.audio.stt_utils import DuplicateTextFilter
 from iris.events.stt_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent, STTProcessingStartedEvent, STTProcessingCompletedEvent
 from iris.events.dictation_events import DictationModeDisableOthersEvent
 from iris.events.core_events import ProcessAudioChunkForSoundRecognitionEvent, CommandAudioSegmentReadyEvent, DictationAudioSegmentReadyEvent
+from iris.events.command_management_events import CommandMappingsUpdatedEvent
+from iris.events.markov_events import MarkovPredictionEvent
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +30,7 @@ class STTMode(Enum):
     COMMAND = "command"
     DICTATION = "dictation"
 
-class StreamlinedSpeechToTextService:
-    """Streamlined STT service with mode-aware processing"""
-    
+class SpeechToTextService:
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
         self.event_bus = event_bus
         self.config = config
@@ -50,12 +50,16 @@ class StreamlinedSpeechToTextService:
         self._duplicate_filter = DuplicateTextFilter(cache_size=5, duplicate_threshold_ms=1000)
         
         # Smart timeout management
-        self._smart_timeout_manager = None
+        from iris.services.audio.smart_timeout_manager import SmartTimeoutManager
+        self._smart_timeout_manager = SmartTimeoutManager(config)
         
         # Amber trigger words
         self._amber_words = {"amber", "stop", "end"}
         
-        logger.info(f"StreamlinedSpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
+        # Markov bypass flag - prevents STT processing when Markov has already handled the audio
+        self._markov_handled_audio = set()
+        
+        logger.info(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
 
     def initialize_engines(self):
         """Initialize STT engines at startup"""
@@ -94,6 +98,8 @@ class StreamlinedSpeechToTextService:
         self.event_bus.subscribe(CommandAudioSegmentReadyEvent, self._handle_command_audio_segment)
         self.event_bus.subscribe(DictationAudioSegmentReadyEvent, self._handle_dictation_audio_segment)
         self.event_bus.subscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)
+        self.event_bus.subscribe(CommandMappingsUpdatedEvent, self._handle_command_mappings_updated)
+        self.event_bus.subscribe(MarkovPredictionEvent, self._handle_markov_prediction)
         
         logger.info("STT service event subscriptions configured")
 
@@ -136,6 +142,13 @@ class StreamlinedSpeechToTextService:
     async def _handle_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent):
         """Process command audio"""
         try:
+            # Check if Markov has already handled this audio
+            audio_id = id(event_data.audio_bytes)
+            if audio_id in self._markov_handled_audio:
+                logger.debug("Skipping STT - Markov already handled this audio")
+                self._markov_handled_audio.discard(audio_id)
+                return
+            
             if not self._engines_initialized:
                 logger.error("STT engines not initialized")
                 return
@@ -244,6 +257,41 @@ class StreamlinedSpeechToTextService:
                 logger.info("STT service now in DICTATION mode - command audio will only check for amber triggers")
             else:
                 logger.info("STT service now in COMMAND mode - normal command processing enabled")
+    
+    async def _handle_command_mappings_updated(self, event_data: CommandMappingsUpdatedEvent):
+        """Handle command mappings updates to refresh smart timeout manager"""
+        try:
+            if event_data.updated_mappings and self._smart_timeout_manager:
+                # Convert mappings to simple dict for smart timeout manager
+                command_map = {phrase: None for phrase in event_data.updated_mappings.keys()}
+                self._smart_timeout_manager.update_command_action_map(command_map)
+                logger.info(f"Updated smart timeout manager with {len(command_map)} command mappings")
+        except Exception as e:
+            logger.error(f"Error handling command mappings update: {e}")
+    
+    async def _handle_markov_prediction(self, event_data: MarkovPredictionEvent):
+        """Handle high-confidence Markov prediction and bypass STT"""
+        try:
+            logger.info(
+                f"Markov prediction bypassing STT: '{event_data.predicted_command}' "
+                f"(confidence={event_data.confidence:.2%})"
+            )
+            
+            # Mark the audio as handled by Markov to prevent STT from processing it
+            if hasattr(event_data, 'audio_id'):
+                self._markov_handled_audio.add(event_data.audio_id)
+            
+            processing_time = 0.0
+            
+            await self._publish_recognition_result(
+                text=event_data.predicted_command,
+                processing_time=processing_time,
+                engine="markov",
+                mode=STTMode.COMMAND
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling Markov prediction: {e}", exc_info=True)
 
     def get_status(self) -> Dict[str, Any]:
         """Get current STT service status"""
@@ -255,14 +303,11 @@ class StreamlinedSpeechToTextService:
             "last_recognized_text": self._last_recognized_text[:50] + "..." if len(self._last_recognized_text) > 50 else self._last_recognized_text
         }
     
-    def connect_to_audio_service(self, audio_service):
-        """Connect to audio service for streaming recognition"""
-        try:
-            if self.vosk_engine and hasattr(audio_service, 'set_streaming_stt_engine'):
-                audio_service.set_streaming_stt_engine(self.vosk_engine)
-                logger.info("Connected STT service to audio service for streaming")
-        except Exception as e:
-            logger.error(f"Failed to connect to audio service: {e}")
+    def update_command_action_map(self, command_action_map):
+        """Update the command action map in smart timeout manager"""
+        if self._smart_timeout_manager:
+            self._smart_timeout_manager.update_command_action_map(command_action_map)
+            logger.info(f"Updated smart timeout manager with {len(command_action_map)} commands")
 
     async def shutdown(self):
         """Shutdown STT service"""

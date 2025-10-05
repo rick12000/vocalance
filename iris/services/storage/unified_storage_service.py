@@ -32,6 +32,7 @@ class StorageType(Enum):
     MARKS = "marks"
     AGENTIC_PROMPTS = "agentic_prompts"
     SOUND_MAPPINGS = "sound_mappings"
+    COMMAND_HISTORY = "command_history"
 
 
 @dataclass
@@ -88,7 +89,8 @@ class UnifiedStorageService:
             StorageType.GRID_CLICKS: os.path.join(storage.click_tracker_dir, "click_history.json"),
             StorageType.MARKS: os.path.join(storage.marks_dir, "marks.json"),
             StorageType.AGENTIC_PROMPTS: os.path.join(storage.user_data_root, "dictation", "agentic_prompts.json"),
-            StorageType.SOUND_MAPPINGS: os.path.join(storage.sound_model_dir, "sound_mappings.json")
+            StorageType.SOUND_MAPPINGS: os.path.join(storage.sound_model_dir, "sound_mappings.json"),
+            StorageType.COMMAND_HISTORY: os.path.join(storage.command_history_dir, "command_history.json")
         }
     
     def _ensure_directories(self) -> None:
@@ -278,4 +280,12 @@ async def read_grid_clicks(storage: UnifiedStorageService, default: Any = None) 
 
 async def write_grid_clicks(storage: UnifiedStorageService, value: Any) -> bool:
     """Write grid clicks"""
-    return await storage.write(StorageKey(StorageType.GRID_CLICKS, "clicks"), value) 
+    return await storage.write(StorageKey(StorageType.GRID_CLICKS, "clicks"), value)
+
+async def read_command_history(storage: UnifiedStorageService, default: Any = None) -> Any:
+    """Read command history"""
+    return await storage.read(StorageKey(StorageType.COMMAND_HISTORY, "history"), default)
+
+async def write_command_history(storage: UnifiedStorageService, value: Any) -> bool:
+    """Write command history"""
+    return await storage.write(StorageKey(StorageType.COMMAND_HISTORY, "history"), value) 

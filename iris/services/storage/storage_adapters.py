@@ -13,7 +13,7 @@ from iris.services.storage.unified_storage_service import (
     UnifiedStorageService, StorageType, StorageKey,
     read_settings, write_settings, read_commands, write_commands,
     read_agentic_prompts, write_agentic_prompts, read_sound_mappings, write_sound_mappings,
-    read_marks, write_marks, read_grid_clicks, write_grid_clicks
+    read_marks, write_marks, read_grid_clicks, write_grid_clicks, read_command_history, write_command_history
 )
 
 logger = logging.getLogger(__name__)
@@ -677,6 +677,61 @@ class GridClickStorageAdapter:
             return []
 
 
+class CommandHistoryStorageAdapter:
+    """Adapter for command history storage"""
+    
+    def __init__(self, unified_storage: UnifiedStorageService):
+        self._storage = unified_storage
+    
+    async def load_history(self) -> List[Dict[str, Any]]:
+        """Load command history"""
+        try:
+            history = await read_command_history(self._storage, [])
+            logger.debug(f"Loaded {len(history)} command history entries")
+            return history
+        except Exception as e:
+            logger.error(f"Failed to load command history: {e}")
+            return []
+    
+    async def save_history(self, history_data: List[Dict[str, Any]]) -> bool:
+        """Save command history"""
+        try:
+            success = await write_command_history(self._storage, history_data)
+            if success:
+                logger.debug(f"Saved {len(history_data)} command history entries")
+            return success
+        except Exception as e:
+            logger.error(f"Failed to save command history: {e}")
+            return False
+    
+    async def append_command(self, command_data: Dict[str, Any]) -> bool:
+        """Append a new command to the history"""
+        try:
+            history = await self.load_history()
+            history.append(command_data)
+            return await self.save_history(history)
+        except Exception as e:
+            logger.error(f"Failed to append command: {e}")
+            return False
+    
+    async def get_recent_commands(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """Get recent commands with limit"""
+        try:
+            history = await self.load_history()
+            return history[-limit:] if len(history) > limit else history
+        except Exception as e:
+            logger.error(f"Failed to get recent commands: {e}")
+            return []
+    
+    async def clear_history(self) -> bool:
+        """Clear all command history"""
+        try:
+            return await self.save_history([])
+        except Exception as e:
+            logger.error(f"Failed to clear history: {e}")
+            return False
+
+
 class SoundRecognizerStorageAdapter:
     """Adapter wrapper for sound recognizer compatibility"""
     
@@ -777,3 +832,9 @@ class StorageAdapterFactory:
         if 'sound_recognizer' not in self._adapters:
             self._adapters['sound_recognizer'] = SoundRecognizerStorageAdapter(self._unified_storage)
         return self._adapters['sound_recognizer']
+    
+    def get_command_history_adapter(self) -> CommandHistoryStorageAdapter:
+        """Get command history adapter"""
+        if 'command_history' not in self._adapters:
+            self._adapters['command_history'] = CommandHistoryStorageAdapter(self._unified_storage)
+        return self._adapters['command_history']

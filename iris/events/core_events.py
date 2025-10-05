@@ -29,6 +29,11 @@ class DictationAudioSegmentReadyEvent(BaseEvent):
     sample_rate: int
     priority: EventPriority = EventPriority.HIGH
 
+class AudioDetectedEvent(BaseEvent):
+    """Published immediately when audio above threshold is first detected"""
+    timestamp: float = Field(description="Timestamp when audio was detected")
+    priority: EventPriority = EventPriority.CRITICAL
+
 class AudioSampleForTrainingReadyEvent(BaseEvent):
     audio_bytes: bytes
     sample_rate: int

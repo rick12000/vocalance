@@ -13,16 +13,6 @@ from iris.services.audio.sound_recognizer.streamlined_sound_recognizer import Au
 class TestAudioPreprocessorDetailed:
     """Detailed tests for AudioPreprocessor functionality."""
     
-    @pytest.fixture
-    def preprocessor(self):
-        """Create a standard AudioPreprocessor instance."""
-        return AudioPreprocessor(
-            target_sr=16000,
-            silence_threshold=0.005,
-            min_sound_duration=0.1,
-            max_sound_duration=2.0
-        )
-    
     def test_mono_audio_unchanged(self, preprocessor, sample_rate):
         """Test that mono audio passes through correctly."""
         # Create mono test audio

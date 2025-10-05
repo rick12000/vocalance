@@ -19,6 +19,7 @@ class AudioConfig(BaseModel):
     device: int | None = Field(None, description="Input device index for sounddevice. None means default device.")
     enable_dual_mode_processing: bool = Field(default=True, description="Enable separate processing paths for commands vs dictation.")
     command_chunk_size: int = Field(default=960, description="Ultra-optimized chunk size for maximum short-word performance - 60ms at 16kHz.")
+    enable_partial: bool = Field(default=True, description="Enable partial recognition fast-tracking for unambiguous command prefixes.")
 
 
 
@@ -98,60 +99,75 @@ class LLMConfig(BaseModel):
         return model_info["filename"]
 
 class VADConfig(BaseModel):
-    # Base VAD settings (ultra-optimized for maximum performance)
-    energy_threshold: float = Field(default=0.006, description="Ultra-optimized base energy threshold for maximum responsiveness.")
-    silence_timeout: float = Field(default=0.6, description="Reduced base silence timeout for faster response.")
-    max_recording_duration: float = Field(default=4.0, description="Reduced maximum recording duration for faster processing.")
-    pre_roll_buffers: int = Field(default=2, description="Reduced pre-roll buffers for lower latency.")
-    
-    # Progressive silence detection
-    progressive_silence: bool = Field(default=True, description="Enable progressive silence timeout based on speech duration.")
-    min_silence_for_end: float = Field(default=0.25, description="Ultra-fast minimum silence duration to end recording.")
+    # Base VAD settings
+    energy_threshold: float = Field(default=0.006, description="Base energy threshold for speech detection.")
+    max_recording_duration: float = Field(default=4.0, description="Maximum recording duration in seconds.")
+    pre_roll_buffers: int = Field(default=2, description="Number of audio chunks to buffer before speech detection.")
     
     # Energy-based detection
-    continuation_energy_threshold: float = Field(default=0.002, description="Ultra-sensitive threshold for detecting speech continuation.")
+    continuation_energy_threshold: float = Field(default=0.002, description="Threshold for detecting speech continuation.")
     noise_floor_estimation: bool = Field(default=True, description="Enable automatic noise floor estimation.")
     
-    # Command mode specific settings (ultra-optimized but prevents speech truncation)
-    command_energy_threshold: float = Field(default=0.002, description="Ultra-sensitive threshold optimized for capturing speech onset including initial consonants.")
-    command_silence_timeout: float = Field(default=0.35, description="Ultra-fast timeout for single words with adaptive extension.")
-    command_max_recording_duration: float = Field(default=3, description="Optimized duration allowing multi-word commands without excessive delay.")
-    command_pre_roll_buffers: int = Field(default=4, description="Sufficient pre-roll buffers to capture speech onset (240ms at 60ms chunks).")
+    # Command mode specific settings
+    command_energy_threshold: float = Field(default=0.002, description="Energy threshold for command mode speech detection.")
+    command_silent_chunks_for_end: int = Field(default=3, description="Number of consecutive silent chunks to end recording in command mode (3 chunks = 180ms at 60ms/chunk).")
+    command_max_recording_duration: float = Field(default=3, description="Maximum recording duration for command mode.")
+    command_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for command mode (240ms at 60ms chunks).")
     
-    # Enhanced dictation mode settings (balanced for accuracy and speed)
-    dictation_energy_threshold: float = Field(default=0.0035, description="Slightly higher threshold for dictation to reduce noise while maintaining sensitivity.")
-    dictation_silence_timeout: float = Field(default=0.5, description="Reduced from 4.0s for faster dictation processing.")
-    dictation_max_recording_duration: float = Field(default=8.0, description="Reduced from 20s for faster processing.")
-    dictation_pre_roll_buffers: int = Field(default=2, description="Further reduced pre-roll buffers for minimal latency.")
-    dictation_progressive_silence: bool = Field(default=True, description="Enable progressive silence detection to handle natural speech patterns.")
-    dictation_inter_sentence_pause_threshold: float = Field(default=0.35, description="Reduced pause threshold for faster continuous speech processing.")
-    dictation_continuation_energy_threshold: float = Field(default=0.001, description="Ultra-low threshold for detecting speech continuation during fast speech.")
+    # Dictation mode specific settings
+    dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
+    dictation_silent_chunks_for_end: int = Field(default=25, description="Number of consecutive silent chunks to end recording in dictation mode (25 chunks = 500ms at 20ms/chunk).")
+    dictation_max_recording_duration: float = Field(default=8.0, description="Maximum recording duration for dictation mode.")
+    dictation_pre_roll_buffers: int = Field(default=2, description="Pre-roll buffers for dictation mode.")
     
-    # Additional settings for fast speech handling
-    dictation_fast_speech_energy_threshold: float = Field(default=0.0015, description="Further optimized energy threshold for detecting fast/quiet speech.")
-    dictation_adaptive_timeout_enabled: bool = Field(default=True, description="Enable adaptive timeout based on speech patterns.")
-    dictation_min_silence_for_segment_end: float = Field(default=0.5, description="Reduced from 1.2s for faster segment processing.")
-    
-    # Quality-focused settings for better transcription
-    dictation_chunk_overlap_duration: float = Field(default=0.25, description="Reduced overlap duration for faster processing.")
-    dictation_minimum_segment_quality_duration: float = Field(default=0.6, description="Reduced from 0.8s for faster processing.")
-    dictation_enable_noise_gate: bool = Field(default=True, description="Enable noise gate to filter out background noise.")
-    dictation_noise_gate_threshold: float = Field(default=0.0008, description="Reduced noise gate threshold for better sensitivity.")
-    
-    # Advanced speech detection
-    dictation_speech_start_confirmation_frames: int = Field(default=2, description="Reduced frames for faster speech start detection.")
-    dictation_speech_end_confirmation_frames: int = Field(default=3, description="Reduced frames for faster speech end detection.")
-    dictation_enable_speech_enhancement: bool = Field(default=True, description="Enable speech enhancement preprocessing.")
-    
-    # Segment quality control
-    dictation_min_energy_for_quality_segment: float = Field(default=0.4, description="Reduced minimum RMS energy for faster processing.")
-    dictation_reject_low_quality_segments: bool = Field(default=True, description="Reject segments that don't meet quality thresholds.")
-    
-    # Training mode specific settings (optimized for collecting sound samples)
+    # Training mode specific settings
     training_energy_threshold: float = Field(default=0.003, description="Energy threshold for training sample collection.")
-    training_silence_timeout: float = Field(default=0.8, description="Silence timeout for training sample collection.")
+    training_silent_chunks_for_end: int = Field(default=40, description="Number of consecutive silent chunks to end training recording (40 chunks = 800ms).")
     training_max_wait_for_sound_duration: float = Field(default=10.0, description="Maximum time to wait for sound during training.")
     training_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for training sample collection.")
+
+class MarkovPredictorConfig(BaseModel):
+    """Configuration for Markov chain command predictor with backoff"""
+    
+    enabled: bool = Field(
+        default=False,
+        description="Enable Markov chain command prediction"
+    )
+    
+    confidence_threshold: float = Field(
+        default=0.95,
+        description="Minimum probability threshold for prediction (0.0-1.0)"
+    )
+    
+    training_window_commands: Dict[int, int] = Field(
+        default_factory=lambda: {2: 500, 3: 1000, 4: 1500},
+        description="Number of recent commands to train on per order {order: count}"
+    )
+    
+    training_window_days: Dict[int, int] = Field(
+        default_factory=lambda: {2: 3, 3: 5, 4: 7},
+        description="Number of days of command history to train on per order {order: days}"
+    )
+    
+    max_order: int = Field(
+        default=4,
+        description="Maximum order of Markov chain (backoff from this)"
+    )
+    
+    min_order: int = Field(
+        default=2,
+        description="Minimum order of Markov chain (backoff to this)"
+    )
+    
+    min_command_frequency: Dict[int, int] = Field(
+        default_factory=lambda: {2: 30, 3: 15, 4: 10},
+        description="Minimum transition frequency per order {order: min_count}"
+    )
+    
+    incorrect_prediction_cooldown: int = Field(
+        default=2,
+        description="Number of commands to skip Markov after incorrect prediction"
+    )
 
 class AppInfoConfig(BaseModel):
     default_app_name_for_data_dir: str = "iris_voice_assistant"
@@ -173,8 +189,10 @@ class StorageConfig(BaseModel):
     settings_subdir: str = "settings"
     llm_models_subdir: str = "llm_models"
     external_non_target_sounds_subdir: str = "external_non_target_sounds"
+    command_history_subdir: str = "command_history"
     marks_filename: str = "marks.json"
     click_history_filename: str = "click_history.json"
+    command_history_filename: str = "command_history.json"
     sound_model_dir: Optional[str] = None  # Directory to store sound models, set at runtime
     sound_samples_dir: Optional[str] = None  # Directory to store sound samples, set at runtime
     external_non_target_sounds_dir: Optional[str] = None  # Directory for external non-target sound samples, set at runtime
@@ -183,6 +201,7 @@ class StorageConfig(BaseModel):
     marks_dir: Optional[str] = None  # New: directory for marks
     llm_models_dir: Optional[str] = None  # Directory for LLM models, set at runtime
     click_tracker_dir: Optional[str] = None  # New: directory for click tracker
+    command_history_dir: Optional[str] = None  # Directory for command history
 
 
 
@@ -202,6 +221,7 @@ class GlobalAppConfig(BaseModel):
     audio: AudioConfig = Field(default_factory=AudioConfig)
     dictation: DictationConfig = Field(default_factory=DictationConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    markov_predictor: MarkovPredictorConfig = Field(default_factory=MarkovPredictorConfig)
     scroll_amount_vertical: int = Field(default=120, description="The amount to scroll vertically for 'sky' and 'earth' commands.")
     automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
 
@@ -220,8 +240,9 @@ class GlobalAppConfig(BaseModel):
         marks_dir = os.path.join(user_data_root, storage.marks_subdir)
         click_tracker_dir = os.path.join(user_data_root, storage.click_tracker_subdir)
         llm_models_dir = os.path.join(user_data_root, storage.llm_models_subdir)
+        command_history_dir = os.path.join(user_data_root, storage.command_history_subdir)
         # Ensure directories exist
-        for d in [sound_model_dir, sound_samples_dir, external_non_target_sounds_dir, settings_dir, marks_dir, click_tracker_dir, llm_models_dir]:
+        for d in [sound_model_dir, sound_samples_dir, external_non_target_sounds_dir, settings_dir, marks_dir, click_tracker_dir, llm_models_dir, command_history_dir]:
             os.makedirs(d, exist_ok=True)
         storage.sound_model_dir = sound_model_dir
         storage.sound_samples_dir = sound_samples_dir
@@ -231,6 +252,7 @@ class GlobalAppConfig(BaseModel):
         storage.marks_dir = marks_dir
         storage.click_tracker_dir = click_tracker_dir
         storage.llm_models_dir = llm_models_dir
+        storage.command_history_dir = command_history_dir
 
 # --- Config Loader ---
 

@@ -14,32 +14,7 @@ from iris.events.core_events import ProcessAudioChunkForSoundRecognitionEvent, C
 
 class TestStreamlinedSoundService:
     """Test the StreamlinedSoundService class."""
-    
-    @pytest.fixture
-    def mock_event_bus(self):
-        """Create a mock event bus."""
-        event_bus = Mock()
-        event_bus.subscribe = Mock()
-        event_bus.publish = AsyncMock()
-        return event_bus
-    
-    @pytest.fixture
-    def mock_recognizer(self):
-        """Create a mock recognizer."""
-        recognizer = Mock()
-        recognizer.initialize = AsyncMock(return_value=True)
-        recognizer.recognize_sound = Mock(return_value=None)
-        recognizer.train_sound = AsyncMock(return_value=True)
-        recognizer.set_mapping = Mock()
-        recognizer.get_mapping = Mock(return_value=None)
-        recognizer.get_stats = Mock(return_value={
-            'service_initialized': False,
-            'training_active': False,
-            'current_training_label': None,
-            'training_samples_collected': 0
-        })
-        return recognizer
-    
+
     @pytest.fixture
     def service(self, mock_event_bus, mock_config, mock_storage_factory, mock_recognizer):
         """Create a service instance with mocked dependencies."""
@@ -51,20 +26,23 @@ class TestStreamlinedSoundService:
         """Test service initialization."""
         with patch('iris.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer') as mock_recognizer_class:
             service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
-            
+
             assert service.event_bus == mock_event_bus
             assert service.config == mock_config
             assert service.is_initialized is False
             assert service._training_active is False
             assert service._current_training_label is None
             assert service._training_samples == []
-            
-            # Should subscribe to audio chunk events
-            mock_event_bus.subscribe.assert_called_once_with(
-                ProcessAudioChunkForSoundRecognitionEvent, 
+
+            # Should subscribe to 7 events total
+            assert mock_event_bus.subscribe.call_count == 7
+
+            # Check that it subscribes to the main audio chunk event
+            mock_event_bus.subscribe.assert_any_call(
+                ProcessAudioChunkForSoundRecognitionEvent,
                 service._handle_audio_chunk
             )
-            
+
             # Should create recognizer
             mock_recognizer_class.assert_called_once_with(mock_config, mock_storage_factory)
     
@@ -201,19 +179,20 @@ class TestStreamlinedSoundService:
         service._training_active = True
         service._current_training_label = 'test_sound'
         service._training_samples = []
-        
+        service._target_samples = 5  # Set target to prevent auto-finish
+
         event_data = Mock()
         event_data.audio_chunk = np.array([1000, -2000], dtype=np.int16).tobytes()
         event_data.sample_rate = 16000
-        
+
         await service._handle_audio_chunk(event_data)
-        
+
         # Should collect training sample
         assert len(service._training_samples) == 1
         audio, sr = service._training_samples[0]
         assert isinstance(audio, np.ndarray)
         assert sr == 16000
-        
+
         # Should not call recognizer in training mode
         mock_recognizer.recognize_sound.assert_not_called()
     
@@ -254,20 +233,30 @@ class TestStreamlinedSoundService:
     @pytest.mark.asyncio
     async def test_finish_training_success(self, service, mock_recognizer):
         """Test finishing training successfully."""
+        # Create fixed test data to avoid numpy array comparison issues
+        test_audio = np.ones(1000)
+        test_samples = [(test_audio, 16000)]
+
         service._training_active = True
         service._current_training_label = 'test_sound'
-        service._training_samples = [(np.random.randn(1000), 16000)]
-        
+        service._training_samples = test_samples
+
         mock_recognizer.train_sound.return_value = True
-        
+
         result = await service.finish_training()
-        
+
         assert result is True
         assert service._training_active is False
         assert service._current_training_label is None
         assert service._training_samples == []
-        
-        mock_recognizer.train_sound.assert_called_once_with('test_sound', [(np.random.randn(1000), 16000)])
+
+        # Check that train_sound was called with correct arguments
+        mock_recognizer.train_sound.assert_called_once()
+        args, kwargs = mock_recognizer.train_sound.call_args
+        assert args[0] == 'test_sound'
+        assert len(args[1]) == 1
+        assert args[1][0][1] == 16000  # sample rate
+        np.testing.assert_array_equal(args[1][0][0], test_audio)  # audio data
     
     @pytest.mark.asyncio
     async def test_finish_training_no_active_session(self, service, mock_recognizer):
@@ -404,25 +393,24 @@ class TestStreamlinedSoundService:
         service._training_active = True
         service._current_training_label = 'test_sound'
         service._training_samples = []
-        
-        # Mock config to require only 2 samples
-        mock_config.sound_recognizer.default_samples_per_sound = 2
+        service._target_samples = 2  # Set target samples directly
+
         mock_recognizer.train_sound.return_value = True
-        
+
         # Create event data
         event_data = Mock()
         event_data.audio_chunk = np.array([1000, -2000], dtype=np.int16).tobytes()
         event_data.sample_rate = 16000
-        
+
         # Collect first sample
         await service._handle_audio_chunk(event_data)
         assert len(service._training_samples) == 1
         assert service._training_active is True
-        
+
         # Collect second sample (should auto-finish)
         await service._handle_audio_chunk(event_data)
         assert len(service._training_samples) == 0  # Should be reset after training
         assert service._training_active is False  # Should be finished
-        
+
         # Should have called train_sound
         mock_recognizer.train_sound.assert_called_once()

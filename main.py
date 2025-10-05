@@ -199,8 +199,8 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_sub_step("Initializing speech-to-text...")
                 await asyncio.sleep(0.1)
-            from iris.services.audio.stt_service import StreamlinedSpeechToTextService
-            self.services['stt'] = StreamlinedSpeechToTextService(self.event_bus, self.config)
+            from iris.services.audio.stt_service import SpeechToTextService
+            self.services['stt'] = SpeechToTextService(self.event_bus, self.config)
             self.services['stt'].initialize_engines()
             self.services['stt'].setup_subscriptions()
         
@@ -233,7 +233,19 @@ class FastServiceInitializer:
             elif llm_mode == 'background':
                 asyncio.create_task(self._background_llm_init())
         
-        tasks.extend([init_audio(), init_sound(), init_stt(), init_command_parser(), init_dictation()])
+        async def init_markov_predictor():
+            if progress_tracker:
+                progress_tracker.update_sub_step("Initializing command predictor...")
+                await asyncio.sleep(0.05)
+            from iris.services.markov_command_predictor import MarkovCommandPredictor
+            history_adapter = self.services['storage_adapters'].get_command_history_adapter()
+            self.services['markov_predictor'] = MarkovCommandPredictor(
+                self.event_bus, self.config, history_adapter
+            )
+            self.services['markov_predictor'].setup_subscriptions()
+            await self.services['markov_predictor'].initialize()
+        
+        tasks.extend([init_audio(), init_sound(), init_stt(), init_command_parser(), init_dictation(), init_markov_predictor()])
         await asyncio.gather(*tasks)
     
     async def _background_llm_init(self):
@@ -465,7 +477,7 @@ async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_e
             await asyncio.sleep(0.3)
         
         # Shutdown services with shutdown methods in proper order
-        shutdown_order = ['sound_service', 'centralized_parser', 'automation', 'command_storage', 'stt', 'dictation']
+        shutdown_order = ['sound_service', 'centralized_parser', 'automation', 'command_storage', 'stt', 'dictation', 'markov_predictor']
         for service_name in shutdown_order:
             if service_name in services and hasattr(services[service_name], 'shutdown'):
                 try:

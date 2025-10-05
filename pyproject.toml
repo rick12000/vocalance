@@ -67,3 +67,23 @@ docs = [
 
 [tool.setuptools]
 packages = {find = {exclude = ["tests*", "examples*", "docs*", "build*", "cache*", "dist*", "*.egg-info*", "assets*"]}}
+
+[tool.pytest.ini_options]
+markers = [
+    "memory: Memory leak detection tests",
+    "slow: Slow tests (models, heavy operations)",
+    "stress: Stress tests under high load",
+    "integration: Integration tests",
+    "unit: Unit tests"
+]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--disable-warnings"
+]
