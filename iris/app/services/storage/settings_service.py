@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.event_bus import EventBus
 from iris.app.events.settings_events import SettingsResponseEvent
-from iris.app.services.storage.storage_adapters import SettingsStorageAdapter, StorageAdapterFactory
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_settings, write_settings
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +43,10 @@ class SettingsService:
         'audio.device'
     }
     
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage_factory: StorageAdapterFactory):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: UnifiedStorageService):
         self._event_bus = event_bus
         self._config = config
-        self._storage_adapter = storage_factory.get_settings_adapter()
+        self._storage = storage
         
         # Cache for performance
         self._user_overrides: Dict[str, Any] = {}
@@ -75,7 +75,7 @@ class SettingsService:
     async def _load_user_overrides(self) -> None:
         """Load user setting overrides from storage"""
         try:
-            self._user_overrides = await self._storage_adapter.load_user_settings()
+            self._user_overrides = await read_settings(self._storage, "user_settings", {})
             logger.debug(f"Loaded {len(self._user_overrides)} user setting categories")
         except Exception as e:
             logger.error(f"Failed to load user overrides: {e}")
@@ -173,7 +173,7 @@ class SettingsService:
                 self._user_overrides[category][key] = value
             
             # Save to storage
-            success = await self._storage_adapter.save_user_settings(self._user_overrides)
+            success = await write_settings(self._storage, "user_settings", self._user_overrides)
             
             if success:
                 # Rebuild effective settings
@@ -206,7 +206,7 @@ class SettingsService:
                     del self._user_overrides[category]
             
             # Save to storage
-            success = await self._storage_adapter.save_user_settings(self._user_overrides)
+            success = await write_settings(self._storage, "user_settings", self._user_overrides)
             
             if success:
                 # Rebuild effective settings
@@ -293,11 +293,4 @@ class SettingsService:
             event = SettingsResponseEvent(settings=settings)
             await self._event_bus.publish(event)
         except Exception as e:
-            logger.error(f"Failed to publish settings response: {e}")
-    
-    async def shutdown(self) -> None:
-        """Shutdown service"""
-        try:
-            logger.info("SettingsService shutdown complete")
-        except Exception as e:
-            logger.error(f"Settings shutdown error: {e}") 
+            logger.error(f"Failed to publish settings response: {e}") 

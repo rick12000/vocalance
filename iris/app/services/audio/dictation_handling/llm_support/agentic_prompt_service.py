@@ -13,7 +13,7 @@ from datetime import datetime
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.events.dictation_events import AgenticPromptActionRequest, AgenticPromptUpdatedEvent, AgenticPromptListUpdatedEvent
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, UnifiedStorageServiceExtensions
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +29,10 @@ class AgenticPrompt:
 class AgenticPromptService:
     """Streamlined prompt management service using unified storage"""
     
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage_factory: StorageAdapterFactory):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: UnifiedStorageService):
         self.event_bus = event_bus
         self.config = config
-        self.storage_adapter = storage_factory.get_agentic_prompt_adapter()
+        self._storage = storage
         
         # In-memory storage
         self.prompts: Dict[str, AgenticPrompt] = {}
@@ -198,7 +198,7 @@ class AgenticPromptService:
     async def _load_prompts(self) -> None:
         """Load prompts from unified storage"""
         try:
-            data = await self.storage_adapter.load_prompts()
+            data = await UnifiedStorageServiceExtensions.get_agentic_prompts(self._storage)
             
             # Load prompts
             for prompt_data in data.get('prompts', []):
@@ -221,7 +221,7 @@ class AgenticPromptService:
                 'current_prompt_id': self.current_prompt_id
             }
             
-            await self.storage_adapter.save_prompts(data)
+            await UnifiedStorageServiceExtensions.save_agentic_prompts(self._storage, data)
             
         except Exception as e:
             logger.error(f"Save prompts error: {e}", exc_info=True)

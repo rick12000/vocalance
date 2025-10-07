@@ -24,6 +24,7 @@ import inspect
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.automation_command_registry import AutomationCommandRegistry
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, UnifiedStorageServiceExtensions
 from iris.app.config.command_types import (
     # Base classes
     BaseCommand, ParseResultType, NoMatchResult, ErrorResult,
@@ -39,7 +40,6 @@ from iris.app.config.command_types import (
     DictationCommandType, AutomationCommandType, MarkCommandType, 
     GridCommandType, SoundCommandType, AnyCommand
 )
-from iris.app.events.dictation_events import DictationStatusChangedEvent
 
 # Import events
 from iris.app.events.core_events import (
@@ -79,13 +79,10 @@ class CentralizedCommandParser:
     5. Publishes specific command events for services to consume
     """
     
-    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, command_storage_adapter):
+    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage: UnifiedStorageService):
         self._event_bus = event_bus
         self._app_config = app_config
-        self._command_storage_adapter = command_storage_adapter
-        
-        # Track dictation state via events
-        self._dictation_active = False
+        self._storage = storage
         
         # Sound command mapping
         self._sound_to_command_mapping: Dict[str, str] = {}
@@ -93,7 +90,7 @@ class CentralizedCommandParser:
         # Cache configuration data for performance
         self._cache_config_data()
         
-        # Performance tracking
+        # Duplicate detection
         self._last_text = None
         self._last_text_time = 0.0
         self._duplicate_interval = 1.0
@@ -125,7 +122,6 @@ class CentralizedCommandParser:
             (CommandTextRecognizedEvent, self._handle_command_text_recognized),
             (ProcessCommandPhraseEvent, self._handle_process_command_phrase),
             (CommandMappingsUpdatedEvent, self._handle_command_mappings_updated),
-            (DictationStatusChangedEvent, self._handle_dictation_status_changed),
             (CustomSoundRecognizedEvent, self._handle_custom_sound_recognized),
             (SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated),
             (SoundMappingsResponseEvent, self._handle_sound_mappings_response),
@@ -189,11 +185,6 @@ class CentralizedCommandParser:
         """Handle custom command mappings updates"""
         logger.info("Received command mappings update")
 
-    async def _handle_dictation_status_changed(self, event_data) -> None:
-        """Handle dictation status changes via events"""
-        self._dictation_active = event_data.is_active
-        logger.debug(f"Command parser updated dictation state: active={self._dictation_active}")
-
     async def _process_text_input(self, text: str, source: Optional[str] = None) -> None:
         """Process text input through the parsing pipeline"""
         # Duplicate detection
@@ -206,11 +197,6 @@ class CentralizedCommandParser:
         self._last_text_time = current_time
         
         logger.info(f"Processing text input: '{text}' from source: {source}")
-        
-        # Check if dictation is active and suppress non-stop commands
-        if self._dictation_active and text.lower().strip() != self._dictation_stop_trigger:
-            logger.info(f"Dictation active - suppressing command processing for: '{text}'")
-            return
         
         try:
             # Parse through the hierarchy of parsers
@@ -349,7 +335,7 @@ class CentralizedCommandParser:
             return GridCancelCommand()
         
         # Grid select command (numbers)
-        action_map = await self._command_storage_adapter.get_action_map()
+        action_map = await UnifiedStorageServiceExtensions.get_action_map(self._storage)
         
         # Check if first word or any prefix is a known automation command
         is_automation_prefix = False
@@ -374,8 +360,8 @@ class CentralizedCommandParser:
         if not words:
             return NoMatchResult()
         
-        # Get action map from storage adapter
-        action_map = await self._command_storage_adapter.get_action_map()
+        # Get action map from storage
+        action_map = await UnifiedStorageServiceExtensions.get_action_map(self._storage)
         
         # 1. Try exact match first
         if normalized_text in action_map:
@@ -461,10 +447,4 @@ class CentralizedCommandParser:
             event = event_class(**base_kwargs, command=command)
             await self._event_bus.publish(event)
         else:
-            logger.warning(f"Unknown command type: {command_type}")
-
-    async def shutdown(self) -> None:
-        """Clean up resources during service shutdown"""
-        logger.info("CentralizedCommandParser shutting down")
-        # No specific cleanup needed for this service
-        logger.info("CentralizedCommandParser shutdown complete") 
+            logger.warning(f"Unknown command type: {command_type}") 

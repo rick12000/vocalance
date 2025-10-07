@@ -21,7 +21,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import joblib
 import logging
 
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_sound_mappings, write_sound_mappings
 
 # TensorFlow import - can be mocked for testing
 try:
@@ -110,13 +110,14 @@ class AudioPreprocessor:
 class StreamlinedSoundRecognizer:
     """Streamlined sound recognizer focused on core functionality."""
     
-    def __init__(self, config, storage_factory: StorageAdapterFactory):
+    def __init__(self, config, storage: UnifiedStorageService):
         self.config = config.sound_recognizer
-        self.storage_adapter = storage_factory.create_sound_recognizer_adapter()
+        self._storage = storage
         
-        # Cache storage paths to avoid repeated calls
-        self.model_path = self.storage_adapter.get_model_path()
-        self.external_sounds_path = self.storage_adapter.get_external_sounds_path()
+        # Get storage paths from storage service
+        storage_config = storage.storage_config
+        self.model_path = storage_config.sound_model_dir
+        self.external_sounds_path = storage_config.external_non_target_sounds_dir
         
         # Core components
         self.yamnet_model = None
@@ -189,14 +190,14 @@ class StreamlinedSoundRecognizer:
             else:
                 logger.info("No existing model files found, starting with empty model")
             
-            # Load mappings from storage adapter (unified storage)
+            # Load mappings from storage
             try:
                 import asyncio
                 import concurrent.futures
                 
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self.storage_adapter.load_sound_mappings())
+                    future = executor.submit(asyncio.run, read_sound_mappings(self._storage, {}))
                     mappings = future.result(timeout=10)  # 10-second timeout
                 
                 self.mappings = mappings
@@ -221,14 +222,14 @@ class StreamlinedSoundRecognizer:
             joblib.dump(self.labels, os.path.join(self.model_path, "labels.joblib"))
             joblib.dump(self.scaler, os.path.join(self.model_path, "scaler.joblib"))
             
-            # Save mappings through storage adapter (unified storage)
+            # Save mappings through storage
             try:
                 import asyncio
                 import concurrent.futures
                 
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self.storage_adapter.save_sound_mappings(self.mappings))
+                    future = executor.submit(asyncio.run, write_sound_mappings(self._storage, self.mappings))
                     success = future.result(timeout=10)  # 10-second timeout
                 
                 if success:
@@ -577,14 +578,14 @@ class StreamlinedSoundRecognizer:
                     os.remove(filepath)
                     logger.debug(f"Removed model file: {filepath}")
             
-            # Clear mappings through storage adapter
+            # Clear mappings through storage
             try:
                 import asyncio
                 import concurrent.futures
                 
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self.storage_adapter.save_sound_mappings({}))
+                    future = executor.submit(asyncio.run, write_sound_mappings(self._storage, {}))
                     success = future.result(timeout=10)  # 10-second timeout
                 
                 if success:

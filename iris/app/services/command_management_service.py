@@ -15,7 +15,9 @@ from iris.app.events.command_management_events import (
     RequestCommandMappingsEvent, ResetCommandsToDefaultsEvent,
     CommandMappingsUpdatedEvent, CommandValidationErrorEvent, CommandMappingsResponseEvent
 )
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory, CommandStorageAdapter
+from iris.app.services.storage.unified_storage_service import (
+    UnifiedStorageService, UnifiedStorageServiceExtensions, read_commands, write_commands
+)
 from iris.app.services.protected_terms_service import ProtectedTermsService
 
 logger = logging.getLogger(__name__)
@@ -23,15 +25,14 @@ logger = logging.getLogger(__name__)
 
 class CommandManagementService:
     """
-    Service that handles command management events and delegates to CommandStorageAdapter.
-    Provides the event-driven interface that was previously in CommandStorageService.
+    Service that handles command management events using unified storage.
     """
 
-    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage_factory: StorageAdapterFactory):
+    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage: UnifiedStorageService):
         self._event_bus = event_bus
         self._app_config = app_config
-        self._command_adapter = storage_factory.get_command_adapter()
-        self._protected_terms_service = ProtectedTermsService(app_config, storage_factory)
+        self._storage = storage
+        self._protected_terms_service = ProtectedTermsService(app_config, storage)
         
         logger.info("CommandManagementService initialized")
 
@@ -56,7 +57,7 @@ class CommandManagementService:
             return validation_error
         
         # Check existing commands
-        action_map = await self._command_adapter.get_action_map()
+        action_map = await UnifiedStorageServiceExtensions.get_action_map(self._storage)
         if command_phrase.lower().strip() in action_map and command_phrase != exclude_phrase:
             return f"Command phrase '{command_phrase}' already exists"
         
@@ -66,23 +67,23 @@ class CommandManagementService:
         """Get all command mappings for UI display."""
         try:
             from iris.app.config.automation_command_registry import AutomationCommandRegistry
+            from iris.app.config.command_types import AutomationCommand
             
             mappings = []
             
             # Add custom commands
-            custom_commands = await self._command_adapter.get_custom_commands()
+            custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
             mappings.extend(custom_commands.values())
             
             # Add default commands
             default_commands = AutomationCommandRegistry.get_default_commands()
+            data = await read_commands(self._storage, {})
+            phrase_overrides = data.get('phrase_overrides', {})
             
             for command_data in default_commands:
-                phrase_overrides = await self._command_adapter.get_phrase_overrides()
                 effective_phrase = phrase_overrides.get(command_data.command_key, command_data.command_key)
                 
                 if effective_phrase != command_data.command_key:
-                    # Create a copy with the effective phrase
-                    from iris.app.config.command_types import AutomationCommand
                     command_data = AutomationCommand(
                         command_key=effective_phrase,
                         action_type=command_data.action_type,
@@ -120,7 +121,9 @@ class CommandManagementService:
             command.is_custom = True
             
             # Store the command
-            success = await self._command_adapter.store_custom_command(command_phrase, command)
+            commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
+            commands[command_phrase] = command
+            success = await UnifiedStorageServiceExtensions.save_custom_commands(self._storage, commands)
             
             if success:
                 await self._publish_mappings_updated(True, f"Added custom command: {command_phrase}")
@@ -146,13 +149,17 @@ class CommandManagementService:
                 return
             
             # Check if this is a custom command or default command
-            custom_commands = await self._command_adapter.get_custom_commands()
+            custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
             is_custom_command = old_phrase.lower().strip() in custom_commands
             
             success = False
             if is_custom_command:
-                # Update custom command
-                success = await self._command_adapter.update_command_phrase(old_phrase, new_phrase, new_phrase)
+                # Update custom command - rename key
+                command_data = custom_commands[old_phrase]
+                command_data.command_key = new_phrase
+                del custom_commands[old_phrase]
+                custom_commands[new_phrase] = command_data
+                success = await UnifiedStorageServiceExtensions.save_custom_commands(self._storage, custom_commands)
                 logger.debug(f"Attempted to update custom command '{old_phrase}' -> '{new_phrase}': {success}")
             else:
                 # Update default command using phrase override
@@ -161,7 +168,8 @@ class CommandManagementService:
                 default_phrases = {cmd.command_key for cmd in default_commands}
                 
                 # Check if the old phrase matches a default command or is already an override
-                phrase_overrides = await self._command_adapter.get_phrase_overrides()
+                data = await read_commands(self._storage, {})
+                phrase_overrides = data.get('phrase_overrides', {})
                 original_phrase = None
                 
                 # Find the original default phrase this override refers to
@@ -175,7 +183,9 @@ class CommandManagementService:
                     original_phrase = old_phrase
                 
                 if original_phrase:
-                    success = await self._command_adapter.set_phrase_override(original_phrase, new_phrase)
+                    phrase_overrides[original_phrase] = new_phrase
+                    data['phrase_overrides'] = phrase_overrides
+                    success = await write_commands(self._storage, data)
                     logger.debug(f"Attempted to set phrase override for default command '{original_phrase}': '{old_phrase}' -> '{new_phrase}': {success}")
                 else:
                     logger.error(f"Could not find original command for phrase '{old_phrase}'")
@@ -195,7 +205,12 @@ class CommandManagementService:
 
     async def _handle_delete_custom_command(self, event: DeleteCustomCommandEvent) -> None:
         """Handle delete custom command request."""
-        success = await self._command_adapter.delete_custom_command(event.command_phrase)
+        custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
+        if event.command_phrase in custom_commands:
+            del custom_commands[event.command_phrase]
+            success = await UnifiedStorageServiceExtensions.save_custom_commands(self._storage, custom_commands)
+        else:
+            success = True  # Already deleted
         
         if success:
             await self._event_bus.publish(CommandMappingsUpdatedEvent(success=True, 
@@ -216,7 +231,7 @@ class CommandManagementService:
 
     async def _handle_reset_to_defaults(self, event: ResetCommandsToDefaultsEvent) -> None:
         """Handle reset to defaults request."""
-        success = await self._command_adapter.reset_to_defaults()
+        success = await write_commands(self._storage, {})
         
         if success:
             await self._event_bus.publish(CommandMappingsUpdatedEvent(success=True, message="Reset commands to defaults"))
@@ -242,8 +257,4 @@ class CommandManagementService:
         except Exception as e:
             logger.error(f"Error publishing mappings updated event: {e}")
             # Fallback to basic event without mappings
-            await self._event_bus.publish(CommandMappingsUpdatedEvent(success=success, message=message))
-
-    async def shutdown(self) -> None:
-        """Shutdown service."""
-        logger.info("CommandManagementService shutting down") 
+            await self._event_bus.publish(CommandMappingsUpdatedEvent(success=success, message=message)) 

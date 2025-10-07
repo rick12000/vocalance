@@ -28,7 +28,7 @@ from iris.app.config.command_types import (
     MarkVisualizeCommand, MarkResetCommand, MarkVisualizeCancelCommand,
     BaseCommand
 )
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, UnifiedStorageServiceExtensions
 
 logger = logging.getLogger(__name__)
 
@@ -45,18 +45,14 @@ class MarkService:
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, 
-                 storage_factory: StorageAdapterFactory, reserved_labels: Optional[Set[str]] = None):
+                 storage: UnifiedStorageService, reserved_labels: Optional[Set[str]] = None):
         self._event_bus = event_bus
         self._config = config
-        self._storage_adapter = storage_factory.get_mark_adapter()
+        self._storage = storage
         self._is_viz_active = False
         
         # Reserved labels for validation
         self._reserved_labels = set(label.lower() for label in reserved_labels) if reserved_labels else set()
-        
-        # Performance tracking
-        self._mark_operations = 0
-        self._cache_hits = 0
         
         logger.info(f"MarkServiceV2 initialized with unified storage. Reserved labels: {self._reserved_labels}")
 
@@ -102,16 +98,7 @@ class MarkService:
 
     async def _mark_exists(self, label: str) -> bool:
         """Check if a mark with the given label exists using cached lookup."""
-        start_time = asyncio.get_event_loop().time()
-        
-        mark_names = await self._storage_adapter.get_all_mark_names()
-        
-        # Track performance
-        lookup_time = asyncio.get_event_loop().time() - start_time
-        self._mark_operations += 1
-        if lookup_time < 0.001:  # Sub-millisecond indicates cache hit
-            self._cache_hits += 1
-            
+        mark_names = await UnifiedStorageServiceExtensions.get_all_mark_names(self._storage)
         return label.lower().strip() in mark_names
 
     async def _execute_mark_command(self, command: BaseCommand) -> None:
@@ -236,7 +223,11 @@ class MarkService:
             logger.warning(f"Failed to add mark '{label}' (normalized: '{normalized_label}'): {reason}")
             return False, reason
         
-        success = await self._storage_adapter.set_mark(normalized_label, x, y)
+        # Load current marks, add new one, save
+        marks = await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
+        marks[normalized_label] = (x, y)
+        success = await UnifiedStorageServiceExtensions.write_marks_dict(self._storage, marks)
+        
         if success:
             logger.info(f"Added mark '{normalized_label}' at ({x}, {y})")
             return True, f"Mark '{normalized_label}' created."
@@ -246,15 +237,16 @@ class MarkService:
 
     async def _get_mark_coordinates(self, label: str) -> Optional[Tuple[int, int]]:
         """Get coordinates for a mark using cached unified storage."""
-        return await self._storage_adapter.get_mark_coordinates(label.lower().strip())
+        marks = await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
+        return marks.get(label.lower().strip())
 
     async def _get_all_marks(self) -> Dict[str, Tuple[int, int]]:
         """Get all marks using unified storage."""
-        return await self._storage_adapter.load_marks()
+        return await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
 
     async def _get_all_mark_names(self) -> Set[str]:
         """Get all mark names using unified storage."""
-        return await self._storage_adapter.get_all_mark_names()
+        return await UnifiedStorageServiceExtensions.get_all_mark_names(self._storage)
 
     def _get_reserved_labels(self) -> Set[str]:
         """Get the set of reserved labels."""
@@ -263,19 +255,23 @@ class MarkService:
     async def _remove_mark(self, label: str) -> bool:
         """Remove a mark using unified storage."""
         normalized_label = label.lower().strip()
-        success = await self._storage_adapter.remove_mark(normalized_label)
-        if success:
-            logger.info(f"Removed mark '{normalized_label}'")
+        marks = await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
+        if normalized_label in marks:
+            del marks[normalized_label]
+            success = await UnifiedStorageServiceExtensions.write_marks_dict(self._storage, marks)
+            if success:
+                logger.info(f"Removed mark '{normalized_label}'")
+            return success
         else:
             logger.warning(f"Attempted to remove non-existent mark '{normalized_label}'")
-        return success
+            return True
 
     async def _reset_all_marks(self) -> int:
         """Reset all marks and return count of cleared marks."""
         all_marks = await self._get_all_marks()
         num_cleared = len(all_marks)
         
-        success = await self._storage_adapter.clear_all_marks()
+        success = await UnifiedStorageServiceExtensions.write_marks_dict(self._storage, {})
         if success:
             logger.info(f"All {num_cleared} marks have been reset.")
         else:
@@ -314,17 +310,8 @@ class MarkService:
         logger.debug(f"Mark visualization {'activated' if show else 'deactivated'}")
 
     async def get_mark_coordinates(self, name: str) -> Optional[Tuple[int, int]]:
-        """Public interface to get mark coordinates with performance tracking."""
-        start_time = asyncio.get_event_loop().time()
-        coords = await self._get_mark_coordinates(name)
-        
-        # Track performance for monitoring
-        lookup_time = asyncio.get_event_loop().time() - start_time
-        self._mark_operations += 1
-        if lookup_time < 0.001:  # Sub-millisecond indicates cache hit
-            self._cache_hits += 1
-            
-        return coords
+        """Public interface to get mark coordinates."""
+        return await self._get_mark_coordinates(name)
 
     async def get_all_marks(self) -> Dict[str, Dict[str, Any]]:
         """Get all marks formatted for UI display."""
@@ -332,22 +319,6 @@ class MarkService:
         return {
             name: {"name": name, "x": coords[0], "y": coords[1]} 
             for name, coords in marks.items()
-        }
-
-    def get_cache_hit_rate(self) -> float:
-        """Get current cache hit rate as percentage for performance monitoring."""
-        return (self._cache_hits / self._mark_operations * 100) if self._mark_operations > 0 else 0.0
-
-    def get_performance_stats(self) -> Dict[str, Any]:
-        """Get detailed performance statistics for voice command optimization."""
-        hit_rate = self.get_cache_hit_rate()
-        
-        return {
-            "total_operations": self._mark_operations,
-            "cache_hits": self._cache_hits,
-            "cache_hit_rate": hit_rate,
-            "avg_latency": "<1ms (cached)" if hit_rate > 80 else "1-5ms (mixed)",
-            "optimization_status": "excellent" if hit_rate > 90 else "good" if hit_rate > 70 else "needs_tuning"
         }
 
     async def start_service_tasks(self) -> None:
@@ -359,11 +330,7 @@ class MarkService:
         try:
             # Allow any pending writes to complete
             await asyncio.sleep(0.1)
-            
-            # Log final performance statistics
-            stats = self.get_performance_stats()
-            logger.info(f"MarkServiceV2 cleanup - Performance: {stats['cache_hit_rate']:.1f}% cache hit rate, {stats['total_operations']} operations")
-            
+            logger.info("MarkServiceV2 cleanup complete")
         except Exception as e:
             logger.error(f"Error during MarkServiceV2 cleanup: {e}", exc_info=True)
 

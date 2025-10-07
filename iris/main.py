@@ -22,7 +22,6 @@ from iris.app.services.audio.sound_recognizer.streamlined_sound_service import S
 from iris.app.services.audio.simple_audio_service import SimpleAudioService
 from iris.app.services.centralized_command_parser import CentralizedCommandParser
 from iris.app.services.storage.unified_storage_service import UnifiedStorageService
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory
 from iris.app.services.automation_service import AutomationService
 from iris.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
 
@@ -93,11 +92,6 @@ class FastServiceInitializer:
             self.event_bus, self.config
         )
         
-        # Storage adapters
-        self.services['storage_adapters'] = StorageAdapterFactory(
-            self.services['unified_storage']
-        )
-        
         if progress_tracker:
             progress_tracker.update_sub_step("Loading data services...")
         
@@ -115,7 +109,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Loading user settings...")
                 await asyncio.sleep(0.05)
             self.services['settings'] = SettingsService(
-                self.event_bus, self.config, self.services['storage_adapters']
+                self.event_bus, self.config, self.services['unified_storage']
             )
             self.services['settings'].setup_subscriptions()
             await self.services['settings'].initialize()
@@ -127,11 +121,9 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_sub_step("Setting up command storage...")
                 await asyncio.sleep(0.05)
-            # Command storage adapter for direct access
-            self.services['command_storage'] = self.services['storage_adapters'].get_command_adapter()
             # Command management service for event handling
             self.services['command_management'] = CommandManagementService(
-                self.event_bus, self.config, self.services['storage_adapters']
+                self.event_bus, self.config, self.services['unified_storage']
             )
             self.services['command_management'].setup_subscriptions()
         
@@ -140,7 +132,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Initializing click tracking...")
                 await asyncio.sleep(0.05)
             self.services['click_tracker'] = ClickTrackerService(
-                self.event_bus, self.config, self.services['storage_adapters']
+                self.event_bus, self.config, self.services['unified_storage']
             )
             self.services['click_tracker'].setup_subscriptions()
         
@@ -165,7 +157,7 @@ class FastServiceInitializer:
             trigger_phrases.update(self.config.mark.triggers.visualization_cancel)
             
             self.services['mark'] = MarkService(
-                self.event_bus, self.config, self.services['storage_adapters'],
+                self.event_bus, self.config, self.services['unified_storage'],
                 reserved_labels=trigger_phrases
             )
             self.services['mark'].setup_subscriptions()
@@ -192,7 +184,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Loading sound recognition...")
                 await asyncio.sleep(0.1)
             self.services['sound_service'] = StreamlinedSoundService(
-                self.event_bus, self.config, self.services['storage_adapters']
+                self.event_bus, self.config, self.services['unified_storage']
             )
             await self.services['sound_service'].initialize()
         
@@ -210,7 +202,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Setting up command processing...")
                 await asyncio.sleep(0.1)
             self.services['centralized_parser'] = CentralizedCommandParser(
-                self.event_bus, self.config, self.services['command_storage']
+                self.event_bus, self.config, self.services['unified_storage']
             )
             await self.services['centralized_parser'].initialize()
             self.services['centralized_parser'].setup_subscriptions()
@@ -220,7 +212,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Preparing dictation system...")
                 await asyncio.sleep(0.1)
             self.services['dictation'] = DictationCoordinator(
-                self.event_bus, self.config, self.services['storage_adapters'], self.gui_loop
+                self.event_bus, self.config, self.services['unified_storage'], self.gui_loop
             )
             self.services['dictation'].setup_subscriptions()
             
@@ -239,9 +231,8 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Initializing command predictor...")
                 await asyncio.sleep(0.05)
             from iris.app.services.markov_command_predictor import MarkovCommandPredictor
-            history_adapter = self.services['storage_adapters'].get_command_history_adapter()
             self.services['markov_predictor'] = MarkovCommandPredictor(
-                self.event_bus, self.config, history_adapter
+                self.event_bus, self.config, self.services['unified_storage']
             )
             self.services['markov_predictor'].setup_subscriptions()
             await self.services['markov_predictor'].initialize()

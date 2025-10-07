@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.services.storage.storage_adapters import CommandHistoryStorageAdapter
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_command_history, write_command_history
 from iris.app.events.core_events import CommandAudioSegmentReadyEvent, AudioDetectedEvent
 from iris.app.events.markov_events import MarkovPredictionEvent, CommandExecutedEvent
 from iris.app.events.stt_events import CommandTextRecognizedEvent
@@ -35,12 +35,12 @@ class MarkovCommandPredictor:
         self,
         event_bus: EventBus,
         config: GlobalAppConfig,
-        history_adapter: CommandHistoryStorageAdapter
+        storage: UnifiedStorageService
     ):
         self._event_bus = event_bus
         self._config = config
         self._markov_config = config.markov_predictor
-        self._history_adapter = history_adapter
+        self._storage = storage
         
         # Multi-order transition counts: {order: {context: Counter}}
         self._transition_counts: Dict[int, Dict[tuple, Counter]] = {
@@ -137,7 +137,7 @@ class MarkovCommandPredictor:
     
     async def _load_filtered_history(self, order: int) -> List[Dict]:
         """Load and filter command history based on config for specific order"""
-        all_history = await self._history_adapter.load_history()
+        all_history = await read_command_history(self._storage, [])
         
         if not all_history:
             return []
@@ -362,13 +362,13 @@ class MarkovCommandPredictor:
                     self._pending_commands.clear()
                     
                     # Load current history
-                    history = await self._history_adapter.load_history()
+                    history = await read_command_history(self._storage, [])
                     
                     # Append new commands
                     history.extend(commands_to_write)
                     
                     # Write in one batch
-                    await self._history_adapter.save_history(history)
+                    await write_command_history(self._storage, history)
                     
                     logger.debug(f"Batch wrote {len(commands_to_write)} commands to storage")
             
@@ -377,9 +377,9 @@ class MarkovCommandPredictor:
                 if self._pending_commands:
                     try:
                         commands_to_write = list(self._pending_commands)
-                        history = await self._history_adapter.load_history()
+                        history = await read_command_history(self._storage, [])
                         history.extend(commands_to_write)
-                        await self._history_adapter.save_history(history)
+                        await write_command_history(self._storage, history)
                         logger.info(f"Flushed {len(commands_to_write)} commands on shutdown")
                     except Exception as e:
                         logger.error(f"Error flushing commands: {e}")

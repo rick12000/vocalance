@@ -9,7 +9,7 @@ import logging
 from typing import Set, Optional
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.automation_command_registry import AutomationCommandRegistry
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, UnifiedStorageServiceExtensions, read_sound_mappings
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,9 @@ class ProtectedTermsService:
     Fetches live data from storage to ensure no naming conflicts.
     """
     
-    def __init__(self, app_config: GlobalAppConfig, storage_factory: StorageAdapterFactory):
+    def __init__(self, app_config: GlobalAppConfig, storage: UnifiedStorageService):
         self._app_config = app_config
-        self._mark_adapter = storage_factory.get_mark_adapter()
-        self._sound_adapter = storage_factory.get_sound_adapter()
+        self._storage = storage
         
     async def get_all_protected_terms(self) -> Set[str]:
         """
@@ -62,14 +61,14 @@ class ProtectedTermsService:
         
         # Add live mark names from storage
         try:
-            mark_names = await self._mark_adapter.get_all_mark_names()
+            mark_names = await UnifiedStorageServiceExtensions.get_all_mark_names(self._storage)
             protected.update(name.lower().strip() for name in mark_names)
         except Exception as e:
             logger.warning(f"Could not fetch mark names for protection: {e}")
         
         # Add live sound names from storage
         try:
-            sound_mappings = await self._sound_adapter.load_sound_mappings()
+            sound_mappings = await read_sound_mappings(self._storage, {})
             protected.update(sound.lower().strip() for sound in sound_mappings.keys())
         except Exception as e:
             logger.warning(f"Could not fetch sound names for protection: {e}")
@@ -138,13 +137,13 @@ class ProtectedTermsService:
         
         # Live data
         try:
-            mark_names = await self._mark_adapter.get_all_mark_names()
+            mark_names = await UnifiedStorageServiceExtensions.get_all_mark_names(self._storage)
             categories["live_marks"] = mark_names
         except Exception as e:
             logger.warning(f"Could not fetch mark names: {e}")
         
         try:
-            sound_mappings = await self._sound_adapter.load_sound_mappings()
+            sound_mappings = await read_sound_mappings(self._storage, {})
             categories["live_sounds"] = set(sound_mappings.keys())
         except Exception as e:
             logger.warning(f"Could not fetch sound names: {e}")

@@ -16,25 +16,23 @@ class SettingsView(ctk.CTkFrame):
     """UI view for settings tab - handles LLM settings configuration"""
     
     def __init__(self, parent_frame, controller: SettingsController, root_window):
-        # Initialize the main frame with background color like other tabs
         super().__init__(parent_frame, fg_color=ui_theme.theme.shape_colors.darkest)
         
         self.controller = controller
-        self.controller.set_view_callback(self)
         self.parent_frame = parent_frame
         self.root_window = root_window
+        self._is_alive = True
         
-        # UI variables for LLM settings only
         self.llm_model_size_var = ctk.StringVar()
         self.llm_context_length_var = ctk.StringVar()
         self.llm_max_tokens_var = ctk.StringVar()
         self.llm_threads_var = ctk.StringVar()
-        
-        # UI variables for Grid settings
         self.grid_default_cells_var = ctk.StringVar()
 
         self._build_tab_ui()
         self._load_current_settings()
+        
+        self.controller.set_view_callback(self)
 
     def _build_tab_ui(self):
         """Build the settings tab UI with LLM settings only"""
@@ -92,17 +90,20 @@ class SettingsView(ctk.CTkFrame):
         )
         self.llm_model_dropdown.grid(row=1, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="ew")
         
-        # Model description label
         self.model_desc_label = ThemedLabel(llm_frame, text="", color=ui_theme.theme.text_colors.medium)
         self.model_desc_label.grid(row=1, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
         
-        # Update description when model changes
         def update_model_description(*args):
-            size = self.llm_model_size_var.get()
-            desc = model_descriptions.get(size, "")
-            self.model_desc_label.configure(text=desc)
+            if not self._is_alive:
+                return
+            try:
+                size = self.llm_model_size_var.get()
+                desc = model_descriptions.get(size, "")
+                self.model_desc_label.configure(text=desc)
+            except tk.TclError:
+                pass
         
-        self.llm_model_size_var.trace("w", update_model_description)
+        self.llm_model_size_var.trace_add("write", update_model_description)
         
         # Context Length
         ThemedLabel(llm_frame, text="Context Length:", bold=True).grid(
@@ -234,7 +235,8 @@ class SettingsView(ctk.CTkFrame):
         grid_reset_button.grid(row=0, column=1, sticky="w")
 
     def on_settings_updated(self):
-        """Handle settings updated from controller"""
+        if not self._is_alive:
+            return
         self._load_current_settings()
 
     def on_validation_error(self, title: str, message: str):
@@ -319,5 +321,11 @@ class SettingsView(ctk.CTkFrame):
             self.controller.reset_grid_to_defaults()
 
     def refresh_settings(self):
-        """Refresh settings display"""
-        self._load_current_settings() 
+        if not self._is_alive:
+            return
+        self._load_current_settings()
+    
+    def destroy(self):
+        self._is_alive = False
+        self.controller.set_view_callback(None)
+        super().destroy() 

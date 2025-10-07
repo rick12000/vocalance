@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
 from iris.app.event_bus import EventBus
@@ -78,6 +78,11 @@ class UnifiedStorageService:
         self._ensure_directories()
         
         logger.info("UnifiedStorageService initialized")
+    
+    @property
+    def storage_config(self):
+        """Expose storage config for path access"""
+        return self._config.storage
     
     def _init_paths(self) -> Dict[StorageType, str]:
         """Initialize storage file paths"""
@@ -288,4 +293,119 @@ async def read_command_history(storage: UnifiedStorageService, default: Any = No
 
 async def write_command_history(storage: UnifiedStorageService, value: Any) -> bool:
     """Write command history"""
-    return await storage.write(StorageKey(StorageType.COMMAND_HISTORY, "history"), value) 
+    return await storage.write(StorageKey(StorageType.COMMAND_HISTORY, "history"), value)
+
+
+# Direct typed accessors for services (eliminates need for storage adapters)
+class UnifiedStorageServiceExtensions:
+    """Extension methods for direct typed access - eliminates storage adapter layer"""
+    
+    @staticmethod
+    async def read_marks_dict(storage: UnifiedStorageService) -> Dict[str, Tuple[int, int]]:
+        """Read marks as dict mapping name -> (x, y) coordinates"""
+        marks_data = await read_marks(storage, default={})
+        marks = {}
+        for name, coords in marks_data.items():
+            if isinstance(coords, dict) and "x" in coords and "y" in coords:
+                marks[name] = (coords["x"], coords["y"])
+            elif isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                marks[name] = (coords[0], coords[1])
+        return marks
+    
+    @staticmethod
+    async def write_marks_dict(storage: UnifiedStorageService, marks: Dict[str, Tuple[int, int]]) -> bool:
+        """Write marks from dict format"""
+        storage_data = {}
+        for name, coords in marks.items():
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                storage_data[name] = {"x": coords[0], "y": coords[1]}
+        return await write_marks(storage, storage_data)
+    
+    @staticmethod
+    async def get_all_mark_names(storage: UnifiedStorageService) -> Set[str]:
+        """Get all mark names as a set"""
+        marks = await UnifiedStorageServiceExtensions.read_marks_dict(storage)
+        return set(marks.keys())
+    
+    @staticmethod
+    async def get_custom_commands(storage: UnifiedStorageService) -> Dict[str, Any]:
+        """Get custom commands"""
+        from iris.app.config.command_types import AutomationCommand
+        data = await read_commands(storage, {})
+        custom_commands_data = data.get('custom_commands', {})
+        
+        custom_commands = {}
+        for phrase, command_dict in custom_commands_data.items():
+            if isinstance(command_dict, dict):
+                try:
+                    command_obj = AutomationCommand(**command_dict)
+                    custom_commands[phrase] = command_obj
+                except Exception:
+                    continue
+        return custom_commands
+    
+    @staticmethod
+    async def save_custom_commands(storage: UnifiedStorageService, commands_data: Dict[str, Any]) -> bool:
+        """Save custom commands"""
+        serializable_commands = {}
+        for phrase, command_data in commands_data.items():
+            if hasattr(command_data, 'model_dump'):
+                serializable_commands[phrase] = command_data.model_dump()
+            elif hasattr(command_data, 'dict'):
+                serializable_commands[phrase] = command_data.dict()
+            elif isinstance(command_data, dict):
+                serializable_commands[phrase] = command_data
+        
+        current_data = await read_commands(storage, {})
+        current_data['custom_commands'] = serializable_commands
+        return await write_commands(storage, current_data)
+    
+    @staticmethod
+    async def get_action_map(storage: UnifiedStorageService) -> Dict[str, Any]:
+        """Get action map for command lookup"""
+        from iris.app.config.automation_command_registry import AutomationCommandRegistry
+        from iris.app.config.command_types import AutomationCommand
+        
+        action_map = {}
+        
+        # Load custom commands
+        custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(storage)
+        for normalized_phrase, command_data in custom_commands.items():
+            action_map[normalized_phrase] = command_data
+        
+        # Load default commands
+        default_commands = AutomationCommandRegistry.get_default_commands()
+        
+        for command_data in default_commands:
+            normalized_phrase = command_data.command_key.lower().strip()
+            
+            if normalized_phrase not in action_map:
+                # Apply any phrase overrides
+                data = await read_commands(storage, {})
+                phrase_overrides = data.get('phrase_overrides', {})
+                effective_phrase = phrase_overrides.get(command_data.command_key, command_data.command_key)
+                
+                if effective_phrase != command_data.command_key:
+                    command_data = AutomationCommand(
+                        command_key=effective_phrase,
+                        action_type=command_data.action_type,
+                        action_value=command_data.action_value,
+                        short_description=command_data.short_description,
+                        long_description=command_data.long_description,
+                        is_custom=command_data.is_custom
+                    )
+                    normalized_phrase = effective_phrase.lower().strip()
+                
+                action_map[normalized_phrase] = command_data
+        
+        return action_map
+    
+    @staticmethod
+    async def get_agentic_prompts(storage: UnifiedStorageService) -> Dict[str, Any]:
+        """Get agentic prompts data"""
+        return await read_agentic_prompts(storage, {"prompts": [], "current_prompt_id": None})
+    
+    @staticmethod
+    async def save_agentic_prompts(storage: UnifiedStorageService, data: Dict[str, Any]) -> bool:
+        """Save agentic prompts data"""
+        return await write_agentic_prompts(storage, data) 

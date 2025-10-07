@@ -19,7 +19,7 @@ from iris.app.events.sound_events import (
     SoundTrainingProgressEvent
 )
 from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 class StreamlinedSoundService:
     """Streamlined sound recognition service focused on core functionality."""
     
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage_factory: StorageAdapterFactory):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: UnifiedStorageService):
         self.event_bus = event_bus
         self.config = config
-        self.recognizer = StreamlinedSoundRecognizer(config, storage_factory)
+        self.recognizer = StreamlinedSoundRecognizer(config, storage)
         
         # State
         self.is_initialized = False

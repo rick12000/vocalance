@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService
 from iris.app.services.audio.dictation_handling.text_input_service import TextInputService
 from iris.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
 from iris.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
@@ -50,7 +51,7 @@ class DictationSession:
 class DictationCoordinator:
     """Streamlined dictation coordinator with minimal complexity"""
     
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage_factory, gui_event_loop: Optional[asyncio.AbstractEventLoop] = None):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: UnifiedStorageService, gui_event_loop: Optional[asyncio.AbstractEventLoop] = None):
         self.event_bus = event_bus
         self.config = config
         self.gui_event_loop = gui_event_loop
@@ -63,7 +64,7 @@ class DictationCoordinator:
         # Initialize services
         self.text_service = TextInputService(config.dictation)
         self.llm_service = LLMService(event_bus, config)
-        self.agentic_service = AgenticPromptService(event_bus, config, storage_factory)
+        self.agentic_service = AgenticPromptService(event_bus, config, storage)
         
         self.event_publisher = ThreadSafeEventPublisher(event_bus, gui_event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus, "DictationCoordinator")
