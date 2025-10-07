@@ -158,7 +158,7 @@ def test_recognize_warns_on_sample_rate_mismatch(whisper_stt_instance, mock_whis
     mock_info = Mock()
     mock_whisper_model.transcribe.return_value = ([mock_segment], mock_info)
     
-    with patch('iris.services.audio.whisper_stt.logger') as mock_logger:
+    with patch('iris.app.services.audio.whisper_stt.logger') as mock_logger:
         result = whisper_stt_instance.recognize(audio_bytes, sample_rate=8000)
         
         mock_logger.warning.assert_called_once()

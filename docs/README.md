@@ -1,118 +1,86 @@
-# Documentation
+# Iris Documentation
 
-This directory contains the documentation for the Iris project, built using [Sphinx](https://www.sphinx-doc.org/).
+This directory contains the Sphinx documentation for the Iris voice command assistant.
 
-## Building Documentation
+## Building the Documentation
 
 ### Prerequisites
 
-Ensure you have Python 3.8+ installed, then install the documentation dependencies:
+Install the required dependencies:
 
 ```bash
-# Install documentation dependencies
 pip install -r requirements.txt
-
-# Or install the project with documentation extras
-pip install -e ".[docs]"
 ```
 
 ### Building HTML Documentation
 
-To build the documentation:
-
+On Windows:
 ```bash
-# Using make (recommended)
-make html
-
-# Or using sphinx-build directly
-sphinx-build -b html . _build/html
+make.bat html
 ```
 
-The built documentation will be available in `_build/html/index.html`.
+On Linux/macOS:
+```bash
+make html
+```
 
-### Live Development Server
+### Live Rebuild Server
 
-For active development with live reload:
+For automatic rebuilding during development:
 
+On Windows:
+```bash
+make.bat livehtml
+```
+
+On Linux/macOS:
 ```bash
 make livehtml
 ```
 
-This will start a development server at `http://localhost:8000` that automatically rebuilds and refreshes when you make changes.
+The documentation will be available at `http://localhost:8000`.
 
-### Other Build Targets
+### Cleaning Build Files
 
 ```bash
-# Check for broken links
-make linkcheck
-
-# Clean build directory
-make clean
-
-# Build PDF (requires LaTeX)
-make latexpdf
-
-# Build EPUB
-make epub
+make.bat clean  # Windows
+make clean      # Linux/macOS
 ```
 
 ## Documentation Structure
 
-- `conf.py` - Sphinx configuration file
 - `index.rst` - Main documentation index
-- `_static/` - Static files (CSS, images, etc.)
-- `_templates/` - Custom HTML templates
-- `_build/` - Generated documentation (ignored by git)
+- `api_reference.rst` - API reference documentation
+- `user_guide/` - User guides and tutorials
+- `developer/` - Developer documentation
+- `_static/` - Static assets (CSS, JavaScript, images)
+- `_templates/` - Custom Sphinx templates
+- `conf.py` - Sphinx configuration
 
-## Writing Documentation
+## Styling
 
-### reStructuredText
+The documentation uses a custom blue theme built on top of `sphinx_rtd_theme`. The styling is defined in:
 
-The documentation is primarily written in reStructuredText (`.rst` files). See the [reStructuredText primer](https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html) for syntax help.
+- `_static/custom.css` - Main styling
+- `_static/layout-manager.js` - Enhanced UX features
 
-### Markdown Support
+## ReadTheDocs Integration
 
-Markdown files (`.md`) are also supported via MyST parser. See [MyST documentation](https://myst-parser.readthedocs.io/) for advanced features.
-
-### API Documentation
-
-API documentation is automatically generated from docstrings using the `autodoc` extension. Ensure your code has proper docstrings following Google or NumPy style.
-
-## Configuration
-
-Key configuration options in `conf.py`:
-
-- **Extensions**: Enabled Sphinx extensions
-- **Theme**: Currently using `sphinx_rtd_theme`
-- **Intersphinx**: Links to external documentation
-- **Autodoc**: Automatic API documentation settings
-
-## Deployment
-
-Documentation is automatically built and deployed via GitHub Actions:
-
-- **On Pull Requests**: Validates documentation builds correctly
-- **On Main Branch**: Deploys to GitHub Pages
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Build Errors**: Check that all dependencies are installed and up to date
-2. **Import Errors**: Ensure the source code is importable (check `sys.path` in `conf.py`)
-3. **Link Check Failures**: Some external links may be temporarily unavailable
-
-### Getting Help
-
-- [Sphinx Documentation](https://www.sphinx-doc.org/)
-- [reStructuredText Guide](https://docutils.sourceforge.io/rst.html)
-- [MyST Parser](https://myst-parser.readthedocs.io/)
+The documentation is configured for ReadTheDocs via `.readthedocs.yaml` in the project root.
 
 ## Contributing
 
-When contributing to documentation:
+When adding new documentation:
 
-1. Test your changes locally using `make html` or `make livehtml`
-2. Run link checks with `make linkcheck`
-3. Follow the existing style and structure
-4. Update this README if you add new build targets or change the workflow 
+1. Follow the existing RST formatting style
+2. Ensure all title underlines match the title length
+3. Add blank lines after directive blocks (especially mermaid diagrams)
+4. Test the build locally before committing
+5. Check that all cross-references resolve correctly
+
+## Notes
+
+- The documentation uses `myst_parser` for Markdown support
+- Mermaid diagrams are supported via `sphinxcontrib.mermaid`
+- Code blocks have automatic copy buttons via `sphinx_copybutton`
+- API documentation is auto-generated from Python docstrings

@@ -20,8 +20,7 @@ Iris is a voice command assistant designed for accessibility, featuring on-devic
    :maxdepth: 1
    :caption: Developer Guide
 
-   developer/architecture
-   developer/components
+   developer/services
 
 .. toctree::
    :maxdepth: 1

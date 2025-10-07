@@ -18,13 +18,13 @@ class TestStreamlinedSoundService:
     @pytest.fixture
     def service(self, mock_event_bus, mock_config, mock_storage_factory, mock_recognizer):
         """Create a service instance with mocked dependencies."""
-        with patch('iris.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer', return_value=mock_recognizer):
+        with patch('iris.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer', return_value=mock_recognizer):
             service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
             return service
     
     def test_init(self, mock_event_bus, mock_config, mock_storage_factory):
         """Test service initialization."""
-        with patch('iris.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer') as mock_recognizer_class:
+        with patch('iris.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer') as mock_recognizer_class:
             service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
 
             assert service.event_bus == mock_event_bus

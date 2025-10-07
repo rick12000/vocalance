@@ -150,7 +150,7 @@ async def test_grid_select_cell(grid_service):
     status_events = [e for e in captured_events if isinstance(e, CommandExecutedStatusEvent)]
     
     assert len(click_events) == 1
-    assert click_events[0].cell_number == 5
+    assert click_events[0].cell_label == "5"
     assert len(status_events) == 1
 
 

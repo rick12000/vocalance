@@ -83,20 +83,31 @@ class EnhancedVoskSTT:
             logger.info("Shutting down EnhancedVoskSTT")
             
             with self._recognizer_lock:
-                # Clear Vosk components
+                # Clear Vosk recognizer first (holds references to model)
                 if hasattr(self, '_recognizer') and self._recognizer is not None:
+                    # Reset recognizer state before deletion
+                    try:
+                        self._recognizer.Reset()
+                    except:
+                        pass
                     del self._recognizer
                     self._recognizer = None
                     logger.info("Vosk recognizer deleted")
                 
+                # Clear Vosk model (releases memory)
                 if hasattr(self, '_model') and self._model is not None:
                     del self._model
                     self._model = None
                     logger.info("Vosk model deleted")
                 
                 # Clear duplicate filter
-                if hasattr(self, '_duplicate_filter'):
+                if hasattr(self, '_duplicate_filter') and self._duplicate_filter is not None:
                     del self._duplicate_filter
+                    self._duplicate_filter = None
+            
+            # Force garbage collection for Vosk C++ objects
+            import gc
+            gc.collect()
             
             logger.info("EnhancedVoskSTT shutdown complete")
             

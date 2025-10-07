@@ -225,19 +225,38 @@ class WhisperSpeechToText:
             logger.info("Shutting down WhisperSpeechToText")
             
             with self._model_lock:
-                # Clear the model to free memory
+                # Clear the model to free memory - faster-whisper/CTranslate2 specific cleanup
                 if hasattr(self, '_model') and self._model is not None:
-                    del self._model
-                    self._model = None
-                    logger.info("Whisper model deleted")
+                    # Try to explicitly unload the model if the library supports it
+                    try:
+                        # CTranslate2 models should be deleted to free memory
+                        if hasattr(self._model, 'unload'):
+                            self._model.unload()
+                        # Force deletion
+                        del self._model
+                        self._model = None
+                        logger.info("Whisper model deleted")
+                    except Exception as model_error:
+                        logger.warning(f"Error during model cleanup: {model_error}")
+                        self._model = None
                 
                 # Clear duplicate filter
-                if hasattr(self, '_duplicate_filter'):
+                if hasattr(self, '_duplicate_filter') and self._duplicate_filter is not None:
                     del self._duplicate_filter
+                    self._duplicate_filter = None
                 
                 # Clear noise samples
-                if hasattr(self, '_noise_samples'):
+                if hasattr(self, '_noise_samples') and self._noise_samples is not None:
                     self._noise_samples.clear()
+                    self._noise_samples = None
+                
+                # Clear any cached data
+                if hasattr(self, '_last_result'):
+                    self._last_result = None
+            
+            # Force garbage collection for CTranslate2 memory
+            import gc
+            gc.collect()
             
             logger.info("WhisperSpeechToText shutdown complete")
             

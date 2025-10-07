@@ -307,7 +307,7 @@ async def test_command_mappings_update_clears_cooldowns(mock_hotkey, automation_
     await event_bus.publish(event)
     await asyncio.sleep(0.2)
     
-    await event_bus.publish(CommandMappingsUpdatedEvent(updated_mappings={}))
+    await event_bus.publish(CommandMappingsUpdatedEvent(success=True, updated_mappings=[]))
     await asyncio.sleep(0.1)
     
     await event_bus.publish(event)

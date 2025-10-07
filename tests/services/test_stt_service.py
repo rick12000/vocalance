@@ -90,7 +90,7 @@ async def test_amber_trigger_detection_during_dictation(stt_service_with_mocked_
     
     service.vosk_engine.recognize = Mock(return_value="amber")
     
-    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True))
+    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="continuous"))
     await asyncio.sleep(0.05)
     
     captured_events = []
@@ -118,7 +118,7 @@ async def test_non_amber_suppressed_during_dictation(stt_service_with_mocked_eng
     
     service.vosk_engine.recognize = Mock(return_value="copy")
     
-    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True))
+    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="continuous"))
     await asyncio.sleep(0.05)
     
     captured_events = []
@@ -145,11 +145,11 @@ async def test_dictation_mode_state_changes(stt_service_with_mocked_engines):
     
     assert service._dictation_active is False
     
-    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True))
+    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="continuous"))
     await asyncio.sleep(0.05)
     assert service._dictation_active is True
     
-    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=False))
+    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive"))
     await asyncio.sleep(0.05)
     assert service._dictation_active is False
 
@@ -190,8 +190,12 @@ async def test_command_mappings_update_propagation(stt_service_with_mocked_engin
     service._smart_timeout_manager = Mock()
     service._smart_timeout_manager.update_command_action_map = Mock()
     
-    updated_mappings = {"copy": None, "paste": None}
-    event = CommandMappingsUpdatedEvent(updated_mappings=updated_mappings)
+    from iris.app.config.command_types import ExactMatchCommand
+    updated_mappings = [
+        ExactMatchCommand(command_key="copy", action_type="hotkey", action_value="ctrl+c", is_custom=False, short_description="Copy", long_description="Copy"),
+        ExactMatchCommand(command_key="paste", action_type="hotkey", action_value="ctrl+v", is_custom=False, short_description="Paste", long_description="Paste")
+    ]
+    event = CommandMappingsUpdatedEvent(success=True, updated_mappings=updated_mappings)
     
     await event_bus.publish(event)
     await asyncio.sleep(0.1)

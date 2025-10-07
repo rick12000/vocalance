@@ -217,7 +217,7 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     # Mock tensorflow module in sys.modules
     import sys
     monkeypatch.setitem(sys.modules, "tensorflow", tf_mock)
-    monkeypatch.setattr("iris.services.audio.sound_recognizer.streamlined_sound_recognizer.tf", tf_mock)
+    monkeypatch.setattr("iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer.tf", tf_mock)
     
     # Import after mocking
     from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
@@ -438,9 +438,9 @@ def mock_duplicate_filter():
 @pytest.fixture
 def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, mock_duplicate_filter, stt_config):
     """Create Vosk STT instance with mocked dependencies."""
-    with patch('iris.services.audio.vosk_stt.vosk.Model', return_value=mock_vosk_model), \
-         patch('iris.services.audio.vosk_stt.vosk.KaldiRecognizer', return_value=mock_vosk_recognizer), \
-         patch('iris.services.audio.vosk_stt.DuplicateTextFilter', return_value=mock_duplicate_filter):
+    with patch('iris.app.services.audio.vosk_stt.vosk.Model', return_value=mock_vosk_model), \
+         patch('iris.app.services.audio.vosk_stt.vosk.KaldiRecognizer', return_value=mock_vosk_recognizer), \
+         patch('iris.app.services.audio.vosk_stt.DuplicateTextFilter', return_value=mock_duplicate_filter):
 
         from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
         instance = EnhancedVoskSTT(
@@ -471,8 +471,8 @@ def mock_whisper_model():
 @pytest.fixture
 def whisper_stt_instance(mock_whisper_model, mock_duplicate_filter, stt_config):
     """Create Whisper STT instance with mocked dependencies."""
-    with patch('iris.services.audio.whisper_stt.WhisperModel', return_value=mock_whisper_model), \
-         patch('iris.services.audio.whisper_stt.DuplicateTextFilter', return_value=mock_duplicate_filter):
+    with patch('iris.app.services.audio.whisper_stt.WhisperModel', return_value=mock_whisper_model), \
+         patch('iris.app.services.audio.whisper_stt.DuplicateTextFilter', return_value=mock_duplicate_filter):
 
         from iris.app.services.audio.whisper_stt import WhisperSpeechToText
         instance = WhisperSpeechToText(

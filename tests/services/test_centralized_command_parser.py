@@ -47,7 +47,7 @@ async def test_parse_dictation_start_command(command_parser):
     
     event_bus.subscribe(DictationCommandParsedEvent, capture_event)
     
-    event = CommandTextRecognizedEvent(text="start dictation", engine="vosk")
+    event = CommandTextRecognizedEvent(text="green", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
     
@@ -67,7 +67,7 @@ async def test_parse_dictation_stop_command(command_parser):
     
     event_bus.subscribe(DictationCommandParsedEvent, capture_event)
     
-    event = CommandTextRecognizedEvent(text="stop dictation", engine="vosk")
+    event = CommandTextRecognizedEvent(text="amber", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
     
@@ -108,7 +108,7 @@ async def test_parse_mark_delete_command(command_parser):
     
     event_bus.subscribe(MarkCommandParsedEvent, capture_event)
     
-    event = CommandTextRecognizedEvent(text="mark delete home", engine="vosk")
+    event = CommandTextRecognizedEvent(text="delete mark home", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
     
@@ -129,7 +129,7 @@ async def test_parse_grid_show_command(command_parser):
     
     event_bus.subscribe(GridCommandParsedEvent, capture_event)
     
-    event = CommandTextRecognizedEvent(text="show grid", engine="vosk")
+    event = CommandTextRecognizedEvent(text="golf", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
     
@@ -149,7 +149,7 @@ async def test_parse_grid_show_with_number(command_parser):
     
     event_bus.subscribe(GridCommandParsedEvent, capture_event)
     
-    event = CommandTextRecognizedEvent(text="show grid nine", engine="vosk")
+    event = CommandTextRecognizedEvent(text="golf 9", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
     
@@ -191,7 +191,7 @@ async def test_parse_grid_cancel_command(command_parser):
     
     event_bus.subscribe(GridCommandParsedEvent, capture_event)
     
-    event = CommandTextRecognizedEvent(text="cancel grid", engine="vosk")
+    event = CommandTextRecognizedEvent(text="cancel", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
     
@@ -291,7 +291,8 @@ async def test_sound_command_mapping(command_parser):
     
     await event_bus.publish(SoundToCommandMappingUpdatedEvent(
         sound_label="whistle",
-        command_phrase="copy"
+        command_phrase="copy",
+        success=True
     ))
     await asyncio.sleep(0.05)
     
@@ -320,7 +321,7 @@ async def test_dictation_active_suppresses_commands(command_parser):
     parser = command_parser
     event_bus = parser._event_bus
     
-    await event_bus.publish(DictationStatusChangedEvent(is_active=True))
+    await event_bus.publish(DictationStatusChangedEvent(is_active=True, mode="continuous"))
     await asyncio.sleep(0.05)
     
     captured_events = []

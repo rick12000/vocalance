@@ -6,21 +6,21 @@ This section provides detailed documentation for Iris's main classes and modules
 Core Services
 =============
 
-.. currentmodule:: iris.services
+.. currentmodule:: iris.app.services
 
 Speech Recognition
 ------------------
 
-.. currentmodule:: iris.services.audio.stt_service
+.. currentmodule:: iris.app.services.audio.stt_service
 
-StreamlinedSpeechToTextService
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-.. autoclass:: StreamlinedSpeechToTextService
+SpeechToTextService
+~~~~~~~~~~~~~~~~~~~
+.. autoclass:: SpeechToTextService
    :members:
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.services.audio.simple_audio_service
+.. currentmodule:: iris.app.services.audio.simple_audio_service
 
 SimpleAudioService
 ~~~~~~~~~~~~~~~~~~
@@ -32,7 +32,7 @@ SimpleAudioService
 Command Processing
 ------------------
 
-.. currentmodule:: iris.services.centralized_command_parser
+.. currentmodule:: iris.app.services.centralized_command_parser
 
 CentralizedCommandParser
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -41,7 +41,7 @@ CentralizedCommandParser
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.services.automation_service
+.. currentmodule:: iris.app.services.automation_service
 
 AutomationService
 ~~~~~~~~~~~~~~~~~
@@ -53,7 +53,7 @@ AutomationService
 Grid and Screen Interaction
 ---------------------------
 
-.. currentmodule:: iris.services.grid.grid_service
+.. currentmodule:: iris.app.services.grid.grid_service
 
 GridService
 ~~~~~~~~~~~
@@ -62,7 +62,7 @@ GridService
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.services.mark_service
+.. currentmodule:: iris.app.services.mark_service
 
 MarkService
 ~~~~~~~~~~~
@@ -74,7 +74,7 @@ MarkService
 Dictation and AI
 -----------------
 
-.. currentmodule:: iris.services.audio.dictation_handling.dictation_coordinator
+.. currentmodule:: iris.app.services.audio.dictation_handling.dictation_coordinator
 
 DictationCoordinator
 ~~~~~~~~~~~~~~~~~~~~
@@ -86,7 +86,7 @@ DictationCoordinator
 Storage and Configuration
 -------------------------
 
-.. currentmodule:: iris.services.storage.unified_storage_service
+.. currentmodule:: iris.app.services.storage.unified_storage_service
 
 UnifiedStorageService
 ~~~~~~~~~~~~~~~~~~~~~
@@ -95,7 +95,7 @@ UnifiedStorageService
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.services.storage.storage_adapters
+.. currentmodule:: iris.app.services.storage.storage_adapters
 
 StorageAdapterFactory
 ~~~~~~~~~~~~~~~~~~~~~
@@ -107,11 +107,11 @@ StorageAdapterFactory
 Sound Recognition
 -----------------
 
-.. currentmodule:: iris.services.audio.sound_recognizer
+.. currentmodule:: iris.app.services.audio.sound_recognizer.streamlined_sound_service
 
-SimpleSoundService
-~~~~~~~~~~~~~~~~~~
-.. autoclass:: SimpleSoundService
+StreamlinedSoundService
+~~~~~~~~~~~~~~~~~~~~~~~
+.. autoclass:: StreamlinedSoundService
    :members:
    :exclude-members: __init__
    :noindex:
@@ -119,12 +119,12 @@ SimpleSoundService
 User Interface
 ==============
 
-.. currentmodule:: iris.ui
+.. currentmodule:: iris.app.ui
 
 Main Application Window
 -----------------------
 
-.. currentmodule:: iris.ui.main_window
+.. currentmodule:: iris.app.ui.main_window
 
 AppControlRoom
 ~~~~~~~~~~~~~~
@@ -136,7 +136,7 @@ AppControlRoom
 Startup and Initialization
 ---------------------------
 
-.. currentmodule:: iris.ui.startup_window
+.. currentmodule:: iris.app.ui.startup_window
 
 StartupWindow
 ~~~~~~~~~~~~~
@@ -155,12 +155,12 @@ StartupProgressTracker
 Configuration and Events
 ========================
 
-.. currentmodule:: iris.config
+.. currentmodule:: iris.app.config
 
 Application Configuration
 -------------------------
 
-.. currentmodule:: iris.config.app_config
+.. currentmodule:: iris.app.config.app_config
 
 GlobalAppConfig
 ~~~~~~~~~~~~~~~
@@ -179,7 +179,7 @@ AppInfoConfig
 Event System
 ------------
 
-.. currentmodule:: iris.event_bus
+.. currentmodule:: iris.app.event_bus
 
 EventBus
 ~~~~~~~~
@@ -191,35 +191,34 @@ EventBus
 Utility Functions
 =================
 
-.. currentmodule:: iris.ui.utils
+.. currentmodule:: iris.app.ui.utils
 
 UI Thread Management
 --------------------
 
-.. currentmodule:: iris.ui.utils.ui_thread_utils
+.. currentmodule:: iris.app.ui.utils.ui_thread_utils
 
 .. autofunction:: initialize_ui_scheduler
 
 Icon Management
 ---------------
 
-.. currentmodule:: iris.ui.utils.ui_icon_utils
+.. currentmodule:: iris.app.ui.utils.ui_icon_utils
 
 .. autofunction:: set_window_icon_robust
 .. autofunction:: track_window_for_icon_management
-.. autofunction:: schedule_periodic_icon_refresh
 
 Configuration Loading
 ---------------------
 
-.. currentmodule:: iris.config.app_config
+.. currentmodule:: iris.app.config.app_config
 
 .. autofunction:: load_app_config
 
 Logging Configuration
 ---------------------
 
-.. currentmodule:: iris.config.logging_config
+.. currentmodule:: iris.app.config.logging_config
 
 .. autofunction:: setup_logging
 
@@ -229,7 +228,7 @@ Data Models and Enums
 STT Modes
 ---------
 
-.. currentmodule:: iris.services.audio.stt_service
+.. currentmodule:: iris.app.services.audio.stt_service
 
 .. autoclass:: STTMode
    :members:
@@ -238,7 +237,7 @@ STT Modes
 Storage Types
 -------------
 
-.. currentmodule:: iris.services.storage.unified_storage_service
+.. currentmodule:: iris.app.services.storage.unified_storage_service
 
 .. autoclass:: StorageType
    :members:

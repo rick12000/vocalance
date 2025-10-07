@@ -262,8 +262,8 @@ class SpeechToTextService:
         """Handle command mappings updates to refresh smart timeout manager"""
         try:
             if event_data.updated_mappings and self._smart_timeout_manager:
-                # Convert mappings to simple dict for smart timeout manager
-                command_map = {phrase: None for phrase in event_data.updated_mappings.keys()}
+                # Convert mappings list to simple dict for smart timeout manager
+                command_map = {cmd.command_key: None for cmd in event_data.updated_mappings}
                 self._smart_timeout_manager.update_command_action_map(command_map)
                 logger.info(f"Updated smart timeout manager with {len(command_map)} command mappings")
         except Exception as e:
@@ -317,16 +317,33 @@ class SpeechToTextService:
             # Properly shutdown Vosk engine
             if hasattr(self, 'vosk_engine') and self.vosk_engine is not None:
                 await self.vosk_engine.shutdown()
+                del self.vosk_engine
                 self.vosk_engine = None
             
             # Properly shutdown Whisper engine
             if hasattr(self, 'whisper_engine') and self.whisper_engine is not None:
                 await self.whisper_engine.shutdown()
+                del self.whisper_engine
                 self.whisper_engine = None
             
             # Clear duplicate filter
-            if hasattr(self, '_duplicate_filter'):
+            if hasattr(self, '_duplicate_filter') and self._duplicate_filter is not None:
                 del self._duplicate_filter
+                self._duplicate_filter = None
+            
+            # Clear smart timeout manager
+            if hasattr(self, '_smart_timeout_manager') and self._smart_timeout_manager is not None:
+                del self._smart_timeout_manager
+                self._smart_timeout_manager = None
+            
+            # Clear any cached data
+            if hasattr(self, '_markov_handled_audio') and self._markov_handled_audio is not None:
+                self._markov_handled_audio.clear()
+                self._markov_handled_audio = None
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
             
             logger.info("STT service shutdown complete")
         except Exception as e:

@@ -665,30 +665,47 @@ class StreamlinedSoundRecognizer:
             
             # Clear TensorFlow model and free GPU/CPU memory
             if hasattr(self, 'yamnet_model') and self.yamnet_model is not None:
+                # Force deletion of the model
                 del self.yamnet_model
                 self.yamnet_model = None
                 logger.info("YAMNet model deleted")
             
-            # Clear TensorFlow session and backend
+            # Clear TensorFlow session and backend - CRITICAL for memory release
             if tf is not None:
                 try:
+                    # Clear all TensorFlow graphs and sessions
                     tf.keras.backend.clear_session()
-                    logger.info("TensorFlow session cleared")
+                    
+                    # Reset default graph (releases graph memory)
+                    if hasattr(tf, 'compat') and hasattr(tf.compat, 'v1'):
+                        tf.compat.v1.reset_default_graph()
+                    
+                    logger.info("TensorFlow session and graphs cleared")
                 except Exception as e:
                     logger.warning(f"Error clearing TensorFlow session: {e}")
             
             # Clear numpy arrays to free memory
             if hasattr(self, 'embeddings') and self.embeddings is not None:
                 del self.embeddings
-                self.embeddings = np.array([])
+                self.embeddings = None
             
-            if hasattr(self, 'labels'):
+            if hasattr(self, 'labels') and self.labels is not None:
                 self.labels.clear()
+                self.labels = None
             
             # Clear scaler
-            if hasattr(self, 'scaler'):
+            if hasattr(self, 'scaler') and self.scaler is not None:
                 del self.scaler
-                self.scaler = StandardScaler()
+                self.scaler = None
+            
+            # Clear mappings
+            if hasattr(self, 'mappings') and self.mappings is not None:
+                self.mappings.clear()
+                self.mappings = None
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
             
             logger.info("StreamlinedSoundRecognizer shutdown complete")
             

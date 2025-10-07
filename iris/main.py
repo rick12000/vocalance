@@ -7,6 +7,7 @@ import tkinter as tk
 import asyncio
 import threading
 import concurrent.futures
+import gc
 from typing import Dict, Any, Optional
 import signal
 
@@ -475,6 +476,14 @@ async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_e
                 cleanup_errors.append(error_msg)
             
             await asyncio.sleep(0.3)
+            
+            # Close the event loop to free its resources
+            if not gui_event_loop.is_closed():
+                try:
+                    gui_event_loop.close()
+                    logging.info("GUI event loop closed")
+                except Exception as e:
+                    logging.warning(f"Error closing GUI event loop: {e}")
         
         # Shutdown services with shutdown methods in proper order
         shutdown_order = ['sound_service', 'centralized_parser', 'automation', 'command_storage', 'stt', 'dictation', 'markov_predictor']
@@ -488,6 +497,39 @@ async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_e
                     error_msg = f"Error shutting down {service_name}: {e}"
                     logging.error(error_msg, exc_info=True)
                     cleanup_errors.append(error_msg)
+        
+        # Explicitly delete all service references to free memory
+        service_names_to_clear = list(services.keys())
+        for service_name in service_names_to_clear:
+            if service_name != 'gui_thread':
+                try:
+                    del services[service_name]
+                except Exception as e:
+                    logging.warning(f"Error deleting service {service_name}: {e}")
+        
+        # Force aggressive garbage collection to free memory
+        # Multiple rounds to catch cyclic references and C-extension cleanup
+        for i in range(3):
+            gc.collect()
+            logging.info(f"Garbage collection round {i+1} performed")
+        
+        # Force Python to return memory to OS (if possible)
+        try:
+            import ctypes
+            if hasattr(ctypes, 'pythonapi'):
+                # Try to trim malloc arenas (glibc specific, may not work on all systems)
+                try:
+                    import ctypes.util
+                    libc_name = ctypes.util.find_library('c')
+                    if libc_name:
+                        libc = ctypes.CDLL(libc_name)
+                        if hasattr(libc, 'malloc_trim'):
+                            libc.malloc_trim(0)
+                            logging.info("malloc_trim called to return memory to OS")
+                except Exception as trim_error:
+                    logging.debug(f"Could not call malloc_trim: {trim_error}")
+        except Exception as e:
+            logging.debug(f"Could not force memory return: {e}")
         
         if cleanup_errors:
             logging.warning(f"Cleanup completed with {len(cleanup_errors)} errors")

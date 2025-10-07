@@ -133,6 +133,13 @@ class EventBus:
             except asyncio.CancelledError:
                 logger.info("Event bus worker successfully stopped")
         
+        # This prevents services from being kept alive by event bus subscriptions
+        logger.info(f"Clearing {len(self._subscribers)} subscriber lists to prevent memory leaks")
+        for event_type in list(self._subscribers.keys()):
+            self._subscribers[event_type].clear()
+        self._subscribers.clear()
+        logger.info("All event subscribers cleared")
+        
         logger.info("Event bus shutdown complete.")
 
     def get_stats(self):
