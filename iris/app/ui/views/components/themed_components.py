@@ -462,6 +462,9 @@ class CustomSidebarFrame(ctk.CTkFrame):
 class SidebarIconButton(ctk.CTkFrame):
     """Sidebar button with icon above text, selection state, and border hover effect"""
     
+    # Class-level icon cache for all instances
+    _icon_cache = {}
+    
     def __init__(
         self,
         parent,
@@ -550,7 +553,7 @@ class SidebarIconButton(ctk.CTkFrame):
         self.selected_color = theme.text_colors.lightest
     
     def _load_icon(self, icon_size: int):
-        """Load and transform the icon"""
+        """Load and transform the icon with caching"""
         if not self.icon_filename:
             return
             
@@ -558,6 +561,14 @@ class SidebarIconButton(ctk.CTkFrame):
             from iris.app.ui.utils.ui_icon_utils import transform_monochrome_icon
             from iris.app.ui.ui_theme import theme
             from pathlib import Path
+            
+            # Create cache key
+            cache_key = f"{self.icon_filename}_{icon_size}_{theme.icon_properties.color}"
+            
+            # Check cache first
+            if cache_key in self._icon_cache:
+                self.icon_image = self._icon_cache[cache_key]
+                return
             
             # Get icon path relative to this file (works in both dev and installed mode)
             current_file = Path(__file__).resolve()
@@ -577,7 +588,10 @@ class SidebarIconButton(ctk.CTkFrame):
                 
                 if pil_image:
                     from PIL import ImageTk
-                    self.icon_image = ImageTk.PhotoImage(pil_image)
+                    icon_image = ImageTk.PhotoImage(pil_image)
+                    # Cache the icon
+                    self._icon_cache[cache_key] = icon_image
+                    self.icon_image = icon_image
             else:
                 import logging
                 logging.warning(f"Sidebar icon not found: {icon_path}")
@@ -641,7 +655,7 @@ class SidebarIconButton(ctk.CTkFrame):
             self._reset_to_normal_state()
     
     def _update_icon_color(self, color: str):
-        """Update the icon color"""
+        """Update the icon color with caching"""
         if not self.icon_filename:
             return
             
@@ -649,6 +663,16 @@ class SidebarIconButton(ctk.CTkFrame):
             from iris.app.ui.utils.ui_icon_utils import transform_monochrome_icon
             from iris.app.ui.ui_theme import theme
             from pathlib import Path
+            
+            icon_size = int(theme.icon_properties.base_size * theme.icon_properties.size_multiplier)
+            cache_key = f"{self.icon_filename}_{icon_size}_{color}"
+            
+            # Check cache first
+            if cache_key in self._icon_cache:
+                cached_image = self._icon_cache[cache_key]
+                self.icon_label.configure(image=cached_image)
+                self.icon_image = cached_image
+                return
             
             # Get icon path relative to this file (works in both dev and installed mode)
             current_file = Path(__file__).resolve()
@@ -659,12 +683,13 @@ class SidebarIconButton(ctk.CTkFrame):
             icon_path = app_dir / "assets" / "icons" / self.icon_filename
             
             if icon_path.exists():
-                icon_size = int(theme.icon_properties.base_size * theme.icon_properties.size_multiplier)
                 pil_image = transform_monochrome_icon(str(icon_path), color, (icon_size, icon_size))
                 
                 if pil_image:
                     from PIL import ImageTk
                     new_image = ImageTk.PhotoImage(pil_image)
+                    # Cache the colored icon
+                    self._icon_cache[cache_key] = new_image
                     self.icon_label.configure(image=new_image)
                     self.icon_image = new_image  # Keep reference
         except Exception as e:

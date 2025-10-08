@@ -38,6 +38,10 @@ class AppControlRoom:
         self.current_tab = "Marks"
         self._settings_service = None
         
+        # View caching for performance
+        self._view_cache = {}
+        self._current_view = None
+        
         # Initialize components
         self._initialize_controllers()
         self._initialize_specialized_views()
@@ -306,7 +310,7 @@ class AppControlRoom:
             self.header_subtitle.configure(text=text)
 
     def show_tab(self, tab_name):
-        """Show the specified tab"""
+        """Show the specified tab with view caching for performance"""
         self.current_tab = tab_name
         
         # Update header
@@ -322,49 +326,67 @@ class AppControlRoom:
         if tab_name in subtitles:
             self._set_header_subtitle(subtitles[tab_name])
         
-        # Clear current content
-        try:
-            for widget in list(self.content_frame.winfo_children()):
-                widget.destroy()
-        except Exception as e:
-            self.logger.debug(f"Error clearing content: {e}")
-            
-        # Create the requested tab
-        tab_creators = {
-            "Sounds": self.create_sounds_tab,
-            "Marks": self.create_marks_tab,
-            "Commands": self.create_commands_tab,
-            "Dictation": self.create_dictation_tab,
-            "Settings": self.create_settings_tab
-        }
+        # Hide current view instead of destroying
+        if self._current_view is not None:
+            try:
+                self._current_view.grid_remove()
+            except Exception as e:
+                self.logger.debug(f"Error hiding current view: {e}")
         
-        if tab_name in tab_creators:
-            tab_creators[tab_name]()
+        # Get or create the requested view
+        if tab_name not in self._view_cache:
+            self.logger.debug(f"Creating new view for tab: {tab_name}")
+            tab_creators = {
+                "Sounds": self.create_sounds_tab,
+                "Marks": self.create_marks_tab,
+                "Commands": self.create_commands_tab,
+                "Dictation": self.create_dictation_tab,
+                "Settings": self.create_settings_tab
+            }
+            
+            if tab_name in tab_creators:
+                tab_creators[tab_name]()
+        else:
+            # Reuse cached view
+            self.logger.debug(f"Reusing cached view for tab: {tab_name}")
+            cached_view = self._view_cache[tab_name]
+            cached_view.grid(row=0, column=0, sticky="nsew")
+            self._current_view = cached_view
     
     def create_sounds_tab(self):
-        """Create the sounds tab"""
+        """Create the sounds tab and cache it"""
         self.sound_view = SoundView(self.content_frame, self.sound_controller, self.root)
         self.sound_view.grid(row=0, column=0, sticky="nsew")
+        self._view_cache["Sounds"] = self.sound_view
+        self._current_view = self.sound_view
 
     def create_marks_tab(self):
-        """Create the marks tab"""
+        """Create the marks tab and cache it"""
         self.marks_view = MarksView(self.content_frame, self.marks_controller)
         self.marks_view.grid(row=0, column=0, sticky="nsew")
+        self._view_cache["Marks"] = self.marks_view
+        self._current_view = self.marks_view
 
     def create_settings_tab(self):
-        """Create the settings tab"""
+        """Create the settings tab and cache it"""
         self.settings_view = SettingsView(self.content_frame, self.settings_controller, self.root)
         self.settings_view.grid(row=0, column=0, sticky="nsew")
+        self._view_cache["Settings"] = self.settings_view
+        self._current_view = self.settings_view
 
     def create_commands_tab(self):
-        """Create the commands tab"""
+        """Create the commands tab and cache it"""
         self.commands_view = CommandsView(self.content_frame, self.commands_controller, self.root, self.logger)
         self.commands_view.grid(row=0, column=0, sticky="nsew")
+        self._view_cache["Commands"] = self.commands_view
+        self._current_view = self.commands_view
 
     def create_dictation_tab(self):
-        """Create the dictation tab"""
+        """Create the dictation tab and cache it"""
         self.dictation_view = DictationView(self.content_frame, self.dictation_controller)
         self.dictation_view.grid(row=0, column=0, sticky="nsew")
+        self._view_cache["Dictation"] = self.dictation_view
+        self._current_view = self.dictation_view
 
     def _on_close(self):
         """Handle window close event"""
@@ -378,6 +400,18 @@ class AppControlRoom:
     def cleanup_controllers(self):
         """Clean up all controllers when shutting down"""
         try:
+            # Clean up cached views first
+            for view_name, view in self._view_cache.items():
+                try:
+                    if hasattr(view, 'destroy'):
+                        view.destroy()
+                except Exception as e:
+                    self.logger.debug(f"Error destroying cached view {view_name}: {e}")
+            
+            self._view_cache.clear()
+            self._current_view = None
+            
+            # Clean up controllers
             controllers = [
                 'marks_controller', 'sound_controller', 'dictation_controller',
                 'settings_controller', 'commands_controller', 'grid_controller',

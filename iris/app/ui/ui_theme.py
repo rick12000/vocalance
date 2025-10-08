@@ -53,11 +53,11 @@ class TextColors(BaseModel):
 
 class ShapeColors(BaseModel):
     """Shape/background color design tokens - 5 shades from light to dark"""
-    lightest: str = "#424242"
-    light: str = "#3b3b3b"
-    medium: str = "#2e2e2e"
-    dark: str = "#222223"
-    darkest: str = "#1d1d1e"
+    lightest: str = "#313434"
+    light: str = "#2a2c2c"
+    medium: str = "#232525"
+    dark: str = "#1f2020"
+    darkest: str = "#1b1c1c"
 
 
 class AccentColors(BaseModel):
