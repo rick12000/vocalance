@@ -33,7 +33,7 @@ class CommandsView(BaseView):
     
     def _setup_add_command_form(self) -> None:
         """Setup add command form using form builder"""
-        container = self.layout.left_box
+        container = self.layout.left_content
         FormBuilder.setup_form_grid(container, 6)
         
         # Form fields
@@ -54,7 +54,7 @@ class CommandsView(BaseView):
     
     def _setup_commands_list_panel(self) -> None:
         """Setup commands list panel"""
-        container = self.layout.right_box
+        container = self.layout.right_content
         container.grid_rowconfigure(0, weight=1)
         container.grid_rowconfigure(1, weight=0)
         container.grid_columnconfigure(0, weight=1)
@@ -62,16 +62,18 @@ class CommandsView(BaseView):
         # Scrollable list
         self.command_list_container = ThemedScrollableFrame(container)
         self.command_list_container.grid(row=0, column=0, sticky="nsew", 
-                                        padx=view_config.theme.spacing.small, 
-                                        pady=(view_config.theme.spacing.small, 0))
+                                        padx=view_config.theme.two_box_layout.box_content_padding, 
+                                        pady=(0, view_config.theme.spacing.small))
         
-        # Buttons
+        # Buttons with bottom padding for rounded corners
         FormBuilder.create_button_row(
             container,
             [
                 {"text": view_config.theme.button_text.reset, "command": self._on_reset_to_defaults_clicked, "type": "danger"}
             ],
-            row=1
+            row=1,
+            extra_pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
+            extra_padx=view_config.theme.two_box_layout.box_content_padding
         )
     
     def _on_add_command_clicked(self) -> None:

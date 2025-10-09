@@ -31,13 +31,15 @@ class MarksView(BaseView):
 
     def _setup_instructions_panel(self) -> None:
         """Setup voice commands instructions panel"""
-        container = self.layout.left_box
+        container = self.layout.left_content
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
         
-        # Container for tiles
+        # Container for tiles with proper padding
         tiles_container = TransparentFrame(container)
-        tiles_container.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        tiles_container.grid(row=0, column=0, sticky="nsew", 
+                           padx=view_config.theme.two_box_layout.box_content_padding, 
+                           pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding))
         
         # Configure grid for 3 rows, 1 column
         for i in range(3):
@@ -59,7 +61,7 @@ class MarksView(BaseView):
 
     def _setup_marks_panel(self) -> None:
         """Setup marks management panel"""
-        container = self.layout.right_box
+        container = self.layout.right_content
         container.grid_rowconfigure(0, weight=1)
         container.grid_rowconfigure(1, weight=0)
         container.grid_columnconfigure(0, weight=1)
@@ -68,10 +70,11 @@ class MarksView(BaseView):
         self.marks_scroll_frame = ThemedScrollableFrame(container)
         self.marks_scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
-        # Button frame
+        # Button frame with bottom padding for rounded corners
         button_frame = TransparentFrame(container)
         button_frame.grid(row=1, column=0, sticky="ew", 
-                         pady=view_config.theme.spacing.small, padx=20)
+                         pady=(view_config.theme.spacing.small, view_config.theme.two_box_layout.last_element_bottom_padding), 
+                         padx=view_config.theme.two_box_layout.box_content_padding)
         button_frame.grid_columnconfigure(0, weight=1)
         button_frame.grid_columnconfigure(1, weight=1)
         

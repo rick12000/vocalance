@@ -34,7 +34,7 @@ class SoundView(BaseView):
 
     def _setup_training_form(self) -> None:
         """Setup training form using form builder"""
-        container = self.layout.left_box
+        container = self.layout.left_content
         FormBuilder.setup_form_grid(container, 6)
         
         # Create form fields
@@ -78,20 +78,22 @@ class SoundView(BaseView):
 
     def _setup_sounds_list_panel(self) -> None:
         """Setup sounds list panel"""
-        container = self.layout.right_box
+        container = self.layout.right_content
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
         
         self.sounds_scroll_frame = ThemedScrollableFrame(container)
         self.sounds_scroll_frame.grid(row=0, column=0, sticky="nsew", 
-                                     padx=view_config.theme.spacing.small, 
-                                     pady=(view_config.theme.spacing.small, 0))
+                                     padx=view_config.theme.two_box_layout.box_content_padding, 
+                                     pady=(0, view_config.theme.spacing.small))
         
-        # Delete all button
+        # Delete all button with bottom padding for rounded corners
         FormBuilder.create_button_row(
             container,
             [{"text": view_config.theme.button_text.delete_all_sounds, "command": self._delete_all_sounds, "type": "danger"}],
-            row=1
+            row=1,
+            extra_pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
+            extra_padx=view_config.theme.two_box_layout.box_content_padding
         )
 
     def _start_training(self) -> None:

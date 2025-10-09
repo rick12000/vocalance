@@ -53,11 +53,12 @@ class TextColors(BaseModel):
 
 class ShapeColors(BaseModel):
     """Shape/background color design tokens - 5 shades from light to dark"""
-    lightest: str = "#313434"
+    accent: str = "#b4c7c6"
+    lightest: str = "#494e4e"
     light: str = "#2a2c2c"
-    medium: str = "#232525"
-    dark: str = "#1f2020"
-    darkest: str = "#1b1c1c"
+    medium: str = "#373a3a"
+    dark: str = "#171818"
+    darkest: str = "#141515"
 
 
 class AccentColors(BaseModel):
@@ -272,8 +273,6 @@ class TwoBoxLayout(BaseModel):
         """Box background color - shape_colors.dark"""
         return ShapeColors().dark
     
-    # Note: Title alignment is now handled automatically by aligning with box content
-    
     # Box spacing and padding
     outer_padding_left: int = 50
     outer_padding_right: int = 50
@@ -281,9 +280,15 @@ class TwoBoxLayout(BaseModel):
     outer_padding_bottom: int = 25
     inner_spacing: int = 25  # Space between left and right boxes
     
-    # Title positioning
-    title_padding_x: int = 10
-    title_padding_y: int = 10
+    # Box content padding (inside the box frame)
+    box_content_padding: int = 20  # Padding inside boxes
+    
+    # Title positioning inside box
+    title_padding_top: int = 20
+    title_padding_bottom: int = 10
+    
+    # Bottom padding for last element to show rounded corners
+    last_element_bottom_padding: int = 20
 
 
 class TileLayout(BaseModel):
@@ -300,8 +305,14 @@ class TileLayout(BaseModel):
     content_font_size: str = "small"  # Smaller content font as requested
     content_text_alignment: str = "center"  # Center align text as requested
     
-    # Tile background color
-    background_color: str = ShapeColors().medium  # Changed from light to medium
+    # Tile background and border
+    background_color: str = "transparent"  # Transparent background
+    border_width: int = 1
+    
+    @property
+    def border_color(self) -> str:
+        """Border color - shape_colors.lightest"""
+        return ShapeColors().lightest
 
 
 class ListLayout(BaseModel):
@@ -322,7 +333,7 @@ class LogoProperties(BaseModel):
     @property
     def color(self) -> str:
         """Logo color - shape_colors.light"""
-        return ShapeColors().light
+        return ShapeColors().accent
 
 
 class EntryFieldStyling(BaseModel):
@@ -343,17 +354,21 @@ class EntryFieldStyling(BaseModel):
 
 class IconProperties(BaseModel):
     """Icon styling properties"""
-    # Icon size multiplier (1.0 = base size, 0.5 = half size, 2.0 = double size)
-    size_multiplier: float = 1.2
-    
     # Base icon size in pixels
     base_size: int = 30
     
+    # Icon size multiplier (1.0 = base size, 0.5 = half size, 2.0 = double size)
+    size_multiplier: float = 1.2
+    
+    # Icon size as percentage of available button width for responsive sizing
+    # Set to None to use base_size * size_multiplier instead
+    width_percentage: float = 0.35
+    
     # Icon color (hex color for monochrome icon recoloring)
-    color: str = ShapeColors().light  # Changed from light to light (keeping as light)
+    color: str = ShapeColors().medium
     
     # Spacing between icon and text (vertical padding)
-    icon_text_spacing: int = 2
+    icon_text_spacing: int = 5
 
 
 class BorderRadius(BaseModel):

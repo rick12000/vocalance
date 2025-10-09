@@ -30,8 +30,8 @@ class ThemedButton(ctk.CTkButton):
         font_tuple = theme.font_family.get_button_font(size)
         
         # Get default colors using shape colors directly
-        fg_color = theme.shape_colors.medium  # Use shape_colors.medium for normal buttons
-        text_color = theme.text_colors.light
+        fg_color = theme.shape_colors.accent  # Use shape_colors.accent for normal buttons
+        text_color = theme.shape_colors.dark
         hover_color = theme.shape_colors.lightest
         
         # Set default attributes
@@ -82,10 +82,12 @@ class DangerButton(ThemedButton):
     """Danger themed button"""
     
     def __init__(self, parent, text: str = "", command: Optional[Callable] = None, **kwargs):
-        # Set danger colors using shape colors directly
-        kwargs.setdefault("fg_color", theme.shape_colors.light)  # Use shape_colors.light for danger buttons
-        kwargs.setdefault("text_color", theme.text_colors.dark)
+        # Set danger colors - transparent with border
+        kwargs.setdefault("fg_color", "transparent")
+        kwargs.setdefault("text_color", theme.text_colors.light)
         kwargs.setdefault("hover_color", theme.shape_colors.darkest)
+        kwargs.setdefault("border_width", 1)
+        kwargs.setdefault("border_color", theme.shape_colors.lightest)
         super().__init__(parent, text=text, command=command, **kwargs)
 
 
@@ -161,8 +163,8 @@ class ThemedFrame(ctk.CTkFrame):
         default_kwargs = {
             "fg_color": theme.shape_colors.medium,
             "corner_radius": theme.border_radius.medium,
-            "border_width": 0.5,
-            "border_color": theme.shape_colors.darkest,
+            "border_width": 1,
+            "border_color": theme.shape_colors.medium,
         }
         
         # Override with any custom kwargs
@@ -205,7 +207,8 @@ class TileFrame(ctk.CTkFrame):
         default_kwargs = {
             "fg_color": theme.tile_layout.background_color,  # Use theme background color
             "corner_radius": theme.tile_layout.corner_radius,
-            "border_width": 0,
+            "border_width": theme.tile_layout.border_width,
+            "border_color": theme.tile_layout.border_color,
         }
         
         # Override with any custom kwargs
@@ -298,63 +301,76 @@ class TwoColumnTabLayout(TransparentFrame):
         super().__init__(parent)
         
         # Configure main grid for full expansion with consistent weights and minimum sizes
-        self.grid_rowconfigure(0, weight=0)  # Title row - fixed height
-        self.grid_rowconfigure(1, weight=1)  # Content row - expandable, fills remaining space
+        self.grid_rowconfigure(0, weight=1)  # Content row - expandable, fills remaining space
         self.grid_columnconfigure(0, weight=1, minsize=300)  # Left column - exactly 50% width, minimum 300px
         self.grid_columnconfigure(1, weight=1, minsize=300)  # Right column - exactly 50% width, minimum 300px
         
-        # Create title labels - align with their respective box content
-        left_title_label = BoxTitle(self, text=left_title)
-        left_title_label.grid(
-            row=0, column=0, sticky="w",
-            padx=(theme.two_box_layout.outer_padding_left, 0),  # Align with left box content
-            pady=(theme.two_box_layout.title_padding_y, theme.spacing.tiny)
-        )
+        # Create content boxes with titles inside
+        # Ensure left/right padding equals inner spacing between boxes
+        half_spacing = theme.two_box_layout.inner_spacing // 2
         
-        right_title_label = BoxTitle(self, text=right_title)
-        right_title_label.grid(
-            row=0, column=1, sticky="w",
-            padx=(theme.two_box_layout.inner_spacing // 2, 0),  # Align with right box content
-            pady=(theme.two_box_layout.title_padding_y, theme.spacing.tiny)
-        )
-        
-        # Create content boxes using shape colors directly - using BorderlessFrame for clean appearance
         self.left_box = BorderlessFrame(
             self,
-            fg_color=theme.shape_colors.dark,  # Use shape_colors.dark for content boxes
+            fg_color=theme.shape_colors.dark,
             corner_radius=theme.two_box_layout.box_corner_radius
         )
         self.left_box.grid(
-            row=1, column=0, sticky="nsew",
-            padx=(theme.two_box_layout.outer_padding_left, theme.two_box_layout.inner_spacing // 2),
-            pady=(0, theme.two_box_layout.outer_padding_bottom)
+            row=0, column=0, sticky="nsew",
+            padx=(theme.two_box_layout.inner_spacing, half_spacing),
+            pady=(theme.two_box_layout.outer_padding_top, theme.two_box_layout.outer_padding_bottom)
         )
         
         self.right_box = BorderlessFrame(
             self,
-            fg_color=theme.shape_colors.dark,  # Use shape_colors.dark for content boxes
+            fg_color=theme.shape_colors.dark,
             corner_radius=theme.two_box_layout.box_corner_radius
         )
         self.right_box.grid(
-            row=1, column=1, sticky="nsew",
-            padx=(theme.two_box_layout.inner_spacing // 2, theme.two_box_layout.outer_padding_right),
-            pady=(0, theme.two_box_layout.outer_padding_bottom)
+            row=0, column=1, sticky="nsew",
+            padx=(half_spacing, theme.two_box_layout.inner_spacing),
+            pady=(theme.two_box_layout.outer_padding_top, theme.two_box_layout.outer_padding_bottom)
         )
         
-        # Force consistent internal grid configuration for all boxes
-        # This ensures all content expands properly and consistently
-        self.left_box.grid_rowconfigure(0, weight=1)    # Content expands vertically
-        self.left_box.grid_columnconfigure(0, weight=1) # Content expands horizontally
-        self.right_box.grid_rowconfigure(0, weight=1)   # Content expands vertically
-        self.right_box.grid_columnconfigure(0, weight=1)# Content expands horizontally
+        # Configure box grids - title at top, content below
+        self.left_box.grid_rowconfigure(0, weight=0)  # Title row - fixed height
+        self.left_box.grid_rowconfigure(1, weight=1)  # Content row - expands
+        self.left_box.grid_columnconfigure(0, weight=1)
+        
+        self.right_box.grid_rowconfigure(0, weight=0)  # Title row - fixed height
+        self.right_box.grid_rowconfigure(1, weight=1)  # Content row - expands
+        self.right_box.grid_columnconfigure(0, weight=1)
+        
+        # Create title labels inside boxes with proper padding
+        left_title_label = BoxTitle(self.left_box, text=left_title)
+        left_title_label.grid(
+            row=0, column=0, sticky="w",
+            padx=(theme.two_box_layout.box_content_padding, theme.two_box_layout.box_content_padding),
+            pady=(theme.two_box_layout.title_padding_top, theme.two_box_layout.title_padding_bottom)
+        )
+        
+        right_title_label = BoxTitle(self.right_box, text=right_title)
+        right_title_label.grid(
+            row=0, column=0, sticky="w",
+            padx=(theme.two_box_layout.box_content_padding, theme.two_box_layout.box_content_padding),
+            pady=(theme.two_box_layout.title_padding_top, theme.two_box_layout.title_padding_bottom)
+        )
+        
+        # Create content containers for user content
+        self.left_content = TransparentFrame(self.left_box)
+        self.left_content.grid(row=1, column=0, sticky="nsew")
+        self.left_content.grid_rowconfigure(0, weight=1)
+        self.left_content.grid_columnconfigure(0, weight=1)
+        
+        self.right_content = TransparentFrame(self.right_box)
+        self.right_content.grid(row=1, column=0, sticky="nsew")
+        self.right_content.grid_rowconfigure(0, weight=1)
+        self.right_content.grid_columnconfigure(0, weight=1)
         
         # Ensure boxes expand to fill available space consistently
-        # This prevents content from dictating the box size
-        self.left_box.grid_propagate(False)  # Allow expansion
-        self.right_box.grid_propagate(False) # Allow expansion
+        self.left_box.grid_propagate(False)
+        self.right_box.grid_propagate(False)
         
         # Override any child grid configuration that might break consistency
-        # This ensures no child content can override the consistent column sizing
         self.configure_consistent_child_grids()
 
     def configure_consistent_child_grids(self):
@@ -491,17 +507,22 @@ class SidebarIconButton(ctk.CTkFrame):
         self.command = command
         self.icon_filename = icon_filename
         
-        # Calculate icon size
-        icon_size = int(theme.icon_properties.base_size * theme.icon_properties.size_multiplier)
+        # Calculate icon size using width_percentage for responsive sizing
+        available_width = theme.sidebar_layout.button_width
+        self.icon_size = int(available_width * theme.icon_properties.width_percentage)
         
         # Configure grid
         self.grid_columnconfigure(0, weight=1)
         
-        # Create button frame with minimum size and spacing
-        # Calculate height: icon (28px) + top padding (5px) + icon_text_spacing + text height (~15px) + bottom padding (5px)
-        icon_height = int(theme.icon_properties.base_size * theme.icon_properties.size_multiplier)
-        text_height = theme.font_sizes.small + 2  # Add small buffer for text
-        button_height = icon_height + theme.spacing.small + theme.icon_properties.icon_text_spacing + text_height + theme.spacing.small
+        # Create button frame
+        text_height = theme.font_sizes.small + 2
+        button_height = (
+            theme.spacing.small +
+            self.icon_size +
+            theme.icon_properties.icon_text_spacing +
+            text_height +
+            theme.spacing.small
+        )
         
         self.button_frame = ctk.CTkFrame(
             self,
@@ -519,7 +540,7 @@ class SidebarIconButton(ctk.CTkFrame):
         
         # Load and transform icon
         self.icon_image = None
-        self._load_icon(icon_size)
+        self._load_icon(self.icon_size)
         
         # Create icon label
         if self.icon_image:
@@ -587,8 +608,12 @@ class SidebarIconButton(ctk.CTkFrame):
                 )
                 
                 if pil_image:
-                    from PIL import ImageTk
-                    icon_image = ImageTk.PhotoImage(pil_image)
+                    # Use CTkImage for proper HiDPI scaling
+                    icon_image = ctk.CTkImage(
+                        light_image=pil_image,
+                        dark_image=pil_image,
+                        size=(icon_size, icon_size)
+                    )
                     # Cache the icon
                     self._icon_cache[cache_key] = icon_image
                     self.icon_image = icon_image
@@ -616,13 +641,10 @@ class SidebarIconButton(ctk.CTkFrame):
             self.command()
     
     def _on_enter(self, event):
-        """Handle mouse enter event - show border instead of background"""
+        """Handle mouse enter event - no border, just color change"""
         if not self.is_selected:
-            # Use border instead of background color
-            self.button_frame.configure(
-                border_width=theme.sidebar_layout.button_hover_border_width,  # Now 1px
-                border_color=theme.sidebar_layout.button_hover_border_color
-            )
+            # No border - just color change for hover effect
+            self.button_frame.configure(border_width=0)
             self.text_label.configure(text_color=self.hover_color)
             if hasattr(self, 'icon_label'):
                 self._update_icon_color(self.hover_color)
@@ -643,11 +665,8 @@ class SidebarIconButton(ctk.CTkFrame):
         """Set the selection state of the button"""
         self.is_selected = selected
         if selected:
-            # Use border for selection as well
-            self.button_frame.configure(
-                border_width=theme.sidebar_layout.button_hover_border_width,  # Now 1px
-                border_color=theme.sidebar_layout.button_hover_border_color
-            )
+            # No border for selection - just color change
+            self.button_frame.configure(border_width=0)
             self.text_label.configure(text_color=self.selected_color)
             if hasattr(self, 'icon_label'):
                 self._update_icon_color(self.selected_color)
@@ -661,11 +680,9 @@ class SidebarIconButton(ctk.CTkFrame):
             
         try:
             from iris.app.ui.utils.ui_icon_utils import transform_monochrome_icon
-            from iris.app.ui.ui_theme import theme
             from pathlib import Path
             
-            icon_size = int(theme.icon_properties.base_size * theme.icon_properties.size_multiplier)
-            cache_key = f"{self.icon_filename}_{icon_size}_{color}"
+            cache_key = f"{self.icon_filename}_{self.icon_size}_{color}"
             
             # Check cache first
             if cache_key in self._icon_cache:
@@ -683,11 +700,15 @@ class SidebarIconButton(ctk.CTkFrame):
             icon_path = app_dir / "assets" / "icons" / self.icon_filename
             
             if icon_path.exists():
-                pil_image = transform_monochrome_icon(str(icon_path), color, (icon_size, icon_size))
+                pil_image = transform_monochrome_icon(str(icon_path), color, (self.icon_size, self.icon_size))
                 
                 if pil_image:
-                    from PIL import ImageTk
-                    new_image = ImageTk.PhotoImage(pil_image)
+                    # Use CTkImage for proper HiDPI scaling
+                    new_image = ctk.CTkImage(
+                        light_image=pil_image,
+                        dark_image=pil_image,
+                        size=(self.icon_size, self.icon_size)
+                    )
                     # Cache the colored icon
                     self._icon_cache[cache_key] = new_image
                     self.icon_label.configure(image=new_image)

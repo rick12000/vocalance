@@ -32,7 +32,7 @@ class DictationView(BaseView):
 
     def _setup_add_prompt_form(self) -> None:
         """Setup the add prompt form using form builder"""
-        container = self.layout.left_box
+        container = self.layout.left_content
         FormBuilder.setup_form_grid(container, 4)
         
         # Create form fields using form builder
@@ -61,15 +61,15 @@ class DictationView(BaseView):
 
     def _setup_manage_prompts_panel(self) -> None:
         """Setup the manage prompts panel"""
-        container = self.layout.right_box
+        container = self.layout.right_content
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
         
         from iris.app.ui.views.components.themed_components import ThemedScrollableFrame
         self.prompts_container = ThemedScrollableFrame(container)
         self.prompts_container.grid(row=0, column=0, sticky="nsew", 
-                                   padx=view_config.theme.spacing.small, 
-                                   pady=view_config.theme.spacing.small)
+                                   padx=view_config.theme.two_box_layout.box_content_padding, 
+                                   pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding))
 
     def _add_prompt(self) -> None:
         """Add a new prompt with validation"""
@@ -83,13 +83,13 @@ class DictationView(BaseView):
         # Validate inputs
         if not title:
             FormBuilder.show_temporary_message(
-                self.layout.left_box, "Please enter a title for the prompt.", 4
+                self.layout.left_content, "Please enter a title for the prompt.", 4
             )
             return
         
         if not prompt_text:
             FormBuilder.show_temporary_message(
-                self.layout.left_box, "Please enter prompt instructions.", 4
+                self.layout.left_content, "Please enter prompt instructions.", 4
             )
             return
         

@@ -77,13 +77,18 @@ class FormBuilder:
     def create_button_row(
         parent: ctk.CTkFrame,
         buttons: List[Dict[str, Any]],
-        row: int = 0
+        row: int = 0,
+        extra_pady: Optional[Tuple[int, int]] = None,
+        extra_padx: Optional[int] = None
     ) -> List[ctk.CTkButton]:
         """Create a row of buttons with consistent spacing"""
+        pady = extra_pady if extra_pady is not None else view_config.theme.spacing.small
+        padx = extra_padx if extra_padx is not None else view_config.theme.spacing.medium
+        
         button_frame = ctk.CTkFrame(parent, fg_color="transparent")
         button_frame.grid(row=row, column=0, sticky="ew", 
-                         pady=view_config.theme.spacing.small, 
-                         padx=view_config.theme.spacing.medium)
+                         pady=pady, 
+                         padx=padx)
         
         created_buttons = []
         for i, btn_config in enumerate(buttons):
