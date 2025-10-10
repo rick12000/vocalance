@@ -19,21 +19,35 @@ class AutomationCommandRegistry:
     DEFAULT_COMMANDS = [
         # Tab/Window Management
         ExactMatchCommand(
-            command_key="new tango",
+            command_key="tango new",
             action_type="hotkey",
             action_value="ctrl+t",
             short_description="New Tab",
             long_description="Open a new tab in the current application"
         ),
         ExactMatchCommand(
-            command_key="close tango",
+            command_key="tango close",
             action_type="hotkey",
             action_value="ctrl+w",
             short_description="Close Tab",
             long_description="Close the current tab"
         ),
         ExactMatchCommand(
-            command_key="reopen tango",
+            command_key="close",
+            action_type="hotkey",
+            action_value="alt+f4",
+            short_description="Close Window",
+            long_description="Close the currently active window"
+        ),
+        ExactMatchCommand(
+            command_key="minimize",
+            action_type="key_sequence",
+            action_value="alt+space, n",
+            short_description="Minimize Window",
+            long_description="Minimize the currently active window to the taskbar"
+        ),
+        ExactMatchCommand(
+            command_key="tango reopen",
             action_type="hotkey",
             action_value="ctrl+shift+t",
             short_description="Reopen Tab",

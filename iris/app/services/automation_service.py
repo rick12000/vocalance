@@ -120,6 +120,10 @@ class AutomationService:
             elif action_type == "key":
                 return lambda: pyautogui.press(action_value)
                 
+            elif action_type == "key_sequence":
+                key_list = [key.strip() for key in action_value.split(',')]
+                return lambda: self._execute_key_sequence(key_list)
+                
             elif action_type == "click":
                 click_actions = {
                     "click": lambda: pyautogui.click(button='left'),
@@ -141,6 +145,16 @@ class AutomationService:
             logger.error(f"Error creating action function for {action_type}:{action_value}: {e}")
             
         return None
+
+    def _execute_key_sequence(self, key_list: list) -> None:
+        """Execute a sequence of keys or hotkeys in order"""
+        for key_combination in key_list:
+            if '+' in key_combination:
+                keys = [k.strip() for k in key_combination.split('+')]
+                pyautogui.hotkey(*keys)
+            else:
+                pyautogui.press(key_combination.strip())
+            time.sleep(0.25)
 
     def _check_cooldown(self, command_key: str) -> bool:
         """Check if command is not on cooldown"""
