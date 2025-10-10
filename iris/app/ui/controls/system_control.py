@@ -2,7 +2,7 @@ import logging
 import tkinter as tk
 import asyncio
 from iris.app.ui.controls.base_control import BaseController
-from iris.app.events.ui_events import GetMainWindowHandleRequest, GetMainWindowHandleResponse
+from iris.app.events.core_events import GetMainWindowHandleRequest, GetMainWindowHandleResponse
 from iris.app.events.core_events import CommandExecutedStatusEvent
 
 

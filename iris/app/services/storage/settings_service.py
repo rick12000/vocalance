@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.event_bus import EventBus
-from iris.app.events.settings_events import SettingsResponseEvent
+from iris.app.events.core_events import SettingsResponseEvent
 from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_settings, write_settings
 
 logger = logging.getLogger(__name__)

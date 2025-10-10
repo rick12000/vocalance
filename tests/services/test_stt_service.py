@@ -8,7 +8,7 @@ from unittest.mock import Mock, AsyncMock, patch
 
 from iris.app.services.audio.stt_service import SpeechToTextService, STTMode
 from iris.app.events.core_events import CommandAudioSegmentReadyEvent, DictationAudioSegmentReadyEvent
-from iris.app.events.stt_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent
+from iris.app.events.core_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent
 from iris.app.events.dictation_events import DictationModeDisableOthersEvent
 from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
 

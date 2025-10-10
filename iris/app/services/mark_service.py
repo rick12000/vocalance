@@ -19,7 +19,7 @@ from iris.app.events.mark_events import (
     MarkCreatedEventData, MarkDeletedEventData, MarkVisualizationStateChangedEventData,
     MarkOperationSuccessEventData, MarksChangedEventData,
     MarkVisualizeAllRequestEventData, MarkVisualizeCancelRequestEventData,
-    MarkShowNumbersRequestEventData, MarkHideNumbersRequestEventData, MarkExecuteRequestEventData,
+    MarkExecuteRequestEventData,
     MarkGetAllRequestEventData, MarkCreateRequestEventData, MarkDeleteByNameRequestEventData,
     MarkDeleteAllRequestEventData
 )
@@ -71,9 +71,7 @@ class MarkService:
         self._event_bus.subscribe(MarkExecuteRequestEventData, self._handle_execute_mark_request)
         self._event_bus.subscribe(MarkVisualizeAllRequestEventData, self._handle_visualize_all_request)
         self._event_bus.subscribe(MarkVisualizeCancelRequestEventData, self._handle_visualize_cancel_request)
-        self._event_bus.subscribe(MarkShowNumbersRequestEventData, self._handle_show_numbers_request)
-        self._event_bus.subscribe(MarkHideNumbersRequestEventData, self._handle_hide_numbers_request)
-        
+
         # Centralized command events
         self._event_bus.subscribe(MarkCommandParsedEvent, self._handle_mark_command_parsed)
         
@@ -381,14 +379,6 @@ class MarkService:
     async def _handle_visualize_cancel_request(self, event_data) -> None:
         """Handle cancel visualization request."""
         await self.visualize_marks(False)
-
-    async def _handle_show_numbers_request(self, event_data) -> None:
-        """Handle show mark numbers request."""
-        logger.debug("Show mark numbers requested")
-
-    async def _handle_hide_numbers_request(self, event_data) -> None:
-        """Handle hide mark numbers request."""
-        logger.debug("Hide mark numbers requested")
 
     async def _handle_visualization_state_changed(self, event_data: MarkVisualizationStateChangedEventData) -> None:
         """Handle visualization state changes."""

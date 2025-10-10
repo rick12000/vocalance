@@ -16,8 +16,7 @@ from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_command_history, write_command_history
 from iris.app.events.core_events import CommandAudioSegmentReadyEvent, AudioDetectedEvent
-from iris.app.events.markov_events import MarkovPredictionEvent, CommandExecutedEvent
-from iris.app.events.stt_events import CommandTextRecognizedEvent
+from iris.app.events.core_events import MarkovPredictionEvent, CommandTextRecognizedEvent
 from iris.app.events.command_events import (
     AutomationCommandParsedEvent,
     MarkCommandParsedEvent,
@@ -232,14 +231,6 @@ class MarkovCommandService:
                     # Update in-memory model
                     self._command_history.append(actual_command)
                     
-                    # Publish verified command event
-                    await self._event_bus.publish(
-                        CommandExecutedEvent(
-                            command_text=actual_command,
-                            timestamp=timestamp
-                        )
-                    )
-                    
                 else:
                     # Incorrect prediction!
                     logger.warning(
@@ -258,13 +249,6 @@ class MarkovCommandService:
                     })
                     
                     self._command_history.append(actual_command)
-                    
-                    await self._event_bus.publish(
-                        CommandExecutedEvent(
-                            command_text=actual_command,
-                            timestamp=timestamp
-                        )
-                    )
             
         except Exception as e:
             logger.error(f"Error handling STT feedback: {e}", exc_info=True)
@@ -336,14 +320,6 @@ class MarkovCommandService:
                 
                 # Update command history buffer
                 self._command_history.append(command_text)
-                
-                # Publish event
-                await self._event_bus.publish(
-                    CommandExecutedEvent(
-                        command_text=command_text,
-                        timestamp=timestamp
-                    )
-                )
                 
                 logger.debug(f"Command tracked: '{command_text}'")
             

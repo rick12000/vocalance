@@ -15,7 +15,7 @@ import librosa
 from typing import List, Tuple, Optional
 
 from iris.app.events.core_events import CommandAudioSegmentReadyEvent
-from iris.app.events.stt_events import CommandTextRecognizedEvent
+from iris.app.events.core_events import CommandTextRecognizedEvent
 
 
 class RecognitionCapture:

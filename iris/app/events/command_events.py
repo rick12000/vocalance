@@ -6,20 +6,12 @@ from iris.app.config.command_types import (
 )
 from iris.app.events.base_event import BaseEvent, EventPriority
 
-# ============================================================================
-# BASE COMMAND EVENT CLASSES
-# ============================================================================
-
 class BaseCommandEvent(BaseEvent):
     """Base class for all command events"""
     source: Optional[str] = Field(default=None, description="Source of the command (e.g., 'speech', 'sound:label')")
     context: Optional[Dict[str, Any]] = Field(default=None, description="Additional context information")
     priority: EventPriority = EventPriority.NORMAL
-
-# ============================================================================
-# SPECIFIC COMMAND EVENTS
-# ============================================================================
-
+    
 class DictationCommandParsedEvent(BaseCommandEvent):
     """Event published when a dictation command is parsed"""
     command: DictationCommandType = Field(..., description="The parsed dictation command")
@@ -39,10 +31,6 @@ class GridCommandParsedEvent(BaseCommandEvent):
 class SoundCommandParsedEvent(BaseCommandEvent):
     """Event published when a sound command is parsed"""
     command: SoundCommandType = Field(..., description="The parsed sound command")
-
-# ============================================================================
-# ERROR AND NO MATCH EVENTS
-# ============================================================================
 
 class CommandNoMatchEvent(BaseCommandEvent):
     """Event published when no command matches the input text"""

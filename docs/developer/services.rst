@@ -906,7 +906,6 @@ Event subscriptions:
 Event publications:
 
 - ``MarkovPredictionEvent``: Published to ``EventBus`` for STT bypass
-- ``CommandExecutedEvent``: Published after confirmed command execution (for internal tracking)
 
 Storage integration:
 

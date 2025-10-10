@@ -43,10 +43,9 @@ from iris.app.config.command_types import (
 
 # Import events
 from iris.app.events.core_events import (
-    StartRecordingCommand, StopRecordingCommand,
     CustomSoundRecognizedEvent, ProcessCommandPhraseEvent
 )
-from iris.app.events.stt_events import CommandTextRecognizedEvent
+from iris.app.events.core_events import CommandTextRecognizedEvent
 from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
 from iris.app.events.sound_events import (
     SoundToCommandMappingUpdatedEvent, 

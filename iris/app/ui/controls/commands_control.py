@@ -73,8 +73,7 @@ class CommandsController(BaseController):
 
     def handle_delete_command(self, command: AutomationCommand):
         """Handle delete command request from the view."""
-        command_phrase = command.command_key
-        event = DeleteCustomCommandEvent(command_phrase=command_phrase)
+        event = DeleteCustomCommandEvent(command=command)
         self.publish_event(event)
 
     def handle_reset_to_defaults(self):

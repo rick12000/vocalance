@@ -22,18 +22,8 @@ class MarkExecuteRequestEventData(BaseEvent):
     name_or_id: Union[str, int]
     priority: EventPriority = EventPriority.NORMAL
 
-class MarkRenameRequestEventData(BaseEvent):
-    old_name: str
-    new_name: str
-    priority: EventPriority = EventPriority.NORMAL
 
 class MarkGetAllRequestEventData(BaseEvent):
-    priority: EventPriority = EventPriority.NORMAL
-
-class MarkShowNumbersRequestEventData(BaseEvent):
-    priority: EventPriority = EventPriority.NORMAL
-
-class MarkHideNumbersRequestEventData(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
 
 class MarkVisualizeAllRequestEventData(BaseEvent):
@@ -69,13 +59,6 @@ class MarkVisualizationStateChangedEventData(BaseEvent):
     is_visible: bool
     priority: EventPriority = EventPriority.LOW
 
-class MarkOperationSuccessEventData(BaseEvent):
-    operation: str # e.g., "create", "delete", "execute", "reset"
-    label: Optional[str] = None
-    message: Optional[str] = None
-    marks_data: Optional[Dict[str, Any]] = None
-    priority: EventPriority = EventPriority.LOW
-
 class MarkOperationFailedEventData(BaseEvent):
     operation: str
     name_or_id: Optional[Union[str, int]] = None
@@ -83,9 +66,13 @@ class MarkOperationFailedEventData(BaseEvent):
     details: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
 
-class MarkNumbersVisibilityEventData(BaseEvent):
-    visible: bool
+class MarkOperationSuccessEventData(BaseEvent):
+    operation: str # e.g., "create", "delete", "execute", "reset"
+    label: Optional[str] = None
+    message: Optional[str] = None
+    marks_data: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
+
 
 # === MARK DATA MODELS ===
 

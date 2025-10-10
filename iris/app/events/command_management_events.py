@@ -16,7 +16,7 @@ class UpdateCommandPhraseEvent(BaseEvent):
 
 class DeleteCustomCommandEvent(BaseEvent):
     """Event to delete a custom command"""
-    command_phrase: str
+    command: AutomationCommand
     priority: EventPriority = EventPriority.NORMAL
 
 class CommandMappingsUpdatedEvent(BaseEvent):

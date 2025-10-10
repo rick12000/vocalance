@@ -222,16 +222,17 @@ class CommandManagementService:
 
     async def _handle_delete_custom_command(self, event: DeleteCustomCommandEvent) -> None:
         """Handle delete custom command request."""
+        command_phrase = event.command.command_key.lower().strip()
         custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
-        if event.command_phrase in custom_commands:
-            del custom_commands[event.command_phrase]
+        if command_phrase in custom_commands:
+            del custom_commands[command_phrase]
             success = await UnifiedStorageServiceExtensions.save_custom_commands(self._storage, custom_commands)
         else:
             success = True
-        
+
         if success:
-            await self._publish_mappings_updated(True, f"Deleted custom command: {event.command_phrase}")
-            logger.info(f"Deleted custom command: {event.command_phrase}")
+            await self._publish_mappings_updated(True, f"Deleted custom command: {command_phrase}")
+            logger.info(f"Deleted custom command: {command_phrase}")
         else:
             await self._publish_validation_error("Failed to delete custom command")
 

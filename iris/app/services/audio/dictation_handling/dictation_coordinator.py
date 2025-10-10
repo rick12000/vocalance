@@ -22,12 +22,12 @@ from iris.app.services.audio.dictation_handling.llm_support.llm_service import L
 from iris.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from iris.app.events.dictation_events import (
     DictationStartedEvent, DictationStoppedEvent, DictationStatusChangedEvent, DictationErrorEvent,
-    SmartDictationStartedEvent, SmartDictationStoppedEvent, StandardDictationEnabledEvent,
+    SmartDictationStartedEvent, SmartDictationStoppedEvent,
     SmartDictationEnabledEvent, TypeDictationEnabledEvent, AudioModeChangeRequestEvent,
     LLMProcessingStartedEvent, LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent,
     DictationModeDisableOthersEvent, SmartDictationTextDisplayEvent, LLMProcessingReadyEvent
 )
-from iris.app.events.stt_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent
+from iris.app.events.core_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent
 from iris.app.events.core_events import CustomSoundRecognizedEvent
 from iris.app.events.command_events import DictationCommandParsedEvent
 from iris.app.utils.event_utils import ThreadSafeEventPublisher, EventSubscriptionManager

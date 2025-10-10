@@ -7,7 +7,7 @@ import asyncio
 from unittest.mock import Mock, AsyncMock
 
 from iris.app.services.centralized_command_parser import CentralizedCommandParser
-from iris.app.events.stt_events import CommandTextRecognizedEvent
+from iris.app.events.core_events import CommandTextRecognizedEvent
 from iris.app.events.core_events import CustomSoundRecognizedEvent, ProcessCommandPhraseEvent
 from iris.app.events.command_events import (
     DictationCommandParsedEvent, AutomationCommandParsedEvent,

@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 import asyncio
 from iris.app.ui.controls.base_control import BaseController
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.events.settings_events import SettingsResponseEvent
+from iris.app.events.core_events import SettingsResponseEvent
 
 
 class SettingsController(BaseController):

@@ -1,23 +1,15 @@
 from iris.app.events.base_event import BaseEvent, EventPriority
-from pydantic import Field
+from pydantic import Field, BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import uuid
 import numpy as np
 
-# === AUDIO EVENTS ===
 
-class StartRecordingCommand(BaseEvent):
+class RecordingTriggerEvent(BaseEvent):
+    """Unified event for starting or stopping audio recording"""
+    trigger: str = Field(..., description="Recording action: 'start' or 'stop'")
     priority: EventPriority = EventPriority.CRITICAL
-
-class StopRecordingCommand(BaseEvent):
-    priority: EventPriority = EventPriority.CRITICAL
-
-class RequestAudioSampleForTrainingCommand(BaseEvent):
-    label: str
-    sample_idx: int
-    duration_sec: float = 3.0
-    priority: EventPriority = EventPriority.NORMAL
 
 class CommandAudioSegmentReadyEvent(BaseEvent):
     audio_bytes: bytes
@@ -34,25 +26,10 @@ class AudioDetectedEvent(BaseEvent):
     timestamp: float = Field(description="Timestamp when audio was detected")
     priority: EventPriority = EventPriority.CRITICAL
 
-class AudioSampleForTrainingReadyEvent(BaseEvent):
-    audio_bytes: bytes
-    sample_rate: int
-    label: str
-    sample_idx: int
-    priority: EventPriority = EventPriority.NORMAL
-
-class AudioRecordingStateEvent(BaseEvent):
-    is_recording: bool
-    priority: EventPriority = EventPriority.LOW
-
-# VADSegmentDetectedEvent removed - unused in codebase
-
 class ProcessAudioChunkForSoundRecognitionEvent(BaseEvent):
     audio_chunk: bytes
     sample_rate: int = 16000
     priority: EventPriority = EventPriority.HIGH
-
-# === COMMAND EVENTS ===
 
 class TextRecognizedEvent(BaseEvent):
     text: str
@@ -68,15 +45,6 @@ class ProcessCommandPhraseEvent(BaseEvent):
     context: Optional[Any] = None
     priority: EventPriority = EventPriority.HIGH
 
-class ParsedCommandReadyEvent(BaseEvent):
-    parsed_command: Dict[str, Any]
-    priority: EventPriority = EventPriority.NORMAL
-
-class CommandParseFailedEvent(BaseEvent):
-    phrase: str
-    error_message: str
-    priority: EventPriority = EventPriority.NORMAL
-
 class CommandExecutedStatusEvent(BaseEvent):
     command: Dict[str, Any]
     success: bool
@@ -84,12 +52,6 @@ class CommandExecutedStatusEvent(BaseEvent):
     source: Optional[str] = None
     priority: EventPriority = EventPriority.NORMAL
 
-# StopFurtherProcessingForSegmentEvent removed - imported but never used
-
-
-# STT processing events moved to stt_events.py to avoid duplication
-
-# === SOUND RECOGNITION EVENTS ===
 
 class CustomSoundRecognizedEvent(BaseEvent):
     label: str
@@ -97,12 +59,6 @@ class CustomSoundRecognizedEvent(BaseEvent):
     mapped_command: Optional[str] = None
     priority: EventPriority = EventPriority.HIGH
 
-class SoundModelUpdatedEvent(BaseEvent):
-    label: str
-    model_path: str
-    priority: EventPriority = EventPriority.LOW
-
-# === CLICK EVENTS ===
 
 class PerformMouseClickEventData(BaseEvent):
     x: int
@@ -114,4 +70,64 @@ class ClickLoggedEventData(BaseEvent):
     x: int
     y: int
     timestamp: float
-    priority: EventPriority = EventPriority.LOW 
+    priority: EventPriority = EventPriority.LOW
+
+
+class MarkovPredictionEvent(BaseEvent):
+    """Published when Markov chain predicts a command with high confidence"""
+    predicted_command: str = Field(description="The predicted command text")
+    confidence: float = Field(description="Confidence probability (0.0-1.0)")
+    audio_id: int = Field(description="ID of the audio bytes that triggered this prediction")
+    priority: EventPriority = EventPriority.CRITICAL
+
+
+class SettingsResponseEvent(BaseEvent):
+    """Event containing current effective settings for UI and services"""
+    settings: Dict[str, Any]
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class CommandTextRecognizedEvent(TextRecognizedEvent):
+    """
+    Published when the STT service recognizes text in command mode.
+    This is typically from a faster, less accurate engine like Vosk.
+    It's used for application commands and for detecting stop words during dictation.
+    """
+    pass
+
+
+class DictationTextRecognizedEvent(TextRecognizedEvent):
+    """
+    Published when the STT service recognizes text in dictation mode.
+    This is typically from a more accurate, slower engine like Whisper.
+    """
+    pass
+
+
+class STTProcessingStartedEvent(BaseEvent):
+    """Event indicating STT processing has started"""
+    engine: str = Field(description="STT engine being used")
+    mode: str = Field(description="Processing mode (command, dictation)")
+    audio_size_bytes: int = Field(description="Size of audio being processed")
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class STTProcessingCompletedEvent(BaseEvent):
+    """Event indicating STT processing has completed"""
+    engine: str = Field(description="STT engine that was used")
+    mode: str = Field(description="Processing mode (command, dictation)")
+    processing_time_ms: float = Field(description="Processing time in milliseconds")
+    text_length: int = Field(description="Length of recognized text")
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class GetMainWindowHandleRequest(BaseEvent):
+    """Event to request the main window handle (e.g., HWND)."""
+    priority: EventPriority = EventPriority.CRITICAL
+
+
+class GetMainWindowHandleResponse(BaseEvent):
+    """Event carrying the main window handle or an error if it couldn't be retrieved."""
+    hwnd: Optional[int] = None
+    error_message: Optional[str] = None
+    priority: EventPriority = EventPriority.CRITICAL

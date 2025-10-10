@@ -13,14 +13,6 @@ class DictationStoppedEvent(BaseEvent):
     total_text: str = Field(description="Complete text that was dictated")
     priority: EventPriority = EventPriority.NORMAL
 
-class DictationTextEvent(BaseEvent):
-    """Event fired when new text is recognized during dictation"""
-    text: str = Field(description="The recognized text to be typed")
-    mode: str = Field(description="Type of dictation mode: 'continuous' or 'type'")
-    is_incremental: bool = Field(default=True, description="Whether this is incremental text or complete replacement")
-    priority: EventPriority = EventPriority.HIGH
-
-# DictationTimeoutEvent removed - unused in codebase
 
 class DictationErrorEvent(BaseEvent):
     """Event fired when an error occurs during dictation"""
@@ -42,17 +34,6 @@ class DictationModeDisableOthersEvent(BaseEvent):
     dictation_mode: str = Field(description="Current dictation mode")
     priority: EventPriority = EventPriority.CRITICAL
 
-# New streamlined dictation events
-class StandardDictationEnabledEvent(BaseEvent):
-    """Event fired when standard dictation is enabled (green trigger word detected)"""
-    trigger_word: str = Field(description="The trigger word that was detected")
-    priority: EventPriority = EventPriority.NORMAL
-
-class StandardDictationDisabledEvent(BaseEvent):
-    """Event fired when standard dictation is disabled (amber stop word detected)"""
-    stop_word: str = Field(description="The stop word that was detected")
-    priority: EventPriority = EventPriority.NORMAL
-
 class SmartDictationEnabledEvent(BaseEvent):
     """Event fired when smart dictation is enabled (smart green trigger detected)"""
     trigger_word: str = Field(description="The trigger word that was detected")
@@ -69,7 +50,6 @@ class AudioModeChangeRequestEvent(BaseEvent):
     reason: str = Field(description="Reason for the mode change")
     priority: EventPriority = EventPriority.CRITICAL
 
-# Smart dictation events
 class SmartDictationStartedEvent(BaseEvent):
     """Event fired when smart dictation mode is activated"""
     mode: str = Field(default="smart", description="Smart dictation mode")
@@ -125,6 +105,7 @@ class AgenticPromptListUpdatedEvent(BaseEvent):
     """Event fired when the list of agentic prompts is updated"""
     prompts: list = Field(description="List of available agentic prompts")
     priority: EventPriority = EventPriority.LOW
+
 class AgenticPromptActionRequest(BaseEvent):
     """Event for requesting agentic prompt actions"""
     action: str = Field(description="The action to perform")

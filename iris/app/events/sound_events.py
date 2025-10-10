@@ -18,6 +18,11 @@ class SoundTrainingInitiatedEvent(BaseEvent):
     total_samples: int
     priority: EventPriority = EventPriority.NORMAL
 
+class SoundTrainingStatusEvent(BaseEvent):
+    message: str
+    status_type: Literal["info", "warning", "error", "success"]
+    priority: EventPriority = EventPriority.LOW
+
 class SoundTrainingProgressEvent(BaseEvent):
     label: str
     current_sample: int
@@ -35,10 +40,6 @@ class SoundTrainingFailedEvent(BaseEvent):
     reason: str
     priority: EventPriority = EventPriority.NORMAL
 
-class SoundTrainingStatusEvent(BaseEvent):
-    message: str
-    status_type: Literal["info", "warning", "error", "success"]
-    priority: EventPriority = EventPriority.LOW
 
 # === SOUND MANAGEMENT EVENTS ===
 
@@ -65,8 +66,6 @@ class SoundListUpdatedEvent(BaseEvent):
     sounds: List[str]
     priority: EventPriority = EventPriority.LOW
 
-class SoundModelChangedEvent(BaseEvent):
-    priority: EventPriority = EventPriority.LOW
 
 # === SOUND MAPPING EVENTS ===
 

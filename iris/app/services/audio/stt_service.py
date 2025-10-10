@@ -17,11 +17,11 @@ from iris.app.config.app_config import GlobalAppConfig
 from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
 from iris.app.services.audio.whisper_stt import WhisperSpeechToText
 from iris.app.services.audio.stt_utils import DuplicateTextFilter
-from iris.app.events.stt_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent, STTProcessingStartedEvent, STTProcessingCompletedEvent
+from iris.app.events.core_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent, STTProcessingStartedEvent, STTProcessingCompletedEvent
 from iris.app.events.dictation_events import DictationModeDisableOthersEvent
 from iris.app.events.core_events import ProcessAudioChunkForSoundRecognitionEvent, CommandAudioSegmentReadyEvent, DictationAudioSegmentReadyEvent
 from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
-from iris.app.events.markov_events import MarkovPredictionEvent
+from iris.app.events.core_events import MarkovPredictionEvent
 
 logger = logging.getLogger(__name__)
 

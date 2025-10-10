@@ -17,11 +17,7 @@ from iris.app.services.audio.recorder import AudioRecorder
 from iris.app.events.core_events import (
     CommandAudioSegmentReadyEvent,
     DictationAudioSegmentReadyEvent,
-    StartRecordingCommand,
-    StopRecordingCommand,
-    AudioRecordingStateEvent,
-    RequestAudioSampleForTrainingCommand,
-    AudioSampleForTrainingReadyEvent,
+    RecordingTriggerEvent,
     AudioDetectedEvent
 )
 from iris.app.events.base_event import BaseEvent
@@ -135,19 +131,19 @@ class SimpleAudioService:
 
     def init_listeners(self):
         """Subscribe to relevant events."""
-        self._event_bus.subscribe(StartRecordingCommand, self._handle_start_recording)
-        self._event_bus.subscribe(StopRecordingCommand, self._handle_stop_recording)
+        self._event_bus.subscribe(RecordingTriggerEvent, self._handle_recording_trigger)
         self._event_bus.subscribe(AudioModeChangeRequestEvent, self._handle_audio_mode_change_request)
         
         logger.info("Audio service event subscriptions configured")
 
-    async def _handle_start_recording(self, event: StartRecordingCommand):
-        """Handle start recording command - recorders already running continuously"""
-        logger.info("Start recording command received - recorders already active")
-
-    async def _handle_stop_recording(self, event: StopRecordingCommand):
-        """Handle stop recording command - recorders keep running, only stop during shutdown"""
-        logger.info("Stop recording command received - recorders continue running")
+    async def _handle_recording_trigger(self, event: RecordingTriggerEvent):
+        """Handle recording trigger event - recorders already running continuously"""
+        if event.trigger == "start":
+            logger.info("Start recording command received - recorders already active")
+        elif event.trigger == "stop":
+            logger.info("Stop recording command received - recorders continue running")
+        else:
+            logger.warning(f"Unknown recording trigger: {event.trigger}")
 
 
 

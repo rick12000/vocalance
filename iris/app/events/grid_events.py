@@ -4,10 +4,7 @@ from pydantic import Field
 from typing import Optional, Dict, Any, List
 import uuid
 
-# === GRID REQUEST EVENTS ===
-
 class ShowGridRequestEventData(BaseEvent):
-    # Optional: if grid parameters can be overridden at request time
     rows: Optional[int] = None
     cols: Optional[int] = None
     priority: EventPriority = EventPriority.NORMAL
@@ -20,7 +17,6 @@ class ClickGridCellRequestEventData(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
 
 class UpdateGridConfigRequestEventData(BaseEvent):
-    # Include fields from GridServiceConfig that can be updated
     rows: Optional[int] = None
     cols: Optional[int] = None
     cell_width: Optional[int] = None
@@ -32,18 +28,13 @@ class UpdateGridConfigRequestEventData(BaseEvent):
     show_labels: Optional[bool] = None
     priority: EventPriority = EventPriority.NORMAL
 
-# GridShowRequestEvent, GridSelectRequestEvent, and GridCancelRequestEvent removed - unused in codebase
-
-# === GRID RESPONSE EVENTS ===
-
 class GridVisibilityChangedEventData(BaseEvent):
     visible: bool
-    rows: Optional[int] = None # Optionally include current grid dimensions
+    rows: Optional[int] = None
     cols: Optional[int] = None
     priority: EventPriority = EventPriority.LOW
 
 class GridConfigUpdatedEventData(BaseEvent):
-    # Reports the full current configuration after an update
     rows: int
     cols: int
     cell_width: int
@@ -65,12 +56,8 @@ class GridInteractionSuccessEventData(BaseEvent):
 class GridInteractionFailedEventData(BaseEvent):
     operation: str
     reason: str
-    cell_label: Optional[str] = None # If applicable to the operation
+    cell_label: Optional[str] = None 
     details: Optional[Dict[str, Any]] = None
-    priority: EventPriority = EventPriority.LOW
-class GridOperationFeedbackEvent(BaseEvent):
-    success: bool
-    message: Optional[str] = None
     priority: EventPriority = EventPriority.LOW
 
 class RequestClickCountsForGridEventData(BaseEvent):

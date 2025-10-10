@@ -10,14 +10,11 @@ from iris.app.events.mark_events import (
     MarkDeleteAllRequestEventData,
     MarkExecuteRequestEventData,
     MarkGetAllRequestEventData,
-    MarkShowNumbersRequestEventData,
-    MarkHideNumbersRequestEventData,
     MarkVisualizeAllRequestEventData,
     MarkVisualizeCancelRequestEventData,
     MarksChangedEventData,
     MarkOperationSuccessEventData,
     MarkOperationFailedEventData,
-    MarkNumbersVisibilityEventData,
     MarkVisualizationStateChangedEventData,
     MarkCreatedEventData,
     MarkDeletedEventData,
@@ -45,7 +42,6 @@ class MarksController(BaseController):
             (MarkCreatedEventData, self._handle_mark_list_changed),
             (MarkDeletedEventData, self._handle_mark_list_changed),
             (AllMarksClearedEventData, self._handle_mark_list_changed),
-            (MarkNumbersVisibilityEventData, self._handle_mark_numbers_visibility_changed),
             (MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed),
         ])
 
@@ -80,16 +76,6 @@ class MarksController(BaseController):
     def execute_mark(self, identifier: Union[str, int]) -> None:
         """Execute a mark via service layer."""
         event = MarkExecuteRequestEventData(name_or_id=identifier)
-        self.publish_event(event)
-
-    def show_mark_numbers(self) -> None:
-        """Show mark numbers via service layer."""
-        event = MarkShowNumbersRequestEventData()
-        self.publish_event(event)
-
-    def hide_mark_numbers(self) -> None:
-        """Hide mark numbers via service layer."""
-        event = MarkHideNumbersRequestEventData()
         self.publish_event(event)
 
     def request_show_overlay(self) -> None:
@@ -181,11 +167,6 @@ class MarksController(BaseController):
     async def _handle_mark_list_changed(self, event) -> None:
         """Handle mark list changed events."""
         self.refresh_marks()
-
-    async def _handle_mark_numbers_visibility_changed(self, event_data) -> None:
-        """Handle mark numbers visibility changed event."""
-        status = "Numbers visible" if event_data.visible else "Numbers hidden"
-        self.notify_status(status)
 
     async def _handle_mark_visualization_state_changed(self, event_data) -> None:
         """Handle mark visualization state changed event from service layer."""

@@ -153,11 +153,6 @@ class MarksView(BaseView):
         """Refresh the marks list"""
         self.controller.refresh_marks()
 
-    def handle_mark_numbers_visibility_update(self, visible: bool) -> None:
-        """Handle mark numbers visibility update"""
-        # This method exists for compatibility with the controller interface
-        pass
-
     # Controller callback methods
     def on_marks_updated(self, marks: List[MarkData]) -> None:
         """Handle marks list updated from controller"""
