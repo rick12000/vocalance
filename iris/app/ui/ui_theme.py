@@ -43,6 +43,7 @@ class FontFamily(BaseModel):
 
 class TextColors(BaseModel):
     """Text color design tokens - 5 shades from light to dark"""
+    color_accent: str = "#918f66"
     lightest: str = "#e8d6d6"
     light: str = "#c3afaf"
     medium: str = "#bdaaaa"
@@ -56,9 +57,9 @@ class ShapeColors(BaseModel):
     accent: str = "#b4c7c6"
     lightest: str = "#494e4e"
     light: str = "#2a2c2c"
-    medium: str = "#373a3a"
-    dark: str = "#171818"
-    darkest: str = "#141515"
+    medium: str = "#222424"
+    dark: str = "#131515"
+    darkest: str = "#111111"
 
 
 class AccentColors(BaseModel):
@@ -134,31 +135,31 @@ class SidebarIcons(BaseModel):
 class HeaderLayout(BaseModel):
     """
     Centralized header layout configuration
-    
+
     This class provides centralized control over header frame positioning and spacing.
     The header frame is the dark rounded rectangle at the top of each tab that contains
     the tab title and subtitle.
     """
-    
+
     # Header frame padding (space around the header frame itself)
-    frame_padding_left: int = 50    
+    frame_padding_left: int = 50
     frame_padding_right: int = 50
     frame_padding_top: int = 20
     frame_padding_bottom: int = 10
-    
+
     # Header content padding (space inside the header frame)
     content_padding_left: int = 30
     content_padding_right: int = 30
     content_padding_top: int = 10
     content_padding_bottom: int = 10
-    
+
     # Header border configuration
     border_width: int = 1
-    
+
     @property
     def border_color(self) -> str:
-        """Border color - shape_colors.lightest"""
-        return ShapeColors().lightest
+        """Border color - shape_colors.medium"""
+        return ShapeColors().medium
     
     # Title and subtitle positioning
     title_y_offset: int = 10
@@ -306,13 +307,17 @@ class TileLayout(BaseModel):
     content_text_alignment: str = "center"  # Center align text as requested
     
     # Tile background and border
-    background_color: str = "transparent"  # Transparent background
     border_width: int = 1
-    
+
+    @property
+    def background_color(self) -> str:
+        """Background color - shape_colors.medium"""
+        return ShapeColors().darkest
+
     @property
     def border_color(self) -> str:
-        """Border color - shape_colors.lightest"""
-        return ShapeColors().lightest
+        """Border color - shape_colors.medium"""
+        return ShapeColors().medium
 
 
 class ListLayout(BaseModel):
@@ -333,7 +338,7 @@ class LogoProperties(BaseModel):
     @property
     def color(self) -> str:
         """Logo color - shape_colors.light"""
-        return ShapeColors().accent
+        return ShapeColors().medium
 
 
 class EntryFieldStyling(BaseModel):
@@ -344,12 +349,12 @@ class EntryFieldStyling(BaseModel):
     @property
     def border_color(self) -> str:
         """Border color - shape_colors.lightest"""
-        return ShapeColors().lightest
+        return ShapeColors().medium
     
     @property
     def background_color(self) -> str:
         """Background color - shape_colors.dark"""
-        return ShapeColors().dark
+        return ShapeColors().darkest
 
 
 class IconProperties(BaseModel):

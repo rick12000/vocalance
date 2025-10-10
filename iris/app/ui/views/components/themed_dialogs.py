@@ -106,6 +106,7 @@ def askokcancel(title: str, message: str, parent=None) -> bool:
         hover_color=ui_theme.theme.shape_colors.dark,
         text_color=ui_theme.theme.text_colors.light,
         width=80,
+        corner_radius=ui_theme.theme.border_radius.rounded,
         command=on_ok
     )
     ok_button.grid(row=0, column=0, padx=5, sticky="ew")
@@ -119,6 +120,7 @@ def askokcancel(title: str, message: str, parent=None) -> bool:
         hover_color=ui_theme.theme.shape_colors.dark,
         text_color=ui_theme.theme.text_colors.light,
         width=80,
+        corner_radius=ui_theme.theme.border_radius.rounded,
         command=on_cancel
     )
     cancel_button.grid(row=0, column=1, padx=5, sticky="ew")
@@ -202,6 +204,7 @@ def askyesno(title: str, message: str, parent=None) -> bool:
         hover_color=ui_theme.theme.shape_colors.dark,
         text_color=ui_theme.theme.text_colors.light,
         width=80,
+        corner_radius=ui_theme.theme.border_radius.rounded,
         command=on_yes
     )
     yes_button.grid(row=0, column=0, padx=5, sticky="ew")
@@ -215,6 +218,7 @@ def askyesno(title: str, message: str, parent=None) -> bool:
         hover_color=ui_theme.theme.shape_colors.dark,
         text_color=ui_theme.theme.text_colors.light,
         width=80,
+        corner_radius=ui_theme.theme.border_radius.rounded,
         command=on_no
     )
     no_button.grid(row=0, column=1, padx=5, sticky="ew")
@@ -280,6 +284,7 @@ def showerror(title: str, message: str, parent=None):
         hover_color=ui_theme.theme.shape_colors.dark,
         text_color=ui_theme.theme.text_colors.light,
         width=80,
+        corner_radius=ui_theme.theme.border_radius.rounded,
         command=dialog.destroy
     )
     ok_button.grid(row=2, column=0, pady=(0, 20))
@@ -343,6 +348,7 @@ def showinfo(title: str, message: str, parent=None):
         hover_color=ui_theme.theme.shape_colors.dark,
         text_color=ui_theme.theme.text_colors.light,
         width=80,
+        corner_radius=ui_theme.theme.border_radius.rounded,
         command=dialog.destroy
     )
     ok_button.grid(row=2, column=0, pady=(0, 20))
@@ -406,6 +412,7 @@ def showwarning(title: str, message: str, parent=None):
         hover_color=ui_theme.theme.shape_colors.dark,
         text_color=ui_theme.theme.text_colors.light,
         width=80,
+        corner_radius=ui_theme.theme.border_radius.rounded,
         command=dialog.destroy
     )
     ok_button.grid(row=2, column=0, pady=(0, 20))

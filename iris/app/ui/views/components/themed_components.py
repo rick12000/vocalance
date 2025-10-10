@@ -26,11 +26,13 @@ class ThemedButton(ctk.CTkButton):
         if size is None:
             size = theme.font_sizes.medium
         
-        # Get standardized button font configuration
+        # Get standardized button font configuration with bold weight for non-danger buttons
         font_tuple = theme.font_family.get_button_font(size)
+        # Make text bold by changing the weight from "normal" to "bold"
+        font_tuple = (font_tuple[0], font_tuple[1], "bold")
         
         # Get default colors using shape colors directly
-        fg_color = theme.shape_colors.accent  # Use shape_colors.accent for normal buttons
+        fg_color = theme.shape_colors.accent  # Use shape_colors.darkest for normal buttons
         text_color = theme.shape_colors.dark
         hover_color = theme.shape_colors.lightest
         
@@ -40,7 +42,7 @@ class ThemedButton(ctk.CTkButton):
             "fg_color": fg_color,
             "text_color": text_color,
             "hover_color": hover_color,
-            "corner_radius": theme.border_radius.small,
+            "corner_radius": theme.border_radius.rounded,
             "border_width": 0,
         }
         
@@ -83,11 +85,17 @@ class DangerButton(ThemedButton):
     
     def __init__(self, parent, text: str = "", command: Optional[Callable] = None, **kwargs):
         # Set danger colors - transparent with border
-        kwargs.setdefault("fg_color", "transparent")
+        kwargs.setdefault("fg_color", theme.shape_colors.darkest)
         kwargs.setdefault("text_color", theme.text_colors.light)
-        kwargs.setdefault("hover_color", theme.shape_colors.darkest)
+        kwargs.setdefault("hover_color", theme.shape_colors.medium)
         kwargs.setdefault("border_width", 1)
         kwargs.setdefault("border_color", theme.shape_colors.lightest)
+
+        if "font" not in kwargs:
+            size = kwargs.get("size", theme.font_sizes.medium)
+            font_family = theme.font_family.get_primary_font("bold")
+            kwargs["font"] = (font_family, size, "bold")
+
         super().__init__(parent, text=text, command=command, **kwargs)
 
 
@@ -142,7 +150,7 @@ class ThemedEntry(ctk.CTkEntry):
             "font": (font_family, theme.font_sizes.medium),
             "fg_color": theme.entry_field_styling.background_color,  # Use new entry background
             "text_color": theme.text_colors.light,
-            "placeholder_text_color": theme.text_colors.light,
+            "placeholder_text_color": theme.shape_colors.light,
             "border_color": theme.entry_field_styling.border_color,  # Use new border color
             "corner_radius": theme.entry_field_styling.corner_radius,  # Use new corner radius
             "height": theme.dimensions.entry_height,
@@ -253,7 +261,7 @@ class ThemedTextbox(ctk.CTkTextbox):
         default_kwargs = {
             "font": (font_family, theme.font_sizes.medium),
             "fg_color": theme.shape_colors.medium,
-            "text_color": theme.text_colors.medium,
+            "text_color": theme.shape_colors.light,
             "border_color": theme.shape_colors.darkest,
             "corner_radius": theme.border_radius.medium,
             "border_width": 1,
@@ -269,7 +277,7 @@ class BoxTitle(ThemedLabel):
     """Pre-configured label for tab titles"""
     
     def __init__(self, parent, text: str = "", **kwargs):
-        super().__init__(parent, text=text, size=theme.font_sizes.xlarge, bold=True, color=theme.text_colors.light, **kwargs)
+        super().__init__(parent, text=text, size=theme.font_sizes.xlarge, bold=True, color=theme.text_colors.lightest, **kwargs)
 
 
 class TileTitle(ThemedLabel):
@@ -465,7 +473,7 @@ class CustomSidebarFrame(ctk.CTkFrame):
         if border_kwargs.get('border_width', 0) > 0:
             self.border_frame = ctk.CTkFrame(
                 self,
-                width=border_kwargs.get('border_width', 1),  # Updated default from 3 to 1
+                width=border_kwargs.get('border_width', 1),
                 fg_color=border_kwargs.get('border_color', theme.sidebar_layout.border_color),
                 corner_radius=0
             )
@@ -527,7 +535,7 @@ class SidebarIconButton(ctk.CTkFrame):
         self.button_frame = ctk.CTkFrame(
             self,
             fg_color="transparent",
-            corner_radius=theme.border_radius.small,
+            corner_radius=theme.border_radius.rounded,
             width=theme.sidebar_layout.button_width,
             height=button_height,
             border_width=0  # Start with no border

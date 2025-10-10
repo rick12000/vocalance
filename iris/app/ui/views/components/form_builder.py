@@ -60,7 +60,7 @@ class FormBuilder:
         textbox = ThemedTextbox(
             parent,
             height=textbox_height,
-            fg_color=view_config.theme.shape_colors.dark,
+            fg_color=view_config.theme.shape_colors.darkest,
             border_width=view_config.theme.entry_field_styling.border_width,
             border_color=view_config.theme.entry_field_styling.border_color
         )
