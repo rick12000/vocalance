@@ -18,7 +18,7 @@ import os
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from iris.app.config.app_config import GlobalAppConfig, AudioConfig, VADConfig
+from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.stt_config import STTConfig
 from iris.app.config.dictation_config import DictationConfig
 from iris.app.event_bus import EventBus

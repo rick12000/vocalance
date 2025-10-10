@@ -17,7 +17,7 @@ from iris.app.config.app_config import GlobalAppConfig
 from iris.app.events.command_events import AutomationCommandParsedEvent
 from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
 from iris.app.events.core_events import CommandExecutedStatusEvent
-from iris.app.config.command_types import ExactMatchCommand, ParameterizedCommand
+from iris.app.config.command_types import ExactMatchCommand, ParameterizedCommand, ActionType
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class AutomationService:
         message = f"Command '{command.command_key}' executed{count_text} {status}"
         await self._publish_status(command, event_data.source, success, message)
 
-    async def _execute_command(self, action_type: str, action_value: str, count: int = 1) -> bool:
+    async def _execute_command(self, action_type: ActionType, action_value: str, count: int = 1) -> bool:
         """Execute automation action with thread safety"""
         try:
             action_function = self._create_action_function(action_type, action_value)
@@ -110,7 +110,7 @@ class AutomationService:
         finally:
             self._execution_lock.release()
 
-    def _create_action_function(self, action_type: str, action_value: str) -> Optional[Callable]:
+    def _create_action_function(self, action_type: ActionType, action_value: str) -> Optional[Callable]:
         """Create pyautogui action function from action type and value"""
         try:
             if action_type == "hotkey":

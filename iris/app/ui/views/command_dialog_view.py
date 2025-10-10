@@ -230,6 +230,8 @@ class CommandEditDialog:
                 return f"Triggers hotkey: {self.command.action_value or 'Not set'}"
             elif self.command.action_type == "key":
                 return f"Simulates pressing the key: {self.command.action_value or 'Not set'}"
+            elif self.command.action_type == "key_sequence":
+                return f"Executes key sequence: {self.command.action_value or 'Not set'}"
             elif self.command.action_type == "click":
                 return f"Performs a mouse click action: {self.command.action_value or 'Left click'}"
             elif self.command.action_type == "scroll":

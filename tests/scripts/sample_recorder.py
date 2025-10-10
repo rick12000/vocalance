@@ -15,7 +15,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-class AudioConfig(BaseModel):
+class MockAudioConfig(BaseModel):
     sample_rate: int = 16000
     chunk_size: int = 960
     silence_timeout: float = 1.0
@@ -24,8 +24,8 @@ class AudioConfig(BaseModel):
 
 
 class SampleRecorder:
-    def __init__(self, config: Optional[AudioConfig] = None):
-        self.config = config or AudioConfig()
+    def __init__(self, config: Optional[MockAudioConfig] = None):
+        self.config = config or MockAudioConfig()
         self._stream: Optional[sd.InputStream] = None
         self.silence_threshold = self.config.energy_threshold * 0.35
 
@@ -94,7 +94,7 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f"recorded_sample_{timestamp}.bytes"
 
-    config = AudioConfig(
+    config = MockAudioConfig(
         sample_rate=sample_rate,
         silence_timeout=silence_timeout,
         max_duration=max_duration

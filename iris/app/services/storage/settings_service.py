@@ -39,7 +39,6 @@ class SettingsService:
         'grid.default_rect_count',
         'sound_recognizer.confidence_threshold',
         'vad.energy_threshold',
-        'vad.silence_timeout',
         'audio.device'
     }
     
@@ -99,8 +98,7 @@ class SettingsService:
                     'confidence_threshold': self._config.sound_recognizer.confidence_threshold
                 },
                 'vad': {
-                    'energy_threshold': self._config.vad.energy_threshold,
-                    'silence_timeout': self._config.vad.silence_timeout
+                    'energy_threshold': self._config.vad.energy_threshold
                 },
                 'audio': {
                     'device': self._config.audio.device,
@@ -237,7 +235,7 @@ class SettingsService:
                 return isinstance(value, int) and value > 0
             elif setting_path == 'sound_recognizer.confidence_threshold':
                 return isinstance(value, (int, float)) and 0.0 <= value <= 1.0
-            elif setting_path in ['vad.energy_threshold', 'vad.silence_timeout']:
+            elif setting_path == 'vad.energy_threshold':
                 return isinstance(value, (int, float)) and value >= 0
             elif setting_path == 'audio.device':
                 return value is None or isinstance(value, int)
@@ -273,7 +271,6 @@ class SettingsService:
             if 'vad' in settings:
                 vad = settings['vad']
                 config.vad.energy_threshold = vad.get('energy_threshold', config.vad.energy_threshold)
-                config.vad.silence_timeout = vad.get('silence_timeout', config.vad.silence_timeout)
             
             # Apply audio settings
             if 'audio' in settings:

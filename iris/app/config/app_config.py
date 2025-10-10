@@ -1,13 +1,10 @@
 from pydantic import BaseModel, Field
 import yaml
-from typing import Optional, Dict, Any, List, ClassVar
+from typing import Optional, Dict, Any, List, ClassVar, Literal
 import logging
 import os
 
 from iris.app.config.logging_config import LoggingConfigModel
-from iris.app.config.stt_config import STTConfig
-from iris.app.config.sound_recognizer_config import SoundRecognizerConfig as ImportedSoundRecognizerConfig
-from iris.app.config.dictation_config import DictationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +12,87 @@ class AudioConfig(BaseModel):
     sample_rate: int = Field(16000, description="Audio sample rate in Hz.")
     chunk_size: int = Field(320, description="Audio chunk size for command mode.")
     channels: int = Field(1, description="Number of audio channels.")
-    dtype: str = Field("int16", description="Data type of audio samples (e.g., 'int16', 'float32').")
-    device: int | None = Field(None, description="Input device index for sounddevice. None means default device.")
-    enable_dual_mode_processing: bool = Field(default=True, description="Enable separate processing paths for commands vs dictation.")
+    dtype: Literal["int16", "float32", "int32"] = Field("int16", description="Data type of audio samples (e.g., 'int16', 'float32').")
+    device: Optional[int] = Field(None, description="Input device index for sounddevice. None means default device.")
     command_chunk_size: int = Field(default=960, description="Ultra-optimized chunk size for maximum short-word performance - 60ms at 16kHz.")
-    enable_partial: bool = Field(default=True, description="Enable partial recognition fast-tracking for unambiguous command prefixes.")
 
+class STTConfig(BaseModel):
+    # Engine configuration
+    whisper_model: Literal["tiny", "base", "small", "medium"] = Field("base", description="Whisper model size (tiny for speed, base/small/medium for accuracy)")
+    whisper_device: Literal["cpu", "cuda"] = Field("cpu", description="Device for Whisper inference (cpu, cuda)")
+    
+    # Common configuration
+    sample_rate: int = Field(16000, description="Sample rate for STT.")
+    
+    # Command mode settings (optimized for ULTRA-LOW LATENCY)
+    command_debounce_interval: float = Field(default=0.02, description="Ultra-aggressive debounce for command mode (20ms for real-time response).")
+    command_duplicate_text_interval: float = Field(default=0.2, description="Very short duplicate suppression for commands (200ms).")
+    command_max_segment_duration_sec: float = Field(default=1.5, description="Short max duration for fast command execution.")
+    
+    # Enhanced dictation mode settings (optimized for accuracy and continuity)
+    dictation_debounce_interval: float = Field(default=0.1, description="Reduced debounce for better dictation responsiveness.")
+    dictation_duplicate_text_interval: float = Field(default=4.0, description="Extended duplicate suppression to catch phrase repetitions - increased from 3.0s.")
+    dictation_max_segment_duration_sec: float = Field(default=20.0, description="Extended max duration for longer dictation segments - increased from 15.0s.")
+
+
+
+class SoundRecognizerConfig(BaseModel):
+    """
+    Clean sound recognizer configuration using only ESC-50 for non-target sounds.
+    """
+    
+    target_sample_rate: int = Field(
+        16000, 
+        description="Target sample rate for YAMNet (do not change)"
+    )
+    energy_threshold: float = Field(
+        0.001, 
+        description="Minimum audio energy for processing"
+    )
+    
+    confidence_threshold: float = Field(
+        0.15, 
+        description="Minimum similarity for recognition (optimized for enhanced features)"
+    )
+    k_neighbors: int = Field(
+        7, 
+        description="Number of neighbors for k-NN voting (increased for better discrimination)"
+    )
+    vote_threshold: float = Field(
+        0.35, 
+        description="Minimum vote alignment percentage (optimized for enhanced voting)"
+    )
+    
+    default_samples_per_sound: int = Field(
+        12, 
+        description="Default training samples per sound (increased for better discrimination)"
+    )
+    sample_duration_sec: float = Field(
+        2.0, 
+        description="Duration of training samples in seconds"
+    )
+    
+    max_esc50_samples_per_category: int = Field(
+        15, 
+        description="Max samples per ESC-50 category"
+    )
+    max_total_esc50_samples: int = Field(
+        40, 
+        description="Maximum total ESC-50 samples (2:1 negative:positive ratio)"
+    )
+    
+    esc50_categories: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "keyboard_typing": "keyboard_typing",
+            "mouse_click": "mouse_click",
+            "wind": "wind",
+            "breathing": "breathing",
+            "coughing": "coughing",
+            "brushing_teeth": "brushing_teeth",
+            "drinking_sipping": "drinking_sipping"
+        },
+        description="ESC-50 categories used as negative examples"
+    )
 
 
 class MarkTriggersConfig(BaseModel):
@@ -32,7 +104,6 @@ class MarkTriggersConfig(BaseModel):
 
 class MarkConfig(BaseModel):
     triggers: MarkTriggersConfig = Field(default_factory=MarkTriggersConfig, description="Trigger phrases for mark commands.")
-    storage_filename: str = Field(default="marks.json", description="Filename for storing marks.")
     visualization_duration_seconds: int = Field(default=15, description="Duration in seconds for mark visualization overlay before auto-hide.")
 
 
@@ -49,7 +120,6 @@ class GridConfig(BaseModel):
     show_grid_phrase: str = Field(default="golf", description="Phrase to show the grid.")
     select_cell_phrase: str = Field(default="select", description="Phrase to select grid cells.")
     cancel_grid_phrase: str = Field(default="cancel", description="Phrase to hide/cancel the grid.")
-    cancel_phrase: str = Field(default="cancel", description="Alternative cancel phrase for grid operations.")
 
 
 class ErrorHandlingConfig(BaseModel):
@@ -65,17 +135,31 @@ class ErrorHandlingConfig(BaseModel):
 
 
 
-
+class DictationConfig(BaseModel):
+    """Configuration for dictation functionality"""
+    
+    # Trigger words
+    start_trigger: str = Field(default="green", description="Trigger word to start standard dictation")
+    stop_trigger: str = Field(default="amber", description="Trigger word to stop any dictation mode")
+    type_trigger: str = Field(default="type", description="Trigger word to start type mode")
+    smart_start_trigger: str = Field(default="smart green", description="Trigger phrase to start LLM-assisted dictation")
+    
+    # Text filtering and processing
+    min_text_length: int = Field(default=1, description="Minimum length of text to process")
+    
+    # Text input settings (used by text_input_service)
+    use_clipboard: bool = Field(default=True, description="Use clipboard for text input instead of typing")
+    typing_delay: float = Field(default=0.01, description="Delay between keystrokes when typing (if not using clipboard)")
 
 class LLMConfig(BaseModel):
     """Configuration for LLM service"""
-    model_size: str = Field(default="S", description="LLM model size: XS, S, M, or L")
+    model_size: Literal["XS", "S", "M", "L"] = Field(default="S", description="LLM model size: XS, S, M, or L")
     context_length: int = Field(default=4096, description="Context length for LLM processing")
     max_tokens: int = Field(default=1024, description="Maximum tokens to generate")
     n_threads: int = Field(default=8, description="Number of threads for LLM processing")
     
     # Startup configuration for faster app startup
-    startup_mode: str = Field(default="startup", description="When to initialize LLM: 'startup', 'background', 'lazy'")
+    startup_mode: Literal["startup", "background", "lazy"] = Field(default="startup", description="When to initialize LLM: 'startup', 'background', 'lazy'")
     
     # Hugging Face model repository mapping
     HF_MODEL_MAPPING: ClassVar[Dict[str, Dict[str, str]]] = {
@@ -213,9 +297,6 @@ class ModelPathsConfig(BaseModel):
         # Return a reasonable default even if not found (error will occur later with helpful message)
         return "iris/app/assets/vosk-model-small-en-us-0.15" 
 
-class MarkVisualizationConfig(BaseModel):
-    auto_hide_duration_ms: int = 5000
-
 class StorageConfig(BaseModel):
     sound_model_subdir: str = "sound_models"
     sound_samples_subdir: str = "sound_samples"
@@ -246,7 +327,6 @@ class GlobalAppConfig(BaseModel):
     model_paths: ModelPathsConfig = Field(default_factory=ModelPathsConfig)
     vad: VADConfig = Field(default_factory=VADConfig) # Added VADConfig
     grid: GridConfig = Field(default_factory=GridConfig) # Now uses the imported GridConfig
-    mark_visualization: MarkVisualizationConfig = Field(default_factory=MarkVisualizationConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     sound_recognizer: ImportedSoundRecognizerConfig = Field(default_factory=ImportedSoundRecognizerConfig)
 

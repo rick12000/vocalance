@@ -5,13 +5,10 @@ Defines all command types and data structures used throughout the application.
 Streamlined for simplicity and proper OOP inheritance.
 """
 
-from typing import Optional, Union
+from typing import Optional, Union, Literal
 from pydantic import BaseModel, Field
 from abc import ABC
 
-# ============================================================================
-# RESULT CLASSES
-# ============================================================================
 
 class ParseResult(BaseModel):
     """Base class for parsing results"""
@@ -25,9 +22,6 @@ class ErrorResult(ParseResult):
     """Indicates an error occurred during parsing"""
     error_message: str
 
-# ============================================================================
-# BASE COMMAND CLASSES
-# ============================================================================
 
 class BaseCommand(BaseModel, ABC):
     """Abstract base class for all commands"""
@@ -35,9 +29,6 @@ class BaseCommand(BaseModel, ABC):
     class Config:
         arbitrary_types_allowed = True
 
-# ============================================================================
-# DICTATION COMMANDS
-# ============================================================================
 
 class DictationCommand(BaseCommand):
     """Base class for dictation-related commands"""
@@ -45,7 +36,7 @@ class DictationCommand(BaseCommand):
 
 class DictationStartCommand(DictationCommand):
     """Command to start dictation mode"""
-    trigger_type: str = Field(..., description="Type of dictation trigger used")
+    trigger_type: Literal["standard", "smart", "type"] = Field(..., description="Type of dictation trigger used")
 
 class DictationStopCommand(DictationCommand):
     """Command to stop dictation mode"""
@@ -59,14 +50,12 @@ class DictationSmartStartCommand(DictationCommand):
     """Command to start smart dictation mode"""
     pass
 
-# ============================================================================
-# AUTOMATION COMMANDS (PyAutoGUI)
-# ============================================================================
+ActionType = Literal["hotkey", "key", "key_sequence", "click", "scroll"]
 
 class AutomationCommand(BaseCommand):
     """Base class for automation commands (PyAutoGUI)"""
     command_key: str = Field(..., description="The command phrase that triggers this action")
-    action_type: str = Field(..., description="Type of action: 'hotkey', 'key', 'click', 'scroll'")
+    action_type: ActionType = Field(..., description="Type of action: 'hotkey', 'key', 'key_sequence', 'click', 'scroll'")
     action_value: str = Field(..., description="The action value")
     is_custom: bool = Field(default=False, description="Whether this is a custom user-defined command")
     short_description: str = Field(default="", description="Short description for UI")
@@ -82,6 +71,7 @@ class AutomationCommand(BaseCommand):
         action_type_map = {
             "hotkey": "Hotkey",
             "key": "Key",
+            "key_sequence": "Key Sequence",
             "click": "Click", 
             "scroll": "Scroll",
             "custom": "Custom",
@@ -97,9 +87,6 @@ class ParameterizedCommand(AutomationCommand):
     """Command for parameterized actions with repeat count"""
     count: int = Field(default=1, description="Number of times to repeat the command")
 
-# ============================================================================
-# MARK COMMANDS
-# ============================================================================
 
 class MarkCommand(BaseCommand):
     """Base class for mark-related commands"""
@@ -131,9 +118,6 @@ class MarkVisualizeCancelCommand(MarkCommand):
     """Command to cancel mark visualization"""
     pass
 
-# ============================================================================
-# GRID COMMANDS
-# ============================================================================
 
 class GridCommand(BaseCommand):
     """Base class for grid-related commands"""
@@ -151,9 +135,6 @@ class GridCancelCommand(GridCommand):
     """Command to cancel/hide the grid"""
     pass
 
-# ============================================================================
-# SOUND MANAGEMENT COMMANDS
-# ============================================================================
 
 class SoundCommand(BaseCommand):
     """Base class for sound management commands"""
@@ -180,11 +161,6 @@ class SoundMapCommand(SoundCommand):
     sound_label: str = Field(..., description="The label of the sound to map")
     command_phrase: str = Field(..., description="The command phrase to map to the sound")
 
-# ============================================================================
-# TYPE ALIASES AND UNIONS
-# ============================================================================
-
-# Union types for different command categories
 DictationCommandType = Union[
     DictationStartCommand, DictationStopCommand, DictationTypeCommand, DictationSmartStartCommand
 ]
@@ -207,11 +183,9 @@ SoundCommandType = Union[
     SoundListAllCommand, SoundMapCommand
 ]
 
-# Union of all command types
 AnyCommand = Union[
     DictationCommandType, AutomationCommandType, MarkCommandType, 
     GridCommandType, SoundCommandType
 ]
 
-# Union of all parsing results
 ParseResultType = Union[AnyCommand, NoMatchResult, ErrorResult] 

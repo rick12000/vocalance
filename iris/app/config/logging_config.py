@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 import logging
 import sys
 import os
-from typing import Any
+from typing import Any, Literal
 from datetime import datetime
 from pathlib import Path
 
@@ -55,7 +55,7 @@ LOG_FILE_NAME = 'app.log'
 
 
 class LoggingConfigModel(BaseModel):
-    level: str = Field(default="DEBUG")
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="DEBUG")
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 def setup_logging(config: Any) -> None:
