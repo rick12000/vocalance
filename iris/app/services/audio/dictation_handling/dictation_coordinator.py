@@ -21,9 +21,9 @@ from iris.app.services.audio.dictation_handling.text_input_service import TextIn
 from iris.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
 from iris.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from iris.app.events.dictation_events import (
-    DictationStartedEvent, DictationStoppedEvent, DictationStatusChangedEvent, DictationErrorEvent,
+    DictationStatusChangedEvent,
     SmartDictationStartedEvent, SmartDictationStoppedEvent,
-    SmartDictationEnabledEvent, TypeDictationEnabledEvent, AudioModeChangeRequestEvent,
+    AudioModeChangeRequestEvent,
     LLMProcessingStartedEvent, LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent,
     DictationModeDisableOthersEvent, SmartDictationTextDisplayEvent, LLMProcessingReadyEvent
 )
@@ -47,6 +47,7 @@ class DictationSession:
     start_time: float
     accumulated_text: str = ""
     is_processing: bool = False
+    last_text_time: Optional[float] = None
 
 class DictationCoordinator:
     """Streamlined dictation coordinator with minimal complexity"""
@@ -60,6 +61,7 @@ class DictationCoordinator:
         self._current_session: Optional[DictationSession] = None
         self._pending_llm_session: Optional[DictationSession] = None
         self._session_id: Optional[str] = None
+        self._type_silence_task: Optional[asyncio.Task] = None
         
         # Initialize services
         self.text_service = TextInputService(config.dictation)
@@ -151,6 +153,11 @@ class DictationCoordinator:
             # Accumulate text for session tracking
             session.accumulated_text = self._append_text(session.accumulated_text, cleaned_text)
             
+            # Update last text time for TYPE mode silence detection
+            if session.mode == DictationMode.TYPE:
+                session.last_text_time = time.time()
+                logger.debug(f"Type dictation: updated last_text_time, reset silence timer")
+            
             # Handle based on dictation mode
             if session.mode == DictationMode.SMART:
                 # Smart dictation: send cleaned text to UI for display, accumulate for LLM processing
@@ -228,6 +235,42 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"LLM processing ready handling error: {e}", exc_info=True)
     
+    async def _monitor_type_silence(self) -> None:
+        """Monitor silence timeout for TYPE dictation mode"""
+        try:
+            timeout = self.config.dictation.type_dictation_silence_timeout
+            
+            while True:
+                await asyncio.sleep(0.1)
+                
+                with self._lock:
+                    session = self._current_session
+                    if not session or session.mode != DictationMode.TYPE:
+                        return
+                    
+                    if session.last_text_time is None:
+                        continue
+                    
+                    time_since_last_text = time.time() - session.last_text_time
+                    
+                    if time_since_last_text >= timeout:
+                        logger.info(f"Type dictation silence timeout exceeded ({timeout}s), auto-stopping")
+                        break
+            
+            await self._stop_session()
+            
+        except asyncio.CancelledError:
+            logger.debug("Type silence monitoring task cancelled")
+        except Exception as e:
+            logger.error(f"Type silence monitoring error: {e}", exc_info=True)
+    
+    def _cancel_type_silence_task(self) -> None:
+        """Cancel the type silence monitoring task"""
+        if self._type_silence_task and not self._type_silence_task.done():
+            self._type_silence_task.cancel()
+            self._type_silence_task = None
+            logger.debug("Type silence task cancelled")
+    
     async def _process_trigger(self, text: str) -> None:
         """Process trigger words"""
         cfg = self.config.dictation
@@ -263,9 +306,11 @@ class DictationCoordinator:
             # Publish mode-specific events (only for smart dictation which needs UI coordination)
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
-                await self._publish_event(
-                    SmartDictationEnabledEvent(trigger_word=self.config.dictation.smart_start_trigger))
-            # Note: Standard and Type dictation coordination is handled via DictationStatusChangedEvent
+            
+            # Start silence monitoring for TYPE mode
+            if mode == DictationMode.TYPE:
+                self._type_silence_task = asyncio.create_task(self._monitor_type_silence())
+                logger.info("Started type dictation silence monitoring task")
                 
             await self._publish_status(True, mode)
             logger.info(f"Started {mode.value} dictation")
@@ -280,6 +325,10 @@ class DictationCoordinator:
                 session = self._current_session
                 if not session:
                     return
+                
+                # Cancel type silence monitoring task if active
+                if session.mode == DictationMode.TYPE:
+                    self._cancel_type_silence_task()
                 
                 # Don't clear session yet for smart dictation - keep it until LLM processing completes
                 if session.mode != DictationMode.SMART:
@@ -382,9 +431,6 @@ class DictationCoordinator:
     async def _finalize_session(self, session: DictationSession) -> None:
         """Finalize non-smart session"""
         try:
-            # Publish session stopped event
-            await self._publish_event(DictationStoppedEvent(mode=session.mode.value, total_text=session.accumulated_text))
-            
             await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Dictation stopped"))
             
             # Notify STT service about dictation mode deactivation
@@ -429,10 +475,9 @@ class DictationCoordinator:
     async def _publish_status(self, is_active: bool, mode: DictationMode) -> None:
         """Publish status change event"""
         try:
-            display_mode = "continuous" if mode == DictationMode.STANDARD else mode.value
             event = DictationStatusChangedEvent(
                 is_active=is_active,
-                mode=display_mode,
+                mode=mode.value,
                 show_ui=is_active,
                 stop_command=self.config.dictation.stop_trigger if is_active else None
             )
@@ -441,16 +486,18 @@ class DictationCoordinator:
             logger.error(f"Status publishing error: {e}", exc_info=True)
     
     async def _publish_error(self, message: str) -> None:
-        """Publish error event"""
+        """Log error message"""
         try:
-            event = DictationErrorEvent(error_message=message, mode=self.active_mode.value)
-            await self._publish_event(event)
+            logger.error(f"Dictation error: {message}")
         except Exception as e:
-            logger.error(f"Error publishing error: {e}", exc_info=True)
+            logger.error(f"Error logging error: {e}", exc_info=True)
     
     async def shutdown(self) -> None:
         """Shutdown coordinator"""
         try:
+            # Cancel type silence task if running
+            self._cancel_type_silence_task()
+            
             if self._current_session:
                 await self._stop_session()
             await self.text_service.shutdown()

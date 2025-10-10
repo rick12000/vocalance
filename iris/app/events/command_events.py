@@ -1,5 +1,5 @@
 from pydantic import Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from iris.app.config.command_types import (
     DictationCommandType, AutomationCommandType, MarkCommandType, 
     GridCommandType, SoundCommandType, AnyCommand
@@ -8,8 +8,8 @@ from iris.app.events.base_event import BaseEvent, EventPriority
 
 class BaseCommandEvent(BaseEvent):
     """Base class for all command events"""
-    source: Optional[str] = Field(default=None, description="Source of the command (e.g., 'speech', 'sound:label')")
-    context: Optional[Dict[str, Any]] = Field(default=None, description="Additional context information")
+    source: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.NORMAL
     
 class DictationCommandParsedEvent(BaseCommandEvent):
@@ -34,7 +34,7 @@ class SoundCommandParsedEvent(BaseCommandEvent):
 
 class CommandNoMatchEvent(BaseCommandEvent):
     """Event published when no command matches the input text"""
-    attempted_parsers: list[str] = Field(default_factory=list, description="List of parsers that were attempted")
+    attempted_parsers: List[str] = []
 
 class CommandParseErrorEvent(BaseCommandEvent):
     """Event published when an error occurs during command parsing"""

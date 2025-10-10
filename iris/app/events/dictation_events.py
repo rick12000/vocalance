@@ -1,29 +1,11 @@
 from iris.app.events.base_event import BaseEvent, EventPriority
 from pydantic import Field
-from typing import Optional, List
-
-class DictationStartedEvent(BaseEvent):
-    """Event fired when dictation mode is activated"""
-    mode: str = Field(description="Type of dictation mode: 'continuous' or 'type'")
-    priority: EventPriority = EventPriority.NORMAL
-
-class DictationStoppedEvent(BaseEvent):
-    """Event fired when dictation mode is deactivated"""
-    mode: str = Field(description="Type of dictation mode that was stopped")
-    total_text: str = Field(description="Complete text that was dictated")
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class DictationErrorEvent(BaseEvent):
-    """Event fired when an error occurs during dictation"""
-    error_message: str = Field(description="Description of the error")
-    mode: str = Field(description="Type of dictation mode where error occurred")
-    priority: EventPriority = EventPriority.NORMAL
+from typing import Optional, List, Literal, Dict, Any
 
 class DictationStatusChangedEvent(BaseEvent):
     """Event fired when dictation status changes for UI updates"""
     is_active: bool = Field(description="Whether dictation is currently active")
-    mode: str = Field(description="Current dictation mode: 'inactive', 'continuous', 'type', or 'smart'")
+    mode: Literal["inactive", "standard", "type", "smart"] = Field(description="Current dictation mode")
     show_ui: bool = Field(default=False, description="Whether to show the dictation UI indicator")
     stop_command: Optional[str] = Field(default=None, description="The command to stop this dictation mode")
     priority: EventPriority = EventPriority.LOW
@@ -31,33 +13,23 @@ class DictationStatusChangedEvent(BaseEvent):
 class DictationModeDisableOthersEvent(BaseEvent):
     """Event fired to disable other speech/sound processing during dictation"""
     dictation_mode_active: bool = Field(description="Whether dictation mode is active, disabling other processing")
-    dictation_mode: str = Field(description="Current dictation mode")
+    dictation_mode: Literal["inactive", "standard", "type", "smart"]
     priority: EventPriority = EventPriority.CRITICAL
-
-class SmartDictationEnabledEvent(BaseEvent):
-    """Event fired when smart dictation is enabled (smart green trigger detected)"""
-    trigger_word: str = Field(description="The trigger word that was detected")
-    priority: EventPriority = EventPriority.NORMAL
-
-class TypeDictationEnabledEvent(BaseEvent):
-    """Event fired when type dictation is enabled (type trigger detected)"""
-    trigger_word: str = Field(description="The trigger word that was detected")
-    priority: EventPriority = EventPriority.NORMAL
 
 class AudioModeChangeRequestEvent(BaseEvent):
     """Event to request audio mode change between command and dictation"""
-    mode: str = Field(description="Target audio mode: 'command' or 'dictation'")
+    mode: Literal["command", "dictation"] = Field(description="Target audio mode")
     reason: str = Field(description="Reason for the mode change")
     priority: EventPriority = EventPriority.CRITICAL
 
 class SmartDictationStartedEvent(BaseEvent):
     """Event fired when smart dictation mode is activated"""
-    mode: str = Field(default="smart", description="Smart dictation mode")
+    mode: Literal["smart"] = "smart"
     priority: EventPriority = EventPriority.NORMAL
 
 class SmartDictationStoppedEvent(BaseEvent):
     """Event fired when smart dictation mode is deactivated"""
-    mode: str = Field(default="smart", description="Smart dictation mode")
+    mode: Literal["smart"] = "smart"
     raw_text: str = Field(description="Raw text that was dictated before LLM processing")
     priority: EventPriority = EventPriority.NORMAL
 
@@ -65,7 +37,7 @@ class LLMProcessingStartedEvent(BaseEvent):
     """Event fired when LLM processing begins"""
     raw_text: str = Field(description="Raw dictated text to be processed")
     agentic_prompt: str = Field(description="The agentic prompt being used")
-    session_id: Optional[str] = Field(default=None, description="Session ID for coordination")
+    session_id: Optional[str] = None
     priority: EventPriority = EventPriority.NORMAL
 
 class LLMProcessingCompletedEvent(BaseEvent):
@@ -103,13 +75,13 @@ class AgenticPromptUpdatedEvent(BaseEvent):
 
 class AgenticPromptListUpdatedEvent(BaseEvent):
     """Event fired when the list of agentic prompts is updated"""
-    prompts: list = Field(description="List of available agentic prompts")
+    prompts: List[Dict[str, Any]] = Field(description="List of available agentic prompts with their metadata")
     priority: EventPriority = EventPriority.LOW
 
 class AgenticPromptActionRequest(BaseEvent):
     """Event for requesting agentic prompt actions"""
-    action: str = Field(description="The action to perform")
-    name: Optional[str] = Field(default=None, description="Name for add_prompt action")
-    text: Optional[str] = Field(default=None, description="Text for add_prompt action")
-    prompt_id: Optional[str] = Field(default=None, description="Prompt ID for delete/set actions")
+    action: Literal["add_prompt", "delete_prompt", "edit_prompt", "set_current_prompt", "get_prompts"] = Field(description="The action to perform")
+    name: Optional[str] = None
+    text: Optional[str] = None
+    prompt_id: Optional[str] = None
     priority: EventPriority = EventPriority.NORMAL

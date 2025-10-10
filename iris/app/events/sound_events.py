@@ -75,5 +75,5 @@ class RequestSoundMappingsEvent(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
 
 class SoundMappingsResponseEvent(BaseEvent):
-    mappings: Dict[str, str] = Field(default_factory=dict)
+    mappings: Dict[str, str] = {}
     priority: EventPriority = EventPriority.LOW

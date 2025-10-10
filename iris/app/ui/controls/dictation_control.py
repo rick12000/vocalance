@@ -64,7 +64,6 @@ class DictationController(BaseController):
 
     def delete_prompt(self, prompt_id: str) -> bool:
         """Delete a prompt."""
-        # Find prompt name for confirmation
         prompt_name = "Unknown"
         for prompt_data in self.prompts:
             if prompt_data.get('id') == prompt_id:

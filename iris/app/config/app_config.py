@@ -9,26 +9,26 @@ from iris.app.config.logging_config import LoggingConfigModel
 logger = logging.getLogger(__name__)
 
 class AudioConfig(BaseModel):
-    sample_rate: int = Field(16000, description="Audio sample rate in Hz.")
+    sample_rate: int = 16000
     chunk_size: int = Field(320, description="Audio chunk size for command mode.")
-    channels: int = Field(1, description="Number of audio channels.")
+    channels: int = 1
     dtype: Literal["int16", "float32", "int32"] = Field("int16", description="Data type of audio samples (e.g., 'int16', 'float32').")
-    device: Optional[int] = Field(None, description="Input device index for sounddevice. None means default device.")
+    device: Optional[int] = None
     command_chunk_size: int = Field(default=960, description="Ultra-optimized chunk size for maximum short-word performance - 60ms at 16kHz.")
 
 class STTConfig(BaseModel):
     # Engine configuration
-    whisper_model: Literal["tiny", "base", "small", "medium"] = Field("base", description="Whisper model size (tiny for speed, base/small/medium for accuracy)")
-    whisper_device: Literal["cpu", "cuda"] = Field("cpu", description="Device for Whisper inference (cpu, cuda)")
-    
+    whisper_model: Literal["tiny", "base", "small", "medium"] = "base"
+    whisper_device: Literal["cpu", "cuda"] = "cpu"
+
     # Common configuration
-    sample_rate: int = Field(16000, description="Sample rate for STT.")
-    
+    sample_rate: int = 16000
+
     # Command mode settings (optimized for ULTRA-LOW LATENCY)
     command_debounce_interval: float = Field(default=0.02, description="Ultra-aggressive debounce for command mode (20ms for real-time response).")
     command_duplicate_text_interval: float = Field(default=0.2, description="Very short duplicate suppression for commands (200ms).")
     command_max_segment_duration_sec: float = Field(default=1.5, description="Short max duration for fast command execution.")
-    
+
     # Enhanced dictation mode settings (optimized for accuracy and continuity)
     dictation_debounce_interval: float = Field(default=0.1, description="Reduced debounce for better dictation responsiveness.")
     dictation_duplicate_text_interval: float = Field(default=4.0, description="Extended duplicate suppression to catch phrase repetitions - increased from 3.0s.")
@@ -96,68 +96,71 @@ class SoundRecognizerConfig(BaseModel):
 
 
 class MarkTriggersConfig(BaseModel):
-    create_mark: str = Field(default="mark", description="Trigger word to create a mark.")
-    delete_mark: str = Field(default="delete mark", description="Trigger phrase to delete a mark.")
-    visualize_marks: List[str] = Field(default_factory=lambda: ["show marks", "visualize marks"], description="Phrases to visualize marks.")
-    reset_marks: List[str] = Field(default_factory=lambda: ["reset marks", "clear all marks"], description="Phrases to reset all marks.")
-    visualization_cancel: List[str] = Field(default_factory=lambda: ["cancel marks", "hide marks"], description="Phrases to cancel mark visualization.")
+    create_mark: str = "mark"
+    delete_mark: str = "delete mark"
+    visualize_marks: List[str] = ["show marks", "visualize marks"]
+    reset_marks: List[str] = ["reset marks", "clear all marks"]
+    visualization_cancel: List[str] = ["cancel marks", "hide marks"]
 
 class MarkConfig(BaseModel):
-    triggers: MarkTriggersConfig = Field(default_factory=MarkTriggersConfig, description="Trigger phrases for mark commands.")
+    triggers: MarkTriggersConfig = MarkTriggersConfig()
     visualization_duration_seconds: int = Field(default=15, description="Duration in seconds for mark visualization overlay before auto-hide.")
 
 
 class GridConfig(BaseModel):
-    rows: int = Field(3, description="Number of grid rows.")
-    cols: int = Field(3, description="Number of grid columns.")
-    line_color: str = Field("#00FF00", description="Color of grid lines.")
-    label_color: str = Field("#FFFFFF", description="Color of grid labels.")
-    font_size: int = Field(16, description="Font size for grid labels.")
-    show_labels: bool = Field(True, description="Whether to show grid cell labels.")
+    rows: int = 3
+    cols: int = 3
+    line_color: str = "#00FF00"
+    label_color: str = "#FFFFFF"
+    font_size: int = 16
+    show_labels: bool = True
     default_rect_count: int = Field(default=500, description="Default number of rectangles (cells) to show in the grid if not specified by command.")
 
     # Triggers for grid commands
-    show_grid_phrase: str = Field(default="golf", description="Phrase to show the grid.")
-    select_cell_phrase: str = Field(default="select", description="Phrase to select grid cells.")
-    cancel_grid_phrase: str = Field(default="cancel", description="Phrase to hide/cancel the grid.")
+    show_grid_phrase: str = "golf"
+    select_cell_phrase: str = "select"
+    cancel_grid_phrase: str = "cancel"
 
 
 class ErrorHandlingConfig(BaseModel):
     """Configuration for error handling service."""
-    
+
     # Notification settings
-    notify_ui_on_error: bool = Field(default=True, description="Whether to send UI notifications for errors")
-    auto_dismiss_notifications: bool = Field(default=True, description="Whether error notifications should auto-dismiss")
-    notification_dismiss_timeout_ms: int = Field(default=5000, description="How long notifications should display before auto-dismissing (ms)")
-    
+    notify_ui_on_error: bool = True
+    auto_dismiss_notifications: bool = True
+    notification_dismiss_timeout_ms: int = 5000
+
     # Logging settings
-    log_error_details: bool = Field(default=True, description="Whether to include full error details in logs")
+    log_error_details: bool = True
 
 
 
 class DictationConfig(BaseModel):
     """Configuration for dictation functionality"""
-    
+
     # Trigger words
-    start_trigger: str = Field(default="green", description="Trigger word to start standard dictation")
-    stop_trigger: str = Field(default="amber", description="Trigger word to stop any dictation mode")
-    type_trigger: str = Field(default="type", description="Trigger word to start type mode")
-    smart_start_trigger: str = Field(default="smart green", description="Trigger phrase to start LLM-assisted dictation")
-    
+    start_trigger: str = "green"
+    stop_trigger: str = "amber"
+    type_trigger: str = "type"
+    smart_start_trigger: str = "smart green"
+
     # Text filtering and processing
-    min_text_length: int = Field(default=1, description="Minimum length of text to process")
-    
+    min_text_length: int = 1
+
     # Text input settings (used by text_input_service)
-    use_clipboard: bool = Field(default=True, description="Use clipboard for text input instead of typing")
-    typing_delay: float = Field(default=0.01, description="Delay between keystrokes when typing (if not using clipboard)")
+    use_clipboard: bool = True
+    typing_delay: float = 0.01
+    
+    # Type dictation specific settings
+    type_dictation_silence_timeout: float = 1.0
 
 class LLMConfig(BaseModel):
     """Configuration for LLM service"""
-    model_size: Literal["XS", "S", "M", "L"] = Field(default="S", description="LLM model size: XS, S, M, or L")
-    context_length: int = Field(default=4096, description="Context length for LLM processing")
-    max_tokens: int = Field(default=1024, description="Maximum tokens to generate")
-    n_threads: int = Field(default=8, description="Number of threads for LLM processing")
-    
+    model_size: Literal["XS", "S", "M", "L"] = "S"
+    context_length: int = 4096
+    max_tokens: int = 1024
+    n_threads: int = 8
+
     # Startup configuration for faster app startup
     startup_mode: Literal["startup", "background", "lazy"] = Field(default="startup", description="When to initialize LLM: 'startup', 'background', 'lazy'")
     
@@ -254,13 +257,13 @@ class MarkovPredictorConfig(BaseModel):
     )
 
 class AppInfoConfig(BaseModel):
-    default_app_name_for_data_dir: str = "iris_voice_assistant"
-    user_data_dir_suffix: str = "_data"
+    default_app_name_for_data_dir: str = Field(default="iris_voice_assistant", description="Default app name for data directory")
+    user_data_dir_suffix: str = Field(default="_data", description="Suffix for user data directory")
     dev_cache_dir_name: str = "dev_cache"
-    user_data_dir: str = Field(default="data", description="User data directory for all persistent files.")
+    user_data_dir: str = "data"
 
 class ModelPathsConfig(BaseModel):
-    vosk_model: str = Field(default="", description="Path to Vosk model, auto-detected if empty")
+    vosk_model: str = ""
     
     def __init__(self, **data):
         super().__init__(**data)
@@ -322,21 +325,21 @@ class StorageConfig(BaseModel):
 
 
 class GlobalAppConfig(BaseModel):
-    logging: LoggingConfigModel = Field(default_factory=LoggingConfigModel)
-    app_info: AppInfoConfig = Field(default_factory=AppInfoConfig)
-    model_paths: ModelPathsConfig = Field(default_factory=ModelPathsConfig)
-    vad: VADConfig = Field(default_factory=VADConfig) # Added VADConfig
-    grid: GridConfig = Field(default_factory=GridConfig) # Now uses the imported GridConfig
-    storage: StorageConfig = Field(default_factory=StorageConfig)
-    sound_recognizer: ImportedSoundRecognizerConfig = Field(default_factory=ImportedSoundRecognizerConfig)
+    logging: LoggingConfigModel = LoggingConfigModel()
+    app_info: AppInfoConfig = AppInfoConfig()
+    model_paths: ModelPathsConfig = ModelPathsConfig()
+    vad: VADConfig = VADConfig()
+    grid: GridConfig = GridConfig()
+    storage: StorageConfig = StorageConfig()
+    sound_recognizer: SoundRecognizerConfig = SoundRecognizerConfig()
 
-    error_handling: ErrorHandlingConfig = Field(default_factory=ErrorHandlingConfig)
-    mark: MarkConfig = Field(default_factory=MarkConfig)
-    stt: STTConfig = Field(default_factory=STTConfig)
-    audio: AudioConfig = Field(default_factory=AudioConfig)
-    dictation: DictationConfig = Field(default_factory=DictationConfig)
-    llm: LLMConfig = Field(default_factory=LLMConfig)
-    markov_predictor: MarkovPredictorConfig = Field(default_factory=MarkovPredictorConfig)
+    error_handling: ErrorHandlingConfig = ErrorHandlingConfig()
+    mark: MarkConfig = MarkConfig()
+    stt: STTConfig = STTConfig()
+    audio: AudioConfig = AudioConfig()
+    dictation: DictationConfig = DictationConfig()
+    llm: LLMConfig = LLMConfig()
+    markov_predictor: MarkovPredictorConfig = MarkovPredictorConfig()
     scroll_amount_vertical: int = Field(default=120, description="The amount to scroll vertically for 'sky' and 'earth' commands.")
     automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
 

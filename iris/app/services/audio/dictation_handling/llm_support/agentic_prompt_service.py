@@ -281,7 +281,6 @@ class AgenticPromptService:
                 pass
             else:
                 logger.warning(f"Unhandled action or missing parameters: {action}")
-            # Always publish updates after any action
             await self._publish_prompts_updated()
             await self._publish_current_updated()
         except Exception as e:

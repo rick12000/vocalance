@@ -35,8 +35,8 @@ class DictationCommand(BaseCommand):
     pass
 
 class DictationStartCommand(DictationCommand):
-    """Command to start dictation mode"""
-    trigger_type: Literal["standard", "smart", "type"] = Field(..., description="Type of dictation trigger used")
+    """Command to start standard dictation mode"""
+    pass
 
 class DictationStopCommand(DictationCommand):
     """Command to stop dictation mode"""

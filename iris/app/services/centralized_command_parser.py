@@ -256,7 +256,7 @@ class CentralizedCommandParser:
         """Parse dictation commands"""
         # Check for specific dictation triggers
         if normalized_text == self._dictation_start_trigger:
-            return DictationStartCommand(trigger_type="start")
+            return DictationStartCommand()
         
         if normalized_text == self._dictation_stop_trigger:
             return DictationStopCommand()

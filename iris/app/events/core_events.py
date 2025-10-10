@@ -1,6 +1,6 @@
 from iris.app.events.base_event import BaseEvent, EventPriority
 from pydantic import Field, BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from datetime import datetime
 import uuid
 import numpy as np
@@ -8,7 +8,7 @@ import numpy as np
 
 class RecordingTriggerEvent(BaseEvent):
     """Unified event for starting or stopping audio recording"""
-    trigger: str = Field(..., description="Recording action: 'start' or 'stop'")
+    trigger: Literal["start", "stop"] = Field(..., description="Recording action")
     priority: EventPriority = EventPriority.CRITICAL
 
 class CommandAudioSegmentReadyEvent(BaseEvent):

@@ -1,5 +1,5 @@
 from iris.app.events.base_event import BaseEvent, EventPriority
-from typing import Optional, Dict, Union, Any
+from typing import Optional, Dict, Union, Any, Literal
 
 class MarkCreateRequestEventData(BaseEvent):
     name: Optional[str] = None
@@ -52,14 +52,14 @@ class MarkVisualizationStateChangedEventData(BaseEvent):
     priority: EventPriority = EventPriority.LOW
 
 class MarkOperationFailedEventData(BaseEvent):
-    operation: str
+    operation: Literal["create", "execute", "delete", "visualize", "reset", "visualize_cancel"]
     name_or_id: Optional[Union[str, int]] = None
     reason: str
     details: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
 
 class MarkOperationSuccessEventData(BaseEvent):
-    operation: str
+    operation: Literal["create", "execute", "delete", "visualize", "reset", "visualize_cancel"]
     label: Optional[str] = None
     message: Optional[str] = None
     marks_data: Optional[Dict[str, Any]] = None

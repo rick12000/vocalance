@@ -1,7 +1,7 @@
 # filepath: src/events/grid_events.py
 from iris.app.events.base_event import BaseEvent, EventPriority
 from pydantic import Field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 import uuid
 
 class ShowGridRequestEventData(BaseEvent):
@@ -48,15 +48,15 @@ class GridConfigUpdatedEventData(BaseEvent):
     priority: EventPriority = EventPriority.LOW
 
 class GridInteractionSuccessEventData(BaseEvent):
-    operation: str
+    operation: Literal["select_cell"]
     details: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
     priority: EventPriority = EventPriority.LOW
 
 class GridInteractionFailedEventData(BaseEvent):
-    operation: str
+    operation: Literal["select_cell"]
     reason: str
-    cell_label: Optional[str] = None 
+    cell_label: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
 
