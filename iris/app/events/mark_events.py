@@ -1,7 +1,5 @@
 from iris.app.events.base_event import BaseEvent, EventPriority
-from typing import Optional, Dict, Tuple, Union, Any
-
-# === MARK REQUEST EVENTS ===
+from typing import Optional, Dict, Union, Any
 
 class MarkCreateRequestEventData(BaseEvent):
     name: Optional[str] = None
@@ -22,7 +20,6 @@ class MarkExecuteRequestEventData(BaseEvent):
     name_or_id: Union[str, int]
     priority: EventPriority = EventPriority.NORMAL
 
-
 class MarkGetAllRequestEventData(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
 
@@ -31,8 +28,6 @@ class MarkVisualizeAllRequestEventData(BaseEvent):
 
 class MarkVisualizeCancelRequestEventData(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
-
-# === MARK RESPONSE EVENTS ===
 
 class MarkCreatedEventData(BaseEvent):
     name: str
@@ -45,17 +40,14 @@ class MarkDeletedEventData(BaseEvent):
     priority: EventPriority = EventPriority.LOW
 
 class MarksChangedEventData(BaseEvent):
-    """Published when the collection of marks has changed (create, delete, reset)."""
-    marks: Dict[str, Dict[str, Any]] # As used in MarkService: {name: {"name": name, "x": coords[0], "y": coords[1]}}
+    marks: Dict[str, Dict[str, Any]]
     priority: EventPriority = EventPriority.LOW
 
 class AllMarksClearedEventData(BaseEvent):
-    """Published when all marks have been successfully cleared."""
-    count: int # Number of marks cleared
+    count: int
     priority: EventPriority = EventPriority.LOW
 
 class MarkVisualizationStateChangedEventData(BaseEvent):
-    """Published when the mark visualization overlay is shown or hidden."""
     is_visible: bool
     priority: EventPriority = EventPriority.LOW
 
@@ -67,14 +59,11 @@ class MarkOperationFailedEventData(BaseEvent):
     priority: EventPriority = EventPriority.LOW
 
 class MarkOperationSuccessEventData(BaseEvent):
-    operation: str # e.g., "create", "delete", "execute", "reset"
+    operation: str
     label: Optional[str] = None
     message: Optional[str] = None
     marks_data: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
-
-
-# === MARK DATA MODELS ===
 
 class MarkData(BaseEvent):
     name: str
@@ -82,4 +71,3 @@ class MarkData(BaseEvent):
     y: int
     description: str = ""
     priority: EventPriority = EventPriority.LOW
-

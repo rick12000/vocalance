@@ -2,8 +2,6 @@ from iris.app.events.base_event import BaseEvent, EventPriority
 from pydantic import Field
 from typing import Optional, List, Dict, Literal
 
-# === SOUND TRAINING EVENTS ===
-
 class SoundTrainingRequestEvent(BaseEvent):
     sound_label: str
     num_samples: int
@@ -40,9 +38,6 @@ class SoundTrainingFailedEvent(BaseEvent):
     reason: str
     priority: EventPriority = EventPriority.NORMAL
 
-
-# === SOUND MANAGEMENT EVENTS ===
-
 class DeleteSoundCommand(BaseEvent):
     label: str = Field(..., description="Label of the sound to delete.")
     priority: EventPriority = EventPriority.NORMAL
@@ -66,9 +61,6 @@ class SoundListUpdatedEvent(BaseEvent):
     sounds: List[str]
     priority: EventPriority = EventPriority.LOW
 
-
-# === SOUND MAPPING EVENTS ===
-
 class MapSoundToCommandPhraseCommand(BaseEvent):
     sound_label: str = Field(..., description="Label of the sound to map.")
     command_phrase: str = Field(..., description="Command phrase to map to the sound.")
@@ -80,11 +72,8 @@ class SoundToCommandMappingUpdatedEvent(BaseEvent):
     success: bool
     priority: EventPriority = EventPriority.LOW
 class RequestSoundMappingsEvent(BaseEvent):
-    """Event to request all current sound-to-command mappings"""
     priority: EventPriority = EventPriority.NORMAL
 
 class SoundMappingsResponseEvent(BaseEvent):
-    """Response event with all current sound-to-command mappings"""
     mappings: Dict[str, str] = Field(default_factory=dict)
     priority: EventPriority = EventPriority.LOW
-
