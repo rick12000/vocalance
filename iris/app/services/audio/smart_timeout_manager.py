@@ -104,11 +104,3 @@ class SmartTimeoutManager:
         
         # If text is a known ambiguous command (prefix of others), return True
         return text_lower in self._ambiguous_commands
-
-    def get_status(self) -> Dict:
-        """Get timeout manager status for debugging"""
-        return {
-            'total_commands': len(self._all_commands),
-            'ambiguous_commands': len(self._ambiguous_commands),
-            'command_action_map_size': len(self._command_action_map)
-        }

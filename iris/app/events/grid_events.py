@@ -68,7 +68,6 @@ class GridInteractionFailedEventData(BaseEvent):
     cell_label: Optional[str] = None # If applicable to the operation
     details: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
-
 class GridOperationFeedbackEvent(BaseEvent):
     success: bool
     message: Optional[str] = None
@@ -83,3 +82,4 @@ class ClickCountsForGridEventData(BaseEvent):
     request_id: str
     processed_rects_with_clicks: List[Dict[str, Any]]
     priority: EventPriority = EventPriority.NORMAL
+

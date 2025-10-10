@@ -125,7 +125,6 @@ class AgenticPromptListUpdatedEvent(BaseEvent):
     """Event fired when the list of agentic prompts is updated"""
     prompts: list = Field(description="List of available agentic prompts")
     priority: EventPriority = EventPriority.LOW
-
 class AgenticPromptActionRequest(BaseEvent):
     """Event for requesting agentic prompt actions"""
     action: str = Field(description="The action to perform")

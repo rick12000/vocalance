@@ -213,15 +213,6 @@ class SimpleAudioService:
         except Exception as e:
             logger.error(f"Error stopping audio processing: {e}", exc_info=True)
 
-    def get_status(self) -> dict:
-        """Get current audio service status"""
-        return {
-            "command_recorder_active": self._command_recorder.is_active() if self._command_recorder else False,
-            "dictation_recorder_active": self._dictation_recorder.is_active() if self._dictation_recorder else False,
-            "command_recording": self._command_recorder.is_recording() if self._command_recorder else False,
-            "dictation_recording": self._dictation_recorder.is_recording() if self._dictation_recorder else False,
-            "dictation_mode": self._is_dictation_mode
-        }
 
     async def shutdown(self):
         """Shutdown audio service"""

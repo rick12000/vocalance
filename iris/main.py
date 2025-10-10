@@ -230,8 +230,8 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_sub_step("Initializing command predictor...")
                 await asyncio.sleep(0.05)
-            from iris.app.services.markov_command_predictor import MarkovCommandPredictor
-            self.services['markov_predictor'] = MarkovCommandPredictor(
+            from iris.app.services.markov_command_predictor import MarkovCommandService
+            self.services['markov_predictor'] = MarkovCommandService(
                 self.event_bus, self.config, self.services['unified_storage']
             )
             self.services['markov_predictor'].setup_subscriptions()

@@ -42,7 +42,6 @@ class CommandValidationErrorEvent(BaseEvent):
     command_phrase: str = ""
     action_value: str = ""
     priority: EventPriority = EventPriority.NORMAL
-
 class ResetCommandsToDefaultsEvent(BaseEvent):
     """Event to reset all commands to their default state"""
     priority: EventPriority = EventPriority.NORMAL 

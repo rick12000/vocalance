@@ -293,15 +293,6 @@ class SpeechToTextService:
         except Exception as e:
             logger.error(f"Error handling Markov prediction: {e}", exc_info=True)
 
-    def get_status(self) -> Dict[str, Any]:
-        """Get current STT service status"""
-        return {
-            "dictation_active": self._dictation_active,
-            "engines_initialized": self._engines_initialized,
-            "vosk_initialized": self.vosk_engine is not None,
-            "whisper_initialized": self.whisper_engine is not None,
-            "last_recognized_text": self._last_recognized_text[:50] + "..." if len(self._last_recognized_text) > 50 else self._last_recognized_text
-        }
     
     def update_command_action_map(self, command_action_map):
         """Update the command action map in smart timeout manager"""

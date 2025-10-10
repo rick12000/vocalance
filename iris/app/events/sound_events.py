@@ -80,7 +80,6 @@ class SoundToCommandMappingUpdatedEvent(BaseEvent):
     command_phrase: str
     success: bool
     priority: EventPriority = EventPriority.LOW
-
 class RequestSoundMappingsEvent(BaseEvent):
     """Event to request all current sound-to-command mappings"""
     priority: EventPriority = EventPriority.NORMAL
@@ -89,3 +88,4 @@ class SoundMappingsResponseEvent(BaseEvent):
     """Response event with all current sound-to-command mappings"""
     mappings: Dict[str, str] = Field(default_factory=dict)
     priority: EventPriority = EventPriority.LOW
+

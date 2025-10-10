@@ -59,5 +59,5 @@ class SmartTimeoutUpdateEvent(BaseEvent):
     suggested_timeout: float = Field(description="Suggested timeout in seconds")
     is_ambiguous: bool = Field(description="Whether the text is ambiguous and might continue")
     priority: EventPriority = EventPriority.LOW
-
 # STTRequestEvent and STTResponseEvent removed - unused dataclass events
+

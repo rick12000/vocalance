@@ -28,7 +28,7 @@ from iris.app.events.command_events import (
 logger = logging.getLogger(__name__)
 
 
-class MarkovCommandPredictor:
+class MarkovCommandService:
     """Backoff Markov chain predictor (2nd-4th order) for command sequences"""
     
     def __init__(
@@ -423,18 +423,3 @@ class MarkovCommandPredictor:
         except Exception as e:
             logger.error(f"Error during shutdown: {e}", exc_info=True)
     
-    def get_status(self) -> Dict:
-        """Get predictor status"""
-        return {
-            "enabled": self._markov_config.enabled,
-            "model_trained": self._model_trained,
-            "transitions_by_order": {
-                order: len(counts) for order, counts in self._transition_counts.items()
-            },
-            "command_history_size": len(self._command_history),
-            "confidence_threshold": self._markov_config.confidence_threshold,
-            "pending_writes": len(self._pending_commands),
-            "cooldown_remaining": self._cooldown_remaining,
-            "pending_prediction": self._pending_prediction is not None
-        }
-
