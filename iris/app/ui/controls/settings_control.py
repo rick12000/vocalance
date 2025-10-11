@@ -61,10 +61,8 @@ class SettingsController(BaseController):
             # Return default config values when service is not available
             return {
                 'llm': {
-                    'model_size': self.config.llm.model_size,
                     'context_length': self.config.llm.context_length,
-                    'max_tokens': self.config.llm.max_tokens,
-                    'n_threads': self.config.llm.n_threads
+                    'max_tokens': self.config.llm.max_tokens
                 },
                 'grid': {
                     'default_rect_count': self.config.grid.default_rect_count
@@ -77,24 +75,19 @@ class SettingsController(BaseController):
         # Return defaults for now
         return {
             'llm': {
-                'model_size': self.config.llm.model_size,
                 'context_length': self.config.llm.context_length,
-                'max_tokens': self.config.llm.max_tokens,
-                'n_threads': self.config.llm.n_threads
+                'max_tokens': self.config.llm.max_tokens
             },
             'grid': {
                 'default_rect_count': self.config.grid.default_rect_count
             }
         }
 
-    def validate_llm_settings(self, model_size: str, context_length: str, max_tokens: str, n_threads: str) -> List[str]:
+    def validate_llm_settings(self, context_length: str, max_tokens: str) -> List[str]:
         """Validate LLM input fields and return list of errors"""
         errors = []
         
         try:
-            if model_size not in ["XS", "S", "M", "L"]:
-                errors.append("LLM Model Size must be XS, S, M, or L")
-            
             context_length_int = int(context_length)
             if context_length_int < 128 or context_length_int > 32768:
                 errors.append("Context Length must be between 128 and 32768")
@@ -102,10 +95,6 @@ class SettingsController(BaseController):
             max_tokens_int = int(max_tokens)
             if max_tokens_int < 1 or max_tokens_int > 1024:
                 errors.append("Max Tokens must be between 1 and 1024")
-            
-            threads_int = int(n_threads)
-            if threads_int < 1 or threads_int > 32:
-                errors.append("Processing Threads must be between 1 and 32")
         except ValueError:
             errors.append("LLM settings must be valid numbers")
         
@@ -124,14 +113,14 @@ class SettingsController(BaseController):
         
         return errors
 
-    def save_llm_settings(self, model_size: str, context_length: str, max_tokens: str, n_threads: str) -> bool:
+    def save_llm_settings(self, context_length: str, max_tokens: str) -> bool:
         """Save LLM settings through the settings service"""
         if not self.settings_service:
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_save_error, "Settings service not available")
             return False
         
-        validation_errors = self.validate_llm_settings(model_size, context_length, max_tokens, n_threads)
+        validation_errors = self.validate_llm_settings(context_length, max_tokens)
         if validation_errors:
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
@@ -140,10 +129,8 @@ class SettingsController(BaseController):
         try:
             # Prepare settings updates in the format expected by the service
             settings_updates = {
-                'llm.model_size': model_size,
                 'llm.context_length': int(context_length),
-                'llm.max_tokens': int(max_tokens),
-                'llm.n_threads': int(n_threads)
+                'llm.max_tokens': int(max_tokens)
             }
             
             # Schedule async save operation
@@ -261,7 +248,7 @@ class SettingsController(BaseController):
         """Async method to reset settings"""
         try:
             # Reset LLM settings through the service
-            llm_settings = ['llm.model_size', 'llm.context_length', 'llm.max_tokens', 'llm.n_threads']
+            llm_settings = ['llm.context_length', 'llm.max_tokens']
             
             success = True
             for setting in llm_settings:
@@ -329,8 +316,6 @@ class SettingsController(BaseController):
     def get_default_llm_settings(self) -> Dict[str, Any]:
         """Get default LLM settings from config"""
         return {
-            'model_size': self.config.llm.model_size,
             'context_length': self.config.llm.context_length,
-            'max_tokens': self.config.llm.max_tokens,
-            'n_threads': self.config.llm.n_threads
+            'max_tokens': self.config.llm.max_tokens
         } 

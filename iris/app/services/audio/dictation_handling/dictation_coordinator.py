@@ -13,6 +13,7 @@ import uuid
 from typing import Optional
 from enum import Enum
 from dataclasses import dataclass
+from collections import deque
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
@@ -63,6 +64,12 @@ class DictationCoordinator:
         self._session_id: Optional[str] = None
         self._type_silence_task: Optional[asyncio.Task] = None
         
+        # Lock-free token streaming - deque is thread-safe for append/popleft
+        self._token_queue = deque()  # Lock-free queue for tokens
+        self._streaming_active = False
+        self._streaming_thread: Optional[threading.Thread] = None
+        self._direct_token_callback: Optional[callable] = None
+        
         # Initialize services
         self.text_service = TextInputService(config.dictation)
         self.llm_service = LLMService(event_bus, config)
@@ -80,6 +87,11 @@ class DictationCoordinator:
     
     def is_active(self) -> bool:
         return self.active_mode != DictationMode.INACTIVE
+    
+    def set_direct_token_callback(self, callback: Optional[callable]) -> None:
+        """Set a direct callback for token streaming that bypasses the event bus for minimal latency"""
+        self._direct_token_callback = callback
+        logger.info(f"Direct token callback {'registered' if callback else 'cleared'}")
     
     async def initialize(self) -> bool:
         """Initialize all services"""
@@ -223,11 +235,13 @@ class DictationCoordinator:
             logger.error(f"Command handling error: {e}", exc_info=True)
     
     async def _handle_llm_processing_ready(self, event: LLMProcessingReadyEvent) -> None:
-        """Handle LLM processing ready signal from UI"""
+        """Handle LLM processing ready signal from UI - fire and forget to avoid blocking event bus"""
         try:
             if self._session_id and event.session_id == self._session_id and self._pending_llm_session:
                 logger.info(f"🚀 UI ready signal received for session {event.session_id} - starting LLM processing now")
-                await self._start_llm_processing(self._pending_llm_session)
+                # Use create_task to avoid blocking the event bus worker
+                # This allows token events to be processed in real-time
+                asyncio.create_task(self._start_llm_processing(self._pending_llm_session))
                 self._pending_llm_session = None
                 self._session_id = None
             else:
@@ -387,11 +401,20 @@ class DictationCoordinator:
             # Use streaming if available
             if hasattr(self.llm_service, 'process_dictation_streaming'):
                 logger.info("🚀 Starting LLM streaming processing...")
-                await self.llm_service.process_dictation_streaming(
-                    session.accumulated_text, 
-                    agentic_prompt,
-                    token_callback=self._stream_token
-                )
+                
+                # Start background streaming thread
+                self._start_streaming()
+                
+                try:
+                    await self.llm_service.process_dictation_streaming(
+                        session.accumulated_text, 
+                        agentic_prompt,
+                        token_callback=self._stream_token
+                    )
+                finally:
+                    # Stop streaming and flush remaining tokens
+                    self._stop_streaming()
+                
                 logger.info("✅ LLM streaming processing completed")
             else:
                 logger.info("🚀 Starting LLM non-streaming processing...")
@@ -400,16 +423,65 @@ class DictationCoordinator:
 
         except Exception as e:
             logger.error(f"LLM processing error: {e}", exc_info=True)
+            self._stop_streaming()
     
     def _stream_token(self, token: str) -> None:
-        """Helper to publish LLM tokens"""
-        try:
-            logger.info(f"🔥 STREAMING TOKEN: '{token}' (length: {len(token)})")
-            # Use the ThreadSafeEventPublisher for proper async event publishing from sync callback
-            self.event_publisher.publish(LLMTokenGeneratedEvent(token=token))
-            logger.info(f"✅ Token event published successfully")
-        except Exception as e:
-            logger.error(f"Token streaming error: {e}", exc_info=True)
+        """Fastest possible callback - just append to lock-free queue and return"""
+        self._token_queue.append(token)
+    
+    def _streaming_worker(self) -> None:
+        """Background thread that publishes tokens immediately - supports direct callback for zero-latency path"""
+        while self._streaming_active:
+            try:
+                try:
+                    token = self._token_queue.popleft()
+                    
+                    # Fast path: direct callback if available (bypasses event bus)
+                    if self._direct_token_callback:
+                        try:
+                            self._direct_token_callback(token)
+                        except Exception as e:
+                            logger.error(f"Direct callback error: {e}", exc_info=True)
+                    
+                    # Standard path: event bus for other subscribers
+                    self.event_publisher.publish(LLMTokenGeneratedEvent(token=token))
+                    
+                except IndexError:
+                    time.sleep(0.0001)  # 0.1ms sleep when queue empty - ultra-responsive
+                    continue
+                    
+            except Exception as e:
+                logger.error(f"Streaming worker error: {e}", exc_info=True)
+    
+    def _start_streaming(self) -> None:
+        """Start background streaming thread"""
+        if not self._streaming_active:
+            self._streaming_active = True
+            self._streaming_thread = threading.Thread(
+                target=self._streaming_worker,
+                daemon=True,
+                name="LLMTokenStreamer"
+            )
+            self._streaming_thread.start()
+    
+    def _stop_streaming(self) -> None:
+        """Stop streaming and flush remaining tokens"""
+        self._streaming_active = False
+        if self._streaming_thread:
+            self._streaming_thread.join(timeout=1.0)
+            self._streaming_thread = None
+        
+        # Flush any remaining tokens
+        remaining = []
+        while True:
+            try:
+                remaining.append(self._token_queue.popleft())
+            except IndexError:
+                break
+        
+        if remaining:
+            batched_token = ''.join(remaining)
+            self.event_publisher.publish(LLMTokenGeneratedEvent(token=batched_token))
     
     async def _end_smart_session(self) -> None:
         """End smart dictation session"""

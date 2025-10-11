@@ -32,10 +32,8 @@ class SettingsService:
     
     # Define which settings can be overridden by users
     OVERRIDEABLE_SETTINGS = {
-        'llm.model_size',
         'llm.context_length', 
         'llm.max_tokens',
-        'llm.n_threads',
         'grid.default_rect_count',
         'sound_recognizer.confidence_threshold',
         'vad.energy_threshold',
@@ -86,10 +84,8 @@ class SettingsService:
             # Start with config defaults
             self._effective_settings = {
                 'llm': {
-                    'model_size': self._config.llm.model_size,
                     'context_length': self._config.llm.context_length,
-                    'max_tokens': self._config.llm.max_tokens,
-                    'n_threads': self._config.llm.n_threads
+                    'max_tokens': self._config.llm.max_tokens
                 },
                 'grid': {
                     'default_rect_count': self._config.grid.default_rect_count
@@ -223,14 +219,10 @@ class SettingsService:
     def _validate_setting_value(self, setting_path: str, value: Any) -> bool:
         """Validate setting value based on setting type and constraints"""
         try:
-            if setting_path == 'llm.model_size':
-                return value in ['XS', 'S', 'M', 'L']
-            elif setting_path == 'llm.context_length':
+            if setting_path == 'llm.context_length':
                 return isinstance(value, int) and 128 <= value <= 32768
             elif setting_path == 'llm.max_tokens':
                 return isinstance(value, int) and 1 <= value <= 4096
-            elif setting_path == 'llm.n_threads':
-                return isinstance(value, int) and 1 <= value <= 32
             elif setting_path == 'grid.default_rect_count':
                 return isinstance(value, int) and value > 0
             elif setting_path == 'sound_recognizer.confidence_threshold':
@@ -254,10 +246,8 @@ class SettingsService:
             # Apply LLM settings
             if 'llm' in settings:
                 llm = settings['llm']
-                config.llm.model_size = llm.get('model_size', config.llm.model_size)
                 config.llm.context_length = llm.get('context_length', config.llm.context_length)
                 config.llm.max_tokens = llm.get('max_tokens', config.llm.max_tokens)
-                config.llm.n_threads = llm.get('n_threads', config.llm.n_threads)
             
             # Apply grid settings
             if 'grid' in settings:

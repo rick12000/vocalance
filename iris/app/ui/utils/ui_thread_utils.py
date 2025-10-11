@@ -40,12 +40,20 @@ class UIScheduler:
             return False
     
     def schedule_ui_update(self, callback: Callable, *args) -> None:
-        """Schedule a UI update in the main thread."""
+        """Schedule a UI update in the main thread - thread-safe."""
         if not self.root_window:
             return
             
+        def safe_wrapper():
+            """Wrapper that catches exceptions during callback execution"""
+            try:
+                callback(*args)
+            except Exception as e:
+                logger.error(f"Error in UI update callback: {e}", exc_info=True)
+        
         try:
-            self.root_window.after(0, callback, *args)
+            # Use after_idle for better responsiveness - processes when Tk is idle
+            self.root_window.after_idle(safe_wrapper)
         except RuntimeError as e:
             if "main thread is not in main loop" in str(e) and self.is_main_thread():
                 # Execute immediately if we're in the main thread but loop isn't running

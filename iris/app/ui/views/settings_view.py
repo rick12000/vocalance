@@ -23,10 +23,8 @@ class SettingsView(ctk.CTkFrame):
         self.root_window = root_window
         self._is_alive = True
         
-        self.llm_model_size_var = ctk.StringVar()
         self.llm_context_length_var = ctk.StringVar()
         self.llm_max_tokens_var = ctk.StringVar()
-        self.llm_threads_var = ctk.StringVar()
         self.grid_default_cells_var = ctk.StringVar()
 
         self._build_tab_ui()
@@ -68,84 +66,33 @@ class SettingsView(ctk.CTkFrame):
                        pady=(ui_theme.theme.spacing.medium, ui_theme.theme.spacing.small), 
                        sticky="w")
         
-        # Model Size Selection
-        ThemedLabel(llm_frame, text="Model Size:", bold=True).grid(
-            row=1, column=0, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
-        
-        model_sizes = ["XS", "S"]
-        model_descriptions = {
-            "XS": "Qwen2.5-1.5B Q5 (Fastest, Basic)",
-            "S": "Qwen2.5-1.5B Q8 (Better Quality, Slower)"
-        }
-        
-        font_family = ui_theme.theme.font_family.get_primary_font("regular")
-        self.llm_model_dropdown = ctk.CTkOptionMenu(
-            llm_frame, 
-            values=model_sizes,
-            variable=self.llm_model_size_var,
-            font=(font_family, ui_theme.theme.font_sizes.medium),
-            fg_color=ui_theme.theme.shape_colors.darkest,
-            button_color=ui_theme.theme.shape_colors.darkest,
-            button_hover_color=ui_theme.theme.shape_colors.dark
-        )
-        self.llm_model_dropdown.grid(row=1, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="ew")
-        
-        self.model_desc_label = ThemedLabel(llm_frame, text="", color=ui_theme.theme.text_colors.medium)
-        self.model_desc_label.grid(row=1, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
-        
-        def update_model_description(*args):
-            if not self._is_alive:
-                return
-            try:
-                size = self.llm_model_size_var.get()
-                desc = model_descriptions.get(size, "")
-                self.model_desc_label.configure(text=desc)
-            except tk.TclError:
-                pass
-        
-        self.llm_model_size_var.trace_add("write", update_model_description)
-        
         # Context Length
         ThemedLabel(llm_frame, text="Context Length:", bold=True).grid(
-            row=2, column=0, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
+            row=1, column=0, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
         self.llm_context_entry = ThemedEntry(
             llm_frame, 
             textvariable=self.llm_context_length_var,
             width=ui_theme.theme.dimensions.entry_width_small
         )
-        self.llm_context_entry.grid(row=2, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
+        self.llm_context_entry.grid(row=1, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
         
         # Context length description
         context_desc = ThemedLabel(llm_frame, text="(128-32768, higher = more context)", color=ui_theme.theme.text_colors.medium)
-        context_desc.grid(row=2, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
+        context_desc.grid(row=1, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
         
         # Max Tokens
         ThemedLabel(llm_frame, text="Max Tokens:", bold=True).grid(
-            row=3, column=0, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
+            row=2, column=0, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
         self.llm_max_tokens_entry = ThemedEntry(
             llm_frame, 
             textvariable=self.llm_max_tokens_var,
             width=ui_theme.theme.dimensions.entry_width_small
         )
-        self.llm_max_tokens_entry.grid(row=3, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
+        self.llm_max_tokens_entry.grid(row=2, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
         
         # Max tokens description
         tokens_desc = ThemedLabel(llm_frame, text="(1-1024, higher = longer responses)", color=ui_theme.theme.text_colors.medium)
-        tokens_desc.grid(row=3, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
-        
-        # Threads
-        ThemedLabel(llm_frame, text="Processing Threads:", bold=True).grid(
-            row=4, column=0, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
-        self.llm_threads_entry = ThemedEntry(
-            llm_frame, 
-            textvariable=self.llm_threads_var,
-            width=ui_theme.theme.dimensions.entry_width_small
-        )
-        self.llm_threads_entry.grid(row=4, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
-        
-        # Threads description
-        threads_desc = ThemedLabel(llm_frame, text="(1-32, match your CPU cores)", color=ui_theme.theme.text_colors.medium)
-        threads_desc.grid(row=4, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
+        tokens_desc.grid(row=2, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
         
         # Configure column weights for LLM frame
         llm_frame.grid_columnconfigure(1, weight=1)
@@ -153,7 +100,7 @@ class SettingsView(ctk.CTkFrame):
 
         # Buttons frame for LLM settings
         buttons_frame = TransparentFrame(llm_frame)
-        buttons_frame.grid(row=5, column=0, columnspan=3, pady=20, padx=20, sticky="ew")
+        buttons_frame.grid(row=3, column=0, columnspan=3, pady=20, padx=20, sticky="ew")
         
         # Configure buttons_frame grid
         buttons_frame.grid_columnconfigure(0, weight=0)
@@ -266,17 +213,15 @@ class SettingsView(ctk.CTkFrame):
             if settings:
                 # LLM settings
                 llm_settings = settings.get('llm', {})
-                self.llm_model_size_var.set(llm_settings.get('model_size', 'S'))
                 self.llm_context_length_var.set(str(llm_settings.get('context_length', 2048)))
                 self.llm_max_tokens_var.set(str(llm_settings.get('max_tokens', 512)))
-                self.llm_threads_var.set(str(llm_settings.get('n_threads', 4)))
                 
                 # Grid settings
                 grid_settings = settings.get('grid', {})
                 self.grid_default_cells_var.set(str(grid_settings.get('default_rect_count', 500)))
             else:
                 # Set error values
-                for var in [self.llm_model_size_var, self.llm_context_length_var, self.llm_max_tokens_var, self.llm_threads_var, self.grid_default_cells_var]:
+                for var in [self.llm_context_length_var, self.llm_max_tokens_var, self.grid_default_cells_var]:
                     if isinstance(var, ctk.StringVar):
                         var.set("Error")
                         
@@ -286,10 +231,8 @@ class SettingsView(ctk.CTkFrame):
     def _save_llm_settings(self):
         """Save LLM settings through controller"""
         self.controller.save_llm_settings(
-            self.llm_model_size_var.get(),
             self.llm_context_length_var.get(),
-            self.llm_max_tokens_var.get(),
-            self.llm_threads_var.get()
+            self.llm_max_tokens_var.get()
         )
     
     def _reset_llm_to_defaults(self):

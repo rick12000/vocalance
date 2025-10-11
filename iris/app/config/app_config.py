@@ -156,34 +156,143 @@ class DictationConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     """Configuration for LLM service"""
-    model_size: Literal["XS", "S", "M", "L"] = "S"
-    context_length: int = 4096
-    max_tokens: int = 1024
-    n_threads: int = 8
-
-    # Startup configuration for faster app startup
-    startup_mode: Literal["startup", "background", "lazy"] = Field(default="startup", description="When to initialize LLM: 'startup', 'background', 'lazy'")
     
-    # Hugging Face model repository mapping
-    HF_MODEL_MAPPING: ClassVar[Dict[str, Dict[str, str]]] = {
-        "XS": {
+    model_info: Dict[str, str] = Field(
+        default={
             "repo_id": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
             "filename": "qwen2.5-1.5b-instruct-q5_k_m.gguf"
         },
-        "S": {
-            "repo_id": "Qwen/Qwen2.5-1.5B-Instruct-GGUF", 
-            "filename": "qwen2.5-1.5b-instruct-q8_0.gguf"
-        }
-    }
+        description="Internal model configuration"
+    )
     
-    def get_model_info(self) -> Dict[str, str]:
-        """Get the Hugging Face model info for the configured size"""
-        return self.HF_MODEL_MAPPING.get(self.model_size, self.HF_MODEL_MAPPING["XS"])
+    context_length: int = Field(
+        default=2048,
+        description="Model context window - 2048 is optimal for dictation (faster than 4096)"
+    )
+    
+    max_tokens: int = Field(
+        default=1024,
+        description="Max output tokens - sufficient for most dictation, faster than 2600"
+    )
+    
+    n_threads: Optional[int] = Field(
+        default=None,
+        description="Threads for token generation (None = auto: cpu_count - 1, max 6)"
+    )
+    
+    n_threads_batch: Optional[int] = Field(
+        default=None,
+        description="Threads for prompt processing (None = auto: same as n_threads). CRITICAL for performance!"
+    )
+    
+    n_batch: int = Field(
+        default=2048,
+        description="Prompt processing batch size - 2048 matches Ollama optimal, 4x faster than 512"
+    )
+    
+    use_mlock: bool = Field(
+        default=False,
+        description="Lock model in RAM - disable on 8GB systems to prevent OOM"
+    )
+    
+    temperature: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=2.0,
+        description="Low temperature for faster, more deterministic generation"
+    )
+    top_p: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Lower top_p = fewer tokens to consider = faster"
+    )
+    top_k: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Very aggressive top_k for maximum speed (10 tokens only)"
+    )
+    min_p: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Disabled - adds overhead on some systems"
+    )
+    repeat_penalty: float = Field(
+        default=1.05,
+        ge=1.0,
+        le=2.0,
+        description="Minimal penalty for speed (lower = faster)"
+    )
+    frequency_penalty: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description="Disabled - adds overhead"
+    )
+    
+    mirostat_mode: int = Field(
+        default=0,
+        ge=0,
+        le=2,
+        description="Disabled - standard sampling is faster on most CPUs"
+    )
+    mirostat_tau: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=10.0,
+        description="Not used when mirostat_mode=0"
+    )
+    mirostat_eta: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Not used when mirostat_mode=0"
+    )
+    
+    n_gpu_layers: int = Field(
+        default=0,
+        ge=0,
+        description="Number of layers to offload to GPU (0 = CPU only, -1 = all layers)"
+    )
+    
+    verbose: bool = Field(
+        default=False,
+        description="Enable verbose llama.cpp logging for debugging"
+    )
+    
+    flash_attn: bool = Field(
+        default=True,
+        description="Enable flash attention for faster computation (recommended)"
+    )
+    
+    type_k: int = Field(
+        default=1,
+        ge=0,
+        le=2,
+        description="KV cache key type: 0=f32, 1=f16 (recommended), 2=q8_0. Lower = faster with less memory"
+    )
+    type_v: int = Field(
+        default=1,
+        ge=0,
+        le=2,
+        description="KV cache value type: 0=f32, 1=f16 (recommended), 2=q8_0. Lower = faster with less memory"
+    )
+    
+    generation_timeout_sec: float = Field(
+        default=45.0,
+        description="Max time for generation before timeout"
+    )
+
+    startup_mode: Literal["startup", "background", "lazy"] = Field(
+        default="startup", 
+        description="When to initialize LLM: 'startup', 'background', 'lazy'"
+    )
     
     def get_model_filename(self) -> str:
-        """Get the model filename for the configured size"""
-        model_info = self.get_model_info()
-        return model_info["filename"]
+        """Get the model filename"""
+        return self.model_info["filename"]
 
 class VADConfig(BaseModel):
     # Base VAD settings

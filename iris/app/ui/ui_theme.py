@@ -50,6 +50,7 @@ class TextColors(BaseModel):
     dark: str = "#a79494"
     darkest: str = "#1f1f1f"
     success: str = "#28a745"  # Green color for success states
+    streaming_token: str = "#c79b9b"  # Highlight color for currently streaming token
 
 
 class ShapeColors(BaseModel):

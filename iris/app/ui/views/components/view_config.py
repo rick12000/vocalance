@@ -156,8 +156,6 @@ class FormDefaults(BaseModel):
                 "grid_rects": await settings_service.get_setting("grid.default_rect_count", "500"),
                 "context_length": await settings_service.get_setting("llm.context_length", "4096"),
                 "max_tokens": await settings_service.get_setting("llm.max_tokens", "1024"),
-                "threads": await settings_service.get_setting("llm.n_threads", "8"),
-                "model_size": await settings_service.get_setting("llm.model_size", "S"),
             }
         except Exception:
             # Fallback to static defaults if settings service unavailable
@@ -165,8 +163,6 @@ class FormDefaults(BaseModel):
                 "grid_rects": "500",
                 "context_length": "4096", 
                 "max_tokens": "1024",
-                "threads": "8",
-                "model_size": "S",
             }
 
 class ViewMessages(BaseModel):
