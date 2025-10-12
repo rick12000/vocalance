@@ -75,12 +75,8 @@ class WhisperSpeechToText:
             "temperature": self._temperature,
             "no_speech_threshold": self._no_speech_threshold,
             "condition_on_previous_text": False,
-            "word_timestamps": True,
-            "vad_filter": True,
-            "vad_parameters": {
-                'min_silence_duration_ms': 4000,
-                'speech_pad_ms': 500
-            }
+            "word_timestamps": False,
+            "vad_filter": False,
         }
         
         # Adjust beam size for shorter segments

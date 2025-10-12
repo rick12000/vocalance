@@ -86,6 +86,14 @@ class TextInputService:
         if len(cleaned) < self.config.min_text_length:
             return ""
         
+        # Ensure proper spacing after text for continuous dictation
+        # Add space after text unless it already ends with whitespace or certain punctuation
+        if cleaned and not cleaned[-1].isspace():
+            # Don't add space after opening punctuation or at end of certain sequences
+            needs_space = cleaned[-1] not in ('(', '[', '{', '—', '–')
+            if needs_space:
+                cleaned = cleaned + ' '
+        
         return cleaned
     
     def _paste_clipboard(self, text: str) -> bool:

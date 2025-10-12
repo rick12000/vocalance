@@ -312,9 +312,9 @@ class VADConfig(BaseModel):
     
     # Dictation mode specific settings
     dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
-    dictation_silent_chunks_for_end: int = Field(default=25, description="Number of consecutive silent chunks to end recording in dictation mode (25 chunks = 500ms at 20ms/chunk).")
+    dictation_silent_chunks_for_end: int = Field(default=60, description="Number of consecutive silent chunks to end recording in dictation mode (40 chunks = 800ms at 20ms/chunk).")
     dictation_max_recording_duration: float = Field(default=8.0, description="Maximum recording duration for dictation mode.")
-    dictation_pre_roll_buffers: int = Field(default=2, description="Pre-roll buffers for dictation mode.")
+    dictation_pre_roll_buffers: int = Field(default=8, description="Pre-roll buffers for dictation mode (160ms at 20ms/chunk).")
     
     # Training mode specific settings
     training_energy_threshold: float = Field(default=0.003, description="Energy threshold for training sample collection.")
