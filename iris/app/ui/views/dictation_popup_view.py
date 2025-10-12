@@ -56,18 +56,18 @@ class DictationPopupView:
         """Create non-intrusive popup window"""
         popup = ctk.CTkToplevel(self.parent_root)
         popup.title("Dictation")
-        
+
         # Make window completely non-intrusive
         popup.wm_attributes("-topmost", True)
         popup.wm_attributes("-toolwindow", True)
         popup.overrideredirect(True)  # No title bar - prevents focus stealing
         popup.resizable(False, False)
         popup.configure(fg_color=ui_theme.theme.shape_colors.darkest)
-        
+
         # Prevent window from taking focus
         popup.focus_set = lambda: None  # Disable focus_set
         popup.grab_set = lambda: None   # Disable grab_set
-        
+
         return popup
 
     def _create_simple_content(self) -> ctk.CTkFrame:
@@ -90,16 +90,16 @@ class DictationPopupView:
         frame.grid_rowconfigure(1, weight=1)
 
         # Dictation pane
-        ctk.CTkLabel(frame, text="Dictation", font=(view_config.dictation_popup.font_family, 14, "bold")).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.dictation_box = ctk.CTkTextbox(frame, height=200, font=(view_config.dictation_popup.font_family, 11))
+        ctk.CTkLabel(frame, text="Dictation", font=(view_config.dictation_popup.font_family, 20, "bold")).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.dictation_box = ctk.CTkTextbox(frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark)
         self.dictation_box.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
 
-        # LLM pane  
-        self.llm_label = ctk.CTkLabel(frame, text="AI Processing", font=(view_config.dictation_popup.font_family, 14, "bold"))
+        # LLM pane
+        self.llm_label = ctk.CTkLabel(frame, text="AI Processing", font=(view_config.dictation_popup.font_family, 20, "bold"))
         self.llm_label.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        self.llm_box = ctk.CTkTextbox(frame, height=200, font=(view_config.dictation_popup.font_family, 11))
+        self.llm_box = ctk.CTkTextbox(frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark)
         self.llm_box.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
-        
+
         return frame
 
     # Public API
