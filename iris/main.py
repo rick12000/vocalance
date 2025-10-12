@@ -255,7 +255,8 @@ class FastServiceInitializer:
         
         control_room_logger = logging.getLogger("AppControlRoom")
         self.services['control_room'] = AppControlRoom(
-            self.root, self.event_bus, self.gui_loop, control_room_logger, self.config
+            self.root, self.event_bus, self.gui_loop, control_room_logger, self.config,
+            storage_service=self.services.get('unified_storage')
         )
         
         # Pass settings service to control room so it can be used by settings controller

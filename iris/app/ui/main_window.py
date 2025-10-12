@@ -29,7 +29,7 @@ from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 
 class AppControlRoom:
-    def __init__(self, root: tk.Tk, event_bus: EventBus, event_loop: asyncio.AbstractEventLoop, logger: logging.Logger, config: GlobalAppConfig):
+    def __init__(self, root: tk.Tk, event_bus: EventBus, event_loop: asyncio.AbstractEventLoop, logger: logging.Logger, config: GlobalAppConfig, storage_service = None):
         self.root = root
         self.event_bus = event_bus
         self.event_loop = event_loop
@@ -37,6 +37,7 @@ class AppControlRoom:
         self.config = config
         self.current_tab = "Marks"
         self._settings_service = None
+        self._storage_service = storage_service
         
         # View caching for performance
         self._view_cache = {}
@@ -93,9 +94,14 @@ class AppControlRoom:
                 root=self.root,
                 event_bus=self.event_bus,
                 default_num_rects=self.config.grid.default_rect_count,
-                event_loop=self.event_loop
+                event_loop=self.event_loop,
+                storage=self._storage_service
             )
             self.grid_controller.set_grid_view(self.grid_view)
+            
+            # Initialize grid view's click cache asynchronously
+            if self._storage_service:
+                asyncio.create_task(self.grid_view.initialize_click_cache())
             
             # Mark view
             self.mark_view = MarkView(

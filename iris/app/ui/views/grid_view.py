@@ -3,17 +3,16 @@ import tkinter as tk
 import math
 import logging
 import time
-import uuid
 import asyncio
 from typing import Optional, Dict, Any, Tuple, List, Callable
 
 import pyautogui
 from iris.app.services.grid.click_tracker_service import prioritize_grid_rects
 from iris.app.events.core_events import PerformMouseClickEventData
-from iris.app.events.grid_events import RequestClickCountsForGridEventData, ClickCountsForGridEventData
 from iris.app.event_bus import EventBus
 from iris.app.utils.event_utils import ThreadSafeEventPublisher, EventSubscriptionManager
 from iris.app.ui.views.components.view_config import view_config
+from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_grid_clicks
 
 
 class GridView:
@@ -22,7 +21,7 @@ class GridView:
     # Constants
     DEFAULT_NUM_RECTS = 500
 
-    def __init__(self, root: tk.Tk, event_bus: EventBus, default_num_rects: Optional[int] = None, event_loop: Optional[asyncio.AbstractEventLoop] = None):
+    def __init__(self, root: tk.Tk, event_bus: EventBus, default_num_rects: Optional[int] = None, event_loop: Optional[asyncio.AbstractEventLoop] = None, storage: Optional[UnifiedStorageService] = None):
         # Initialize logging and core attributes
         self.logger = logging.getLogger(self.__class__.__name__)
         self.root = root
@@ -30,6 +29,7 @@ class GridView:
         self.event_loop = event_loop or asyncio.get_event_loop()
         self._event_loop = None
         self._is_active = False
+        self._storage = storage
         
         self.default_num_rects = default_num_rects or self.DEFAULT_NUM_RECTS
         
@@ -42,7 +42,11 @@ class GridView:
         # Event handling - use provided event_loop if available
         self.event_publisher = ThreadSafeEventPublisher(event_bus, self.event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus, "GridView")
-        self._pending_renders: Dict[str, Dict[str, Any]] = {}
+        
+        # Click data cache for instant grid display
+        self._cached_clicks: List[Dict[str, Any]] = []
+        self._click_cache_timestamp: float = 0.0
+        self._cache_loaded = False
         
         # Screen dimensions
         self._update_screen_dimensions()
@@ -58,6 +62,28 @@ class GridView:
     def set_controller_callback(self, callback):
         """Set the controller callback for handling grid interactions."""
         self.controller_callback = callback
+    
+    async def initialize_click_cache(self) -> None:
+        """Load historical click data from storage into cache."""
+        if self._cache_loaded or not self._storage:
+            return
+        
+        try:
+            self.logger.info("[GridView] Loading historical click data from storage...")
+            historical_clicks = await read_grid_clicks(self._storage, [])
+            
+            if historical_clicks:
+                self._cached_clicks = historical_clicks
+                self._click_cache_timestamp = time.time()
+                self._cache_loaded = True
+                self.logger.info(f"[GridView] Loaded {len(historical_clicks)} historical clicks into cache")
+            else:
+                self.logger.info("[GridView] No historical click data found, starting fresh")
+                self._cache_loaded = True
+                
+        except Exception as e:
+            self.logger.error(f"[GridView] Failed to load historical clicks: {e}", exc_info=True)
+            self._cache_loaded = True
 
     def _get_event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """Get the current event loop or find running loop."""
@@ -92,15 +118,15 @@ class GridView:
     def setup_event_subscriptions(self) -> None:
         """Set up event subscriptions for grid view."""
         self.subscription_manager.subscribe(
-            ClickCountsForGridEventData, 
-            self._handle_click_counts_received
+            PerformMouseClickEventData, 
+            self._handle_click_logged_for_cache
         )
 
     def cleanup(self) -> None:
         """Clean up resources when grid view is destroyed."""
         self.hide()
         self.subscription_manager.unsubscribe_all()
-        self._pending_renders.clear()
+        self._cached_clicks.clear()
         if self.overlay_window:
             try:
                 self.overlay_window.destroy()
@@ -109,33 +135,54 @@ class GridView:
         self.overlay_window = None
         self._is_active = False
 
-    async def _handle_click_counts_received(self, event_data: ClickCountsForGridEventData) -> None:
-        """Handle received click counts and draw the grid."""
-        self.logger.info(f"[GridView] _handle_click_counts_received called with request_id={event_data.request_id}")
-        self.logger.debug(f"[GridView] Received {len(event_data.processed_rects_with_clicks)} processed rectangles")
+    async def _handle_click_logged_for_cache(self, event_data: PerformMouseClickEventData) -> None:
+        """Cache click data for instant grid display."""
+        click_data = {
+            "x": event_data.x,
+            "y": event_data.y,
+            "timestamp": time.time(),
+            "source": event_data.source
+        }
+        self._cached_clicks.append(click_data)
+        self._click_cache_timestamp = time.time()
         
-        request_id = event_data.request_id
-        pending_context = self._pending_renders.pop(request_id, None)
+        max_cache_size = 10000
+        if len(self._cached_clicks) > max_cache_size:
+            self._cached_clicks = self._cached_clicks[-max_cache_size:]
         
-        if not pending_context:
-            self.logger.warning(f"[GridView] No pending render context for request_id: {request_id}")
-            return
+        self.logger.debug(f"[GridView] Cached click at ({event_data.x}, {event_data.y}), total cached: {len(self._cached_clicks)}")
+    
+    def _calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Calculate click counts synchronously using cached data for instant display."""
+        processed_rects = []
         
-        self.logger.info(f"[GridView] Found pending context for request_id: {request_id}")
+        for rect_def in rect_definitions:
+            try:
+                rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
+                rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
+                
+                count = sum(
+                    1 for click in self._cached_clicks
+                    if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h)
+                )
+                
+                processed_rects.append({"data": rect_def, "clicks": count})
+                
+            except (KeyError, ValueError, TypeError):
+                processed_rects.append({"data": rect_def, "clicks": 0})
         
-        # Process and prioritize rectangles
-        self.logger.info(f"[GridView] Prioritizing {len(event_data.processed_rects_with_clicks)} rectangles")
-        weighted_rects = prioritize_grid_rects(event_data.processed_rects_with_clicks)
-        self.logger.info(f"[GridView] Prioritization returned {len(weighted_rects)} rectangles")
-        
-        # Schedule drawing in Tk thread
-        self.logger.info(f"[GridView] Scheduling grid drawing with cell_w={pending_context['cell_w']}, cell_h={pending_context['cell_h']}")
-        self._schedule_in_tk_thread(
-            self._draw_grid_elements,
-            weighted_rects,
-            pending_context['cell_w'],
-            pending_context['cell_h']
-        )
+        return processed_rects
+    
+    def _is_click_in_rect(self, click: Dict[str, Any], rect_x: int, rect_y: int, 
+                         rect_w: int, rect_h: int) -> bool:
+        """Check if click falls within rectangle bounds."""
+        try:
+            click_x, click_y = click.get("x", 0), click.get("y", 0)
+            return (rect_x <= click_x <= rect_x + rect_w and 
+                    rect_y <= click_y <= rect_y + rect_h)
+        except (TypeError, ValueError):
+            return False
+    
 
     def _draw_grid_elements(self, weighted_rects: List[Dict[str, Any]], cell_w: float, cell_h: float) -> None:
         self.logger.info(f"[GridView] Drawing {len(weighted_rects)} grid elements with cell_w={cell_w}, cell_h={cell_h}")
@@ -146,11 +193,6 @@ class GridView:
         self.ui_to_rect_data_map.clear()
         self.canvas.delete("all")
 
-        # Debug canvas state
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-        self.logger.debug(f"[GridView] Canvas dimensions: {canvas_width}x{canvas_height}")
-        
         font_tuple = view_config.grid.get_font_tuple(cell_h)
         self.logger.debug(f"[GridView] Using font: {font_tuple}")
 
@@ -159,47 +201,36 @@ class GridView:
         outline_color = view_config.grid.get_outline_color_with_alpha()
         text_color = view_config.grid.get_text_color_with_alpha()
 
+        # Draw all grid elements while window is hidden
         for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
             rect_data = weighted_rect_info['data']
-            if ui_number <= 5:  # Only log first 5 for brevity
-                self.logger.debug(f"[GridView] Drawing rect #{ui_number}: {rect_data}")
             self.ui_to_rect_data_map[ui_number] = rect_data
 
             x0, y0 = rect_data['x'], rect_data['y']
             x1, y1 = x0 + rect_data['w'], y0 + rect_data['h']
             
-            # Create rectangle
             rect_kwargs = {
                 'outline': outline_color,
-                'width': 2  # Make outline more visible
+                'width': 2
             }
-            # Only add fill if fill_color is not empty (for transparency)
             if fill_color:
                 rect_kwargs['fill'] = fill_color
             
-            rect_id = self.canvas.create_rectangle(
-                x0, y0, x1, y1, 
-                **rect_kwargs
-            )
-            
-            # Create text
-            text_id = self.canvas.create_text(
+            self.canvas.create_rectangle(x0, y0, x1, y1, **rect_kwargs)
+            self.canvas.create_text(
                 rect_data['center_x'], rect_data['center_y'], 
                 text=str(ui_number), 
                 fill=text_color, 
                 font=font_tuple
             )
-            
-            if ui_number <= 3:  # Log first few items for debugging
-                self.logger.debug(f"[GridView] Created rect {rect_id} and text {text_id} for cell {ui_number}")
         
-        # Force canvas update before making window visible
+        # Update canvas with all content ready
         self.canvas.update_idletasks()
-        self.canvas.update()
         
-        self._ensure_window_visible()
+        # Now show window with all content ready - instant display
+        self._show_window_with_content()
         self._is_active = True
-        self.logger.info(f"[GridView] Grid displayed with {len(self.ui_to_rect_data_map)} rectangles")
+        self.logger.info(f"[GridView] Grid displayed instantly with {len(self.ui_to_rect_data_map)} rectangles")
 
     def _validate_ui_state(self) -> bool:
         """Validate that UI components are ready for drawing."""
@@ -211,15 +242,13 @@ class GridView:
             return False
         return True
 
-    def _ensure_window_visible(self) -> None:
-        """Ensure the overlay window is visible."""
+    def _show_window_with_content(self) -> None:
+        """Show the overlay window with content ready - single atomic operation."""
         if self.overlay_window:
-            if not self.overlay_window.winfo_viewable():
-                self.overlay_window.deiconify()
-            # Ensure window is on top and visible
+            self.overlay_window.deiconify()
             self.overlay_window.lift()
-            self.overlay_window.update()
-            self.logger.debug("[GridView] Overlay window made visible and brought to front")
+            self.overlay_window.focus_force()
+            self.logger.debug("[GridView] Overlay window shown with content ready")
 
     def _calculate_grid_layout(self, num_rects_requested: int) -> Tuple[List[Dict[str, Any]], float, float]:
         """Calculate grid layout that creates approximately the requested number of cells while filling the screen."""
@@ -302,8 +331,8 @@ class GridView:
             self.logger.error("[GridView] Tk root not available in _show_tkinter_elements")
             return
 
-        # Create overlay window if needed
-        self._ensure_overlay_window()
+        # Create overlay window hidden
+        self._ensure_overlay_window_hidden()
         
         num_rects_to_display = num_rects if num_rects and num_rects > 0 else self.default_num_rects
         self.logger.info(f"[GridView] Calculating grid layout for {num_rects_to_display} rectangles")
@@ -315,31 +344,16 @@ class GridView:
             self.logger.error("[GridView] No rectangles to display")
             return
 
-        # Generate request for click counts
-        request_id = uuid.uuid4().hex
-        self._pending_renders[request_id] = {
-            "cell_w": cell_w,
-            "cell_h": cell_h,
-            "num_rects_to_display": num_rects_to_display
-        }
-
-        # Request click counts
-        event_data = RequestClickCountsForGridEventData(
-            rect_definitions=rect_definitions,
-            request_id=request_id
-        )        
-        self.logger.info(f"[GridView] Publishing RequestClickCountsForGridEvent with request_id={request_id} and {len(rect_definitions)} rects")
+        # Calculate click counts synchronously using cached data for instant display
+        self.logger.debug(f"[GridView] Calculating click counts synchronously with {len(self._cached_clicks)} cached clicks")
+        processed_rects = self._calculate_click_counts_sync(rect_definitions)
+        weighted_rects = prioritize_grid_rects(processed_rects)
         
-        # Use ThreadSafeEventPublisher to publish the event
-        try:
-            self.event_publisher.publish(event_data)
-            self.logger.info("[GridView] Successfully queued RequestClickCountsForGridEvent to event bus")
-        except Exception as e:
-            self.logger.error(f"[GridView] Failed to request click counts: {e}")
-            self._pending_renders.pop(request_id, None)
+        # Draw grid immediately with final prioritized order - no background updates
+        self._draw_grid_elements(weighted_rects, cell_w, cell_h)
 
-    def _ensure_overlay_window(self) -> None:
-        """Ensure overlay window and canvas exist."""
+    def _ensure_overlay_window_hidden(self) -> None:
+        """Ensure overlay window and canvas exist, but keep hidden until content is ready."""
         if not self.overlay_window or not self.overlay_window.winfo_exists():
             self.overlay_window = tk.Toplevel(self.root)
             self.overlay_window.attributes('-fullscreen', True)
@@ -359,18 +373,19 @@ class GridView:
             self.canvas = tk.Canvas(
                 self.overlay_window, 
                 highlightthickness=0,
-                bg='black',  # Set background color to ensure visibility
-                bd=0,  # Remove border
-                relief='flat'  # Remove relief
+                bg='black',
+                bd=0,
+                relief='flat'
             )
             self.canvas.grid(row=0, column=0, sticky="nsew")
             
-            # Force window to update geometry
+            # Keep window hidden initially
+            self.overlay_window.withdraw()
+            
+            # Force geometry update while hidden
             self.overlay_window.update_idletasks()
             
-            # Set active flag when window is created
-            self._is_active = True
-            self.logger.debug("[GridView] Overlay window created and set to active")
+            self.logger.debug("[GridView] Overlay window created (hidden, awaiting content)")
         elif self.canvas:
             self.canvas.delete("all")
 

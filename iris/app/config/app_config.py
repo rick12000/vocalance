@@ -144,9 +144,6 @@ class DictationConfig(BaseModel):
     type_trigger: str = "type"
     smart_start_trigger: str = "smart green"
 
-    # Text filtering and processing
-    min_text_length: int = 1
-
     # Text input settings (used by text_input_service)
     use_clipboard: bool = True
     typing_delay: float = 0.01

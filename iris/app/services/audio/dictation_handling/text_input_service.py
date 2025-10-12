@@ -22,11 +22,12 @@ class TextInputService:
     def __init__(self, config: DictationConfig):
         self.config = config
         self._lock = threading.RLock()
-        
+        self.last_text = None
+
         # Configure PyAutoGUI safety
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.01
-        
+
         logger.info("TextInputService initialized")
     
     async def initialize(self) -> bool:
@@ -42,12 +43,20 @@ class TextInputService:
         """Input text at cursor position"""
         if not text:
             return False
-        
+
         try:
             cleaned_text = self._clean_text(text)
             if not cleaned_text:
                 return False
-            
+
+            # Check if we need to remove period from previous paste
+            if (self.last_text and
+                self.last_text.rstrip().endswith('.') and
+                cleaned_text.strip() and
+                cleaned_text.strip()[0].islower()):
+                # Remove the period from previous paste
+                await self.backspace(1)
+
             # Use clipboard or typing based on config
             if self.config.use_clipboard:
                 success = await asyncio.get_event_loop().run_in_executor(
@@ -57,12 +66,14 @@ class TextInputService:
                 success = await asyncio.get_event_loop().run_in_executor(
                     None, self._type_text, cleaned_text
                 )
-            
+
             if success:
                 logger.debug(f"Input text: '{cleaned_text[:50]}{'...' if len(cleaned_text) > 50 else ''}'")
-            
+                # Update last text for next paste
+                self.last_text = cleaned_text
+
             return success
-            
+
         except Exception as e:
             logger.error(f"Text input error: {e}", exc_info=True)
             return False
@@ -71,29 +82,16 @@ class TextInputService:
         """Clean text for input while preserving formatting"""
         if not text:
             return ""
-        
-        # Preserve original formatting but clean up excessive whitespace
-        cleaned = text.strip()
-        
-        # Clean up excessive spaces but preserve intentional formatting
-        # Replace multiple spaces (but not newlines) with single space
-        cleaned = re.sub(r'[ \t]+', ' ', cleaned)
-        
-        # Clean up excessive newlines (more than 2 consecutive)
-        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-        
-        # Apply minimum length filter
-        if len(cleaned) < self.config.min_text_length:
-            return ""
-        
-        # Ensure proper spacing after text for continuous dictation
-        # Add space after text unless it already ends with whitespace or certain punctuation
+
+        # Remove "..." and replace with space (handles pause fillers)
+        cleaned = re.sub(r'\.\.\.', ' ', text)
+
+        # Ensure every segment gets a trailing space for proper concatenation
+        # Unlike the original logic that skipped spaces after certain punctuation,
+        # we now ensure EVERY segment ends with a space for continuous dictation
         if cleaned and not cleaned[-1].isspace():
-            # Don't add space after opening punctuation or at end of certain sequences
-            needs_space = cleaned[-1] not in ('(', '[', '{', '—', '–')
-            if needs_space:
-                cleaned = cleaned + ' '
-        
+            cleaned = cleaned + ' '
+
         return cleaned
     
     def _paste_clipboard(self, text: str) -> bool:
