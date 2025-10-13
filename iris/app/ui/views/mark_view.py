@@ -9,26 +9,22 @@ from iris.app.ui.views.components.view_config import view_config
 class MarkView:
     """Thread-safe mark visualization view with simplified event handling."""
     
-    def __init__(self, root: tk.Tk, duration_seconds: int = 15):
+    def __init__(self, root: tk.Tk):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.root = root
-        self.duration_seconds = duration_seconds
-        self.remaining_seconds = duration_seconds
-        
+
         # UI components
         self.overlay_window: Optional[tk.Toplevel] = None
         self.canvas: Optional[tk.Canvas] = None
-        self.timer_label: Optional[tk.Label] = None
         self._is_active = False
-        self._countdown_after_id: Optional[str] = None
-        
+
         # Mark data
         self.marks: Dict[str, Tuple[int, int]] = {}
-        
+
         # Controller callback reference
         self.controller_callback = None
-        
-        self.logger.info(f"MarkView initialized with {self.duration_seconds} second duration")
+
+        self.logger.info("MarkView initialized")
 
     def set_controller_callback(self, callback):
         """Set the controller callback for handling mark interactions."""
@@ -65,60 +61,11 @@ class MarkView:
         for label, (x, y) in self.marks.items():
             radius = 5
             self.canvas.create_oval(x - radius, y - radius, x + radius, y + radius,
-                                    fill="red", outline="white")
-            # Draw the label near the mark            
+                                    fill=view_config.marks.themed_mark_fill_color, outline=view_config.marks.themed_mark_outline_color)
+            # Draw the label near the mark
             self.canvas.create_text(x + 10, y - 10, text=label, fill="white", anchor="w",
                                     font=mark_font)
         self.logger.debug(f"Drew {len(self.marks)} marks on the overlay.")
-
-    def _setup_countdown_timer(self):
-        """Set up the countdown timer display."""
-        if not self.overlay_window:
-            self.logger.error("Window not initialized before setting up countdown timer.")
-            return
-        
-        # Create a frame for the timer in the top-right corner
-        timer_frame = tk.Frame(self.overlay_window, bg=self.overlay_window.cget('bg'))
-        timer_frame.grid(row=0, column=0, sticky="ne", padx=20, pady=20)
-        
-        timer_font = view_config.marks.mark_font
-        # Get a larger version of the font for the timer
-        timer_font_large = (timer_font[0], 16, "bold")
-        
-        self.timer_label = tk.Label(timer_frame, text=f"{self.remaining_seconds}s",
-                                    font=timer_font_large, fg="white", bg=self.overlay_window.cget('bg'))
-        self.timer_label.grid(row=0, column=0)
-        self._update_countdown()
-
-    def _update_countdown(self):
-        """Update the countdown timer."""
-        if not self.overlay_window or not self.timer_label or not self._is_active:
-            self.logger.debug("MarkView: Countdown timer stopping - window/label destroyed or overlay inactive")
-            self._countdown_after_id = None
-            return
-            
-        # Check if window still exists
-        try:
-            if not self.overlay_window.winfo_exists():
-                self.logger.debug("MarkView: Window no longer exists, stopping countdown")
-                self._countdown_after_id = None
-                return
-        except tk.TclError:
-            self.logger.debug("MarkView: TclError accessing window, stopping countdown")
-            self._countdown_after_id = None
-            return
-            
-        if self.remaining_seconds > 0:
-            try:
-                self.timer_label.config(text=f"{self.remaining_seconds}s")
-                self.remaining_seconds -= 1
-                self._countdown_after_id = self.overlay_window.after(1000, self._update_countdown)
-            except tk.TclError as e:
-                self.logger.error(f"MarkView: Error updating countdown timer: {e}")
-                self._countdown_after_id = None
-        else:            
-            self._countdown_after_id = None
-            self.hide()
 
     def _close_window_event(self, event=None):
         """Handle window close event."""
@@ -167,19 +114,20 @@ class MarkView:
             self.canvas.grid(row=0, column=0, sticky="nsew")
 
             self._draw_marks()
-            self._setup_countdown_timer()
-            
+
             # Close on Escape key
             self.overlay_window.bind("<Escape>", self._close_window_event)
-            
+
             # Set up proper window close handling
             self.overlay_window.protocol("WM_DELETE_WINDOW", self._close_window_event)
-            
+
+            # Show the overlay window and give it focus
+            self.overlay_window.deiconify()
+            self.overlay_window.lift()
+            self.overlay_window.focus_force()
+
             self._is_active = True
-            
-            # Reset countdown timer
-            self.remaining_seconds = self.duration_seconds
-            
+
             # Notify controller of successful show
             if self.controller_callback:
                 self.controller_callback.on_mark_visualization_shown()
@@ -203,7 +151,6 @@ class MarkView:
         finally:
             self.overlay_window = None
             self.canvas = None
-            self.timer_label = None
             self._is_active = False
             
             # Notify controller of failed show
@@ -218,19 +165,9 @@ class MarkView:
             
         self.logger.info("Hiding MarkView overlay.")
         self._is_active = False
-        
-        # Cancel any pending countdown timer
-        if self._countdown_after_id:
-            try:
-                self.overlay_window.after_cancel(self._countdown_after_id)
-                self._countdown_after_id = None
-                self.logger.debug("Cancelled pending countdown timer.")
-            except tk.TclError:
-                self.logger.debug("Could not cancel countdown timer - likely already executed.")
-        
+
         # Clean up references before destroying
         self.canvas = None
-        self.timer_label = None
         
         # Destroy the window safely
         try:
@@ -254,15 +191,7 @@ class MarkView:
             
         self.logger.info("Withdrawing MarkView overlay.")
         self._is_active = False
-        
-        # Cancel any pending countdown timer
-        if self._countdown_after_id:
-            try:
-                self.overlay_window.after_cancel(self._countdown_after_id)
-                self._countdown_after_id = None
-            except tk.TclError:
-                pass
-        
+
         try:
             self.overlay_window.withdraw()
             self.logger.debug("MarkView overlay withdrawn successfully.")

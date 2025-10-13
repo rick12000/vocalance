@@ -352,6 +352,10 @@ class GridView:
         # Draw grid immediately with final prioritized order - no background updates
         self._draw_grid_elements(weighted_rects, cell_w, cell_h)
 
+    def _close_window_event(self, event=None):
+        """Handle window close event."""
+        self.hide()
+
     def _ensure_overlay_window_hidden(self) -> None:
         """Ensure overlay window and canvas exist, but keep hidden until content is ready."""
         if not self.overlay_window or not self.overlay_window.winfo_exists():
@@ -360,31 +364,37 @@ class GridView:
             self.overlay_window.attributes('-alpha', view_config.grid.window_alpha)
             self.overlay_window.overrideredirect(True)
             self.overlay_window.wm_attributes('-topmost', True)
-            
+
             try:
                 self.overlay_window.attributes('-toolwindow', True)
             except tk.TclError:
                 self.logger.warning("Failed to set -toolwindow attribute")
-            
+
             # Configure overlay window grid
             self.overlay_window.grid_rowconfigure(0, weight=1)
             self.overlay_window.grid_columnconfigure(0, weight=1)
-            
+
             self.canvas = tk.Canvas(
-                self.overlay_window, 
+                self.overlay_window,
                 highlightthickness=0,
                 bg='black',
                 bd=0,
                 relief='flat'
             )
             self.canvas.grid(row=0, column=0, sticky="nsew")
-            
+
+            # Close on Escape key
+            self.overlay_window.bind("<Escape>", self._close_window_event)
+
+            # Set up proper window close handling
+            self.overlay_window.protocol("WM_DELETE_WINDOW", self._close_window_event)
+
             # Keep window hidden initially
             self.overlay_window.withdraw()
-            
+
             # Force geometry update while hidden
             self.overlay_window.update_idletasks()
-            
+
             self.logger.debug("[GridView] Overlay window created (hidden, awaiting content)")
         elif self.canvas:
             self.canvas.delete("all")

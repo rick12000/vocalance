@@ -114,11 +114,21 @@ class MarkViewConfig(BaseModel):
     mark_outline_color: str = Field(default="white", description="Outline color for mark indicators")
     label_offset_x: int = Field(default=10, description="X offset for mark labels")
     label_offset_y: int = Field(default=-10, description="Y offset for mark labels")
-    
+
     @property
     def mark_font(self) -> tuple:
         """Get mark font from ui_theme"""
         return ui_theme.theme.font_family.get_button_font(10)
+
+    @property
+    def themed_mark_fill_color(self) -> str:
+        """Get mark fill color from ui_theme shape_colors.dark"""
+        return ui_theme.theme.shape_colors.dark
+
+    @property
+    def themed_mark_outline_color(self) -> str:
+        """Get mark outline color from ui_theme shape_colors.medium"""
+        return ui_theme.theme.shape_colors.medium
 
 class DictationPopupConfig(BaseModel):
     """Configuration for dictation popup dimensions"""

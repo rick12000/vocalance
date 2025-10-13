@@ -105,8 +105,7 @@ class AppControlRoom:
             
             # Mark view
             self.mark_view = MarkView(
-                root=self.root,
-                duration_seconds=self.config.mark.visualization_duration_seconds
+                root=self.root
             )
             self.marks_controller.set_mark_view(self.mark_view)
             
