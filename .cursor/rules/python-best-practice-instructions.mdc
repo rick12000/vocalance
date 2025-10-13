@@ -26,3 +26,4 @@ alwaysApply: true
 - Keep __init__.py files empty and always use full, explicit import paths for modules, no relative imports.
 - Imports should be at the top of the file, unless there's a performance reason to import a module based on an in-function condition.
 - Avoid try and except statements.
+- Do not use emojis in code or logs.

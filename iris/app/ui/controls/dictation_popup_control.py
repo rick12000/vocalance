@@ -84,7 +84,7 @@ class DictationPopupController(BaseController):
     async def _handle_llm_processing_completed(self, event_data) -> None:
         """Hide popup after brief completion display - marshalled to UI thread"""
         if self.view_callback:
-            schedule_ui_update(self.view_callback.update_llm_status, "✅ Complete!")
+            schedule_ui_update(self.view_callback.update_llm_status, "Complete!")
             await asyncio.sleep(1.5)  # Brief display
             schedule_ui_update(self.view_callback.hide_popup)
         self.current_mode = DictationPopupMode.HIDDEN
@@ -98,12 +98,12 @@ class DictationPopupController(BaseController):
     async def _handle_llm_token_generated(self, event_data) -> None:
         """Display LLM tokens - marshalled to UI thread"""
         token = getattr(event_data, 'token', '')
-        self.logger.debug(f"🎯 CONTROLLER: Received token event: '{token}'")
+        self.logger.debug(f"CONTROLLER: Received token event: '{token}'")
         if token and self.view_callback:
-            self.logger.debug(f"📤 CONTROLLER: Scheduling UI update for token")
+            self.logger.debug(f"CONTROLLER: Scheduling UI update for token")
             schedule_ui_update(self.view_callback.append_llm_token, token)
         else:
-            self.logger.warning(f"❌ CONTROLLER: No token or no view_callback")
+            self.logger.warning(f"CONTROLLER: No token or no view_callback")
 
     async def _handle_smart_dictation_text_display(self, event_data) -> None:
         """Display dictation text - marshalled to UI thread"""

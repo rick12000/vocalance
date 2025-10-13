@@ -130,7 +130,7 @@ class FormBuilder:
             
         color = (view_config.theme.text_colors.darkest if is_error 
                 else view_config.theme.accent_colors.success_text)
-        prefix = "⚠ " if is_error else "✓ "
+        prefix = "Warning: " if is_error else "Success: "
         
         msg_label = ThemedLabel(parent, text=f"{prefix}{message}", color=color)
         msg_label.grid(row=row, column=0, sticky="ew", 

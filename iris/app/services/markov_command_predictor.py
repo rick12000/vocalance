@@ -189,7 +189,7 @@ class MarkovCommandService:
                     self._pending_prediction = (predicted_cmd, confidence)
                     
                     logger.info(
-                        f"⚡ ULTRA-FAST (order-{order}): '{predicted_cmd}' (confidence={confidence:.2%})"
+                        f"ULTRA-FAST (order-{order}): '{predicted_cmd}' (confidence={confidence:.2%})"
                     )
                     
                     await self._event_bus.publish(
@@ -219,7 +219,7 @@ class MarkovCommandService:
                 
                 if actual_command == predicted_cmd:
                     # Correct prediction!
-                    logger.info(f"✓ Markov prediction CORRECT: '{predicted_cmd}'")
+                    logger.info(f"Markov prediction CORRECT: '{predicted_cmd}'")
                     
                     # Add to command history (verified by STT)
                     timestamp = time.time()
@@ -234,7 +234,7 @@ class MarkovCommandService:
                 else:
                     # Incorrect prediction!
                     logger.warning(
-                        f"✗ Markov prediction INCORRECT: predicted '{predicted_cmd}', "
+                        f"Markov prediction INCORRECT: predicted '{predicted_cmd}', "
                         f"actual '{actual_command}' - entering cooldown"
                     )
                     

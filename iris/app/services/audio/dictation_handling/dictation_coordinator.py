@@ -193,17 +193,17 @@ class DictationCoordinator:
     async def _handle_llm_completed(self, event: LLMProcessingCompletedEvent) -> None:
         """Handle LLM completion"""
         try:
-            logger.info(f"🎯 LLM COMPLETION EVENT RECEIVED: '{event.processed_text[:100]}...'")
-            logger.info(f"📝 Inputting text via text service...")
+            logger.info(f"LLM COMPLETION EVENT RECEIVED: '{event.processed_text[:100]}...'")
+            logger.info(f"Inputting text via text service...")
             success = await self.text_service.input_text(event.processed_text)
-            logger.info(f"✅ Text input result: {success}")
+            logger.info(f"Text input result: {success}")
             
             # Clear the session now that processing is complete
             with self._lock:
                 self._current_session = None
                 
             await self._end_smart_session()
-            logger.info("✅ Smart session ended after LLM completion")
+            logger.info("Smart session ended after LLM completion")
         except Exception as e:
             logger.error(f"LLM completion error: {e}", exc_info=True)
     
@@ -238,7 +238,7 @@ class DictationCoordinator:
         """Handle LLM processing ready signal from UI - fire and forget to avoid blocking event bus"""
         try:
             if self._session_id and event.session_id == self._session_id and self._pending_llm_session:
-                logger.info(f"🚀 UI ready signal received for session {event.session_id} - starting LLM processing now")
+                logger.info(f"UI ready signal received for session {event.session_id} - starting LLM processing now")
                 # Use create_task to avoid blocking the event bus worker
                 # This allows token events to be processed in real-time
                 asyncio.create_task(self._start_llm_processing(self._pending_llm_session))
@@ -374,19 +374,19 @@ class DictationCoordinator:
             await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation processing"))
             
             # Publish smart dictation stopped event (triggers UI)
-            logger.info(f"📢 Publishing SmartDictationStoppedEvent with text: '{session.accumulated_text[:50]}...'")
+            logger.info(f"Publishing SmartDictationStoppedEvent with text: '{session.accumulated_text[:50]}...'")
             await self._publish_event(SmartDictationStoppedEvent(raw_text=session.accumulated_text))
-            logger.info("✅ SmartDictationStoppedEvent published successfully")
+            logger.info("SmartDictationStoppedEvent published successfully")
             
             # Publish LLM processing started event with session ID
             agentic_prompt = self.agentic_service.get_current_prompt() or "Fix grammar and improve clarity."
-            logger.info(f"📢 Publishing LLMProcessingStartedEvent with session ID: {self._session_id}")
+            logger.info(f"Publishing LLMProcessingStartedEvent with session ID: {self._session_id}")
             await self._publish_event(LLMProcessingStartedEvent(
                 raw_text=session.accumulated_text, 
                 agentic_prompt=agentic_prompt,
                 session_id=self._session_id
             ))
-            logger.info("✅ LLMProcessingStartedEvent published - waiting for UI ready signal...")
+            logger.info("LLMProcessingStartedEvent published - waiting for UI ready signal...")
             
             # LLM processing will start when UI signals ready via LLMProcessingReadyEvent
 
@@ -400,7 +400,7 @@ class DictationCoordinator:
             
             # Use streaming if available
             if hasattr(self.llm_service, 'process_dictation_streaming'):
-                logger.info("🚀 Starting LLM streaming processing...")
+                logger.info("Starting LLM streaming processing...")
                 
                 # Start background streaming thread
                 self._start_streaming()
@@ -415,11 +415,11 @@ class DictationCoordinator:
                     # Stop streaming and flush remaining tokens
                     self._stop_streaming()
                 
-                logger.info("✅ LLM streaming processing completed")
+                logger.info("LLM streaming processing completed")
             else:
-                logger.info("🚀 Starting LLM non-streaming processing...")
+                logger.info("Starting LLM non-streaming processing...")
                 await self.llm_service.process_dictation(session.accumulated_text, agentic_prompt)
-                logger.info("✅ LLM non-streaming processing completed")
+                logger.info("LLM non-streaming processing completed")
 
         except Exception as e:
             logger.error(f"LLM processing error: {e}", exc_info=True)

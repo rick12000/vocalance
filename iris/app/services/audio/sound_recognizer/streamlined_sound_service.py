@@ -101,7 +101,7 @@ class StreamlinedSoundService:
                     )
                     
                     await self.event_bus.publish(recognition_event)
-                    logger.info(f"🎯 Recognized: {sound_label} (confidence: {confidence:.3f})")
+                    logger.info(f"Recognized: {sound_label} (confidence: {confidence:.3f})")
                 
         except Exception as e:
             logger.error(f"Error processing audio chunk: {e}", exc_info=True)
@@ -130,7 +130,7 @@ class StreamlinedSoundService:
         self._current_training_label = sound_label
         self._training_samples = []
         
-        logger.info(f"🎓 Started training for sound: '{sound_label}'")
+        logger.info(f"Started training for sound: '{sound_label}'")
         return True
     
     async def _collect_training_sample(self, audio: np.ndarray, sample_rate: int):
@@ -143,7 +143,7 @@ class StreamlinedSoundService:
         self._training_samples.append((audio.copy(), sample_rate))
         sample_count = len(self._training_samples)
         
-        logger.info(f"📝 Collected training sample {sample_count}/{self._target_samples} for '{self._current_training_label}'")
+        logger.info(f"Collected training sample {sample_count}/{self._target_samples} for '{self._current_training_label}'")
         
         # Publish progress event
         is_last = sample_count >= self._target_samples
@@ -177,14 +177,14 @@ class StreamlinedSoundService:
             )
             
             if success:
-                logger.info(f"✅ Training completed for '{self._current_training_label}' "
+                logger.info(f"Training completed for '{self._current_training_label}' "
                            f"with {len(self._training_samples)} samples")
                 await self.event_bus.publish(SoundTrainingCompleteEvent(
                     sound_name=self._current_training_label,
                     success=True
                 ))
             else:
-                logger.error(f"❌ Training failed for '{self._current_training_label}'")
+                logger.error(f"Training failed for '{self._current_training_label}'")
                 await self.event_bus.publish(SoundTrainingFailedEvent(
                     sound_name=self._current_training_label,
                     reason="Training failed"
@@ -205,7 +205,7 @@ class StreamlinedSoundService:
     def cancel_training(self):
         """Cancel current training session."""
         if self._training_active:
-            logger.info(f"🚫 Cancelled training for '{self._current_training_label}'")
+            logger.info(f"Cancelled training for '{self._current_training_label}'")
             self._reset_training_state()
     
     def _reset_training_state(self):
@@ -217,7 +217,7 @@ class StreamlinedSoundService:
     def set_sound_mapping(self, sound_label: str, command: str):
         """Set command mapping for a sound."""
         self.recognizer.set_mapping(sound_label, command)
-        logger.info(f"🔗 Mapped sound '{sound_label}' to command '{command}'")
+        logger.info(f"Mapped sound '{sound_label}' to command '{command}'")
     
     def get_sound_mapping(self, sound_label: str) -> Optional[str]:
         """Get command mapping for a sound."""

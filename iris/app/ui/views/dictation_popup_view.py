@@ -125,9 +125,9 @@ class DictationPopupView:
 
     def append_llm_token(self, token: str) -> None:
         """Append LLM token with smart batching for smooth 60fps updates"""
-        logging.debug(f"📝 VIEW: append_llm_token called with: '{token}'")
+        logging.debug(f"VIEW: append_llm_token called with: '{token}'")
         if not self.llm_box or not self.llm_box.winfo_exists():
-            logging.warning(f"❌ VIEW: llm_box not available!")
+            logging.warning(f"VIEW: llm_box not available!")
             return
         
         # Add to buffer
@@ -187,7 +187,7 @@ class DictationPopupView:
             self.llm_box.see("end")
             self._token_buffer.clear()
             self._last_flush_time = time.time() * 1000
-            logging.debug(f"✅ VIEW: Flushed batch: '{batched[:20]}...'")
+            logging.debug(f"VIEW: Flushed batch: '{batched[:20]}...'")
         
         self._pending_flush = False
 

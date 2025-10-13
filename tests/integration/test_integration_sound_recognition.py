@@ -163,7 +163,7 @@ class TestSoundRecognitionIntegration:
         
         # Assertions - Allow up to 50% false positive rate for noise samples
         assert false_positive_rate <= 0.5, \
-            f"False positive rate should be ≤ 50%, got {false_positive_rate:.1%} ({false_positives}/{total_tested})"
+            f"False positive rate should be <= 50%, got {false_positive_rate:.1%} ({false_positives}/{total_tested})"
         
         print(f"Noise rejection test passed: {false_positive_rate:.1%} false positive rate ({false_positives}/{total_tested})")
     

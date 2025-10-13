@@ -67,10 +67,10 @@ class SpeechToTextService:
             return
             
         try:
-            logger.info("🚀 Initializing STT engines...")
+            logger.info("Initializing STT engines...")
             
             # Initialize Vosk engine
-            logger.info("📖 Loading Vosk STT engine...")
+            logger.info("Loading Vosk STT engine...")
             self.vosk_engine = EnhancedVoskSTT(
                 model_path=self.config.model_paths.vosk_model,
                 sample_rate=self.stt_config.sample_rate,
@@ -78,7 +78,7 @@ class SpeechToTextService:
             )
             
             # Initialize Whisper engine
-            logger.info("🎤 Loading Whisper STT engine...")
+            logger.info("Loading Whisper STT engine...")
             self.whisper_engine = WhisperSpeechToText(
                 model_name=self.stt_config.whisper_model,
                 device=self.stt_config.whisper_device,
@@ -87,10 +87,10 @@ class SpeechToTextService:
             )
             
             self._engines_initialized = True
-            logger.info("✅ All STT engines initialized successfully")
+            logger.info("All STT engines initialized successfully")
                 
         except Exception as e:
-            logger.error(f"❌ Failed to initialize STT engines: {e}", exc_info=True)
+            logger.error(f"Failed to initialize STT engines: {e}", exc_info=True)
             raise
 
     def setup_subscriptions(self):
