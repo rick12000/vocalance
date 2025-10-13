@@ -27,3 +27,4 @@ alwaysApply: true
 - Imports should be at the top of the file, unless there's a performance reason to import a module based on an in-function condition.
 - Avoid try and except statements.
 - Do not use emojis in code or logs.
+- Always call functions or methods or initializations with keyword arguments.

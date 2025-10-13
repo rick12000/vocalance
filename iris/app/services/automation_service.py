@@ -44,8 +44,8 @@ class AutomationService:
 
     def setup_subscriptions(self) -> None:
         """Set up event subscriptions for automation commands"""
-        self._event_bus.subscribe(AutomationCommandParsedEvent, self._handle_automation_command)
-        self._event_bus.subscribe(CommandMappingsUpdatedEvent, self._handle_command_mappings_updated)
+        self._event_bus.subscribe(event_type=AutomationCommandParsedEvent, handler=self._handle_automation_command)
+        self._event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=self._handle_command_mappings_updated)
         logger.info("AutomationService subscriptions set up")
 
     async def _handle_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:

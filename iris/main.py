@@ -73,11 +73,11 @@ class FastServiceInitializer:
     async def _init_core_services(self):
         """Initialize lightweight core services"""
         # Grid service
-        self.services['grid'] = GridService(self.event_bus, self.config)
+        self.services['grid'] = GridService(event_bus=self.event_bus, config=self.config)
         self.services['grid'].setup_subscriptions()
         
         # Automation service
-        self.services['automation'] = AutomationService(self.event_bus, self.config)
+        self.services['automation'] = AutomationService(event_bus=self.event_bus, app_config=self.config)
         self.services['automation'].setup_subscriptions()
     
     async def _init_storage_services(self, progress_tracker=None):
@@ -89,7 +89,7 @@ class FastServiceInitializer:
         
         # Unified storage
         self.services['unified_storage'] = UnifiedStorageService(
-            self.event_bus, self.config
+            event_bus=self.event_bus, config=self.config
         )
         
         if progress_tracker:
@@ -109,7 +109,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Loading user settings...")
                 await asyncio.sleep(0.05)
             self.services['settings'] = SettingsService(
-                self.event_bus, self.config, self.services['unified_storage']
+                event_bus=self.event_bus, config=self.config, storage=self.services['unified_storage']
             )
             self.services['settings'].setup_subscriptions()
             await self.services['settings'].initialize()
@@ -123,7 +123,7 @@ class FastServiceInitializer:
                 await asyncio.sleep(0.05)
             # Command management service for event handling
             self.services['command_management'] = CommandManagementService(
-                self.event_bus, self.config, self.services['unified_storage']
+                event_bus=self.event_bus, app_config=self.config, storage=self.services['unified_storage']
             )
             self.services['command_management'].setup_subscriptions()
         
@@ -132,7 +132,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Initializing click tracking...")
                 await asyncio.sleep(0.05)
             self.services['click_tracker'] = ClickTrackerService(
-                self.event_bus, self.config, self.services['unified_storage']
+                event_bus=self.event_bus, config=self.config, storage=self.services['unified_storage']
             )
             self.services['click_tracker'].setup_subscriptions()
         
@@ -174,7 +174,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Starting audio capture...")
                 await asyncio.sleep(0.1)  # Brief pause to show progress
             self.services['audio'] = SimpleAudioService(
-                self.event_bus, self.config, self.gui_loop
+                event_bus=self.event_bus, config=self.config, main_event_loop=self.gui_loop
             )
             self.services['audio'].setup_subscriptions()
             self.services['audio'].start_processing()
@@ -184,7 +184,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Loading sound recognition...")
                 await asyncio.sleep(0.1)
             self.services['sound_service'] = StreamlinedSoundService(
-                self.event_bus, self.config, self.services['unified_storage']
+                event_bus=self.event_bus, config=self.config, storage=self.services['unified_storage']
             )
             await self.services['sound_service'].initialize()
         
@@ -193,7 +193,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Initializing speech-to-text...")
                 await asyncio.sleep(0.1)
             from iris.app.services.audio.stt_service import SpeechToTextService
-            self.services['stt'] = SpeechToTextService(self.event_bus, self.config)
+            self.services['stt'] = SpeechToTextService(event_bus=self.event_bus, config=self.config)
             self.services['stt'].initialize_engines()
             self.services['stt'].setup_subscriptions()
         
@@ -202,7 +202,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Setting up command processing...")
                 await asyncio.sleep(0.1)
             self.services['centralized_parser'] = CentralizedCommandParser(
-                self.event_bus, self.config, self.services['unified_storage']
+                event_bus=self.event_bus, app_config=self.config, storage=self.services['unified_storage']
             )
             await self.services['centralized_parser'].initialize()
             self.services['centralized_parser'].setup_subscriptions()
@@ -212,7 +212,7 @@ class FastServiceInitializer:
                 progress_tracker.update_sub_step("Preparing dictation system...")
                 await asyncio.sleep(0.1)
             self.services['dictation'] = DictationCoordinator(
-                self.event_bus, self.config, self.services['unified_storage'], self.gui_loop
+                event_bus=self.event_bus, config=self.config, storage=self.services['unified_storage'], gui_event_loop=self.gui_loop
             )
             self.services['dictation'].setup_subscriptions()
             
@@ -232,7 +232,7 @@ class FastServiceInitializer:
                 await asyncio.sleep(0.05)
             from iris.app.services.markov_command_predictor import MarkovCommandService
             self.services['markov_predictor'] = MarkovCommandService(
-                self.event_bus, self.config, self.services['unified_storage']
+                event_bus=self.event_bus, config=self.config, storage=self.services['unified_storage']
             )
             self.services['markov_predictor'].setup_subscriptions()
             await self.services['markov_predictor'].initialize()
@@ -255,7 +255,7 @@ class FastServiceInitializer:
         
         control_room_logger = logging.getLogger("AppControlRoom")
         self.services['control_room'] = AppControlRoom(
-            self.root, self.event_bus, self.gui_loop, control_room_logger, self.config,
+            root=self.root, event_bus=self.event_bus, event_loop=self.gui_loop, logger=control_room_logger, config=self.config,
             storage_service=self.services.get('unified_storage')
         )
         
@@ -314,7 +314,7 @@ async def main():
             return
         
         # Setup logging and directories
-        setup_logging(app_config.logging)
+        setup_logging(config=app_config.logging)
         os.makedirs(app_config.storage.user_data_root, exist_ok=True)
         
         # Initialize event system
@@ -355,11 +355,11 @@ async def main():
         )
         
         # Setup icons and UI scheduler
-        set_window_icon_robust(app_tk_root)
-        initialize_ui_scheduler(app_tk_root)
+        set_window_icon_robust(window=app_tk_root)
+        initialize_ui_scheduler(root_window=app_tk_root)
         
         # Create startup window
-        startup_window = StartupWindow(logging.getLogger("StartupWindow"), app_tk_root)
+        startup_window = StartupWindow(logger=logging.getLogger("StartupWindow"), main_root=app_tk_root)
         startup_window.show()
         
         # Force startup window to appear
@@ -368,9 +368,9 @@ async def main():
         
         # Initialize services with progress tracking
         progress_tracker = StartupProgressTracker(startup_window, total_steps=4)
-        service_initializer = FastServiceInitializer(event_bus, app_config, gui_event_loop, app_tk_root)
+        service_initializer = FastServiceInitializer(event_bus=event_bus, config=app_config, gui_loop=gui_event_loop, root=app_tk_root)
         
-        services = await service_initializer.initialize_all(progress_tracker)
+        services = await service_initializer.initialize_all(progress_tracker=progress_tracker)
         
         # Store GUI thread reference for cleanup
         services['gui_thread'] = gui_thread
@@ -403,7 +403,7 @@ async def main():
             logging.info("KeyboardInterrupt received")
         finally:
             logging.info("Starting cleanup...")
-            await _cleanup_services(services, event_bus, gui_event_loop, gui_thread)
+            await _cleanup_services(services=services, event_bus=event_bus, gui_event_loop=gui_event_loop, gui_thread=gui_thread)
         
         logging.info("Application shutdown complete")
         

@@ -80,12 +80,12 @@ class MarkovCommandService:
     
     def setup_subscriptions(self) -> None:
         """Setup event subscriptions"""
-        self._event_bus.subscribe(AudioDetectedEvent, self._handle_audio_detected_fast_track)
-        self._event_bus.subscribe(CommandTextRecognizedEvent, self._handle_stt_feedback)
-        self._event_bus.subscribe(AutomationCommandParsedEvent, self._handle_command_executed)
-        self._event_bus.subscribe(MarkCommandParsedEvent, self._handle_command_executed)
-        self._event_bus.subscribe(GridCommandParsedEvent, self._handle_command_executed)
-        self._event_bus.subscribe(DictationCommandParsedEvent, self._handle_command_executed)
+        self._event_bus.subscribe(event_type=AudioDetectedEvent, handler=self._handle_audio_detected_fast_track)
+        self._event_bus.subscribe(event_type=CommandTextRecognizedEvent, handler=self._handle_stt_feedback)
+        self._event_bus.subscribe(event_type=AutomationCommandParsedEvent, handler=self._handle_command_executed)
+        self._event_bus.subscribe(event_type=MarkCommandParsedEvent, handler=self._handle_command_executed)
+        self._event_bus.subscribe(event_type=GridCommandParsedEvent, handler=self._handle_command_executed)
+        self._event_bus.subscribe(event_type=DictationCommandParsedEvent, handler=self._handle_command_executed)
         
         logger.info("Markov predictor event subscriptions configured with fast-track and feedback")
     

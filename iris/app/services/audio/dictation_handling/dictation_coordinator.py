@@ -71,12 +71,12 @@ class DictationCoordinator:
         self._direct_token_callback: Optional[callable] = None
         
         # Initialize services
-        self.text_service = TextInputService(config.dictation)
-        self.llm_service = LLMService(event_bus, config)
-        self.agentic_service = AgenticPromptService(event_bus, config, storage)
+        self.text_service = TextInputService(config=config.dictation)
+        self.llm_service = LLMService(event_bus=event_bus, config=config)
+        self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
         
-        self.event_publisher = ThreadSafeEventPublisher(event_bus, gui_event_loop)
-        self.subscription_manager = EventSubscriptionManager(event_bus, "DictationCoordinator")
+        self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
+        self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
         
         logger.info("DictationCoordinator initialized")
     

@@ -49,8 +49,8 @@ class ClickTrackerService:
         self._config = config
         self._storage = storage
         
-        self.event_publisher = ThreadSafeEventPublisher(event_bus)
-        self.subscription_manager = EventSubscriptionManager(event_bus, "ClickTrackerService")
+        self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
+        self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="ClickTrackerService")
         
         logger.info("ClickTrackerService initialized")
 
@@ -76,9 +76,9 @@ class ClickTrackerService:
         }
         
         # Load current clicks, append new one, save
-        clicks = await read_grid_clicks(self._storage, [])
+        clicks = await read_grid_clicks(storage=self._storage, default=[])
         clicks.append(click_data)
-        success = await write_grid_clicks(self._storage, clicks)
+        success = await write_grid_clicks(storage=self._storage, value=clicks)
         
         if success:
             click_logged_event = ClickLoggedEventData(
@@ -92,7 +92,7 @@ class ClickTrackerService:
     async def _handle_click_counts_request(self, event_data: RequestClickCountsForGridEventData) -> None:
         """Handle request for click counts in grid rectangles."""
         try:
-            all_clicks = await read_grid_clicks(self._storage, [])
+            all_clicks = await read_grid_clicks(storage=self._storage, default=[])
             processed_rects = self._calculate_click_counts(all_clicks, event_data.rect_definitions)
             
             response_event = ClickCountsForGridEventData(
@@ -141,7 +141,7 @@ class ClickTrackerService:
     async def get_click_statistics(self) -> Dict[str, Any]:
         """Get click statistics for monitoring."""
         try:
-            all_clicks = await read_grid_clicks(self._storage, [])
+            all_clicks = await read_grid_clicks(storage=self._storage, default=[])
             
             if not all_clicks:
                 return {"total_clicks": 0}

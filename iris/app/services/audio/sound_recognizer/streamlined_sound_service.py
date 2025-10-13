@@ -41,13 +41,13 @@ class StreamlinedSoundService:
         
         # Subscribe to events
         logger.debug("StreamlinedSoundService subscribing to events...")
-        self.event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
-        self.event_bus.subscribe(SoundTrainingRequestEvent, self._handle_training_request)
-        self.event_bus.subscribe(RequestSoundListEvent, self._handle_sound_list_request)
-        self.event_bus.subscribe(RequestSoundMappingsEvent, self._handle_mappings_request)
-        self.event_bus.subscribe(DeleteSoundCommand, self._handle_delete_sound)
-        self.event_bus.subscribe(ResetAllSoundsCommand, self._handle_reset_all_sounds)
-        self.event_bus.subscribe(MapSoundToCommandPhraseCommand, self._handle_map_sound_command)
+        self.event_bus.subscribe(event_type=ProcessAudioChunkForSoundRecognitionEvent, handler=self._handle_audio_chunk)
+        self.event_bus.subscribe(event_type=SoundTrainingRequestEvent, handler=self._handle_training_request)
+        self.event_bus.subscribe(event_type=RequestSoundListEvent, handler=self._handle_sound_list_request)
+        self.event_bus.subscribe(event_type=RequestSoundMappingsEvent, handler=self._handle_mappings_request)
+        self.event_bus.subscribe(event_type=DeleteSoundCommand, handler=self._handle_delete_sound)
+        self.event_bus.subscribe(event_type=ResetAllSoundsCommand, handler=self._handle_reset_all_sounds)
+        self.event_bus.subscribe(event_type=MapSoundToCommandPhraseCommand, handler=self._handle_map_sound_command)
         logger.debug("StreamlinedSoundService event subscriptions complete")
     
     async def initialize(self) -> bool:

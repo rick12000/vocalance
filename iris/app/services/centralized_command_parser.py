@@ -127,7 +127,7 @@ class CentralizedCommandParser:
         ]
         
         for event_type, handler in subscriptions:
-            self._event_bus.subscribe(event_type, handler)
+            self._event_bus.subscribe(event_type=event_type, handler=handler)
         
         logger.info("CentralizedCommandParser subscriptions set up")
 
@@ -323,7 +323,7 @@ class CentralizedCommandParser:
             # Extract number after trigger phrase
             after_trigger = normalized_text[len(self._grid_show_phrase):].strip()
             if after_trigger:
-                parsed_num = parse_number(after_trigger)
+                parsed_num = parse_number(text=after_trigger)
                 if parsed_num is not None and parsed_num > 0:
                     return GridShowCommand(num_rects=parsed_num)
                 else:
@@ -346,7 +346,7 @@ class CentralizedCommandParser:
         
         if not is_automation_prefix:
             # Try to parse as a number
-            parsed_num = parse_number(normalized_text)
+            parsed_num = parse_number(text=normalized_text)
             if parsed_num is not None and parsed_num > 0:
                 return GridSelectCommand(selected_number=parsed_num)
         
@@ -381,7 +381,7 @@ class CentralizedCommandParser:
             if potential_command in action_map:
                 remaining_words = words[i:]
                 if len(remaining_words) == 1:
-                    count = parse_number(remaining_words[0])
+                    count = parse_number(text=remaining_words[0])
                     if count is not None and count > 0:
                         command_data = action_map[potential_command]
                         return ParameterizedCommand(

@@ -131,8 +131,8 @@ class SimpleAudioService:
 
     def init_listeners(self):
         """Subscribe to relevant events."""
-        self._event_bus.subscribe(RecordingTriggerEvent, self._handle_recording_trigger)
-        self._event_bus.subscribe(AudioModeChangeRequestEvent, self._handle_audio_mode_change_request)
+        self._event_bus.subscribe(event_type=RecordingTriggerEvent, handler=self._handle_recording_trigger)
+        self._event_bus.subscribe(event_type=AudioModeChangeRequestEvent, handler=self._handle_audio_mode_change_request)
         
         logger.info("Audio service event subscriptions configured")
 

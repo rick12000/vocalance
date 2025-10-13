@@ -47,7 +47,7 @@ class ThreadSafeEventPublisher:
         safe_handler_name = handler.__name__ if hasattr(handler, '__name__') else 'unnamed_handler'
         try:
             # The new subscribe method takes the event type directly
-            self.event_bus.subscribe(event_type, handler)
+            self.event_bus.subscribe(event_type=event_type, handler=handler)
             self.subscriptions[event_type].append(handler)
             logger.info(f"Subscription successful for {safe_handler_name} to {event_type.__name__}")
         except Exception as e:
@@ -87,7 +87,7 @@ class EventSubscriptionManager:
     def subscribe(self, event_type: Type[BaseEvent], handler: Callable) -> None:
         """Subscribe to an event with automatic cleanup tracking."""
         handler_name = handler.__name__
-        self.event_bus.subscribe(event_type, handler)
+        self.event_bus.subscribe(event_type=event_type, handler=handler)
         self.subscriptions[event_type] = handler
         logger.info(f"{self.component_name}: Subscribed to {event_type.__name__} with handler {handler_name}")
         

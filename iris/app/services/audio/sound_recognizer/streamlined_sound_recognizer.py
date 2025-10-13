@@ -197,7 +197,7 @@ class StreamlinedSoundRecognizer:
                 
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, read_sound_mappings(self._storage, {}))
+                    future = executor.submit(asyncio.run, read_sound_mappings(storage=self._storage, default={}))
                     mappings = future.result(timeout=10)  # 10-second timeout
                 
                 self.mappings = mappings
@@ -229,7 +229,7 @@ class StreamlinedSoundRecognizer:
                 
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, write_sound_mappings(self._storage, self.mappings))
+                    future = executor.submit(asyncio.run, write_sound_mappings(storage=self._storage, value=self.mappings))
                     success = future.result(timeout=10)  # 10-second timeout
                 
                 if success:

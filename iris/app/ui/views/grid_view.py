@@ -70,7 +70,7 @@ class GridView:
         
         try:
             self.logger.info("[GridView] Loading historical click data from storage...")
-            historical_clicks = await read_grid_clicks(self._storage, [])
+            historical_clicks = await read_grid_clicks(storage=self._storage, default=[])
             
             if historical_clicks:
                 self._cached_clicks = historical_clicks

@@ -303,7 +303,7 @@ class UnifiedStorageServiceExtensions:
     @staticmethod
     async def read_marks_dict(storage: UnifiedStorageService) -> Dict[str, Tuple[int, int]]:
         """Read marks as dict mapping name -> (x, y) coordinates"""
-        marks_data = await read_marks(storage, default={})
+        marks_data = await read_marks(storage=storage, default={})
         marks = {}
         for name, coords in marks_data.items():
             if isinstance(coords, dict) and "x" in coords and "y" in coords:
@@ -319,7 +319,7 @@ class UnifiedStorageServiceExtensions:
         for name, coords in marks.items():
             if isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 storage_data[name] = {"x": coords[0], "y": coords[1]}
-        return await write_marks(storage, storage_data)
+        return await write_marks(storage=storage, value=storage_data)
     
     @staticmethod
     async def get_all_mark_names(storage: UnifiedStorageService) -> Set[str]:
@@ -403,9 +403,9 @@ class UnifiedStorageServiceExtensions:
     @staticmethod
     async def get_agentic_prompts(storage: UnifiedStorageService) -> Dict[str, Any]:
         """Get agentic prompts data"""
-        return await read_agentic_prompts(storage, {"prompts": [], "current_prompt_id": None})
+        return await read_agentic_prompts(storage=storage, default={"prompts": [], "current_prompt_id": None})
     
     @staticmethod
     async def save_agentic_prompts(storage: UnifiedStorageService, data: Dict[str, Any]) -> bool:
         """Save agentic prompts data"""
-        return await write_agentic_prompts(storage, data) 
+        return await write_agentic_prompts(storage=storage, value=data) 

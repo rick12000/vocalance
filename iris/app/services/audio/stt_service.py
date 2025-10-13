@@ -51,7 +51,7 @@ class SpeechToTextService:
         
         # Smart timeout management
         from iris.app.services.audio.smart_timeout_manager import SmartTimeoutManager
-        self._smart_timeout_manager = SmartTimeoutManager(config)
+        self._smart_timeout_manager = SmartTimeoutManager(app_config=config)
         
         # Amber trigger words
         self._amber_words = {"amber", "stop", "end"}
@@ -95,11 +95,11 @@ class SpeechToTextService:
 
     def setup_subscriptions(self):
         """Setup event subscriptions"""
-        self.event_bus.subscribe(CommandAudioSegmentReadyEvent, self._handle_command_audio_segment)
-        self.event_bus.subscribe(DictationAudioSegmentReadyEvent, self._handle_dictation_audio_segment)
-        self.event_bus.subscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)
-        self.event_bus.subscribe(CommandMappingsUpdatedEvent, self._handle_command_mappings_updated)
-        self.event_bus.subscribe(MarkovPredictionEvent, self._handle_markov_prediction)
+        self.event_bus.subscribe(event_type=CommandAudioSegmentReadyEvent, handler=self._handle_command_audio_segment)
+        self.event_bus.subscribe(event_type=DictationAudioSegmentReadyEvent, handler=self._handle_dictation_audio_segment)
+        self.event_bus.subscribe(event_type=DictationModeDisableOthersEvent, handler=self._handle_dictation_mode_change)
+        self.event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=self._handle_command_mappings_updated)
+        self.event_bus.subscribe(event_type=MarkovPredictionEvent, handler=self._handle_markov_prediction)
         
         logger.info("STT service event subscriptions configured")
 

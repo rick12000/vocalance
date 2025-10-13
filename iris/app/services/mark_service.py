@@ -61,19 +61,19 @@ class MarkService:
         logger.info("Setting up MarkServiceV2 event subscriptions...")
         
         # Subscribe to visualization state changes
-        self._event_bus.subscribe(MarkVisualizationStateChangedEventData, self._handle_visualization_state_changed)
-        
+        self._event_bus.subscribe(event_type=MarkVisualizationStateChangedEventData, handler=self._handle_visualization_state_changed)
+
         # UI-driven requests
-        self._event_bus.subscribe(MarkGetAllRequestEventData, self._handle_get_all_request)
-        self._event_bus.subscribe(MarkCreateRequestEventData, self._handle_create_mark_request)
-        self._event_bus.subscribe(MarkDeleteByNameRequestEventData, self._handle_delete_by_name_request)
-        self._event_bus.subscribe(MarkDeleteAllRequestEventData, self._handle_delete_all_request)
-        self._event_bus.subscribe(MarkExecuteRequestEventData, self._handle_execute_mark_request)
-        self._event_bus.subscribe(MarkVisualizeAllRequestEventData, self._handle_visualize_all_request)
-        self._event_bus.subscribe(MarkVisualizeCancelRequestEventData, self._handle_visualize_cancel_request)
+        self._event_bus.subscribe(event_type=MarkGetAllRequestEventData, handler=self._handle_get_all_request)
+        self._event_bus.subscribe(event_type=MarkCreateRequestEventData, handler=self._handle_create_mark_request)
+        self._event_bus.subscribe(event_type=MarkDeleteByNameRequestEventData, handler=self._handle_delete_by_name_request)
+        self._event_bus.subscribe(event_type=MarkDeleteAllRequestEventData, handler=self._handle_delete_all_request)
+        self._event_bus.subscribe(event_type=MarkExecuteRequestEventData, handler=self._handle_execute_mark_request)
+        self._event_bus.subscribe(event_type=MarkVisualizeAllRequestEventData, handler=self._handle_visualize_all_request)
+        self._event_bus.subscribe(event_type=MarkVisualizeCancelRequestEventData, handler=self._handle_visualize_cancel_request)
 
         # Centralized command events
-        self._event_bus.subscribe(MarkCommandParsedEvent, self._handle_mark_command_parsed)
+        self._event_bus.subscribe(event_type=MarkCommandParsedEvent, handler=self._handle_mark_command_parsed)
         
         logger.info("MarkServiceV2 subscriptions set up")
 

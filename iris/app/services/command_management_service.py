@@ -38,11 +38,11 @@ class CommandManagementService:
         """Set up event subscriptions for command management."""
         logger.info("Setting up CommandManagementService event subscriptions...")
         
-        self._event_bus.subscribe(AddCustomCommandEvent, self._handle_add_custom_command)
-        self._event_bus.subscribe(UpdateCommandPhraseEvent, self._handle_update_command_phrase)
-        self._event_bus.subscribe(DeleteCustomCommandEvent, self._handle_delete_custom_command)
-        self._event_bus.subscribe(RequestCommandMappingsEvent, self._handle_request_command_mappings)
-        self._event_bus.subscribe(ResetCommandsToDefaultsEvent, self._handle_reset_to_defaults)
+        self._event_bus.subscribe(event_type=AddCustomCommandEvent, handler=self._handle_add_custom_command)
+        self._event_bus.subscribe(event_type=UpdateCommandPhraseEvent, handler=self._handle_update_command_phrase)
+        self._event_bus.subscribe(event_type=DeleteCustomCommandEvent, handler=self._handle_delete_custom_command)
+        self._event_bus.subscribe(event_type=RequestCommandMappingsEvent, handler=self._handle_request_command_mappings)
+        self._event_bus.subscribe(event_type=ResetCommandsToDefaultsEvent, handler=self._handle_reset_to_defaults)
         
         logger.info("CommandManagementService subscriptions set up")
 

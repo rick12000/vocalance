@@ -456,7 +456,7 @@ class GlobalAppConfig(BaseModel):
     def _setup_storage_paths(self):
         app_info = self.app_info
         storage = self.storage
-        user_data_root = get_default_user_data_root(app_info)
+        user_data_root = get_default_user_data_root(app_info=app_info)
         sound_model_dir = os.path.join(user_data_root, storage.sound_model_subdir)
         sound_samples_dir = os.path.join(user_data_root, storage.sound_samples_subdir)
         external_non_target_sounds_dir = os.path.join(sound_samples_dir, storage.external_non_target_sounds_subdir)
@@ -488,7 +488,7 @@ def get_config_path(config_dir: Optional[str] = None, config_file: str = CONFIG_
         return os.path.join(config_dir, config_file)
     # Use app_info if provided, otherwise fallback to repo config
     if app_info is not None:
-        user_data_root = get_default_user_data_root(app_info)
+        user_data_root = get_default_user_data_root(app_info=app_info)
         settings_dir = os.path.join(user_data_root, "settings")
         os.makedirs(settings_dir, exist_ok=True)
         return os.path.join(settings_dir, config_file)

@@ -202,7 +202,7 @@ class AgenticPromptService:
     
     def setup_subscriptions(self) -> None:
         """Set up event subscriptions"""
-        self.event_bus.subscribe(AgenticPromptActionRequest, self._handle_agentic_prompt_action)
+        self.event_bus.subscribe(event_type=AgenticPromptActionRequest, handler=self._handle_agentic_prompt_action)
         logger.info("AgenticPromptService subscriptions configured")
     
     async def _handle_agentic_prompt_action(self, event_data) -> None:

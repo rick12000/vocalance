@@ -27,8 +27,8 @@ class GridService:
         self._config = config
         self._visible = False
         
-        self.event_publisher = ThreadSafeEventPublisher(event_bus)
-        self.subscription_manager = EventSubscriptionManager(event_bus, "GridService")
+        self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
+        self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="GridService")
         
         logger.info("GridService initialized")
 
