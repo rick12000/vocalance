@@ -7,6 +7,7 @@ Relies entirely on llama-cpp-python's built-in:
 - Optimized streaming
 """
 import asyncio
+import gc
 import logging
 import os
 import multiprocessing
@@ -257,8 +258,7 @@ class LLMService:
                     self.llm.close()
                 del self.llm
                 self.llm = None
-            
-            import gc
+
             gc.collect()
             
             logger.info("LLM service shutdown complete")

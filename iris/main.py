@@ -30,6 +30,19 @@ from iris.app.ui.startup_window import StartupWindow, StartupProgressTracker
 from iris.app.ui.utils.ui_thread_utils import initialize_ui_scheduler
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
+# Additional imports moved from functions
+import ctypes
+import ctypes.util
+import customtkinter as ctk
+from iris.app.services.audio.stt_service import SpeechToTextService
+from iris.app.services.grid.click_tracker_service import ClickTrackerService
+from iris.app.services.mark_service import MarkService
+from iris.app.services.markov_command_predictor import MarkovCommandService
+from iris.app.services.storage.settings_service import SettingsService
+from iris.app.services.command_management_service import CommandManagementService
+from iris.app.ui import ui_theme
+from iris.app.ui.utils.font_service import FontService
+
 
 class FastServiceInitializer:
     """Streamlined service initialization for maximum startup speed"""
@@ -96,10 +109,6 @@ class FastServiceInitializer:
             progress_tracker.update_sub_step("Loading data services...")
         
         # Individual storage services
-        from iris.app.services.storage.settings_service import SettingsService
-        from iris.app.services.command_management_service import CommandManagementService
-        from iris.app.services.grid.click_tracker_service import ClickTrackerService
-        from iris.app.services.mark_service import MarkService
         
         # Initialize storage services in parallel
         tasks = []
@@ -192,7 +201,6 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_sub_step("Initializing speech-to-text...")
                 await asyncio.sleep(0.1)
-            from iris.app.services.audio.stt_service import SpeechToTextService
             self.services['stt'] = SpeechToTextService(event_bus=self.event_bus, config=self.config)
             self.services['stt'].initialize_engines()
             self.services['stt'].setup_subscriptions()
@@ -230,7 +238,6 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_sub_step("Initializing command predictor...")
                 await asyncio.sleep(0.05)
-            from iris.app.services.markov_command_predictor import MarkovCommandService
             self.services['markov_predictor'] = MarkovCommandService(
                 event_bus=self.event_bus, config=self.config, storage=self.services['unified_storage']
             )
@@ -249,9 +256,11 @@ class FastServiceInitializer:
     async def _init_ui_components(self):
         """Initialize UI components"""
         # Initialize font service early
-        from iris.app.ui.utils.font_service import get_font_service
-        font_service = get_font_service()
+        font_service = FontService(self.config.asset_paths)
         font_service.load_fonts()
+
+        # Set font service on the global theme
+        ui_theme.theme.font_family.set_font_service(font_service)
         
         control_room_logger = logging.getLogger("AppControlRoom")
         self.services['control_room'] = AppControlRoom(
@@ -288,7 +297,6 @@ async def main():
         shutdown_requested = True
         
         def force_exit():
-            import time
             time.sleep(5)
             logging.error("Force exiting due to shutdown timeout")
             os._exit(1)
@@ -308,8 +316,9 @@ async def main():
         # Note: User settings will be applied through the SettingsService during initialization
         
         # Validate critical paths
-        if not os.path.exists(app_config.model_paths.vosk_model):
-            logging.critical(f"Vosk model not found: {app_config.model_paths.vosk_model}")
+        vosk_path = app_config.asset_paths.get_vosk_model_path()
+        if not os.path.exists(vosk_path):
+            logging.critical(f"Vosk model not found: {vosk_path}")
             logging.critical("Download models from: https://alphacephei.com/vosk/models")
             return
         
@@ -335,7 +344,6 @@ async def main():
         )
         
         # Initialize UI
-        import customtkinter as ctk
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         
@@ -344,7 +352,6 @@ async def main():
         app_tk_root.title("Iris")
         
         # Configure window
-        from iris.app.ui import ui_theme
         app_tk_root.geometry(
             f"{ui_theme.theme.dimensions.main_window_width}x"
             f"{ui_theme.theme.dimensions.main_window_height}"
@@ -359,7 +366,7 @@ async def main():
         initialize_ui_scheduler(root_window=app_tk_root)
         
         # Create startup window
-        startup_window = StartupWindow(logger=logging.getLogger("StartupWindow"), main_root=app_tk_root)
+        startup_window = StartupWindow(logger=logging.getLogger("StartupWindow"), main_root=app_tk_root, asset_paths_config=app_config.asset_paths)
         startup_window.show()
         
         # Force startup window to appear
@@ -507,11 +514,9 @@ async def _cleanup_services(services: Dict[str, Any], event_bus: EventBus, gui_e
         
         # Force Python to return memory to OS (if possible)
         try:
-            import ctypes
             if hasattr(ctypes, 'pythonapi'):
                 # Try to trim malloc arenas (glibc specific, may not work on all systems)
                 try:
-                    import ctypes.util
                     libc_name = ctypes.util.find_library('c')
                     if libc_name:
                         libc = ctypes.CDLL(libc_name)

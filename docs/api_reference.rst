@@ -206,7 +206,6 @@ Icon Management
 .. currentmodule:: iris.app.ui.utils.ui_icon_utils
 
 .. autofunction:: set_window_icon_robust
-.. autofunction:: track_window_for_icon_management
 
 Configuration Loading
 ---------------------

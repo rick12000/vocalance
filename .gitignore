@@ -18,7 +18,6 @@ venv/
 # PyInstaller build artifacts
 build/
 dist/
-*.spec
 
 # Egg info
 *.egg-info/

@@ -5,7 +5,11 @@ Optimized for lip-popping vs tongue-clicking discrimination with noise rejection
 Keeps only essential components: YAMNet embeddings, k-NN classification, 
 silence trimming, and ESC-50 negative examples.
 """
+import asyncio
+import concurrent.futures
+import gc
 import os
+import sys
 import requests
 import zipfile
 import tempfile
@@ -14,6 +18,7 @@ import csv
 import numpy as np
 import soundfile as sf
 import librosa
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from collections import Counter
 from sklearn.preprocessing import StandardScaler
@@ -22,6 +27,7 @@ import joblib
 import logging
 
 from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_sound_mappings, write_sound_mappings
+from iris.app.config.app_config import GlobalAppConfig
 
 # TensorFlow import - can be mocked for testing
 try:
@@ -110,7 +116,8 @@ class AudioPreprocessor:
 class StreamlinedSoundRecognizer:
     """Streamlined sound recognizer focused on core functionality."""
     
-    def __init__(self, config, storage: UnifiedStorageService):
+    def __init__(self, config: GlobalAppConfig, storage: UnifiedStorageService):
+        self.asset_path_config = config.asset_paths  # Store full config to access asset_paths
         self.config = config.sound_recognizer
         self._storage = storage
         
@@ -192,9 +199,6 @@ class StreamlinedSoundRecognizer:
             
             # Load mappings from storage
             try:
-                import asyncio
-                import concurrent.futures
-                
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, read_sound_mappings(storage=self._storage, default={}))
@@ -224,9 +228,6 @@ class StreamlinedSoundRecognizer:
             
             # Save mappings through storage
             try:
-                import asyncio
-                import concurrent.futures
-                
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, write_sound_mappings(storage=self._storage, value=self.mappings))
@@ -245,21 +246,17 @@ class StreamlinedSoundRecognizer:
     async def _initialize_yamnet_model(self) -> bool:
         """Initialize YAMNet model by copying from assets."""
         try:
-            # Get package-relative path that works in both dev and installed mode
-            from pathlib import Path
-            recognizer_dir = Path(__file__).resolve().parent
-            iris_app_dir = recognizer_dir.parent.parent.parent
-            assets_yamnet_path = str(iris_app_dir / "assets" / "sound_processing" / "yamnet")
+            # Get YAMNet path from config
+            assets_yamnet_path = self.asset_path_config.yamnet_model_path
             app_yamnet_path = os.path.join(self.model_path, "yamnet")
-            
             if await self._copy_yamnet_from_assets(assets_yamnet_path, app_yamnet_path):
                 # Load from app directory
                 self.yamnet_model = tf.saved_model.load(app_yamnet_path)
                 logger.info("YAMNet model copied from assets and loaded successfully")
                 return True
-            
+
             raise ValueError(f"YAMNet model not found in assets at {assets_yamnet_path}")
-            
+
         except ValueError:
             raise
         except Exception as e:
@@ -279,7 +276,6 @@ class StreamlinedSoundRecognizer:
                 return True
             
             # Copy the entire model directory
-            import shutil
             if os.path.exists(app_path):
                 shutil.rmtree(app_path)
             
@@ -327,29 +323,26 @@ class StreamlinedSoundRecognizer:
     async def _copy_esc50_samples(self):
         """Copy ESC-50 samples from assets to app directory if needed."""
         try:
-            # Get package-relative path that works in both dev and installed mode
-            from pathlib import Path
-            recognizer_dir = Path(__file__).resolve().parent
-            iris_app_dir = recognizer_dir.parent.parent.parent
-            assets_esc50_path = str(iris_app_dir / "assets" / "sound_processing" / "esc50")
-            
+            # Get ESC-50 path from config
+            assets_esc50_path = self.asset_path_config.esc50_samples_path
+
             # Check what categories we need
             needed_categories = []
             for category in self.esc50_categories.keys():
                 # Check if any files exist for this category in app directory
-                category_files = [f for f in os.listdir(self.external_sounds_path) 
+                category_files = [f for f in os.listdir(self.external_sounds_path)
                                 if f.startswith(f'esc50_{category}_') and f.endswith('.wav')]
                 if len(category_files) < self.max_esc50_per_cat:
                     needed_categories.append(category)
-            
+
             if not needed_categories:
                 logger.info("ESC-50 samples already present in app directory")
                 return
-            
+
             logger.info(f"Copying ESC-50 samples for categories: {needed_categories}")
             copied_count = await self._copy_categories_from_assets(assets_esc50_path, needed_categories)
             logger.info(f"Successfully copied {copied_count} ESC-50 samples from assets")
-            
+
         except Exception as e:
             logger.error(f"Failed to copy ESC-50 samples: {e}")
             raise
@@ -377,7 +370,6 @@ class StreamlinedSoundRecognizer:
                 dst = os.path.join(self.external_sounds_path, f"esc50_{category}_{wav_file}")
                 
                 if not os.path.exists(dst):
-                    import shutil
                     shutil.copy2(src, dst)
                     copied_count += 1
         
@@ -580,9 +572,6 @@ class StreamlinedSoundRecognizer:
             
             # Clear mappings through storage
             try:
-                import asyncio
-                import concurrent.futures
-                
                 # Use a thread pool to run the async operation
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, write_sound_mappings(self._storage, {}))
@@ -705,7 +694,6 @@ class StreamlinedSoundRecognizer:
                 self.mappings = None
             
             # Force garbage collection
-            import gc
             gc.collect()
             
             logger.info("StreamlinedSoundRecognizer shutdown complete")

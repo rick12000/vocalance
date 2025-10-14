@@ -4,8 +4,17 @@ Pre-configured CustomTkinter widgets with design attributes
 """
 
 import customtkinter as ctk
+import logging
+import os
+import sys
+import tkinter.font as tkFont
+from math import floor
+from pathlib import Path
 from typing import Optional, Callable
+
 from iris.app.ui.ui_theme import theme
+from iris.app.ui.utils.ui_icon_utils import transform_monochrome_icon
+from iris.app.config.app_config import AssetPathsConfig
 
 
 class ThemedButton(ctk.CTkButton):
@@ -49,8 +58,6 @@ class ThemedButton(ctk.CTkButton):
         # Handle compact sizing
         if compact:
             # Calculate text dimensions for compact sizing
-            import tkinter.font as tkFont
-            from math import floor
             temp_font = tkFont.Font(family=font_tuple[0], size=font_tuple[1], weight=font_tuple[2])
             text_width = temp_font.measure(text)
             text_height = temp_font.metrics("linespace")
@@ -492,16 +499,12 @@ class SidebarIconButton(ctk.CTkFrame):
     def __init__(
         self,
         parent,
+        asset_paths_config: AssetPathsConfig,
         text: str = "",
         icon_filename: str = "",
         command: Optional[Callable] = None,
         **kwargs
     ):
-        from iris.app.ui.utils.ui_icon_utils import transform_monochrome_icon
-        from iris.app.ui.ui_theme import theme
-        from pathlib import Path
-        import os
-        
         # Initialize frame with transparent background
         super().__init__(
             parent,
@@ -514,6 +517,7 @@ class SidebarIconButton(ctk.CTkFrame):
         self.is_selected = False
         self.command = command
         self.icon_filename = icon_filename
+        self._asset_paths_config = asset_paths_config
         
         # Calculate icon size using width_percentage for responsive sizing
         available_width = theme.sidebar_layout.button_width
@@ -587,10 +591,6 @@ class SidebarIconButton(ctk.CTkFrame):
             return
             
         try:
-            from iris.app.ui.utils.ui_icon_utils import transform_monochrome_icon
-            from iris.app.ui.ui_theme import theme
-            from pathlib import Path
-            
             # Create cache key
             cache_key = f"{self.icon_filename}_{icon_size}_{theme.icon_properties.color}"
             
@@ -598,15 +598,9 @@ class SidebarIconButton(ctk.CTkFrame):
             if cache_key in self._icon_cache:
                 self.icon_image = self._icon_cache[cache_key]
                 return
-            
-            # Get icon path relative to this file (works in both dev and installed mode)
-            current_file = Path(__file__).resolve()
-            ui_views_components_dir = current_file.parent
-            ui_views_dir = ui_views_components_dir.parent
-            ui_dir = ui_views_dir.parent
-            app_dir = ui_dir.parent
-            icon_path = app_dir / "assets" / "icons" / self.icon_filename
-            
+
+            icon_path = Path(self._asset_paths_config.icons_dir) / self.icon_filename
+
             if icon_path.exists():
                 # Transform the icon with theme color
                 pil_image = transform_monochrome_icon(
@@ -626,10 +620,8 @@ class SidebarIconButton(ctk.CTkFrame):
                     self._icon_cache[cache_key] = icon_image
                     self.icon_image = icon_image
             else:
-                import logging
                 logging.warning(f"Sidebar icon not found: {icon_path}")
         except Exception as e:
-            import logging
             logging.error(f"Failed to load sidebar icon {self.icon_filename}: {e}")
     
     def _setup_interaction(self):
@@ -687,9 +679,6 @@ class SidebarIconButton(ctk.CTkFrame):
             return
             
         try:
-            from iris.app.ui.utils.ui_icon_utils import transform_monochrome_icon
-            from pathlib import Path
-            
             cache_key = f"{self.icon_filename}_{self.icon_size}_{color}"
             
             # Check cache first
@@ -699,14 +688,8 @@ class SidebarIconButton(ctk.CTkFrame):
                 self.icon_image = cached_image
                 return
             
-            # Get icon path relative to this file (works in both dev and installed mode)
-            current_file = Path(__file__).resolve()
-            ui_views_components_dir = current_file.parent
-            ui_views_dir = ui_views_components_dir.parent
-            ui_dir = ui_views_dir.parent
-            app_dir = ui_dir.parent
-            icon_path = app_dir / "assets" / "icons" / self.icon_filename
-            
+            icon_path = Path(self._asset_paths_config.icons_dir) / self.icon_filename
+
             if icon_path.exists():
                 pil_image = transform_monochrome_icon(str(icon_path), color, (self.icon_size, self.icon_size))
                 
@@ -722,7 +705,6 @@ class SidebarIconButton(ctk.CTkFrame):
                     self.icon_label.configure(image=new_image)
                     self.icon_image = new_image  # Keep reference
         except Exception as e:
-            import logging
             logging.error(f"Failed to update icon color: {e}")
 
 

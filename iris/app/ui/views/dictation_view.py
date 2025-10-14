@@ -8,8 +8,10 @@ from iris.app.ui.views.components.base_view import BaseView
 from iris.app.ui.views.components.form_builder import FormBuilder
 from iris.app.ui.views.components.view_config import view_config
 from iris.app.ui.views.components.themed_components import (
-    TwoColumnTabLayout, PrimaryButton, ThemedLabel
+    TwoColumnTabLayout, PrimaryButton, ThemedLabel, ThemedScrollableFrame,
+    BorderlessFrame, DangerButton, ThemedFrame
 )
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 class DictationView(BaseView):
     """Simplified dictation view using base components and form builder"""
@@ -64,8 +66,7 @@ class DictationView(BaseView):
         container = self.layout.right_content
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
-        
-        from iris.app.ui.views.components.themed_components import ThemedScrollableFrame
+
         self.prompts_container = ThemedScrollableFrame(container)
         self.prompts_container.grid(row=0, column=0, sticky="nsew", 
                                    padx=view_config.theme.two_box_layout.box_content_padding, 
@@ -113,8 +114,6 @@ class DictationView(BaseView):
 
     def _create_prompt_tile(self, prompt_data: Dict[str, Any], row_idx: int) -> None:
         """Create a simplified prompt tile with 4-column layout"""
-        from iris.app.ui.views.components.themed_components import BorderlessFrame, ThemedLabel, PrimaryButton, DangerButton
-        
         # Create a borderless frame for the prompt item
         prompt_frame = BorderlessFrame(self.prompts_container)
         prompt_frame.grid(row=row_idx, column=0, sticky="ew", 
@@ -178,13 +177,11 @@ class DictationView(BaseView):
         
         # Set icon
         try:
-            from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
             set_window_icon_robust(dialog)
         except:
             pass
         
         # Main frame with updated color
-        from iris.app.ui.views.components.themed_components import ThemedFrame
         main_frame = ThemedFrame(dialog, fg_color=view_config.theme.shape_colors.dark)
         main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
         

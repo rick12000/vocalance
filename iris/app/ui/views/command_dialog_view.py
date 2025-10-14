@@ -15,6 +15,8 @@ from iris.app.ui.views.components.themed_components import (
     ThemedLabel, ThemedEntry, ThemedFrame, TransparentFrame,
     PrimaryButton, DangerButton
 )
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from iris.app.ui.views.components import themed_dialogs as messagebox
 
 
 class CommandEditDialog:
@@ -49,7 +51,6 @@ class CommandEditDialog:
             
             # Set icon on dialog
             try:
-                from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
                 set_window_icon_robust(dialog)
             except Exception:
                 pass  # Silently fail if icon can't be set
@@ -266,8 +267,6 @@ class CommandEditDialog:
                 return
             
             # Show confirmation
-            from iris.app.ui.views.components import themed_dialogs as messagebox
-            
             confirm = messagebox.askyesno(
                 "Confirm Delete",
                 f"Are you sure you want to delete the command '{self.command.command_key}'?\n\nThis action cannot be undone.",

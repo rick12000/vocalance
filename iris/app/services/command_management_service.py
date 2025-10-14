@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Set
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.automation_command_registry import AutomationCommandRegistry
+from iris.app.config.command_types import AutomationCommand
 from iris.app.events.command_management_events import (
     AddCustomCommandEvent, UpdateCommandPhraseEvent, DeleteCustomCommandEvent,
     RequestCommandMappingsEvent, ResetCommandsToDefaultsEvent,
@@ -106,8 +107,6 @@ class CommandManagementService:
     async def get_command_mappings(self) -> List[Any]:
         """Get all command mappings for UI display."""
         try:
-            from iris.app.config.command_types import AutomationCommand
-            
             mappings = []
             custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
             mappings.extend(custom_commands.values())

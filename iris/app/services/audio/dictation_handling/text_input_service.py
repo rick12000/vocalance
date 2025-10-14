@@ -12,7 +12,7 @@ import pyperclip
 import re
 from typing import Optional
 
-from iris.app.config.dictation_config import DictationConfig
+from iris.app.config.app_config import DictationConfig
 
 logger = logging.getLogger(__name__)
 

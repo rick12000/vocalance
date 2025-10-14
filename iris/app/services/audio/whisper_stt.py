@@ -1,5 +1,7 @@
+import gc
 import logging
 import numpy as np
+import re
 import time
 import threading
 from typing import Optional, Dict, Any, List, Tuple
@@ -189,7 +191,6 @@ class WhisperSpeechToText:
             return ""
         
         # Remove excessive whitespace
-        import re
         text = re.sub(r'\s+', ' ', text)
         
         # Remove common artifacts at boundaries
@@ -251,7 +252,6 @@ class WhisperSpeechToText:
                     self._last_result = None
             
             # Force garbage collection for CTranslate2 memory
-            import gc
             gc.collect()
             
             logger.info("WhisperSpeechToText shutdown complete")

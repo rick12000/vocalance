@@ -21,6 +21,10 @@ from iris.app.services.storage.unified_storage_service import UnifiedStorageServ
 from iris.app.services.audio.dictation_handling.text_input_service import TextInputService
 from iris.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
 from iris.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
+from iris.app.config.command_types import (
+    DictationStartCommand, DictationStopCommand,
+    DictationTypeCommand, DictationSmartStartCommand
+)
 from iris.app.events.dictation_events import (
     DictationStatusChangedEvent,
     SmartDictationStartedEvent, SmartDictationStoppedEvent,
@@ -216,11 +220,6 @@ class DictationCoordinator:
     async def _handle_dictation_command(self, event: DictationCommandParsedEvent) -> None:
         """Handle dictation commands"""
         try:
-            from iris.app.config.command_types import (
-                DictationStartCommand, DictationStopCommand, 
-                DictationTypeCommand, DictationSmartStartCommand
-            )
-            
             command = event.command
             if isinstance(command, DictationStartCommand):
                 await self._start_session(DictationMode.STANDARD)

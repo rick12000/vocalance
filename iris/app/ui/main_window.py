@@ -6,8 +6,8 @@ from typing import Optional
 
 from iris.app.ui import ui_theme
 from iris.app.ui.views.components.themed_components import ThemedButton, ThemedLabel, ThemedFrame, TransparentFrame, SidebarIconButton, SidebarButtonManager, CustomSidebarFrame
-from iris.app.ui.utils.ui_assets import get_assets_path
-from iris.app.ui.utils.logo_service import logo_service
+from iris.app.ui.utils.logo_service import LogoService
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from iris.app.ui.controls.commands_control import CommandsController
 from iris.app.ui.controls.marks_control import MarksController
 from iris.app.ui.controls.settings_control import SettingsController
@@ -25,6 +25,10 @@ from iris.app.ui.views.grid_view import GridView
 from iris.app.ui.views.mark_view import MarkView
 from iris.app.ui.views.dictation_popup_view import DictationPopupView
 from iris.app.ui.views.components import themed_dialogs
+from iris.app.ui.utils.ui_assets import AssetCache
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from iris.app.ui.utils.font_service import FontService
+from iris.app.ui import ui_theme
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 
@@ -38,11 +42,19 @@ class AppControlRoom:
         self.current_tab = "Marks"
         self._settings_service = None
         self._storage_service = storage_service
-        
+
+        # Initialize asset services with config
+        self.asset_cache = AssetCache(asset_paths_config=self.config.asset_paths)
+        self.font_service = FontService(self.config.asset_paths)
+        self.logo_service = LogoService(self.asset_cache)
+
+        # Set font service on the global theme
+        ui_theme.theme.font_family.set_font_service(self.font_service)
+
         # View caching for performance
         self._view_cache = {}
         self._current_view = None
-        
+
         # Initialize components
         self._initialize_controllers()
         self._initialize_specialized_views()
@@ -125,9 +137,7 @@ class AppControlRoom:
         """Set up main window properties"""
         try:
             self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-            
-            from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust, track_window_for_icon_management
-            track_window_for_icon_management(self.root)
+
             set_window_icon_robust(self.root)
             
             self.logger.info("Main window setup completed")
@@ -216,7 +226,8 @@ class AppControlRoom:
                 buttons_frame,
                 text=tab_name,
                 icon_filename=icon_filename,
-                command=lambda tab=tab_name: self.show_tab(tab)
+                command=lambda tab=tab_name: self.show_tab(tab),
+                asset_paths_config=self.config.asset_paths
             )
             btn.grid(row=i, column=0, sticky="ew")
             self.sidebar_buttons[tab_name] = btn
@@ -231,7 +242,7 @@ class AppControlRoom:
         """Create sidebar logo using centralized logo service"""
         sidebar_config = ui_theme.theme.sidebar_layout
         
-        self.sidebar_logo = logo_service.create_logo_widget(
+        self.sidebar_logo = self.logo_service.create_logo_widget(
             self.sidebar,
             max_size=sidebar_config.logo_max_size,
             context="sidebar",

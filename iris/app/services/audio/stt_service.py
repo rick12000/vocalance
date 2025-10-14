@@ -4,6 +4,7 @@ Streamlined Speech-to-Text Service
 Provides efficient STT processing with mode-aware handling for command and dictation modes.
 """
 
+import gc
 import logging
 import asyncio
 import time
@@ -17,6 +18,7 @@ from iris.app.config.app_config import GlobalAppConfig
 from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
 from iris.app.services.audio.whisper_stt import WhisperSpeechToText
 from iris.app.services.audio.stt_utils import DuplicateTextFilter
+from iris.app.services.audio.smart_timeout_manager import SmartTimeoutManager
 from iris.app.events.core_events import CommandTextRecognizedEvent, DictationTextRecognizedEvent, STTProcessingStartedEvent, STTProcessingCompletedEvent
 from iris.app.events.dictation_events import DictationModeDisableOthersEvent
 from iris.app.events.core_events import ProcessAudioChunkForSoundRecognitionEvent, CommandAudioSegmentReadyEvent, DictationAudioSegmentReadyEvent
@@ -50,7 +52,6 @@ class SpeechToTextService:
         self._duplicate_filter = DuplicateTextFilter(cache_size=5, duplicate_threshold_ms=1000)
         
         # Smart timeout management
-        from iris.app.services.audio.smart_timeout_manager import SmartTimeoutManager
         self._smart_timeout_manager = SmartTimeoutManager(app_config=config)
         
         # Amber trigger words
@@ -72,7 +73,7 @@ class SpeechToTextService:
             # Initialize Vosk engine
             logger.info("Loading Vosk STT engine...")
             self.vosk_engine = EnhancedVoskSTT(
-                model_path=self.config.model_paths.vosk_model,
+                model_path=self.config.asset_paths.get_vosk_model_path(),
                 sample_rate=self.stt_config.sample_rate,
                 config=self.config
             )
@@ -333,7 +334,6 @@ class SpeechToTextService:
                 self._markov_handled_audio = None
             
             # Force garbage collection
-            import gc
             gc.collect()
             
             logger.info("STT service shutdown complete")

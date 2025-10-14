@@ -3,6 +3,8 @@ import yaml
 from typing import Optional, Dict, Any, List, ClassVar, Literal
 import logging
 import os
+import sys
+from pathlib import Path
 
 from iris.app.config.logging_config import LoggingConfigModel
 
@@ -368,43 +370,98 @@ class AppInfoConfig(BaseModel):
     dev_cache_dir_name: str = "dev_cache"
     user_data_dir: str = "data"
 
-class ModelPathsConfig(BaseModel):
-    vosk_model: str = ""
+class AssetPathsConfig(BaseModel):
+    """Centralized asset path resolution for both dev and PyInstaller bundle modes"""
     
     def __init__(self, **data):
         super().__init__(**data)
-        if not self.vosk_model:
-            self.vosk_model = self._get_default_vosk_path()
-    
-    def _get_default_vosk_path(self) -> str:
-        """Get default vosk model path, works in both dev and installed mode"""
-        from pathlib import Path
-        import os
-        
-        # Try package-relative path first (works in both modes)
-        try:
-            # Get path relative to this config file
-            config_dir = Path(__file__).resolve().parent
-            iris_app_dir = config_dir.parent
-            vosk_path = iris_app_dir / "assets" / "vosk-model-small-en-us-0.15"
-            
-            if vosk_path.exists():
-                return str(vosk_path)
-        except Exception:
-            pass
-        
-        # Fallback to checking common locations
-        possible_paths = [
-            "iris/app/assets/vosk-model-small-en-us-0.15",
-            "assets/vosk-model-small-en-us-0.15",
-        ]
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
-        
-        # Return a reasonable default even if not found (error will occur later with helpful message)
-        return "iris/app/assets/vosk-model-small-en-us-0.15" 
+        self._assets_root = self._get_assets_root()
+
+    def _get_assets_root(self) -> Optional[Path]:
+        """Get the assets root directory, works in both dev and PyInstaller bundle modes"""
+        # Check if running as PyInstaller bundle
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            bundle_dir: Path = Path(sys._MEIPASS)
+            assets_path: Path = bundle_dir / "iris" / "app" / "assets"
+
+            if assets_path.exists():
+                logging.debug(f"Found assets in PyInstaller bundle: {assets_path}")
+                return assets_path
+            else:
+                logging.warning(f"Assets not found in bundle at: {assets_path}")
+        else:
+            config_dir: Path = Path(__file__).resolve().parent
+            iris_app_dir: Path = config_dir.parent
+            assets_path: Path = iris_app_dir / "assets"
+
+            if assets_path.exists():
+                logging.debug(f"Found assets in dev mode: {assets_path}")
+                return assets_path 
+
+    # Property-based access to all asset paths
+    @property
+    def logo_dir(self) -> Optional[str]:
+        """Logo directory path"""
+        if self._assets_root:
+            return str(self._assets_root / "logo")
+        return None
+
+    @property
+    def icons_dir(self) -> Optional[str]:
+        """Icons directory path"""
+        if self._assets_root:
+            return str(self._assets_root / "icons")
+        return None
+
+    @property
+    def fonts_dir(self) -> Optional[str]:
+        """Fonts directory path"""
+        if self._assets_root:
+            return str(self._assets_root / "fonts" / "Manrope")
+        return None
+
+    @property
+    def vosk_model_path(self) -> Optional[str]:
+        """Vosk model directory path"""
+        if self._assets_root:
+            return str(self._assets_root / "vosk-model-small-en-us-0.15")
+        return None
+
+    @property
+    def yamnet_model_path(self) -> Optional[str]:
+        """YAMNet model directory path"""
+        if self._assets_root:
+            return str(self._assets_root / "sound_processing" / "yamnet")
+        return None
+
+    @property
+    def esc50_samples_path(self) -> Optional[str]:
+        """ESC-50 samples directory path"""
+        if self._assets_root:
+            return str(self._assets_root / "sound_processing" / "esc50")
+        return None
+
+    # Convenience methods for specific files
+    @property
+    def logo_image_path(self) -> Optional[str]:
+        """Main logo image path"""
+        if self.logo_dir:
+            logo_path: Path = Path(self.logo_dir) / "iris_logo_full_size.png"
+            return str(logo_path)
+        return None
+
+    @property
+    def icon_path(self) -> Optional[str]:
+        """Application icon path"""
+        if self.logo_dir:
+            icon_path: Path = Path(self.logo_dir) / "icon.ico"
+            return str(icon_path)
+        return None
+
+    # Legacy method for compatibility
+    def get_vosk_model_path(self) -> str:
+        """Get the Vosk model path (legacy method)"""
+        return self.vosk_model_path or "iris/app/assets/vosk-model-small-en-us-0.15" 
 
 class StorageConfig(BaseModel):
     sound_model_subdir: str = "sound_models"
@@ -433,7 +490,7 @@ class StorageConfig(BaseModel):
 class GlobalAppConfig(BaseModel):
     logging: LoggingConfigModel = LoggingConfigModel()
     app_info: AppInfoConfig = AppInfoConfig()
-    model_paths: ModelPathsConfig = ModelPathsConfig()
+    asset_paths: AssetPathsConfig = AssetPathsConfig()
     vad: VADConfig = VADConfig()
     grid: GridConfig = GridConfig()
     storage: StorageConfig = StorageConfig()

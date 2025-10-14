@@ -4,6 +4,7 @@ Enhanced Vosk STT Service
 Provides optimized Vosk STT functionality for command recognition.
 """
 
+import gc
 import logging
 import json
 import time
@@ -106,7 +107,6 @@ class EnhancedVoskSTT:
                     self._duplicate_filter = None
             
             # Force garbage collection for Vosk C++ objects
-            import gc
             gc.collect()
             
             logger.info("EnhancedVoskSTT shutdown complete")

@@ -21,22 +21,26 @@ class FontFamily(BaseModel):
     primary: str = "Manrope"
     secondary: str = "Segoe UI"
     fallback: str = "Arial"
-    
+    _font_service = None
+
+    def set_font_service(self, font_service):
+        """Set the font service for this font family"""
+        self._font_service = font_service
+
     def get_primary_font(self, weight: str = "regular") -> str:
         """Get the primary font family with specified weight"""
-        try:
-            from iris.app.ui.utils.font_service import get_font_service
-            font_service = get_font_service()
-            return font_service.get_font_family(weight)
-        except ImportError:
-            # Fallback if font service is not available
-            return self.secondary
+        if self._font_service:
+            try:
+                return self._font_service.get_font_family(weight)
+            except Exception:
+                pass
+        # Fallback to default fonts
+        return self.secondary
     
     def get_button_font(self, size: int = None) -> tuple:
         """Get standardized button font configuration"""
         if size is None:
-            from iris.app.ui.ui_theme import theme
-            size = theme.font_sizes.medium
+            size = FontSizes().medium
         font_family = self.get_primary_font("semibold")
         return (font_family, size, "normal")
 

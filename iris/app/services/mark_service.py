@@ -11,6 +11,7 @@ Migrated mark service using the unified storage system for:
 import logging
 import asyncio
 from typing import Dict, Tuple, Optional, Set, Any
+import pyautogui
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
@@ -127,7 +128,6 @@ class MarkService:
                     
                     # Perform the actual mouse movement and click
                     try:
-                        import pyautogui
                         logger.debug(f"Moving mouse to ({x}, {y}) and clicking for mark '{command.label}'")
                         pyautogui.click(x, y)
                         

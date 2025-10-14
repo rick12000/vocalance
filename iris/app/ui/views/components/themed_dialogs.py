@@ -5,6 +5,7 @@ Provides CustomTkinter-based replacements for standard tkinter messageboxes.
 
 import customtkinter as ctk
 from iris.app.ui import ui_theme
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 
 def _get_dialog_font(size: int = None) -> tuple:
@@ -24,7 +25,6 @@ def _setup_dialog_window(dialog: ctk.CTkToplevel, title: str, parent=None) -> No
     
     # Set icon on dialog
     try:
-        from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
         set_window_icon_robust(dialog)
     except Exception:
         pass  # Silently fail if icon can't be set

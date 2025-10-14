@@ -10,41 +10,37 @@ import customtkinter as ctk
 from PIL import Image
 
 from iris.app.ui import ui_theme
+from iris.app.ui.utils.ui_assets import AssetCache
 
 logger = logging.getLogger(__name__)
 
 
 class LogoService:
     """Centralized service for loading and managing application logos"""
-    
-    _instance = None
-    _logo_cache = {}
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
+
+    def __init__(self, asset_cache: AssetCache):
+        """Initialize LogoService with an asset cache instance."""
+        self.asset_cache = asset_cache
+        self._logo_cache = {}
+
     def get_logo_image(self, max_size: int, context: str = "default") -> Optional[ctk.CTkImage]:
         """
         Get a logo image with specified maximum size
-        
+
         Args:
             max_size: Maximum dimension (width or height) for the logo
             context: Context for logging (e.g., "startup", "sidebar")
-            
+
         Returns:
             CTkImage if successful, None if fallback needed
         """
         cache_key = f"{max_size}_{context}"
-        
+
         if cache_key in self._logo_cache:
             return self._logo_cache[cache_key]
-        
+
         try:
-            from iris.app.ui.utils.ui_assets import load_logo_image_from_config
-            
-            pil_logo = load_logo_image_from_config(size=None, max_dimension=max_size)
+            pil_logo = self.asset_cache.load_logo_image_from_config(size=None, max_dimension=max_size)
             
             if pil_logo:
                 logo_image = ctk.CTkImage(
@@ -128,6 +124,3 @@ class LogoService:
         self._logo_cache.clear()
         logger.debug("Logo cache cleared")
 
-
-# Global instance
-logo_service = LogoService() 

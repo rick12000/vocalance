@@ -7,23 +7,29 @@ import tkinter as tk
 from typing import Optional, Union
 import logging
 import threading
+import time
 
 from iris.app.ui import ui_theme
 from iris.app.ui.utils.ui_thread_utils import schedule_ui_update_immediate, is_main_thread
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_with_parent_inheritance
-from iris.app.ui.utils.logo_service import logo_service
-
+from iris.app.ui.utils.logo_service import LogoService
+from iris.app.ui.utils.ui_assets import AssetCache
+from iris.app.config.app_config import AssetPathsConfig 
 
 class StartupWindow:
     """Thread-safe startup window with progress tracking"""
     
-    def __init__(self, logger: logging.Logger, main_root: Union[tk.Tk, ctk.CTk]):
+    def __init__(self, logger: logging.Logger, main_root: Union[tk.Tk, ctk.CTk], asset_paths_config: AssetPathsConfig):
         self.logger = logger
         self.main_root = main_root
         self.window: Optional[ctk.CTkToplevel] = None
         self.progress_bar: Optional[ctk.CTkProgressBar] = None
         self.status_label: Optional[ctk.CTkLabel] = None
         self.is_closed = False
+
+        # Initialize asset services
+        self.asset_cache = AssetCache(asset_paths_config=asset_paths_config)
+        self.logo_service = LogoService(self.asset_cache)
         
     def show(self) -> None:
         """Show the startup window in a thread-safe manner."""
@@ -52,8 +58,6 @@ class StartupWindow:
             self._center_window()
             
             # Set icon
-            from iris.app.ui.utils.ui_icon_utils import track_window_for_icon_management
-            track_window_for_icon_management(self.window)
             set_window_icon_with_parent_inheritance(self.window, self.main_root)
             
             # Prevent closing during startup
@@ -105,7 +109,7 @@ class StartupWindow:
         main_frame.grid_rowconfigure(2, weight=1)  # Status label
         
         # Logo with automatic image/text fallback
-        self.logo_label = logo_service.create_logo_widget(
+        self.logo_label = self.logo_service.create_logo_widget(
             main_frame,
             max_size=ui_theme.theme.dimensions.startup_logo_size,
             context="startup",
@@ -232,9 +236,7 @@ class StartupProgressTracker:
         self.startup_window.update_progress(1.0, "Ready!")
         
         def delayed_close():
-            import time
             time.sleep(0.8)
             self.startup_window.close()
-            
-        import threading
+
         threading.Thread(target=delayed_close, daemon=True).start()

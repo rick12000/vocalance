@@ -12,6 +12,8 @@ from iris.app.events.sound_events import (
     SoundTrainingCompleteEvent, SoundTrainingFailedEvent, SoundTrainingStatusEvent
 )
 from iris.app.events.mark_events import MarkGetAllRequestEventData, MarksChangedEventData
+from iris.app.config.automation_command_registry import AutomationCommandRegistry
+from iris.app.config.app_config import GlobalAppConfig
 
 
 class SoundController(BaseController):
@@ -194,7 +196,6 @@ class SoundController(BaseController):
     def get_available_exact_match_commands(self) -> List[str]:
         """Get all available exact match commands."""
         try:
-            from iris.app.config.automation_command_registry import AutomationCommandRegistry
             automation_phrases = AutomationCommandRegistry.get_command_phrases()
             return sorted(list(set(automation_phrases)))
         except Exception as e:
@@ -212,7 +213,6 @@ class SoundController(BaseController):
     def get_grid_trigger_words(self) -> List[str]:
         """Get grid trigger words from config."""
         try:
-            from iris.app.config.app_config import GlobalAppConfig
             config = GlobalAppConfig()
             return [config.grid.show_grid_phrase]
         except Exception as e:

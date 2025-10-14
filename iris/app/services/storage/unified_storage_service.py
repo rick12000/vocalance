@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
+from iris.app.config.automation_command_registry import AutomationCommandRegistry
+from iris.app.config.command_types import AutomationCommand
 
 logger = logging.getLogger(__name__)
 
@@ -330,7 +332,6 @@ class UnifiedStorageServiceExtensions:
     @staticmethod
     async def get_custom_commands(storage: UnifiedStorageService) -> Dict[str, Any]:
         """Get custom commands"""
-        from iris.app.config.command_types import AutomationCommand
         data = await read_commands(storage, {})
         custom_commands_data = data.get('custom_commands', {})
         
@@ -363,9 +364,6 @@ class UnifiedStorageServiceExtensions:
     @staticmethod
     async def get_action_map(storage: UnifiedStorageService) -> Dict[str, Any]:
         """Get action map for command lookup"""
-        from iris.app.config.automation_command_registry import AutomationCommandRegistry
-        from iris.app.config.command_types import AutomationCommand
-        
         action_map = {}
         
         # Load custom commands

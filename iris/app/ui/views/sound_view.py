@@ -8,9 +8,10 @@ from iris.app.ui.views.components.base_view import BaseView
 from iris.app.ui.views.components.form_builder import FormBuilder
 from iris.app.ui.views.components.view_config import view_config
 from iris.app.ui.views.components.themed_components import (
-    TwoColumnTabLayout, ThemedScrollableFrame, BorderlessFrame, 
+    TwoColumnTabLayout, ThemedScrollableFrame, BorderlessFrame,
     PrimaryButton, DangerButton, ThemedLabel, TransparentFrame
 )
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 class SoundView(BaseView):
     """Simplified sound view using base components and form builder"""
@@ -219,7 +220,6 @@ class SoundView(BaseView):
         dialog.configure(fg_color=theme.shape_colors.darkest)
         
         try:
-            from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
             set_window_icon_robust(dialog)
         except:
             pass

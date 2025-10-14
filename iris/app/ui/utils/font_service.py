@@ -4,23 +4,28 @@ This service loads TTF fonts from the assets directory and makes them available
 to Tkinter without requiring system-wide font installation.
 """
 
+import ctypes
 import os
+import sys
 import tkinter as tk
 import tkinter.font as tkFont
+from ctypes import wintypes
 from typing import Dict, Optional, Tuple
 import logging
 from pathlib import Path
+from iris.app.config.app_config import AssetPathsConfig
 
 logger = logging.getLogger(__name__)
 
 
 class FontService:
     """Service for loading and managing custom fonts"""
-    
-    def __init__(self):
+
+    def __init__(self, asset_paths_config: AssetPathsConfig):
         self._loaded_fonts: Dict[str, str] = {}
         self._font_cache: Dict[Tuple[str, int, str], tkFont.Font] = {}
         self._fonts_loaded = False
+        self._asset_paths_config = asset_paths_config
         
     def load_fonts(self) -> bool:
         """
@@ -32,15 +37,7 @@ class FontService:
             
         try:
             # Get the path to the fonts directory
-            # Navigate from iris/app/ui/utils/ to iris/app/assets/fonts/Manrope/
-            # This works in both development and installed package mode
-            current_dir = Path(__file__).resolve().parent
-            app_root = current_dir.parent.parent
-            fonts_dir = app_root / "assets" / "fonts" / "Manrope"
-            
-            if not fonts_dir.exists():
-                logger.error(f"Fonts directory not found: {fonts_dir}")
-                return False
+            fonts_dir = Path(self._asset_paths_config.fonts_dir)
             
             # Load variable font first (preferred)
             variable_font_path = fonts_dir / "Manrope-VariableFont_wght.ttf"
@@ -80,9 +77,6 @@ class FontService:
         Load a single font file using Windows GDI font loading.
         """
         try:
-            import ctypes
-            from ctypes import wintypes
-            
             # Load the font using Windows GDI
             gdi32 = ctypes.windll.gdi32
             
@@ -231,11 +225,3 @@ class FontService:
             self.load_fonts()
         return "Manrope" in self._loaded_fonts
 
-
-# Global font service instance
-font_service = FontService()
-
-
-def get_font_service() -> FontService:
-    """Get the global font service instance"""
-    return font_service 
