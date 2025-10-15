@@ -16,9 +16,8 @@ from iris.app.events.command_management_events import (
     RequestCommandMappingsEvent, ResetCommandsToDefaultsEvent,
     CommandMappingsUpdatedEvent, CommandValidationErrorEvent, CommandMappingsResponseEvent
 )
-from iris.app.services.storage.unified_storage_service import (
-    UnifiedStorageService, UnifiedStorageServiceExtensions, read_commands, write_commands, read_sound_mappings
-)
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import CommandsData, MarksData, SoundMappingsData
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ class CommandManagementService:
     Service that handles command management events with integrated protected terms validation.
     """
 
-    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage: UnifiedStorageService):
+    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage: StorageService):
         self._event_bus = event_bus
         self._app_config = app_config
         self._storage = storage
@@ -70,19 +69,53 @@ class CommandManagementService:
         protected.add(dictation.smart_start_trigger.lower().strip())
         
         try:
-            mark_names = await UnifiedStorageServiceExtensions.get_all_mark_names(self._storage)
-            protected.update(name.lower().strip() for name in mark_names)
+            marks_data = await self._storage.read(model_type=MarksData)
+            protected.update(name.lower().strip() for name in marks_data.marks.keys())
         except Exception as e:
             logger.warning(f"Could not fetch mark names for protection: {e}")
         
         try:
-            sound_mappings = await read_sound_mappings(self._storage, {})
-            protected.update(sound.lower().strip() for sound in sound_mappings.keys())
+            sound_data = await self._storage.read(model_type=SoundMappingsData)
+            protected.update(sound.lower().strip() for sound in sound_data.mappings.keys())
         except Exception as e:
             logger.warning(f"Could not fetch sound names for protection: {e}")
         
         return protected
 
+    async def _get_action_map(self) -> Dict[str, Any]:
+        """Get action map for command lookup."""
+        action_map = {}
+        
+        # Load custom commands (already AutomationCommand objects)
+        commands_data = await self._storage.read(model_type=CommandsData)
+        for normalized_phrase, command_obj in commands_data.custom_commands.items():
+            action_map[normalized_phrase] = command_obj
+        
+        # Load default commands
+        default_commands = AutomationCommandRegistry.get_default_commands()
+        
+        for command_data in default_commands:
+            normalized_phrase = command_data.command_key.lower().strip()
+            
+            if normalized_phrase not in action_map:
+                # Apply any phrase overrides
+                effective_phrase = commands_data.phrase_overrides.get(command_data.command_key, command_data.command_key)
+                
+                if effective_phrase != command_data.command_key:
+                    command_data = AutomationCommand(
+                        command_key=effective_phrase,
+                        action_type=command_data.action_type,
+                        action_value=command_data.action_value,
+                        short_description=command_data.short_description,
+                        long_description=command_data.long_description,
+                        is_custom=command_data.is_custom
+                    )
+                    normalized_phrase = effective_phrase.lower().strip()
+                
+                action_map[normalized_phrase] = command_data
+        
+        return action_map
+    
     async def _validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
         """Validate a command phrase for conflicts."""
         if not command_phrase or not command_phrase.strip():
@@ -98,7 +131,7 @@ class CommandManagementService:
         if normalized_phrase in protected_terms:
             return f"'{command_phrase}' is a protected term and cannot be used"
         
-        action_map = await UnifiedStorageServiceExtensions.get_action_map(self._storage)
+        action_map = await self._get_action_map()
         if normalized_phrase in action_map:
             return f"Command phrase '{command_phrase}' already exists"
         
@@ -108,15 +141,16 @@ class CommandManagementService:
         """Get all command mappings for UI display."""
         try:
             mappings = []
-            custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
-            mappings.extend(custom_commands.values())
+            commands_data = await self._storage.read(model_type=CommandsData)
             
+            # Add custom commands (already AutomationCommand objects)
+            mappings.extend(commands_data.custom_commands.values())
+            
+            # Add default commands with overrides
             default_commands = AutomationCommandRegistry.get_default_commands()
-            data = await read_commands(self._storage, {})
-            phrase_overrides = data.get('phrase_overrides', {})
             
             for command_data in default_commands:
-                effective_phrase = phrase_overrides.get(command_data.command_key, command_data.command_key)
+                effective_phrase = commands_data.phrase_overrides.get(command_data.command_key, command_data.command_key)
                 
                 if effective_phrase != command_data.command_key:
                     command_data = AutomationCommand(
@@ -148,9 +182,10 @@ class CommandManagementService:
             
             command.is_custom = True
             
-            commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
-            commands[command_phrase] = command
-            success = await UnifiedStorageServiceExtensions.save_custom_commands(self._storage, commands)
+            commands_data = await self._storage.read(model_type=CommandsData)
+            commands_data.custom_commands[command_phrase] = command
+            
+            success = await self._storage.write(data=commands_data)
             
             if success:
                 await self._publish_mappings_updated(True, f"Added custom command: {command_phrase}")
@@ -174,25 +209,23 @@ class CommandManagementService:
                 await self._publish_validation_error(validation_error, new_phrase)
                 return
             
-            custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
-            is_custom_command = old_phrase.lower().strip() in custom_commands
+            commands_data = await self._storage.read(model_type=CommandsData)
+            is_custom_command = old_phrase.lower().strip() in commands_data.custom_commands
             
             success = False
             if is_custom_command:
-                command_data = custom_commands[old_phrase]
-                command_data.command_key = new_phrase
-                del custom_commands[old_phrase]
-                custom_commands[new_phrase] = command_data
-                success = await UnifiedStorageServiceExtensions.save_custom_commands(self._storage, custom_commands)
+                command_obj = commands_data.custom_commands[old_phrase]
+                command_obj.command_key = new_phrase
+                del commands_data.custom_commands[old_phrase]
+                commands_data.custom_commands[new_phrase] = command_obj
+                success = await self._storage.write(data=commands_data)
             else:
                 default_commands = AutomationCommandRegistry.get_default_commands()
                 default_phrases = {cmd.command_key for cmd in default_commands}
                 
-                data = await read_commands(self._storage, {})
-                phrase_overrides = data.get('phrase_overrides', {})
                 original_phrase = None
                 
-                for orig_phrase, override_phrase in phrase_overrides.items():
+                for orig_phrase, override_phrase in commands_data.phrase_overrides.items():
                     if override_phrase == old_phrase:
                         original_phrase = orig_phrase
                         break
@@ -201,9 +234,8 @@ class CommandManagementService:
                     original_phrase = old_phrase
                 
                 if original_phrase:
-                    phrase_overrides[original_phrase] = new_phrase
-                    data['phrase_overrides'] = phrase_overrides
-                    success = await write_commands(self._storage, data)
+                    commands_data.phrase_overrides[original_phrase] = new_phrase
+                    success = await self._storage.write(data=commands_data)
                 else:
                     logger.error(f"Could not find original command for phrase '{old_phrase}'")
                     await self._publish_validation_error(f"Could not find command '{old_phrase}' to update", old_phrase)
@@ -222,10 +254,10 @@ class CommandManagementService:
     async def _handle_delete_custom_command(self, event: DeleteCustomCommandEvent) -> None:
         """Handle delete custom command request."""
         command_phrase = event.command.command_key.lower().strip()
-        custom_commands = await UnifiedStorageServiceExtensions.get_custom_commands(self._storage)
-        if command_phrase in custom_commands:
-            del custom_commands[command_phrase]
-            success = await UnifiedStorageServiceExtensions.save_custom_commands(self._storage, custom_commands)
+        commands_data = await self._storage.read(model_type=CommandsData)
+        if command_phrase in commands_data.custom_commands:
+            del commands_data.custom_commands[command_phrase]
+            success = await self._storage.write(data=commands_data)
         else:
             success = True
 
@@ -243,7 +275,8 @@ class CommandManagementService:
 
     async def _handle_reset_to_defaults(self, event: ResetCommandsToDefaultsEvent) -> None:
         """Handle reset to defaults request."""
-        success = await write_commands(self._storage, {})
+        commands_data = CommandsData()
+        success = await self._storage.write(data=commands_data)
         
         if success:
             await self._publish_mappings_updated(True, "Reset commands to defaults")

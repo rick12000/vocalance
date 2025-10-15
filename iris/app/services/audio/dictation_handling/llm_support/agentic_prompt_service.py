@@ -7,29 +7,20 @@ import asyncio
 import logging
 import uuid
 from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict
 from datetime import datetime
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.events.dictation_events import AgenticPromptActionRequest, AgenticPromptUpdatedEvent, AgenticPromptListUpdatedEvent
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, UnifiedStorageServiceExtensions
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import AgenticPrompt, AgenticPromptsData
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class AgenticPrompt:
-    """Data class for agentic prompts"""
-    id: str
-    text: str
-    name: str
-    created_at: str
-    is_default: bool = False
 
 class AgenticPromptService:
     """Streamlined prompt management service using unified storage"""
     
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: UnifiedStorageService):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
         self.event_bus = event_bus
         self.config = config
         self._storage = storage
@@ -165,23 +156,22 @@ class AgenticPromptService:
         return list(self.prompts.values())
     
     async def _load_prompts(self) -> None:
-        """Load prompts from unified storage"""
-        data = await UnifiedStorageServiceExtensions.get_agentic_prompts(self._storage)
+        """Load prompts from storage"""
+        prompts_data = await self._storage.read(model_type=AgenticPromptsData)
         
-        for prompt_data in data.get('prompts', []):
-            prompt = AgenticPrompt(**prompt_data)
+        for prompt in prompts_data.prompts:
             self.prompts[prompt.id] = prompt
         
-        self.current_prompt_id = data.get('current_prompt_id')
+        self.current_prompt_id = prompts_data.current_prompt_id
         logger.info(f"Loaded {len(self.prompts)} prompts")
     
     async def _save_prompts(self) -> None:
-        """Save prompts to unified storage"""
-        data = {
-            'prompts': [asdict(prompt) for prompt in self.prompts.values()],
-            'current_prompt_id': self.current_prompt_id
-        }
-        await UnifiedStorageServiceExtensions.save_agentic_prompts(self._storage, data)
+        """Save prompts to storage"""
+        prompts_data = AgenticPromptsData(
+            prompts=list(self.prompts.values()),
+            current_prompt_id=self.current_prompt_id
+        )
+        await self._storage.write(data=prompts_data)
     
     async def _publish_state(self) -> None:
         """Publish both current prompt and list events"""
@@ -192,7 +182,7 @@ class AgenticPromptService:
                 prompt_id=current.id
             ))
         
-        prompts_data = [asdict(prompt) for prompt in self.prompts.values()]
+        prompts_data = [prompt.model_dump() for prompt in self.prompts.values()]
         await self.event_bus.publish(AgenticPromptListUpdatedEvent(prompts=prompts_data))
     
     async def shutdown(self) -> None:

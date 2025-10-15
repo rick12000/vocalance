@@ -29,7 +29,8 @@ from iris.app.config.command_types import (
     MarkVisualizeCommand, MarkResetCommand, MarkVisualizeCancelCommand,
     BaseCommand
 )
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, UnifiedStorageServiceExtensions
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import MarksData, Coordinate
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class MarkService:
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, 
-                 storage: UnifiedStorageService, reserved_labels: Optional[Set[str]] = None):
+                 storage: StorageService, reserved_labels: Optional[Set[str]] = None):
         self._event_bus = event_bus
         self._config = config
         self._storage = storage
@@ -55,7 +56,7 @@ class MarkService:
         # Reserved labels for validation
         self._reserved_labels = set(label.lower() for label in reserved_labels) if reserved_labels else set()
         
-        logger.info(f"MarkServiceV2 initialized with unified storage. Reserved labels: {self._reserved_labels}")
+        logger.info(f"MarkService initialized with new storage service. Reserved labels: {self._reserved_labels}")
 
     def setup_subscriptions(self) -> None:        
         """Set up event subscriptions for mark operations."""
@@ -97,8 +98,8 @@ class MarkService:
 
     async def _mark_exists(self, label: str) -> bool:
         """Check if a mark with the given label exists using cached lookup."""
-        mark_names = await UnifiedStorageServiceExtensions.get_all_mark_names(self._storage)
-        return label.lower().strip() in mark_names
+        marks_data = await self._storage.read(model_type=MarksData)
+        return label.lower().strip() in marks_data.marks
 
     async def _execute_mark_command(self, command: BaseCommand) -> None:
         """Execute mark commands with unified storage backend."""
@@ -222,9 +223,9 @@ class MarkService:
             return False, reason
         
         # Load current marks, add new one, save
-        marks = await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
-        marks[normalized_label] = (x, y)
-        success = await UnifiedStorageServiceExtensions.write_marks_dict(self._storage, marks)
+        marks_data = await self._storage.read(model_type=MarksData)
+        marks_data.marks[normalized_label] = Coordinate(x=x, y=y)
+        success = await self._storage.write(data=marks_data)
         
         if success:
             logger.info(f"Added mark '{normalized_label}' at ({x}, {y})")
@@ -235,16 +236,24 @@ class MarkService:
 
     async def _get_mark_coordinates(self, label: str) -> Optional[Tuple[int, int]]:
         """Get coordinates for a mark using cached unified storage."""
-        marks = await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
-        return marks.get(label.lower().strip())
+        marks_data = await self._storage.read(model_type=MarksData)
+        mark_coord = marks_data.marks.get(label.lower().strip())
+        if mark_coord:
+            return (mark_coord.x, mark_coord.y)
+        return None
 
     async def _get_all_marks(self) -> Dict[str, Tuple[int, int]]:
         """Get all marks using unified storage."""
-        return await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
+        marks_data = await self._storage.read(model_type=MarksData)
+        return {
+            name: (coord.x, coord.y) 
+            for name, coord in marks_data.marks.items()
+        }
 
     async def _get_all_mark_names(self) -> Set[str]:
         """Get all mark names using unified storage."""
-        return await UnifiedStorageServiceExtensions.get_all_mark_names(self._storage)
+        marks_data = await self._storage.read(model_type=MarksData)
+        return set(marks_data.marks.keys())
 
     def _get_reserved_labels(self) -> Set[str]:
         """Get the set of reserved labels."""
@@ -253,10 +262,10 @@ class MarkService:
     async def _remove_mark(self, label: str) -> bool:
         """Remove a mark using unified storage."""
         normalized_label = label.lower().strip()
-        marks = await UnifiedStorageServiceExtensions.read_marks_dict(self._storage)
-        if normalized_label in marks:
-            del marks[normalized_label]
-            success = await UnifiedStorageServiceExtensions.write_marks_dict(self._storage, marks)
+        marks_data = await self._storage.read(model_type=MarksData)
+        if normalized_label in marks_data.marks:
+            del marks_data.marks[normalized_label]
+            success = await self._storage.write(data=marks_data)
             if success:
                 logger.info(f"Removed mark '{normalized_label}'")
             return success
@@ -269,7 +278,8 @@ class MarkService:
         all_marks = await self._get_all_marks()
         num_cleared = len(all_marks)
         
-        success = await UnifiedStorageServiceExtensions.write_marks_dict(self._storage, {})
+        marks_data = MarksData(marks={})
+        success = await self._storage.write(data=marks_data)
         if success:
             logger.info(f"All {num_cleared} marks have been reset.")
         else:

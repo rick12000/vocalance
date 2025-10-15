@@ -26,7 +26,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import joblib
 import logging
 
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_sound_mappings, write_sound_mappings
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import SoundMappingsData
 from iris.app.config.app_config import GlobalAppConfig
 
 # TensorFlow import - can be mocked for testing
@@ -116,7 +117,7 @@ class AudioPreprocessor:
 class StreamlinedSoundRecognizer:
     """Streamlined sound recognizer focused on core functionality."""
     
-    def __init__(self, config: GlobalAppConfig, storage: UnifiedStorageService):
+    def __init__(self, config: GlobalAppConfig, storage: StorageService):
         self.asset_path_config = config.asset_paths  # Store full config to access asset_paths
         self.config = config.sound_recognizer
         self._storage = storage
@@ -200,8 +201,12 @@ class StreamlinedSoundRecognizer:
             # Load mappings from storage
             try:
                 # Use a thread pool to run the async operation
+                async def load_mappings():
+                    mappings_data = await self._storage.read(model_type=SoundMappingsData)
+                    return mappings_data.mappings
+                
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, read_sound_mappings(storage=self._storage, default={}))
+                    future = executor.submit(asyncio.run, load_mappings())
                     mappings = future.result(timeout=10)  # 10-second timeout
                 
                 self.mappings = mappings
@@ -229,8 +234,12 @@ class StreamlinedSoundRecognizer:
             # Save mappings through storage
             try:
                 # Use a thread pool to run the async operation
+                async def save_mappings():
+                    mappings_data = SoundMappingsData(mappings=self.mappings)
+                    return await self._storage.write(data=mappings_data)
+                
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, write_sound_mappings(storage=self._storage, value=self.mappings))
+                    future = executor.submit(asyncio.run, save_mappings())
                     success = future.result(timeout=10)  # 10-second timeout
                 
                 if success:
@@ -573,8 +582,13 @@ class StreamlinedSoundRecognizer:
             # Clear mappings through storage
             try:
                 # Use a thread pool to run the async operation
+                async def clear_mappings():
+                    from iris.app.services.storage.storage_models import SoundMappingsData
+                    empty_mappings = SoundMappingsData(mappings={})
+                    return await self._storage.write(data=empty_mappings)
+                
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, write_sound_mappings(self._storage, {}))
+                    future = executor.submit(asyncio.run, clear_mappings())
                     success = future.result(timeout=10)  # 10-second timeout
                 
                 if success:

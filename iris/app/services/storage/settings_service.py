@@ -15,7 +15,8 @@ from typing import Dict, Any, Optional
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.event_bus import EventBus
 from iris.app.events.core_events import SettingsResponseEvent
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_settings, write_settings
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import SettingsData
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class SettingsService:
         'audio.device'
     }
     
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: UnifiedStorageService):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
         self._event_bus = event_bus
         self._config = config
         self._storage = storage
@@ -72,7 +73,8 @@ class SettingsService:
     async def _load_user_overrides(self) -> None:
         """Load user setting overrides from storage"""
         try:
-            self._user_overrides = await read_settings(self._storage, "user_settings", {})
+            settings_data = await self._storage.read(model_type=SettingsData)
+            self._user_overrides = settings_data.user_overrides
             logger.debug(f"Loaded {len(self._user_overrides)} user setting categories")
         except Exception as e:
             logger.error(f"Failed to load user overrides: {e}")
@@ -167,7 +169,8 @@ class SettingsService:
                 self._user_overrides[category][key] = value
             
             # Save to storage
-            success = await write_settings(self._storage, "user_settings", self._user_overrides)
+            settings_data = SettingsData(user_overrides=self._user_overrides)
+            success = await self._storage.write(data=settings_data)
             
             if success:
                 # Rebuild effective settings
@@ -200,7 +203,8 @@ class SettingsService:
                     del self._user_overrides[category]
             
             # Save to storage
-            success = await write_settings(self._storage, "user_settings", self._user_overrides)
+            settings_data = SettingsData(user_overrides=self._user_overrides)
+            success = await self._storage.write(data=settings_data)
             
             if success:
                 # Rebuild effective settings

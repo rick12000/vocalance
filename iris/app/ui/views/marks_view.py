@@ -6,8 +6,8 @@ from iris.app.ui.controls.marks_control import MarksController
 from iris.app.ui.views.components.base_view import BaseView
 from iris.app.ui.views.components.view_config import view_config
 from iris.app.ui.views.components.themed_components import (
-    TwoColumnTabLayout, ThemedScrollableFrame, InstructionTile, 
-    TransparentFrame, BorderlessListItemFrame, PrimaryButton, DangerButton
+    TwoColumnTabLayout, ThemedScrollableFrame, InstructionTile,
+    TransparentFrame, BorderlessFrame, BorderlessListItemFrame, PrimaryButton, DangerButton, ThemedLabel
 )
 from iris.app.events.mark_events import MarkData
 
@@ -100,7 +100,7 @@ class MarksView(BaseView):
     def display_marks(self, marks: List[MarkData]) -> None:
         """Display marks in the scrollable list"""
         self.logger.debug(f"MarksView: Received {len(marks)} marks to display.")
-        
+
         # Clear existing marks safely
         if not self.safe_widget_operation(lambda: self.marks_scroll_frame.winfo_exists()):
             self.logger.warning("MarksView: marks_scroll_frame is not available for clearing.")
@@ -115,34 +115,51 @@ class MarksView(BaseView):
 
         # Configure scroll frame grid
         self.marks_scroll_frame.grid_columnconfigure(0, weight=1)
-        
-        # Add each mark
-        for row_idx, mark in enumerate(marks):
-            try:
-                if not self.safe_widget_operation(lambda: self.marks_scroll_frame.winfo_exists()):
-                    break
-                
-                # Create mark info text
-                mark_info = mark.name
-                if mark.description:
-                    mark_info += f" - {mark.description}"
-                
-                # Create list item frame
-                mark_frame = BorderlessListItemFrame(
-                    self.marks_scroll_frame,
-                    item_text=mark_info,
-                    button_text=view_config.theme.button_text.delete,
-                    button_command=lambda m=mark.name: self._delete_mark(m),
-                    button_variant="danger"
-                )
-                mark_frame.grid(
-                    row=row_idx, column=0, sticky="ew", 
-                    padx=view_config.theme.spacing.tiny, 
-                    pady=(view_config.theme.list_layout.item_vertical_spacing,0)
-                )
-                
-            except Exception as e:
-                self.logger.error(f"Error creating mark frame for {mark.name}: {e}")
+
+        if not marks:
+            # Show empty state message
+            empty_frame = BorderlessFrame(self.marks_scroll_frame)
+            empty_frame.grid(row=0, column=0, sticky="ew",
+                           padx=view_config.theme.spacing.tiny,
+                           pady=view_config.theme.list_layout.item_vertical_spacing)
+
+            empty_frame.grid_columnconfigure(0, weight=1)
+
+            ThemedLabel(
+                empty_frame,
+                text="No available marks.\nFollow the instructions on the left panel to create a mark.",
+                anchor="center",
+                color=view_config.theme.text_colors.medium,
+                size=view_config.theme.font_sizes.medium
+            ).grid(row=0, column=0, sticky="ew", padx=view_config.theme.spacing.medium, pady=view_config.theme.spacing.large)
+        else:
+            # Add each mark
+            for row_idx, mark in enumerate(marks):
+                try:
+                    if not self.safe_widget_operation(lambda: self.marks_scroll_frame.winfo_exists()):
+                        break
+
+                    # Create mark info text
+                    mark_info = mark.name
+                    if mark.description:
+                        mark_info += f" - {mark.description}"
+
+                    # Create list item frame
+                    mark_frame = BorderlessListItemFrame(
+                        self.marks_scroll_frame,
+                        item_text=mark_info,
+                        button_text=view_config.theme.button_text.delete,
+                        button_command=lambda m=mark.name: self._delete_mark(m),
+                        button_variant="danger"
+                    )
+                    mark_frame.grid(
+                        row=row_idx, column=0, sticky="ew",
+                        padx=view_config.theme.spacing.tiny,
+                        pady=(view_config.theme.list_layout.item_vertical_spacing,0)
+                    )
+
+                except Exception as e:
+                    self.logger.error(f"Error creating mark frame for {mark.name}: {e}")
 
     def _delete_mark(self, mark_name: str) -> None:
         """Delete a specific mark"""

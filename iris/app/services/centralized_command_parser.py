@@ -24,7 +24,8 @@ import inspect
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.automation_command_registry import AutomationCommandRegistry
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, UnifiedStorageServiceExtensions
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import CommandsData
 from iris.app.config.command_types import (
     # Base classes
     BaseCommand, ParseResultType, NoMatchResult, ErrorResult,
@@ -78,7 +79,7 @@ class CentralizedCommandParser:
     5. Publishes specific command events for services to consume
     """
     
-    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage: UnifiedStorageService):
+    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage: StorageService):
         self._event_bus = event_bus
         self._app_config = app_config
         self._storage = storage
@@ -114,6 +115,41 @@ class CentralizedCommandParser:
         self._dictation_stop_trigger = self._app_config.dictation.stop_trigger.lower()
         self._dictation_type_trigger = self._app_config.dictation.type_trigger.lower()
         self._dictation_smart_trigger = self._app_config.dictation.smart_start_trigger.lower()
+
+    async def _get_action_map(self) -> Dict[str, any]:
+        """Get action map for command lookup."""
+        from iris.app.config.command_types import AutomationCommand
+        action_map = {}
+        
+        # Load custom commands (already AutomationCommand objects)
+        commands_data = await self._storage.read(model_type=CommandsData)
+        for normalized_phrase, command_obj in commands_data.custom_commands.items():
+            action_map[normalized_phrase] = command_obj
+        
+        # Load default commands
+        default_commands = AutomationCommandRegistry.get_default_commands()
+        
+        for command_data in default_commands:
+            normalized_phrase = command_data.command_key.lower().strip()
+            
+            if normalized_phrase not in action_map:
+                # Apply any phrase overrides
+                effective_phrase = commands_data.phrase_overrides.get(command_data.command_key, command_data.command_key)
+                
+                if effective_phrase != command_data.command_key:
+                    command_data = AutomationCommand(
+                        command_key=effective_phrase,
+                        action_type=command_data.action_type,
+                        action_value=command_data.action_value,
+                        short_description=command_data.short_description,
+                        long_description=command_data.long_description,
+                        is_custom=command_data.is_custom
+                    )
+                    normalized_phrase = effective_phrase.lower().strip()
+                
+                action_map[normalized_phrase] = command_data
+        
+        return action_map
 
     def setup_subscriptions(self) -> None:
         """Set up event subscriptions"""
@@ -334,7 +370,7 @@ class CentralizedCommandParser:
             return GridCancelCommand()
         
         # Grid select command (numbers)
-        action_map = await UnifiedStorageServiceExtensions.get_action_map(self._storage)
+        action_map = await self._get_action_map()
         
         # Check if first word or any prefix is a known automation command
         is_automation_prefix = False
@@ -360,7 +396,7 @@ class CentralizedCommandParser:
             return NoMatchResult()
         
         # Get action map from storage
-        action_map = await UnifiedStorageServiceExtensions.get_action_map(self._storage)
+        action_map = await self._get_action_map()
         
         # 1. Try exact match first
         if normalized_text in action_map:

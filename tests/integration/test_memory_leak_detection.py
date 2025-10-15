@@ -62,8 +62,7 @@ async def test_process_exit_releases_memory(app_config):
 @pytest.mark.slow
 async def test_repeated_initialization_memory(app_config):
     """Test that repeated initialization cycles don't accumulate memory."""
-    from iris.app.services.storage.unified_storage_service import UnifiedStorageService
-    from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+    from iris.app.services.storage.storage_service import StorageService
     from iris.app.services.grid.grid_service import GridService
     from iris.app.services.automation_service import AutomationService
     from iris.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
@@ -96,14 +95,13 @@ async def test_repeated_initialization_memory(app_config):
         services = {
             'grid': GridService(event_bus, app_config),
             'automation': AutomationService(event_bus, app_config),
-            'unified_storage': UnifiedStorageService(event_bus, app_config),
+            'unified_storage': StorageService(config=app_config),
             'gui_thread': gui_thread
         }
         services['grid'].setup_subscriptions()
         services['automation'].setup_subscriptions()
-        services['storage_adapters'] = StorageAdapterFactory(services['unified_storage'])
         
-        services['sound_service'] = StreamlinedSoundService(event_bus, app_config, services['storage_adapters'])
+        services['sound_service'] = StreamlinedSoundService(event_bus, app_config, services['unified_storage'])
         await services['sound_service'].initialize()
         
         services['stt'] = SpeechToTextService(event_bus, app_config)

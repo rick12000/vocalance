@@ -22,8 +22,7 @@ from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.stt_config import STTConfig
 from iris.app.config.dictation_config import DictationConfig
 from iris.app.event_bus import EventBus
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService
-from iris.app.services.storage.storage_adapters import StorageAdapterFactory
+from iris.app.services.storage.storage_service import StorageService
 from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
 from iris.app.services.audio.whisper_stt import WhisperSpeechToText
 from iris.app.services.audio.stt_service import SpeechToTextService

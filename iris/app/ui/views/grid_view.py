@@ -12,7 +12,8 @@ from iris.app.events.core_events import PerformMouseClickEventData
 from iris.app.event_bus import EventBus
 from iris.app.utils.event_utils import ThreadSafeEventPublisher, EventSubscriptionManager
 from iris.app.ui.views.components.view_config import view_config
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_grid_clicks
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import GridClicksData
 
 
 class GridView:
@@ -21,7 +22,7 @@ class GridView:
     # Constants
     DEFAULT_NUM_RECTS = 500
 
-    def __init__(self, root: tk.Tk, event_bus: EventBus, default_num_rects: Optional[int] = None, event_loop: Optional[asyncio.AbstractEventLoop] = None, storage: Optional[UnifiedStorageService] = None):
+    def __init__(self, root: tk.Tk, event_bus: EventBus, default_num_rects: Optional[int] = None, event_loop: Optional[asyncio.AbstractEventLoop] = None, storage: Optional[StorageService] = None):
         # Initialize logging and core attributes
         self.logger = logging.getLogger(self.__class__.__name__)
         self.root = root
@@ -70,13 +71,14 @@ class GridView:
         
         try:
             self.logger.info("[GridView] Loading historical click data from storage...")
-            historical_clicks = await read_grid_clicks(storage=self._storage, default=[])
+            clicks_data = await self._storage.read(model_type=GridClicksData)
             
-            if historical_clicks:
-                self._cached_clicks = historical_clicks
+            if clicks_data.clicks:
+                # Convert GridClickEvent objects to dictionaries for compatibility
+                self._cached_clicks = [click.model_dump() for click in clicks_data.clicks]
                 self._click_cache_timestamp = time.time()
                 self._cache_loaded = True
-                self.logger.info(f"[GridView] Loaded {len(historical_clicks)} historical clicks into cache")
+                self.logger.info(f"[GridView] Loaded {len(clicks_data.clicks)} historical clicks into cache")
             else:
                 self.logger.info("[GridView] No historical click data found, starting fresh")
                 self._cache_loaded = True

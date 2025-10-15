@@ -19,7 +19,8 @@ from iris.app.config.app_config import GlobalAppConfig
 from iris.app.events.core_events import PerformMouseClickEventData, ClickLoggedEventData
 from iris.app.events.grid_events import RequestClickCountsForGridEventData, ClickCountsForGridEventData
 from iris.app.utils.event_utils import ThreadSafeEventPublisher, EventSubscriptionManager
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_grid_clicks, write_grid_clicks
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import GridClicksData, GridClickEvent
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> Lis
 class ClickTrackerService:
     """Click tracker service for grid optimization using cached click history."""
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: UnifiedStorageService):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
         self._event_bus = event_bus
         self._config = config
         self._storage = storage
@@ -68,23 +69,24 @@ class ClickTrackerService:
 
     async def _handle_mouse_click(self, event_data: PerformMouseClickEventData) -> None:
         """Handle mouse click logging."""
-        click_data = {
-            "x": event_data.x,
-            "y": event_data.y,
-            "timestamp": time.time(),
-            "source": event_data.source
-        }
+        timestamp = time.time()
         
         # Load current clicks, append new one, save
-        clicks = await read_grid_clicks(storage=self._storage, default=[])
-        clicks.append(click_data)
-        success = await write_grid_clicks(storage=self._storage, value=clicks)
+        clicks_data = await self._storage.read(model_type=GridClicksData)
+        new_click = GridClickEvent(
+            x=event_data.x,
+            y=event_data.y,
+            timestamp=timestamp,
+            cell_id=None
+        )
+        clicks_data.clicks.append(new_click)
+        success = await self._storage.write(data=clicks_data)
         
         if success:
             click_logged_event = ClickLoggedEventData(
                 x=event_data.x, 
                 y=event_data.y, 
-                timestamp=click_data["timestamp"]
+                timestamp=timestamp
             )
             self.event_publisher.publish(click_logged_event)
             logger.debug(f"Click logged: ({event_data.x}, {event_data.y})")
@@ -92,7 +94,9 @@ class ClickTrackerService:
     async def _handle_click_counts_request(self, event_data: RequestClickCountsForGridEventData) -> None:
         """Handle request for click counts in grid rectangles."""
         try:
-            all_clicks = await read_grid_clicks(storage=self._storage, default=[])
+            clicks_data = await self._storage.read(model_type=GridClicksData)
+            # Convert GridClickEvent objects to dictionaries for compatibility with existing logic
+            all_clicks = [click.model_dump() for click in clicks_data.clicks]
             processed_rects = self._calculate_click_counts(all_clicks, event_data.rect_definitions)
             
             response_event = ClickCountsForGridEventData(
@@ -141,7 +145,8 @@ class ClickTrackerService:
     async def get_click_statistics(self) -> Dict[str, Any]:
         """Get click statistics for monitoring."""
         try:
-            all_clicks = await read_grid_clicks(storage=self._storage, default=[])
+            clicks_data = await self._storage.read(model_type=GridClicksData)
+            all_clicks = [click.model_dump() for click in clicks_data.clicks]
             
             if not all_clicks:
                 return {"total_clicks": 0}

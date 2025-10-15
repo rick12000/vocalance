@@ -14,7 +14,8 @@ from datetime import datetime, timedelta
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.services.storage.unified_storage_service import UnifiedStorageService, read_command_history, write_command_history
+from iris.app.services.storage.storage_service import StorageService
+from iris.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
 from iris.app.events.core_events import CommandAudioSegmentReadyEvent, AudioDetectedEvent
 from iris.app.events.core_events import MarkovPredictionEvent, CommandTextRecognizedEvent
 from iris.app.events.command_events import (
@@ -34,7 +35,7 @@ class MarkovCommandService:
         self,
         event_bus: EventBus,
         config: GlobalAppConfig,
-        storage: UnifiedStorageService
+        storage: StorageService
     ):
         self._event_bus = event_bus
         self._config = config
@@ -115,7 +116,7 @@ class MarkovCommandService:
                 return
             
             # Extract command texts
-            commands = [cmd["command"] for cmd in history]
+            commands = [cmd.command for cmd in history]
             
             # Build transitions for this order
             transitions_built = 0
@@ -134,9 +135,10 @@ class MarkovCommandService:
         except Exception as e:
             logger.error(f"Error training order-{order} model: {e}", exc_info=True)
     
-    async def _load_filtered_history(self, order: int) -> List[Dict]:
+    async def _load_filtered_history(self, order: int) -> List[CommandHistoryEntry]:
         """Load and filter command history based on config for specific order"""
-        all_history = await read_command_history(self._storage, [])
+        history_data = await self._storage.read(model_type=CommandHistoryData)
+        all_history = history_data.history
         
         if not all_history:
             return []
@@ -148,7 +150,7 @@ class MarkovCommandService:
         cutoff_timestamp = time.time() - (days_window * 86400)
         filtered = [
             cmd for cmd in all_history
-            if cmd.get("timestamp", 0) >= cutoff_timestamp
+            if cmd.timestamp >= cutoff_timestamp
         ]
         
         if len(filtered) > commands_window:
@@ -243,10 +245,9 @@ class MarkovCommandService:
                     
                     # Add actual command to history
                     timestamp = time.time()
-                    self._pending_commands.append({
-                        "command": actual_command,
-                        "timestamp": timestamp
-                    })
+                    self._pending_commands.append(
+                        CommandHistoryEntry(command=actual_command, timestamp=timestamp)
+                    )
                     
                     self._command_history.append(actual_command)
             
@@ -313,10 +314,9 @@ class MarkovCommandService:
                 timestamp = time.time()
                 
                 # Add to pending queue
-                self._pending_commands.append({
-                    "command": command_text,
-                    "timestamp": timestamp
-                })
+                self._pending_commands.append(
+                    CommandHistoryEntry(command=command_text, timestamp=timestamp)
+                )
                 
                 # Update command history buffer
                 self._command_history.append(command_text)
@@ -338,13 +338,13 @@ class MarkovCommandService:
                     self._pending_commands.clear()
                     
                     # Load current history
-                    history = await read_command_history(self._storage, [])
+                    history_data = await self._storage.read(model_type=CommandHistoryData)
                     
                     # Append new commands
-                    history.extend(commands_to_write)
+                    history_data.history.extend(commands_to_write)
                     
                     # Write in one batch
-                    await write_command_history(self._storage, history)
+                    await self._storage.write(data=history_data)
                     
                     logger.debug(f"Batch wrote {len(commands_to_write)} commands to storage")
             
@@ -353,9 +353,9 @@ class MarkovCommandService:
                 if self._pending_commands:
                     try:
                         commands_to_write = list(self._pending_commands)
-                        history = await read_command_history(self._storage, [])
-                        history.extend(commands_to_write)
-                        await write_command_history(self._storage, history)
+                        history_data = await self._storage.read(model_type=CommandHistoryData)
+                        history_data.history.extend(commands_to_write)
+                        await self._storage.write(data=history_data)
                         logger.info(f"Flushed {len(commands_to_write)} commands on shutdown")
                     except Exception as e:
                         logger.error(f"Error flushing commands: {e}")

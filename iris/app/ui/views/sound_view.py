@@ -157,9 +157,26 @@ class SoundView(BaseView):
             widget.destroy()
 
         self.sounds_scroll_frame.grid_columnconfigure(0, weight=1)
-        
-        for i, sound in enumerate(sounds):
-            self._create_sound_item(sound, i)
+
+        if not sounds:
+            # Show empty state message
+            empty_frame = BorderlessFrame(self.sounds_scroll_frame)
+            empty_frame.grid(row=0, column=0, sticky="ew",
+                           padx=view_config.theme.spacing.tiny,
+                           pady=view_config.theme.list_layout.item_vertical_spacing)
+
+            empty_frame.grid_columnconfigure(0, weight=1)
+
+            ThemedLabel(
+                empty_frame,
+                text="No available sounds.\nUse the left panel to record a sound.",
+                anchor="center",
+                color=view_config.theme.text_colors.medium,
+                size=view_config.theme.font_sizes.medium
+            ).grid(row=0, column=0, sticky="ew", padx=view_config.theme.spacing.medium, pady=view_config.theme.spacing.large)
+        else:
+            for i, sound in enumerate(sounds):
+                self._create_sound_item(sound, i)
 
     def _create_sound_item(self, sound_name: str, row_index: int) -> None:
         """Create a sound item in the list"""
