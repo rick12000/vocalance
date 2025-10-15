@@ -332,6 +332,20 @@ class StreamlinedSoundService:
                 success=False
             ))
     
+    def on_confidence_threshold_updated(self, threshold: float) -> None:
+        """
+        Called by SettingsUpdateCoordinator when confidence threshold is updated.
+        Forwards the update to the recognizer.
+        """
+        self.recognizer.on_confidence_threshold_updated(threshold=threshold)
+    
+    def on_vote_threshold_updated(self, threshold: float) -> None:
+        """
+        Called by SettingsUpdateCoordinator when vote threshold is updated.
+        Forwards the update to the recognizer.
+        """
+        self.recognizer.on_vote_threshold_updated(threshold=threshold)
+    
     async def shutdown(self) -> None:
         """Shutdown sound service and cleanup resources"""
         try:

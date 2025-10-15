@@ -39,6 +39,7 @@ from iris.app.services.grid.click_tracker_service import ClickTrackerService
 from iris.app.services.mark_service import MarkService
 from iris.app.services.markov_command_predictor import MarkovCommandService
 from iris.app.services.storage.settings_service import SettingsService
+from iris.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
 from iris.app.services.command_management_service import CommandManagementService
 from iris.app.ui import ui_theme
 from iris.app.ui.utils.font_service import FontService
@@ -115,14 +116,25 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_sub_step("Loading user settings...")
                 await asyncio.sleep(0.05)
+            
+            # Initialize settings update coordinator
+            self.services['settings_coordinator'] = SettingsUpdateCoordinator(
+                event_bus=self.event_bus, config=self.config
+            )
+            self.services['settings_coordinator'].setup_subscriptions()
+            
+            # Initialize settings service
             self.services['settings'] = SettingsService(
-                event_bus=self.event_bus, config=self.config, storage=self.services['storage']
+                event_bus=self.event_bus, 
+                config=self.config, 
+                storage=self.services['storage'],
+                coordinator=self.services['settings_coordinator']
             )
             self.services['settings'].setup_subscriptions()
             await self.services['settings'].initialize()
             
-            # Apply user settings to config
-            self.config = await self.services['settings'].apply_settings_to_config(self.config)
+            # Apply user settings at startup (via coordinator for consistency)
+            await self.services['settings'].apply_startup_settings_to_config()
         
         async def init_commands():
             if progress_tracker:
@@ -244,6 +256,26 @@ class FastServiceInitializer:
         
         tasks.extend([init_audio(), init_sound(), init_stt(), init_command_parser(), init_dictation(), init_markov_predictor()])
         await asyncio.gather(*tasks)
+        
+        # Register services with coordinator for real-time updates (after initialization)
+        coordinator = self.services.get('settings_coordinator')
+        if coordinator:
+            if 'markov_predictor' in self.services:
+                coordinator.register_service(
+                    service_name='markov_predictor',
+                    service_instance=self.services['markov_predictor']
+                )
+            if 'sound_service' in self.services:
+                coordinator.register_service(
+                    service_name='sound_recognizer',
+                    service_instance=self.services['sound_service']
+                )
+            if 'grid' in self.services:
+                coordinator.register_service(
+                    service_name='grid',
+                    service_instance=self.services['grid']
+                )
+            logging.info("Services registered with settings coordinator for real-time updates")
     
     async def _background_llm_init(self):
         """Initialize LLM in background after startup"""

@@ -86,20 +86,29 @@ DictationCoordinator
 Storage and Configuration
 -------------------------
 
-.. currentmodule:: iris.app.services.storage.unified_storage_service
+.. currentmodule:: iris.app.services.storage.storage_service
 
-UnifiedStorageService
-~~~~~~~~~~~~~~~~~~~~~
-.. autoclass:: UnifiedStorageService
+StorageService
+~~~~~~~~~~~~~~
+.. autoclass:: StorageService
    :members:
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.app.services.storage.storage_adapters
+.. currentmodule:: iris.app.services.storage.settings_service
 
-StorageAdapterFactory
-~~~~~~~~~~~~~~~~~~~~~
-.. autoclass:: StorageAdapterFactory
+SettingsService
+~~~~~~~~~~~~~~~
+.. autoclass:: SettingsService
+   :members:
+   :exclude-members: __init__
+   :noindex:
+
+.. currentmodule:: iris.app.services.storage.settings_update_coordinator
+
+SettingsUpdateCoordinator
+~~~~~~~~~~~~~~~~~~~~~~~~~
+.. autoclass:: SettingsUpdateCoordinator
    :members:
    :exclude-members: __init__
    :noindex:
@@ -233,15 +242,23 @@ STT Modes
    :members:
    :noindex:
 
-Storage Types
--------------
+Storage Data Models
+--------------------
 
-.. currentmodule:: iris.app.services.storage.unified_storage_service
+.. currentmodule:: iris.app.services.storage.storage_models
 
-.. autoclass:: StorageType
+.. autoclass:: StorageData
    :members:
    :noindex:
 
-.. autoclass:: StorageKey
+.. autoclass:: SettingsData
+   :members:
+   :noindex:
+
+.. autoclass:: CommandsData
+   :members:
+   :noindex:
+
+.. autoclass:: MarksData
    :members:
    :noindex:

@@ -87,6 +87,12 @@ class SettingsResponseEvent(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
 
 
+class DynamicSettingsUpdatedEvent(BaseEvent):
+    """Event published when settings that can be updated at runtime are changed"""
+    updated_settings: Dict[str, Any] = Field(description="Dictionary of setting paths to new values")
+    priority: EventPriority = EventPriority.HIGH
+
+
 class CommandTextRecognizedEvent(TextRecognizedEvent):
     """
     Published when the STT service recognizes text in command mode.

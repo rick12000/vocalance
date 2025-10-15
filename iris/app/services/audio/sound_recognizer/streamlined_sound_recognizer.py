@@ -662,6 +662,24 @@ class StreamlinedSoundRecognizer:
             'model_ready': len(self.embeddings) > 0
         }
     
+    def on_confidence_threshold_updated(self, threshold: float) -> None:
+        """
+        Called by SettingsUpdateCoordinator when confidence threshold is updated.
+        Config is already updated - this updates the recognizer's instance variable.
+        """
+        old_threshold = self.confidence_threshold
+        self.confidence_threshold = threshold
+        logger.info(f"Sound recognizer confidence threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
+    
+    def on_vote_threshold_updated(self, threshold: float) -> None:
+        """
+        Called by SettingsUpdateCoordinator when vote threshold is updated.
+        Config is already updated - this updates the recognizer's instance variable.
+        """
+        old_threshold = self.vote_threshold
+        self.vote_threshold = threshold
+        logger.info(f"Sound recognizer vote threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
+    
     async def shutdown(self) -> None:
         """Shutdown sound recognizer and cleanup TensorFlow resources"""
         try:

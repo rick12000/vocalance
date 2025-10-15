@@ -386,6 +386,15 @@ class MarkovCommandService:
             logger.error(f"Error during retraining: {e}", exc_info=True)
             return False
     
+    def on_confidence_threshold_updated(self, threshold: float) -> None:
+        """
+        Called by SettingsUpdateCoordinator when confidence threshold is updated.
+        Config is already updated - this method is for any service-specific logic.
+        """
+        old_threshold = self._markov_config.confidence_threshold
+        self._markov_config.confidence_threshold = threshold
+        logger.info(f"Markov predictor confidence threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
+    
     async def shutdown(self) -> None:
         """Shutdown predictor and flush pending writes"""
         try:

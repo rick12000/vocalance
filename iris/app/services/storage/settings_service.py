@@ -14,21 +14,24 @@ from typing import Dict, Any, Optional
 
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.event_bus import EventBus
-from iris.app.events.core_events import SettingsResponseEvent
+from iris.app.events.core_events import SettingsResponseEvent, DynamicSettingsUpdatedEvent
 from iris.app.services.storage.storage_service import StorageService
 from iris.app.services.storage.storage_models import SettingsData
+from iris.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
 
 logger = logging.getLogger(__name__)
 
 
 class SettingsService:
     """
-    Simplified settings service for configuration overrides
+    Settings service for configuration overrides with real-time updates.
     
-    Features:
-    - Configuration defaults with user overrides
-    - Persistent storage through unified storage
-    - Simple API for getting/setting values
+    This service:
+    1. Loads/saves user overrides from storage
+    2. Builds effective settings (defaults + overrides)
+    3. Publishes updates to SettingsUpdateCoordinator for real-time propagation
+    
+    All settings updates flow through the coordinator to ensure consistency.
     """
     
     # Define which settings can be overridden by users
@@ -37,14 +40,25 @@ class SettingsService:
         'llm.max_tokens',
         'grid.default_rect_count',
         'sound_recognizer.confidence_threshold',
+        'sound_recognizer.vote_threshold',
         'vad.energy_threshold',
-        'audio.device'
+        'audio.device',
+        'markov_predictor.confidence_threshold'
     }
     
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
+    # Settings that update in real-time (default is restart required)
+    REAL_TIME_SETTINGS = {
+        'markov_predictor.confidence_threshold',
+        'sound_recognizer.confidence_threshold',
+        'sound_recognizer.vote_threshold',
+        'grid.default_rect_count'
+    }
+    
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService, coordinator: Optional[SettingsUpdateCoordinator] = None):
         self._event_bus = event_bus
         self._config = config
         self._storage = storage
+        self._coordinator = coordinator
         
         # Cache for performance
         self._user_overrides: Dict[str, Any] = {}
@@ -93,7 +107,8 @@ class SettingsService:
                     'default_rect_count': self._config.grid.default_rect_count
                 },
                 'sound_recognizer': {
-                    'confidence_threshold': self._config.sound_recognizer.confidence_threshold
+                    'confidence_threshold': self._config.sound_recognizer.confidence_threshold,
+                    'vote_threshold': self._config.sound_recognizer.vote_threshold
                 },
                 'vad': {
                     'energy_threshold': self._config.vad.energy_threshold
@@ -101,6 +116,9 @@ class SettingsService:
                 'audio': {
                     'device': self._config.audio.device,
                     'sample_rate': self._config.audio.sample_rate
+                },
+                'markov_predictor': {
+                    'confidence_threshold': self._config.markov_predictor.confidence_threshold
                 }
             }
             
@@ -177,7 +195,25 @@ class SettingsService:
                 await self._build_effective_settings()
                 await self._publish_settings_response()
                 
-                logger.info(f"Updated {len(settings_updates)} settings")
+                # Publish dynamic settings update event only for real-time settings
+                # The coordinator will handle propagating to services
+                real_time_updates = {
+                    k: v for k, v in settings_updates.items() 
+                    if k in self.REAL_TIME_SETTINGS
+                }
+                if real_time_updates:
+                    await self._publish_dynamic_settings_update(settings_updates=real_time_updates)
+                
+                # Log whether restart is required (default unless in REAL_TIME_SETTINGS)
+                all_real_time = all(
+                    setting in self.REAL_TIME_SETTINGS 
+                    for setting in settings_updates.keys()
+                )
+                if all_real_time:
+                    logger.info(f"Updated {len(settings_updates)} settings (applied in real-time)")
+                else:
+                    logger.info(f"Updated {len(settings_updates)} settings (restart required for changes to take effect)")
+                
                 return True
             
             return False
@@ -187,31 +223,35 @@ class SettingsService:
             return False
     
     async def reset_setting(self, setting_path: str) -> bool:
-        """Reset a setting to its default value"""
+        """Reset a setting to its default value (delegates to update_multiple_settings)"""
+        if setting_path not in self.OVERRIDEABLE_SETTINGS:
+            return False
+        
         try:
-            if setting_path not in self.OVERRIDEABLE_SETTINGS:
-                return False
-            
             category, key = setting_path.split('.', 1)
             
             # Remove from overrides
             if category in self._user_overrides and key in self._user_overrides[category]:
                 del self._user_overrides[category][key]
-                
-                # Clean up empty categories
                 if not self._user_overrides[category]:
                     del self._user_overrides[category]
             
-            # Save to storage
+            # Save and publish updates
             settings_data = SettingsData(user_overrides=self._user_overrides)
             success = await self._storage.write(data=settings_data)
             
             if success:
-                # Rebuild effective settings
                 await self._build_effective_settings()
                 await self._publish_settings_response()
                 
-                logger.info(f"Reset setting to default: {setting_path}")
+                # Get default value and publish update only for real-time settings
+                default_value = self._get_default_value(setting_path=setting_path)
+                if setting_path in self.REAL_TIME_SETTINGS:
+                    await self._publish_dynamic_settings_update(settings_updates={setting_path: default_value})
+                    logger.info(f"Reset setting to default (applied in real-time): {setting_path}")
+                else:
+                    logger.info(f"Reset setting to default (restart required): {setting_path}")
+                
                 return True
             
             return False
@@ -222,60 +262,39 @@ class SettingsService:
     
     def _validate_setting_value(self, setting_path: str, value: Any) -> bool:
         """Validate setting value based on setting type and constraints"""
+        validation_rules = {
+            'llm.context_length': lambda v: isinstance(v, int) and 128 <= v <= 32768,
+            'llm.max_tokens': lambda v: isinstance(v, int) and 1 <= v <= 4096,
+            'grid.default_rect_count': lambda v: isinstance(v, int) and v > 0,
+            'sound_recognizer.confidence_threshold': lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
+            'sound_recognizer.vote_threshold': lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
+            'markov_predictor.confidence_threshold': lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
+            'vad.energy_threshold': lambda v: isinstance(v, (int, float)) and v >= 0,
+            'audio.device': lambda v: v is None or isinstance(v, int)
+        }
+        
         try:
-            if setting_path == 'llm.context_length':
-                return isinstance(value, int) and 128 <= value <= 32768
-            elif setting_path == 'llm.max_tokens':
-                return isinstance(value, int) and 1 <= value <= 4096
-            elif setting_path == 'grid.default_rect_count':
-                return isinstance(value, int) and value > 0
-            elif setting_path == 'sound_recognizer.confidence_threshold':
-                return isinstance(value, (int, float)) and 0.0 <= value <= 1.0
-            elif setting_path == 'vad.energy_threshold':
-                return isinstance(value, (int, float)) and value >= 0
-            elif setting_path == 'audio.device':
-                return value is None or isinstance(value, int)
-            else:
-                return True  # Unknown setting, allow it
-                
+            validator = validation_rules.get(setting_path)
+            return validator(value) if validator else True
         except Exception as e:
             logger.error(f"Validation error for {setting_path}: {e}")
             return False
     
-    async def apply_settings_to_config(self, config: GlobalAppConfig) -> GlobalAppConfig:
-        """Apply effective settings to a config object"""
-        try:
-            settings = await self.get_effective_settings()
-            
-            # Apply LLM settings
-            if 'llm' in settings:
-                llm = settings['llm']
-                config.llm.context_length = llm.get('context_length', config.llm.context_length)
-                config.llm.max_tokens = llm.get('max_tokens', config.llm.max_tokens)
-            
-            # Apply grid settings
-            if 'grid' in settings:
-                config.grid.default_rect_count = settings['grid'].get('default_rect_count', config.grid.default_rect_count)
-            
-            # Apply sound recognizer settings
-            if 'sound_recognizer' in settings:
-                config.sound_recognizer.confidence_threshold = settings['sound_recognizer'].get('confidence_threshold', config.sound_recognizer.confidence_threshold)
-            
-            # Apply VAD settings
-            if 'vad' in settings:
-                vad = settings['vad']
-                config.vad.energy_threshold = vad.get('energy_threshold', config.vad.energy_threshold)
-            
-            # Apply audio settings
-            if 'audio' in settings:
-                config.audio.device = settings['audio'].get('device', config.audio.device)
-            
-            logger.info("Applied settings to configuration")
-            return config
-            
-        except Exception as e:
-            logger.error(f"Failed to apply settings to config: {e}")
-            return config
+    def _get_default_value(self, setting_path: str) -> Any:
+        """Get default value for a setting from config"""
+        category, key = setting_path.split('.', 1)
+        
+        category_map = {
+            'llm': self._config.llm,
+            'grid': self._config.grid,
+            'sound_recognizer': self._config.sound_recognizer,
+            'markov_predictor': self._config.markov_predictor,
+            'vad': self._config.vad,
+            'audio': self._config.audio
+        }
+        
+        config_obj = category_map.get(category)
+        return getattr(config_obj, key) if config_obj else None
     
     async def _publish_settings_response(self) -> None:
         """Publish current settings for UI and services"""
@@ -284,4 +303,36 @@ class SettingsService:
             event = SettingsResponseEvent(settings=settings)
             await self._event_bus.publish(event)
         except Exception as e:
-            logger.error(f"Failed to publish settings response: {e}") 
+            logger.error(f"Failed to publish settings response: {e}")
+    
+    async def _publish_dynamic_settings_update(self, settings_updates: Dict[str, Any]) -> None:
+        """
+        Publish dynamic settings update event.
+        The SettingsUpdateCoordinator subscribes to this and handles propagation.
+        """
+        try:
+            event = DynamicSettingsUpdatedEvent(updated_settings=settings_updates)
+            await self._event_bus.publish(event)
+            logger.debug(f"Published DynamicSettingsUpdatedEvent for: {list(settings_updates.keys())}")
+        except Exception as e:
+            logger.error(f"Failed to publish dynamic settings update: {e}")
+    
+    async def apply_startup_settings_to_config(self) -> None:
+        """
+        Apply user overrides to config at startup.
+        This publishes an update event that the coordinator handles.
+        """
+        try:
+            settings_to_apply = {}
+            
+            for category, overrides in self._user_overrides.items():
+                for key, value in overrides.items():
+                    setting_path = f"{category}.{key}"
+                    settings_to_apply[setting_path] = value
+            
+            if settings_to_apply:
+                await self._publish_dynamic_settings_update(settings_updates=settings_to_apply)
+                logger.info(f"Applied {len(settings_to_apply)} startup settings via coordinator")
+            
+        except Exception as e:
+            logger.error(f"Failed to apply startup settings: {e}") 
