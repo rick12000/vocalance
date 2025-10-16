@@ -1,49 +1,50 @@
-import logging
 from typing import List, Optional, Union
-import asyncio
+
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.ui.controls.base_control import BaseController
 from iris.app.events.mark_events import (
-    MarkData,
+    AllMarksClearedEventData,
+    MarkCreatedEventData,
     MarkCreateRequestEventData,
-    MarkDeleteByNameRequestEventData,
+    MarkData,
     MarkDeleteAllRequestEventData,
+    MarkDeleteByNameRequestEventData,
+    MarkDeletedEventData,
     MarkExecuteRequestEventData,
     MarkGetAllRequestEventData,
+    MarkOperationFailedEventData,
+    MarkOperationSuccessEventData,
+    MarksChangedEventData,
+    MarkVisualizationStateChangedEventData,
     MarkVisualizeAllRequestEventData,
     MarkVisualizeCancelRequestEventData,
-    MarksChangedEventData,
-    MarkOperationSuccessEventData,
-    MarkOperationFailedEventData,
-    MarkVisualizationStateChangedEventData,
-    MarkCreatedEventData,
-    MarkDeletedEventData,
-    AllMarksClearedEventData,
 )
+from iris.app.ui.controls.base_control import BaseController
 
 
 class MarksController(BaseController):
     """Controller for marks functionality - orchestrates between service and view."""
-    
+
     def __init__(self, event_bus, event_loop, logger, config: GlobalAppConfig):
         super().__init__(event_bus, event_loop, logger, "MarksController")
         self.config = config
-        
+
         # Mark view reference (will be set by main window)
         self.mark_view = None
-        
+
         # Mark visualization state tracking
         self._visualization_active = False
-        
-        self.subscribe_to_events([
-            (MarksChangedEventData, self._on_marks_changed),
-            (MarkOperationSuccessEventData, self._on_mark_operation_status),
-            (MarkOperationFailedEventData, self._on_mark_operation_status),
-            (MarkCreatedEventData, self._handle_mark_list_changed),
-            (MarkDeletedEventData, self._handle_mark_list_changed),
-            (AllMarksClearedEventData, self._handle_mark_list_changed),
-            (MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed),
-        ])
+
+        self.subscribe_to_events(
+            [
+                (MarksChangedEventData, self._on_marks_changed),
+                (MarkOperationSuccessEventData, self._on_mark_operation_status),
+                (MarkOperationFailedEventData, self._on_mark_operation_status),
+                (MarkCreatedEventData, self._handle_mark_list_changed),
+                (MarkDeletedEventData, self._handle_mark_list_changed),
+                (AllMarksClearedEventData, self._handle_mark_list_changed),
+                (MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed),
+            ]
+        )
 
     def set_mark_view(self, mark_view):
         """Set the mark view reference and establish callbacks."""
@@ -136,22 +137,19 @@ class MarksController(BaseController):
 
     async def _on_marks_changed(self, event):
         """Handle marks changed event."""
-        if hasattr(event, 'marks'):
+        if hasattr(event, "marks"):
             # Convert dictionary values to MarkData objects
             marks_list = []
             for mark_dict in event.marks.values():
                 mark_data = MarkData(
-                    name=mark_dict["name"],
-                    x=mark_dict["x"], 
-                    y=mark_dict["y"],
-                    description=mark_dict.get("description", "")
+                    name=mark_dict["name"], x=mark_dict["x"], y=mark_dict["y"], description=mark_dict.get("description", "")
                 )
                 marks_list.append(mark_data)
-            
+
             # Update both the main view callback and the mark overlay view
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_marks_updated, marks_list)
-            
+
             self.schedule_ui_update(self.update_mark_view_data, marks_list)
         else:
             if self.view_callback:
@@ -160,8 +158,8 @@ class MarksController(BaseController):
 
     async def _on_mark_operation_status(self, event):
         """Handle mark operation status events."""
-        message = getattr(event, 'message', 'Mark operation completed.')
-        is_error = not getattr(event, 'success', True)
+        message = getattr(event, "message", "Mark operation completed.")
+        is_error = not getattr(event, "success", True)
         self.notify_status(message, is_error)
 
     async def _handle_mark_list_changed(self, event) -> None:
@@ -181,4 +179,4 @@ class MarksController(BaseController):
         """Clean up resources when controller is destroyed."""
         if self.mark_view:
             self.mark_view.cleanup()
-        super().cleanup() 
+        super().cleanup()

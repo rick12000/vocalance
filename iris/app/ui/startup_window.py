@@ -2,19 +2,20 @@
 Production-Ready Startup Window with Thread-Safe Animation
 """
 
-import customtkinter as ctk
-import tkinter as tk
-from typing import Optional, Union
 import logging
+import queue
 import threading
 import time
-import queue
+import tkinter as tk
+from typing import Optional, Union
 
+import customtkinter as ctk
+
+from iris.app.config.app_config import AssetPathsConfig
 from iris.app.ui import ui_theme
-from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from iris.app.ui.utils.logo_service import LogoService
 from iris.app.ui.utils.ui_assets import AssetCache
-from iris.app.config.app_config import AssetPathsConfig
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 
 class StartupWindow:
@@ -76,14 +77,14 @@ class StartupWindow:
 
             # Build UI
             self._create_ui()
-            
+
             # Display window first
             self.window.update_idletasks()
             self.window.lift()
-            
+
             # Set icon after window is displayed with delayed calls to ensure persistence
             self._set_icon_with_retry()
-            
+
             self._start_queue_checker()
             self.logger.info("Startup window displayed")
 
@@ -117,10 +118,7 @@ class StartupWindow:
 
         # Logo
         self.logo_label = self.logo_service.create_logo_widget(
-            main_frame,
-            max_size=ui_theme.theme.dimensions.startup_logo_size,
-            context="startup",
-            text_fallback="IRIS"
+            main_frame, max_size=ui_theme.theme.dimensions.startup_logo_size, context="startup", text_fallback="IRIS"
         )
         self.logo_label.grid(row=0, column=0, pady=(10, 20), sticky="ew")
 
@@ -130,7 +128,7 @@ class StartupWindow:
             width=ui_theme.theme.dimensions.progress_bar_width,
             height=ui_theme.theme.dimensions.progress_bar_height,
             progress_color=ui_theme.theme.shape_colors.lightest,
-            fg_color=ui_theme.theme.shape_colors.light
+            fg_color=ui_theme.theme.shape_colors.light,
         )
         self.progress_bar.set(0)
         self.progress_bar.grid(row=1, column=0, pady=(0, 5), sticky="ew")
@@ -151,7 +149,7 @@ class StartupWindow:
             font=(font_family, ui_theme.theme.font_sizes.small),
             text_color=ui_theme.theme.text_colors.dark,
             justify="center",
-            anchor="center"
+            anchor="center",
         )
         self.text_label.grid(row=0, column=1, padx=(0, 10), sticky="e")
 
@@ -164,7 +162,7 @@ class StartupWindow:
             text_color=ui_theme.theme.text_colors.dark,
             justify="center",
             anchor="w",
-            width=15
+            width=15,
         )
         self.spinner_label.grid(row=0, column=2, sticky="w")
 
@@ -202,7 +200,7 @@ class StartupWindow:
     def update_progress(self, progress: float, status: str, animate: bool = False) -> None:
         """
         Thread-safe progress update.
-        
+
         From main thread: Execute immediately.
         From background thread: Queue for later execution.
         """
@@ -224,7 +222,7 @@ class StartupWindow:
 
                 if self.text_label and self.spinner_label and status:
                     if animate:
-                        self._start_animation_impl(status.rstrip('.'))
+                        self._start_animation_impl(status.rstrip("."))
                     else:
                         self._stop_animation_impl()
                         self.text_label.configure(text=status)
@@ -319,22 +317,22 @@ class StartupWindow:
         """Set icon with retries to ensure it persists and doesn't revert to CustomTkinter default."""
         if not self.window or self.is_closed:
             return
-        
+
         try:
             set_window_icon_robust(self.window)
-            
+
             # Schedule additional attempts to prevent CustomTkinter from overriding it
             self.window.after(100, self._reinforce_icon)
             self.window.after(300, self._reinforce_icon)
-            
+
         except Exception as e:
             self.logger.warning(f"Error setting startup window icon: {e}")
-    
+
     def _reinforce_icon(self) -> None:
         """Reinforce the icon setting to prevent CustomTkinter override."""
         if not self.window or self.is_closed:
             return
-        
+
         try:
             set_window_icon_robust(self.window)
         except Exception as e:
@@ -407,4 +405,3 @@ class StartupProgressTracker:
             self.startup_window.close()
 
         threading.Thread(target=delayed_close, daemon=True).start()
-

@@ -7,14 +7,15 @@ rather than the processed output bytes it generates. Useful for unit testing
 the recorder with real audio data.
 """
 
-import sounddevice as sd
-import numpy as np
-import time
 import os
-from pathlib import Path
-from datetime import datetime
-from typing import Optional
+import time
 import wave
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+import sounddevice as sd
 from pydantic import BaseModel
 
 
@@ -46,10 +47,7 @@ class AudioRecorder:
         audio_frames = []
 
         with sd.InputStream(
-            samplerate=self.config.sample_rate,
-            blocksize=self.config.chunk_size,
-            channels=1,
-            dtype='int16'
+            samplerate=self.config.sample_rate, blocksize=self.config.chunk_size, channels=1, dtype="int16"
         ) as stream:
             # Wait for speech detection with pre-roll buffer
             pre_roll_buffer = []
@@ -97,7 +95,7 @@ class AudioRecorder:
         audio_data = np.concatenate(audio_frames)
 
         # Write .wav file
-        with wave.open(output_path, 'wb') as wav_file:
+        with wave.open(output_path, "wb") as wav_file:
             wav_file.setnchannels(1)  # Mono
             wav_file.setsampwidth(2)  # 16-bit
             wav_file.setframerate(self.config.sample_rate)
@@ -110,20 +108,16 @@ class AudioRecorder:
 
 def main():
     # Configuration - override these values as needed
-    output_dir = 'recorded_samples'
+    output_dir = "recorded_samples"
     sample_rate = 16000
     silence_timeout = 1.0
     max_duration = 10.0
 
     # Generate timestamp-based filename
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"recorded_audio_{timestamp}.wav"
 
-    config = MockAudioConfig(
-        sample_rate=sample_rate,
-        silence_timeout=silence_timeout,
-        max_duration=max_duration
-    )
+    config = MockAudioConfig(sample_rate=sample_rate, silence_timeout=silence_timeout, max_duration=max_duration)
 
     recorder = AudioRecorder(config)
     output_path = os.path.join(output_dir, filename)
@@ -133,5 +127,5 @@ def main():
     print(f"Audio saved to: {output_path}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

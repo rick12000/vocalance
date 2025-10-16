@@ -2,7 +2,7 @@
 
 - Adopt the DRY principle. If code is repeated in multiple places, it should be functionalized and called in those places.
 - Make all inputs explicit. Avoid relying on state or shared context unless encapsulated.
-- Avoid implicit behavior (e.g., mutation of input lists, in place dataframe modification). 
+- Avoid implicit behavior (e.g., mutation of input lists, in place dataframe modification).
 - Variable names should be descriptive and reduced to the shortest possible length.
 - If a function returns multiple types, refactor. Don't return Union[str, dict, None].
 - Use pytest.mark.parametrize for testing functions with categorical input values.

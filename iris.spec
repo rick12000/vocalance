@@ -22,9 +22,9 @@ a = Analysis(
     hiddenimports=[
         # Conditional/dynamic imports
         'tensorflow',
-        'customtkinter', 
+        'customtkinter',
         'PIL.ImageTk',
-        
+
         # C extension libraries - expanded for better coverage
         'llama_cpp',
         'llama_cpp.llama_cpp',

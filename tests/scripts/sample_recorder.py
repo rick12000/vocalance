@@ -5,13 +5,14 @@ Automatically stops recording when silence is detected or max duration is reache
 Use this ad-hoc to generate audio bytes for unit testing.
 """
 
-import sounddevice as sd
-import numpy as np
-import time
 import os
-from pathlib import Path
+import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
+import numpy as np
+import sounddevice as sd
 from pydantic import BaseModel
 
 
@@ -36,10 +37,7 @@ class SampleRecorder:
 
     def record_audio_bytes(self) -> bytes:
         with sd.InputStream(
-            samplerate=self.config.sample_rate,
-            blocksize=self.config.chunk_size,
-            channels=1,
-            dtype='int16'
+            samplerate=self.config.sample_rate, blocksize=self.config.chunk_size, channels=1, dtype="int16"
         ) as stream:
             # Wait for speech detection
             speech_detected = False
@@ -77,7 +75,7 @@ class SampleRecorder:
         audio_bytes = self.record_audio_bytes()
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             f.write(audio_bytes)
 
         return output_path
@@ -85,20 +83,16 @@ class SampleRecorder:
 
 def main():
     # Configuration - override these values as needed
-    output_dir = 'recorded_samples'
+    output_dir = "recorded_samples"
     sample_rate = 16000
     silence_timeout = 1.0
     max_duration = 10.0
 
     # Generate timestamp-based filename
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"recorded_sample_{timestamp}.bytes"
 
-    config = MockAudioConfig(
-        sample_rate=sample_rate,
-        silence_timeout=silence_timeout,
-        max_duration=max_duration
-    )
+    config = MockAudioConfig(sample_rate=sample_rate, silence_timeout=silence_timeout, max_duration=max_duration)
 
     recorder = SampleRecorder(config)
     output_path = os.path.join(output_dir, filename)
@@ -106,5 +100,5 @@ def main():
     recorder.record_and_save(output_path)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

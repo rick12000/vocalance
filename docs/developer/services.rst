@@ -208,7 +208,7 @@ The audio processing pipeline operates through a sequence of services that trans
 Audio capture events contain raw binary audio data along with metadata required for processing:
 
 - **CommandAudioSegmentReadyEvent** (Priority: HIGH)
-  
+
   - ``audio_bytes`` (bytes): Raw PCM audio data captured from microphone in int16 format
   - ``sample_rate`` (int): Sample rate in Hz (typically 16000)
   - Published by: ``AudioRecorder`` when voice activity ends in command mode
@@ -216,7 +216,7 @@ Audio capture events contain raw binary audio data along with metadata required 
   - Characteristics: Shorter segments (~0.5-2s) optimized for responsive command recognition
 
 - **DictationAudioSegmentReadyEvent** (Priority: HIGH)
-  
+
   - ``audio_bytes`` (bytes): Raw PCM audio data in int16 format, typically longer segments
   - ``sample_rate`` (int): Sample rate in Hz (typically 16000)
   - Published by: ``AudioRecorder`` when voice activity ends in dictation mode
@@ -224,7 +224,7 @@ Audio capture events contain raw binary audio data along with metadata required 
   - Characteristics: Longer segments (~1-5s) optimized for accuracy over speed
 
 - **AudioDetectedEvent** (Priority: CRITICAL)
-  
+
   - ``timestamp`` (float): Unix timestamp when audio above threshold was first detected
   - Published by: ``AudioRecorder`` immediately upon detecting voice activity
   - Consumed by: ``MarkovCommandPredictor._handle_audio_detected()``
@@ -234,7 +234,7 @@ Audio capture events contain raw binary audio data along with metadata required 
 Speech recognition result events carry the transcribed text along with performance metrics:
 
 - **CommandTextRecognizedEvent** (Priority: HIGH, extends TextRecognizedEvent)
-  
+
   - ``text`` (str): Recognized command text from Vosk STT engine
   - ``processing_time_ms`` (float): Time taken for STT processing in milliseconds
   - ``engine`` (str): STT engine identifier ("vosk")
@@ -245,7 +245,7 @@ Speech recognition result events carry the transcribed text along with performan
   - When dictation is active: Only published if amber stop words are detected
 
 - **DictationTextRecognizedEvent** (Priority: HIGH, extends TextRecognizedEvent)
-  
+
   - ``text`` (str): Recognized dictation text from Whisper STT engine
   - ``processing_time_ms`` (float): Time taken for STT processing
   - ``engine`` (str): STT engine identifier ("whisper")
@@ -258,7 +258,7 @@ Speech recognition result events carry the transcribed text along with performan
 Fallback processing for non-speech audio:
 
 - **ProcessAudioChunkForSoundRecognitionEvent** (Priority: HIGH)
-  
+
   - ``audio_chunk`` (bytes): Raw PCM audio data that failed STT recognition
   - ``sample_rate`` (int): Sample rate in Hz (default 16000)
   - Published by: ``SpeechToTextService._publish_sound_recognition_event()`` when STT returns empty text
@@ -266,7 +266,7 @@ Fallback processing for non-speech audio:
   - Purpose: Enables custom sound recognition (claps, whistles, etc.) as command triggers
 
 - **CustomSoundRecognizedEvent** (Priority: HIGH)
-  
+
   - ``label`` (str): Recognized sound identifier (e.g., "whistle_1", "clap_2")
   - ``confidence`` (float): Recognition confidence score (0.0-1.0)
   - ``mapped_command`` (Optional[str]): Command phrase mapped to this sound, if any
@@ -277,7 +277,7 @@ Fallback processing for non-speech audio:
 Prediction bypass for ultra-low latency:
 
 - **MarkovPredictionEvent** (Priority: CRITICAL)
-  
+
   - ``predicted_command`` (str): Predicted command text based on historical patterns
   - ``confidence`` (float): Prediction confidence (0.0-1.0, typically >0.7 to publish)
   - ``audio_id`` (int): Identifier for the audio bytes that triggered prediction
@@ -287,7 +287,7 @@ Prediction bypass for ultra-low latency:
   - Latency reduction: 200-800ms faster than standard STT processing
 
 - **MarkovPredictionFeedbackEvent** (Priority: NORMAL)
-  
+
   - ``predicted_command`` (str): The command that was predicted by Markov
   - ``actual_command`` (str): The command that was actually recognized by STT or Sound
   - ``was_correct`` (bool): True if prediction matched actual command
@@ -353,13 +353,13 @@ This approach eliminates background task complexity while ensuring commands are 
 Input events to the parser:
 
 - **CommandTextRecognizedEvent** (described above)
-  
+
   - Consumed by: ``CentralizedCommandParser._handle_text_recognized()``
   - Processing: Normalized to lowercase, stripped of whitespace, then matched against command patterns
   - Duplicate detection: Filtered using 1-second time window to prevent double-execution
 
 - **CustomSoundRecognizedEvent** (described above)
-  
+
   - Consumed by: ``CentralizedCommandParser._handle_sound_recognized()``
   - Processing: Sound label mapped to command phrase via ``_sound_to_command_mapping`` dict, then parsed as text
   - Mapping storage: Persisted in ``sound_mappings.json`` via ``SoundStorageAdapter``
@@ -367,78 +367,78 @@ Input events to the parser:
 Output command events (all extend ``BaseCommandEvent`` with source and context fields):
 
 - **DictationCommandParsedEvent** (Priority: NORMAL)
-  
+
   - ``command`` (DictationCommandType): Union of ``DictationStartCommand``, ``DictationStopCommand``, ``DictationTypeCommand``, or ``DictationSmartStartCommand``
   - ``source`` (Optional[str]): Origin of command (e.g., "speech", "sound:whistle_1")
   - ``context`` (Optional[Dict]): Additional metadata for command execution
   - Command types:
-    
+
     - ``DictationStartCommand``: Activates continuous dictation mode
     - ``DictationStopCommand``: Deactivates any active dictation mode
     - ``DictationTypeCommand``: Activates type dictation (single phrase mode)
     - ``DictationSmartStartCommand``: Activates smart dictation with LLM processing
-  
+
   - Published by: ``CentralizedCommandParser._publish_command_event()``
   - Consumed by: ``DictationCoordinator._handle_dictation_command()``
   - Pattern matching: Exact matches on "start dictation", "stop dictation", "type dictation", "smart dictation"
 
 - **AutomationCommandParsedEvent** (Priority: NORMAL)
-  
+
   - ``command`` (AutomationCommandType): Union of ``ExactMatchCommand`` or ``ParameterizedCommand``
   - Command structure:
-    
+
     - ``command_key`` (str): Unique identifier for the command (e.g., "click", "scroll down")
     - ``action_type`` (str): Automation action ("hotkey", "click", "mouse_move", "scroll", "text")
     - ``action_value`` (str): Action-specific parameter (e.g., "ctrl+c" for hotkey, "100" for scroll)
     - ``count`` (int): Repeat count for parameterized commands (e.g., "scroll down 5")
-  
+
   - Published by: ``CentralizedCommandParser._publish_command_event()``
   - Consumed by: ``AutomationService._handle_automation_command()``
   - Storage: Command definitions loaded from ``AutomationCommandRegistry`` and ``custom_commands.json``
   - Pattern matching: Exact phrase matching for ``ExactMatchCommand``, regex "command [number]" for ``ParameterizedCommand``
 
 - **MarkCommandParsedEvent** (Priority: NORMAL)
-  
+
   - ``command`` (MarkCommandType): Union of mark command variants
   - Command types:
-    
+
     - ``MarkCreateCommand(label: str, x: int, y: int)``: Creates new positional mark at current cursor
     - ``MarkExecuteCommand(label: str)``: Navigates to saved mark position
     - ``MarkDeleteCommand(label: str)``: Removes mark from storage
     - ``MarkVisualizeCommand()``: Toggles mark visualization overlay
     - ``MarkResetCommand()``: Clears all marks
     - ``MarkVisualizeCancelCommand()``: Hides mark visualization
-  
+
   - Published by: ``CentralizedCommandParser._publish_command_event()``
   - Consumed by: ``MarkService._handle_mark_command()``
   - Pattern matching: "mark <label>", "mark delete <label>", "visualize marks", etc.
   - Storage: Mark coordinates persisted via ``MarkStorageAdapter`` with caching for instant retrieval
 
 - **GridCommandParsedEvent** (Priority: NORMAL)
-  
+
   - ``command`` (GridCommandType): Union of grid command variants
   - Command types:
-    
+
     - ``GridShowCommand(grid_number: Optional[int])``: Displays overlay grid for mouse navigation
     - ``GridSelectCommand(cell_number: int)``: Clicks specified grid cell
     - ``GridCancelCommand()``: Hides active grid overlay
-  
+
   - Published by: ``CentralizedCommandParser._publish_command_event()``
   - Consumed by: ``GridService._handle_grid_command()``
   - Pattern matching: "show grid [number]", "select [number]", "cancel grid"
   - Integration: Grid uses ``ClickTrackerService`` click statistics for intelligent cell prioritization
 
 - **SoundCommandParsedEvent** (Priority: NORMAL)
-  
+
   - ``command`` (SoundCommandType): Union of sound management commands
   - Command types:
-    
+
     - ``SoundTrainCommand(label: str, num_samples: int)``: Initiates sound training session
     - ``SoundDeleteCommand(label: str)``: Removes trained sound and mappings
     - ``SoundMapCommand(label: str, command_phrase: str)``: Maps sound to command phrase
     - ``SoundResetAllCommand()``: Clears all trained sounds and mappings
     - ``SoundListAllCommand()``: Requests list of all trained sounds
-  
+
   - Published by: ``CentralizedCommandParser._publish_command_event()``
   - Consumed by: ``StreamlinedSoundService`` methods (``_handle_training_request``, ``_handle_delete_sound``, etc.)
   - Pattern matching: "train sound <label>", "delete sound <label>", "map sound <label> to <command>"
@@ -446,13 +446,13 @@ Output command events (all extend ``BaseCommandEvent`` with source and context f
 Error and no-match events:
 
 - **CommandNoMatchEvent** (Priority: NORMAL, extends BaseCommandEvent)
-  
+
   - ``attempted_parsers`` (List[str]): List of parser methods that failed to match
   - Published by: ``CentralizedCommandParser._handle_text_recognized()`` when no parser matches input
   - Purpose: Logging and debugging unrecognized commands for vocabulary expansion
 
 - **CommandParseErrorEvent** (Priority: NORMAL, extends BaseCommandEvent)
-  
+
   - ``error_message`` (str): Detailed error description
   - ``attempted_parser`` (Optional[str]): Parser method that encountered the error
   - Published by: ``CentralizedCommandParser`` exception handlers
@@ -468,22 +468,22 @@ Dictation mode enables continuous speech-to-text input with three operational va
    graph TB
    DictCmd[DictationCommandParsedEvent] -->|consumed by| DictCoord[DictationCoordinator]
    DictText[DictationTextRecognizedEvent] -->|consumed by| DictCoord
-   
+
    DictCoord -->|publishes on smart mode start| SmartStart[SmartDictationStartedEvent]
    DictCoord -->|publishes raw text for display| TextDisplay[SmartDictationTextDisplayEvent]
    DictCoord -->|publishes on smart mode stop| SmartStop[SmartDictationStoppedEvent]
-   
+
    SmartStop -->|triggers internal processing| DictCoord
    DictCoord -->|publishes| LLMStart[LLMProcessingStartedEvent]
-   
+
    LLMStart -->|consumed by| LLMService[LLMService]
    LLMService -->|publishes streaming tokens| LLMToken[LLMTokenGeneratedEvent]
    LLMService -->|publishes on completion| LLMComplete[LLMProcessingCompletedEvent]
    LLMService -->|publishes on error| LLMFail[LLMProcessingFailedEvent]
-   
+
    LLMComplete -->|consumed by| DictCoord
    LLMFail -->|consumed by| DictCoord
-   
+
    DictCoord -->|uses for text input| TextService[TextInputService]
    TextService -->|executes| SysInput[System Text Input via pyautogui]
 
@@ -495,13 +495,13 @@ Dictation mode enables continuous speech-to-text input with three operational va
 Control and state management events:
 
 - **DictationCommandParsedEvent** (described in previous section)
-  
+
   - Consumed by: ``DictationCoordinator._handle_dictation_command()``
   - Processing: Transitions dictation state machine (INACTIVE → STANDARD/TYPE/SMART → INACTIVE)
   - State tracking: ``DictationCoordinator`` maintains ``active_mode`` (DictationMode enum) and ``_sessions`` dict
 
 - **DictationStatusChangedEvent** (Priority: LOW)
-  
+
   - ``is_active`` (bool): Whether any dictation mode is currently active
   - ``mode`` (str): Current mode ("inactive", "continuous", "type", "smart")
   - ``show_ui`` (bool): Whether to display dictation UI indicator
@@ -510,7 +510,7 @@ Control and state management events:
   - Purpose: Synchronizes UI indicators and system state across application
 
 - **DictationModeDisableOthersEvent** (Priority: CRITICAL)
-  
+
   - ``dictation_mode_active`` (bool): Whether dictation mode is active
   - ``dictation_mode`` (str): Type of dictation mode active
   - Published by: ``DictationCoordinator`` on mode activation/deactivation
@@ -520,39 +520,39 @@ Control and state management events:
 Text recognition and processing events:
 
 - **DictationTextRecognizedEvent** (described in Audio Event Flow section)
-  
+
   - Consumed by: ``DictationCoordinator._handle_dictation_text()``
   - Processing varies by mode:
-    
+
     - **Standard/Type mode**: Text immediately sent to ``TextInputService.type_text()``
     - **Smart mode**: Text accumulated in ``DictationSession.accumulated_text`` buffer
-  
+
   - Session management: Each dictation session tracked with unique ID, start time, and accumulated text
 
 Smart dictation-specific events (LLM-enhanced text processing):
 
 - **SmartDictationStartedEvent** (Priority: NORMAL)
-  
+
   - ``mode`` (str): Always "smart"
   - Published by: ``DictationCoordinator._activate_smart_dictation()``
   - Purpose: Signals UI to prepare for smart dictation session
 
 - **SmartDictationTextDisplayEvent** (Priority: HIGH)
-  
+
   - ``text`` (str): Cleaned, formatted text for real-time display in UI
   - Published by: ``DictationCoordinator._handle_dictation_text()`` during smart dictation
   - Processing: Raw STT output cleaned (normalized spacing, capitalization) before display
   - Purpose: Provides real-time feedback to user before LLM processing
 
 - **SmartDictationStoppedEvent** (Priority: NORMAL)
-  
+
   - ``mode`` (str): Always "smart"
   - ``raw_text`` (str): Complete accumulated text before LLM processing
   - Published by: ``DictationCoordinator._deactivate_smart_dictation()``
   - Processing: Triggers LLM processing pipeline via ``_process_smart_dictation()``
 
 - **LLMProcessingReadyEvent** (Priority: HIGH)
-  
+
   - ``session_id`` (str): Unique identifier matching LLM processing request
   - Published by: UI components when ready to receive streaming tokens
   - Consumed by: ``DictationCoordinator._handle_llm_processing_ready()``
@@ -561,7 +561,7 @@ Smart dictation-specific events (LLM-enhanced text processing):
 LLM processing events:
 
 - **LLMProcessingStartedEvent** (Priority: NORMAL)
-  
+
   - ``raw_text`` (str): Original dictated text to be enhanced
   - ``agentic_prompt`` (str): LLM instruction prompt (e.g., "Fix grammar and improve clarity")
   - ``session_id`` (Optional[str]): Session identifier for correlation
@@ -569,7 +569,7 @@ LLM processing events:
   - Purpose: Informational event for logging and UI state
 
 - **LLMTokenGeneratedEvent** (Priority: HIGH)
-  
+
   - ``token`` (str): Individual token generated during LLM streaming
   - Published by: ``LLMService.process_dictation_streaming()`` via ``token_callback``
   - Consumed by: UI components for real-time streaming display
@@ -577,7 +577,7 @@ LLM processing events:
   - Implementation: Uses ``ThreadSafeEventPublisher`` to safely publish from LLM's synchronous callback
 
 - **LLMProcessingCompletedEvent** (Priority: NORMAL)
-  
+
   - ``processed_text`` (str): LLM-enhanced text with grammar corrections and clarity improvements
   - ``agentic_prompt`` (str): The agentic prompt that was used
   - Published by: ``LLMService._publish_completed()``
@@ -586,7 +586,7 @@ LLM processing events:
   - Validation: Output validated for length ratio (0.3-3.0x original) and repetition checks
 
 - **LLMProcessingFailedEvent** (Priority: NORMAL)
-  
+
   - ``error_message`` (str): Detailed error description
   - ``original_text`` (str): The text that failed processing
   - Published by: ``LLMService._publish_failed()``
@@ -597,14 +597,14 @@ LLM processing events:
 Agentic prompt management events:
 
 - **AgenticPromptUpdatedEvent** (Priority: LOW)
-  
+
   - ``prompt`` (str): New active agentic prompt text
   - ``prompt_id`` (str): Unique identifier for the prompt
   - Published by: ``AgenticPromptService.set_prompt()``
   - Purpose: Notifies UI and services of prompt changes
 
 - **AgenticPromptActionRequest** (Priority: NORMAL)
-  
+
   - ``action`` (str): Action to perform ("add_prompt", "delete_prompt", "set_prompt", "get_prompts")
   - ``name`` (Optional[str]): Prompt name for add_prompt
   - ``text`` (Optional[str]): Prompt text for add_prompt
@@ -627,7 +627,7 @@ UI integration services manage visual overlays (grids, marks) and mouse interact
    GridSvc -->|publishes| ShowReq[ShowGridRequestEventData]
    GridSvc -->|publishes| ClickReq[ClickGridCellRequestEventData]
    GridSvc -->|publishes| Visibility[GridVisibilityChangedEventData]
-   
+
    ShowReq -->|consumed by| UI[UI GridWindow]
    ClickReq -->|consumed by| UI
 
@@ -640,7 +640,7 @@ UI integration services manage visual overlays (grids, marks) and mouse interact
    MarkSvc -->|publishes| Created[MarkCreatedEventData]
    MarkSvc -->|publishes| Deleted[MarkDeletedEventData]
    MarkSvc -->|publishes| VisState[MarkVisualizationStateChangedEventData]
-   
+
    Created -->|consumed by| UI[UI MarkOverlay]
    Deleted -->|consumed by| UI
    VisState -->|consumed by| UI
@@ -661,12 +661,12 @@ UI integration services manage visual overlays (grids, marks) and mouse interact
 Grid navigation events enable voice-controlled mouse positioning through numbered overlay cells:
 
 - **GridCommandParsedEvent** (described in Command Processing section)
-  
+
   - Consumed by: ``GridService._handle_grid_command()``
   - Processing: Manages grid state, calculates cell positions, triggers UI updates
 
 - **ShowGridRequestEventData** (Priority: NORMAL)
-  
+
   - ``rows`` (int): Number of grid rows (default from config)
   - ``columns`` (int): Number of grid columns (default from config)
   - Published by: ``GridService._show_grid()``
@@ -675,7 +675,7 @@ Grid navigation events enable voice-controlled mouse positioning through numbere
   - Click optimization: Cell ordering uses ``ClickTrackerService`` statistics to prioritize frequently-clicked regions
 
 - **ClickGridCellRequestEventData** (Priority: CRITICAL)
-  
+
   - ``cell_label`` (str): Grid cell identifier (e.g., "5", "12")
   - Published by: ``GridService._select_cell()``
   - Consumed by: ``GridWindow`` UI component
@@ -683,7 +683,7 @@ Grid navigation events enable voice-controlled mouse positioning through numbere
   - State management: Grid automatically hidden after cell selection
 
 - **GridVisibilityChangedEventData** (Priority: LOW)
-  
+
   - ``visible`` (bool): Whether grid is currently visible
   - ``rows`` (int): Current grid row count
   - ``columns`` (int): Current grid column count
@@ -693,12 +693,12 @@ Grid navigation events enable voice-controlled mouse positioning through numbere
 Mark navigation events enable voice-controlled return to saved screen positions:
 
 - **MarkCommandParsedEvent** (described in Command Processing section)
-  
+
   - Consumed by: ``MarkService._handle_mark_command()``
   - Processing: Executes mark operations with cached coordinate lookups
 
 - **MarkCreatedEventData** (Priority: NORMAL)
-  
+
   - ``name`` (str): Unique mark identifier
   - ``x`` (int): Screen X coordinate
   - ``y`` (int): Screen Y coordinate
@@ -708,14 +708,14 @@ Mark navigation events enable voice-controlled return to saved screen positions:
   - Validation: Mark names checked against ``ProtectedTermsService`` to prevent conflicts
 
 - **MarkDeletedEventData** (Priority: NORMAL)
-  
+
   - ``name`` (str): Deleted mark identifier
   - Published by: ``MarkService._execute_mark_command()`` after mark deletion
   - Consumed by: ``MarkOverlay`` UI component
   - Cache invalidation: Removes mark from ``MarkStorageAdapter`` cache immediately
 
 - **MarkVisualizationStateChangedEventData** (Priority: LOW)
-  
+
   - ``visible`` (bool): Whether mark visualization overlay is visible
   - ``marks`` (List): Current marks to display (name, x, y coordinates)
   - Published by: ``MarkService._execute_mark_command()`` on visualization toggle
@@ -725,7 +725,7 @@ Mark navigation events enable voice-controlled return to saved screen positions:
 Click tracking events collect mouse interaction patterns for grid optimization:
 
 - **PerformMouseClickEventData** (Priority: CRITICAL)
-  
+
   - ``x`` (int): Screen X coordinate of click
   - ``y`` (int): Screen Y coordinate of click
   - ``source`` (str): Click origin ("grid", "mark", "automation", "unknown")
@@ -734,7 +734,7 @@ Click tracking events collect mouse interaction patterns for grid optimization:
   - Debouncing: Clicks batched with 2-second window to reduce storage writes
 
 - **ClickLoggedEventData** (Priority: LOW)
-  
+
   - ``x`` (int): Screen X coordinate
   - ``y`` (int): Screen Y coordinate
   - ``timestamp`` (float): Unix timestamp of click
@@ -742,7 +742,7 @@ Click tracking events collect mouse interaction patterns for grid optimization:
   - Purpose: Confirmation event for logging and debugging
 
 - **ClickCountsForGridEventData** (Priority: LOW)
-  
+
   - ``rectangles`` (List): List of grid cells with click statistics
   - Each rectangle contains: ``x``, ``y``, ``width``, ``height``, ``click_count``
   - Published by: ``ClickTrackerService.get_click_statistics()``
@@ -833,13 +833,13 @@ The predictor implements a backoff strategy using 2nd through 4th order Markov c
 Data structures:
 
 - ``_transition_counts``: Nested dict structure ``{order: {context_tuple: Counter}}``
-  
+
   - Example: ``{2: {('select all',): Counter({'copy': 15, 'cut': 3})}}``
   - Stores raw transition counts for probability calculation
   - Context tuples are immutable sequences of previous commands
 
 - ``_command_history``: ``deque`` with ``maxlen=max_order`` (typically 4)
-  
+
   - Maintains sliding window of recent commands
   - Automatically discards oldest commands when new ones arrive
   - Used to build context tuples for prediction queries
@@ -864,11 +864,11 @@ The predictor trains on historical command sequences stored by ``CommandHistoryS
 
 1. Load command history from ``command_history.json`` (persistent storage)
 2. Filter commands by time window:
-   
+
    - 4th order: Recent 7 days
    - 3rd order: Recent 14 days
    - 2nd order: Recent 30 days
-   
+
 3. Process sequences chronologically to build transition counts
 4. Store completed model in ``_transition_counts`` dictionaries
 5. Set ``_model_trained`` flag to enable predictions
@@ -960,13 +960,13 @@ The ``UnifiedStorageService`` serves as the foundational storage engine, providi
 **Core Components and Data Structures**:
 
 - ``_cache`` (Dict[str, CacheEntry]): In-memory cache mapping storage keys to cached data
-  
+
   - Key format: ``"{storage_type}:{key}"`` (e.g., ``"marks:all_marks"``)
   - ``CacheEntry`` dataclass contains: ``data``, ``timestamp``, ``access_count``
   - TTL: 5 minutes (300 seconds) for automatic expiration
 
 - ``_paths`` (Dict[StorageType, str]): Maps storage types to filesystem paths
-  
+
   - ``StorageType.SETTINGS`` → ``{settings_dir}/user_settings.json``
   - ``StorageType.COMMANDS`` → ``{settings_dir}/custom_commands.json``
   - ``StorageType.MARKS`` → ``{marks_dir}/marks.json``
@@ -985,12 +985,12 @@ The ``read(storage_key, default)`` method implements a cache-through pattern:
 1. Construct cache key from storage type and key: ``"{storage_type.value}:{key}"``
 2. Acquire ``_lock`` and check ``_cache`` for existing entry
 3. If cache hit and not expired (< 5 minutes old):
-   
+
    - Increment ``access_count`` for cache statistics
    - Return cached data immediately (typical latency: <0.1ms)
 
 4. If cache miss or expired:
-   
+
    - Determine filepath from ``_paths[storage_key.storage_type]``
    - Submit ``_sync_read()`` to ``_executor`` thread pool for async execution
    - ``_sync_read()`` reads JSON file, parses content, returns data
@@ -1007,7 +1007,7 @@ The ``write(storage_key, data, immediate)`` method implements atomic writes:
 1. Determine filepath from ``_paths[storage_key.storage_type]``
 2. Submit ``_sync_write()`` to ``_executor`` for async execution
 3. ``_sync_write()`` performs atomic write operation:
-   
+
    - Serialize data to JSON string with indentation for readability
    - Write to temporary file: ``{filepath}.tmp.{uuid}``
    - Flush and fsync to ensure data reaches disk
@@ -1015,13 +1015,13 @@ The ``write(storage_key, data, immediate)`` method implements atomic writes:
    - This ensures file is never in partial/corrupt state, even during crash
 
 4. If write succeeds:
-   
+
    - Update ``_cache`` with new data and current timestamp
    - Invalidate old cache entry by replacing with fresh data
    - Return ``True`` to caller
 
 5. If write fails:
-   
+
    - Log error with full exception details
    - Return ``False`` to caller
    - Cache remains unchanged (stale data better than corrupt data)
@@ -1052,18 +1052,18 @@ Manages voice-navigable screen position bookmarks with instant cached lookups.
 Key methods:
 
 - ``get_all_marks()`` → ``List[Dict]``: Returns all marks ``[{"name": str, "x": int, "y": int}, ...]``
-  
+
   - Cached aggressively for instant voice command navigation
   - Cache invalidated on mark creation/deletion
 
 - ``add_mark(name, x, y)`` → ``bool``: Creates new mark with validation
-  
+
   - Checks for duplicate names before adding
   - Validates coordinates are positive integers
   - Publishes ``MarkCreatedEventData`` on success
 
 - ``get_mark(name)`` → ``Optional[Dict]``: Retrieves specific mark by name
-  
+
   - O(n) linear search through marks list
   - Could be optimized with name-to-mark dict cache (future enhancement)
 
@@ -1077,25 +1077,25 @@ Manages user-defined automation commands with live reload support.
 Key methods:
 
 - ``get_action_map()`` → ``Dict[str, Tuple]``: Returns ``{command_phrase: (action_type, action_value)}``
-  
+
   - Primary interface for command lookup during parsing
   - Merges built-in commands from ``AutomationCommandRegistry`` with custom commands
   - Cached for fast command recognition
 
 - ``add_command(phrase, action_type, action_value)`` → ``Tuple[bool, str]``: Adds custom command
-  
+
   - Validates phrase not protected/reserved
   - Checks for duplicates
   - Publishes ``CommandMappingsUpdatedEvent`` to trigger parser refresh
 
 - ``update_command_phrase(old_phrase, new_phrase)`` → ``Tuple[bool, str]``: Renames command
-  
+
   - Validates new phrase availability
   - Preserves action_type and action_value
   - Publishes update event for live reload
 
 - ``delete_command(phrase)`` → ``Tuple[bool, str]``: Removes custom command
-  
+
   - Only affects custom commands, built-ins cannot be deleted
   - Publishes update event
 
@@ -1106,12 +1106,12 @@ Manages custom sound-to-command mappings for non-speech audio triggers.
 Key methods:
 
 - ``get_sound_mappings()`` → ``Dict[str, str]``: Returns ``{sound_label: command_phrase}``
-  
+
   - Example: ``{"whistle_1": "click", "clap_2": "scroll down"}``
   - Used by ``CentralizedCommandParser`` to convert sounds to commands
 
 - ``add_sound_mapping(label, command)`` → ``bool``: Creates new mapping
-  
+
   - Validates sound label exists (trained via ``StreamlinedSoundRecognizer``)
   - Publishes ``SoundToCommandMappingUpdatedEvent``
 
@@ -1135,12 +1135,12 @@ Persists mouse click history for grid cell optimization.
 Key methods:
 
 - ``log_click(x, y, timestamp)`` → ``bool``: Records click event
-  
+
   - Debounced writes: batches clicks to reduce I/O
   - Stores as list: ``[{"x": int, "y": int, "timestamp": float}, ...]``
 
 - ``get_click_history()`` → ``List[Dict]``: Returns all recorded clicks
-  
+
   - Used by ``ClickTrackerService`` to calculate heat maps
   - Enables grid optimization based on usage patterns
 
@@ -1152,7 +1152,7 @@ Key methods:
 
 - ``append_command(command_text, timestamp)`` → ``bool``: Records executed command
 - ``get_command_history(start_time, end_time)`` → ``List[Dict]``: Time-windowed retrieval
-  
+
   - Used by ``MarkovCommandPredictor`` during initialization training
   - Filters by date range for order-specific training windows
 
@@ -1198,37 +1198,37 @@ Voice command systems require unique, unambiguous command phrases. If a user cre
 The service aggregates protected terms from multiple sources:
 
 1. **System Automation Commands**: Built-in commands from ``AutomationCommandRegistry``
-   
+
    - Examples: "click", "scroll down", "copy", "paste", "enter"
    - Source: ``registry.get_all_commands()`` loaded during initialization
 
 2. **System Dictation Commands**: Hard-coded dictation control phrases
-   
+
    - Examples: "start dictation", "stop dictation", "smart dictation", "type dictation"
    - Source: Defined in ``SYSTEM_DICTATION_COMMANDS`` constant
 
 3. **System Mark Commands**: Reserved mark operation phrases
-   
+
    - Examples: "visualize marks", "mark delete", "mark reset"
    - Source: Defined in ``SYSTEM_MARK_COMMANDS`` constant
 
 4. **System Grid Commands**: Reserved grid operation phrases
-   
+
    - Examples: "show grid", "cancel grid", "select [number]"
    - Source: Defined in ``SYSTEM_GRID_COMMANDS`` constant
 
 5. **System Sound Commands**: Reserved sound management phrases
-   
+
    - Examples: "train sound", "delete sound", "map sound"
    - Source: Defined in ``SYSTEM_SOUND_COMMANDS`` constant
 
 6. **Live Mark Names**: Currently defined position bookmarks
-   
+
    - Source: ``MarkStorageAdapter.get_all_marks()`` called dynamically
    - Examples: User-created marks like "editor", "browser", "terminal"
 
 7. **Live Sound Labels**: Trained sound recognition labels
-   
+
    - Source: ``SoundStorageAdapter.get_trained_sounds()`` called dynamically
    - Examples: User-trained sounds like "whistle_1", "clap_2"
 
@@ -1239,7 +1239,7 @@ The ``validate_command_name(name, exclude_name)`` method implements the validati
 1. Normalize input: Convert to lowercase, strip whitespace
 2. Check if ``name == exclude_name`` (allowing rename of existing command to itself)
 3. Query each protection category:
-   
+
    - Check against system automation commands
    - Check against dictation, mark, grid, sound system commands
    - Check against live marks (fetch current list from storage)
@@ -1342,7 +1342,7 @@ The ``get_click_statistics(grid_rows, grid_columns)`` method transforms click hi
 2. Calculate screen dimensions via ``pyautogui.size()``
 3. Compute cell dimensions: ``cell_width = screen_width / grid_columns``, ``cell_height = screen_height / grid_rows``
 4. For each grid cell (row, col):
-   
+
    - Calculate cell boundaries: ``x1 = col * cell_width``, ``y1 = row * cell_height``
    - Count clicks within boundaries: ``sum(1 for click if x1 <= click.x < x2 and y1 <= click.y < y2)``
    - Create rectangle dict: ``{x: x1, y: y1, width: cell_width, height: cell_height, click_count: count}``
@@ -1357,7 +1357,7 @@ The ``get_click_statistics(grid_rows, grid_columns)`` method transforms click hi
 1. Request statistics for current grid dimensions (e.g., 4x4 = 16 cells)
 2. Receive sorted rectangles with click counts
 3. Assign cell numbers 1-16 based on sort order:
-   
+
    - Rectangle with highest click_count → cell 1
    - Second highest → cell 2
    - Etc.
@@ -1437,7 +1437,7 @@ Initialization sequence:
 1. ``LLMModelDownloader`` checks for model file at configured path
 2. If missing, downloads from HuggingFace (e.g., ``Phi-3-mini-4k-instruct-q4.gguf``)
 3. ``LLMService.initialize()`` loads model via ``llama_cpp.Llama``:
-   
+
    - ``n_ctx``: Context length (typically 2048-4096 tokens)
    - ``n_threads``: CPU threads for inference (typically 4-8)
    - ``n_gpu_layers``: GPU offloading layers (0 for CPU-only)
@@ -1452,19 +1452,19 @@ The ``process_dictation_streaming(raw_text, agentic_prompt, token_callback)`` me
 1. Construct prompt: ``f"{agentic_prompt}\n\nOriginal: {raw_text}\n\nImproved:"``
 2. Invoke ``llm.create_completion(prompt, stream=True, max_tokens=512)``
 3. For each generated token:
-   
+
    - Extract token text from completion chunk
    - Call ``token_callback(token)`` to publish ``LLMTokenGeneratedEvent``
    - Append token to accumulated output buffer
 
 4. After stream completes:
-   
+
    - Validate output via ``_validate_output()`` (length ratio, repetition checks)
    - Clean output via ``_clean_output()`` (remove markdown artifacts, fix spacing)
    - Publish ``LLMProcessingCompletedEvent`` with final text
 
 5. On error:
-   
+
    - Catch exceptions (OOM, model errors, timeout)
    - Publish ``LLMProcessingFailedEvent`` with error details
    - ``DictationCoordinator`` falls back to typing raw text unmodified
@@ -1619,13 +1619,13 @@ Each service exposes performance data through dedicated methods:
 Critical operations publish timing and status events:
 
 - **CommandExecutedStatusEvent**: Published by ``AutomationService`` after each command execution
-  
+
   - Tracks success/failure rates
   - Measures end-to-end command latency
   - Identifies problematic commands requiring optimization
 
 - **STTProcessingStartedEvent / STTProcessingCompletedEvent**: Published by ``SpeechToTextService``
-  
+
   - Measures STT processing time per engine (Vosk vs Whisper)
   - Tracks audio segment sizes correlated with processing time
   - Enables comparison of command vs dictation mode performance

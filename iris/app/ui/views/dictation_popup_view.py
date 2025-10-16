@@ -3,13 +3,14 @@ Simplified Dictation Popup View
 
 Minimal popup for dictation with no focus stealing.
 """
-import customtkinter as ctk
-import tkinter as tk
-import threading
 import logging
+import threading
 import time
-from typing import Optional, Callable
+import tkinter as tk
 from collections import deque
+from typing import Optional
+
+import customtkinter as ctk
 
 from iris.app.ui import ui_theme
 from iris.app.ui.controls.dictation_popup_control import DictationPopupController, DictationPopupMode
@@ -23,33 +24,34 @@ SMART_WINDOW_HEIGHT = 600
 WINDOW_MARGIN_X = 80
 WINDOW_MARGIN_Y_BOTTOM = 80
 
+
 class DictationPopupView:
     """Simplified dictation popup that never steals focus"""
-    
+
     def __init__(self, parent_root: tk.Tk, controller: DictationPopupController):
         self.parent_root = parent_root
         self.controller = controller
         self.controller.set_view_callback(self)
-        
+
         self._ui_lock = threading.RLock()
         self.popup_window = self._create_popup_window()
         self.simple_frame = self._create_simple_content()
         self.smart_frame = self._create_smart_content()
-        
+
         self.popup_window.withdraw()
         self.is_visible = False
         self.current_mode = DictationPopupMode.HIDDEN
-        
+
         # Token batching for smooth UI updates
         self._token_buffer = deque()
         self._last_flush_time = 0
         self._flush_interval_ms = 16  # ~60 FPS
         self._pending_flush = False
-        
+
         # Streaming token highlighting
         self._last_token_start_index = None
         self._last_token_end_index = None
-        
+
         logging.info("Simplified DictationPopupView initialized")
 
     def _create_popup_window(self) -> ctk.CTkToplevel:
@@ -66,21 +68,22 @@ class DictationPopupView:
 
         # Prevent window from taking focus
         popup.focus_set = lambda: None  # Disable focus_set
-        popup.grab_set = lambda: None   # Disable grab_set
+        popup.grab_set = lambda: None  # Disable grab_set
 
         return popup
 
     def _create_simple_content(self) -> ctk.CTkFrame:
         """Create simple listening indicator"""
         frame = ctk.CTkFrame(self.popup_window, fg_color=ui_theme.theme.shape_colors.darkest)
-        
+
         self.simple_label = ctk.CTkLabel(
-            frame, text="Listening...",
+            frame,
+            text="Listening...",
             font=(view_config.dictation_popup.font_family, 12),
-            text_color=ui_theme.theme.text_colors.light
+            text_color=ui_theme.theme.text_colors.light,
         )
         self.simple_label.pack(pady=10)
-        
+
         return frame
 
     def _create_smart_content(self) -> ctk.CTkFrame:
@@ -90,14 +93,20 @@ class DictationPopupView:
         frame.grid_rowconfigure(1, weight=1)
 
         # Dictation pane
-        ctk.CTkLabel(frame, text="Dictation", font=(view_config.dictation_popup.font_family, 20, "bold")).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.dictation_box = ctk.CTkTextbox(frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark)
+        ctk.CTkLabel(frame, text="Dictation", font=(view_config.dictation_popup.font_family, 20, "bold")).grid(
+            row=0, column=0, padx=5, pady=5, sticky="w"
+        )
+        self.dictation_box = ctk.CTkTextbox(
+            frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark
+        )
         self.dictation_box.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
 
         # LLM pane
         self.llm_label = ctk.CTkLabel(frame, text="AI Processing", font=(view_config.dictation_popup.font_family, 20, "bold"))
         self.llm_label.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        self.llm_box = ctk.CTkTextbox(frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark)
+        self.llm_box = ctk.CTkTextbox(
+            frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark
+        )
         self.llm_box.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
 
         return frame
@@ -127,34 +136,33 @@ class DictationPopupView:
         """Append LLM token with smart batching for smooth 60fps updates"""
         logging.debug(f"VIEW: append_llm_token called with: '{token}'")
         if not self.llm_box or not self.llm_box.winfo_exists():
-            logging.warning(f"VIEW: llm_box not available!")
+            logging.warning("VIEW: llm_box not available!")
             return
-        
+
         # Add to buffer
         self._token_buffer.append(token)
-        
+
         # Check if we should flush
         current_time = time.time() * 1000  # ms
         time_since_last_flush = current_time - self._last_flush_time
-        
+
         # Flush if: buffer has tokens AND (interval passed OR buffer is large)
         should_flush = len(self._token_buffer) > 0 and (
-            time_since_last_flush >= self._flush_interval_ms or 
-            len(self._token_buffer) >= 3
+            time_since_last_flush >= self._flush_interval_ms or len(self._token_buffer) >= 3
         )
-        
+
         if should_flush and not self._pending_flush:
             self._pending_flush = True
             # Schedule flush on next UI cycle
             self.parent_root.after(1, self._flush_token_buffer)
-    
+
     def _flush_token_buffer(self) -> None:
         """Flush buffered tokens to UI with streaming token highlighting"""
         if not self.llm_box or not self.llm_box.winfo_exists():
             self._token_buffer.clear()
             self._pending_flush = False
             return
-        
+
         if self._token_buffer:
             # Reset previous token to default color
             if self._last_token_start_index is not None and self._last_token_end_index is not None:
@@ -162,33 +170,33 @@ class DictationPopupView:
                     self.llm_box.tag_remove("streaming", self._last_token_start_index, self._last_token_end_index)
                 except Exception:
                     pass
-            
+
             # Get current position before insert
             start_index = self.llm_box.index("end-1c")
-            
+
             # Batch all tokens into single insert
-            batched = ''.join(self._token_buffer)
+            batched = "".join(self._token_buffer)
             self.llm_box.insert("end", batched)
-            
+
             # Get position after insert
             end_index = self.llm_box.index("end-1c")
-            
+
             # Highlight the newly inserted token(s) with streaming color
             try:
                 self.llm_box.tag_add("streaming", start_index, end_index)
                 self.llm_box.tag_config("streaming", foreground=ui_theme.theme.text_colors.streaming_token)
             except Exception as e:
                 logging.debug(f"Error applying streaming tag: {e}")
-            
+
             # Save indices for next flush
             self._last_token_start_index = start_index
             self._last_token_end_index = end_index
-            
+
             self.llm_box.see("end")
             self._token_buffer.clear()
             self._last_flush_time = time.time() * 1000
             logging.debug(f"VIEW: Flushed batch: '{batched[:20]}...'")
-        
+
         self._pending_flush = False
 
     def update_llm_status(self, status: str) -> None:
@@ -240,10 +248,10 @@ class DictationPopupView:
         self._token_buffer.clear()
 
     def _position_window(self, width: int, height: int):
-        screen_width = self.parent_root.winfo_screenwidth()
+        self.parent_root.winfo_screenwidth()
         screen_height = self.parent_root.winfo_screenheight()
-        
+
         x = WINDOW_MARGIN_X
         y = screen_height - height - WINDOW_MARGIN_Y_BOTTOM if height < 200 else (screen_height - height) // 2
-        
-        self.popup_window.geometry(f"+{x}+{y}") 
+
+        self.popup_window.geometry(f"+{x}+{y}")

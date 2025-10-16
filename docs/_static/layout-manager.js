@@ -160,46 +160,46 @@
     // Wait for Mermaid to fully render
     setTimeout(() => {
       const mermaidContainers = document.querySelectorAll('.mermaid');
-      
+
       mermaidContainers.forEach(container => {
         const svg = container.querySelector('svg');
         if (!svg) return;
-        
+
         try {
           // Get dimensions
           const containerWidth = container.clientWidth - 32;
           const svgBBox = svg.getBBox();
           const svgWidth = svgBBox.width;
           const svgHeight = svgBBox.height;
-          
+
           // Set viewBox to ensure full diagram is visible
           svg.setAttribute('viewBox', `${svgBBox.x} ${svgBBox.y} ${svgWidth} ${svgHeight}`);
           svg.removeAttribute('width');
           svg.removeAttribute('height');
-          
+
           // Calculate initial scale to fit perfectly
           let initialScale = 1;
           if (svgWidth > containerWidth) {
             initialScale = containerWidth / svgWidth; // Exact fit
           }
-          
+
           // Center the diagram
           const scaledWidth = svgWidth * initialScale;
           const centerOffset = (containerWidth - scaledWidth) / 2;
-          
+
           // Setup pan/zoom state
           let isPanning = false;
           let startPoint = { x: 0, y: 0 };
           let currentTranslate = { x: centerOffset, y: 0 };
           let currentScale = initialScale;
-          
+
           // Apply initial transform
           const updateTransform = () => {
             svg.style.transform = `translate(${currentTranslate.x}px, ${currentTranslate.y}px) scale(${currentScale})`;
             svg.style.transformOrigin = '0 0';
           };
           updateTransform();
-          
+
           // Mouse/touch event handlers for panning
           const startPan = (e) => {
             isPanning = true;
@@ -211,7 +211,7 @@
             container.style.cursor = 'grabbing';
             e.preventDefault();
           };
-          
+
           const doPan = (e) => {
             if (!isPanning) return;
             const point = e.touches ? e.touches[0] : e;
@@ -222,34 +222,34 @@
             updateTransform();
             e.preventDefault();
           };
-          
+
           const endPan = () => {
             isPanning = false;
             container.style.cursor = 'grab';
           };
-          
+
           // Zoom with mouse wheel
           const doZoom = (e) => {
             e.preventDefault();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             const newScale = currentScale * delta;
-            
+
             // Limit zoom range
             if (newScale >= 0.1 && newScale <= 5) {
               // Get mouse position relative to container
               const rect = container.getBoundingClientRect();
               const mouseX = e.clientX - rect.left;
               const mouseY = e.clientY - rect.top;
-              
+
               // Adjust translate to zoom around mouse position
               currentTranslate.x = mouseX - (mouseX - currentTranslate.x) * delta;
               currentTranslate.y = mouseY - (mouseY - currentTranslate.y) * delta;
               currentScale = newScale;
-              
+
               updateTransform();
             }
           };
-          
+
           // Add event listeners
           container.style.cursor = 'grab';
           container.addEventListener('mousedown', startPan);
@@ -260,14 +260,14 @@
           container.addEventListener('touchmove', doPan);
           container.addEventListener('touchend', endPan);
           container.addEventListener('wheel', doZoom, { passive: false });
-          
+
           // Double-click to reset
           container.addEventListener('dblclick', () => {
             currentScale = initialScale;
             currentTranslate = { x: centerOffset, y: 0 };
             updateTransform();
           });
-          
+
         } catch (e) {
           console.warn('Could not setup Mermaid interactive:', e);
         }

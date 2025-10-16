@@ -1,34 +1,33 @@
-import asyncio
-import logging
-from typing import List
-from iris.app.ui.controls.base_control import BaseController
+from iris.app.config.command_types import AutomationCommand, ExactMatchCommand
 from iris.app.events.command_management_events import (
     AddCustomCommandEvent,
-    UpdateCommandPhraseEvent,
+    CommandMappingsResponseEvent,
+    CommandMappingsUpdatedEvent,
+    CommandValidationErrorEvent,
     DeleteCustomCommandEvent,
     RequestCommandMappingsEvent,
-    CommandMappingsUpdatedEvent,
-    CommandMappingsResponseEvent,
-    CommandValidationErrorEvent,
-    ResetCommandsToDefaultsEvent
+    ResetCommandsToDefaultsEvent,
+    UpdateCommandPhraseEvent,
 )
-from iris.app.config.command_types import ExactMatchCommand, AutomationCommand
+from iris.app.ui.controls.base_control import BaseController
 
 
 class CommandsController(BaseController):
     """Handles event management and business logic for the commands tab."""
-    
+
     def __init__(self, event_bus, event_loop, app_logger):
         super().__init__(event_bus, event_loop, app_logger, "CommandsController")
-        
+
         # Cache of available commands for display
         self.available_commands = []
-        
-        self.subscribe_to_events([
-            (CommandMappingsUpdatedEvent, self._on_command_mappings_updated),
-            (CommandMappingsResponseEvent, self._on_command_mappings_response),
-            (CommandValidationErrorEvent, self._on_command_validation_error),
-        ])
+
+        self.subscribe_to_events(
+            [
+                (CommandMappingsUpdatedEvent, self._on_command_mappings_updated),
+                (CommandMappingsResponseEvent, self._on_command_mappings_response),
+                (CommandValidationErrorEvent, self._on_command_validation_error),
+            ]
+        )
 
     def on_view_ready(self):
         """Request initial command mappings when view is ready."""
@@ -56,19 +55,16 @@ class CommandsController(BaseController):
             action_value=hotkey_value,
             is_custom=True,
             short_description="Custom Command",
-            long_description=f"Custom hotkey command: {hotkey_value}"
+            long_description=f"Custom hotkey command: {hotkey_value}",
         )
-        
+
         event = AddCustomCommandEvent(command=command)
         self.publish_event(event)
 
     def handle_change_command_phrase(self, command: AutomationCommand, new_phrase: str):
         """Handle change command phrase request from the view."""
         old_phrase = command.command_key
-        event = UpdateCommandPhraseEvent(
-            old_command_phrase=old_phrase,
-            new_command_phrase=new_phrase
-        )
+        event = UpdateCommandPhraseEvent(old_command_phrase=old_phrase, new_command_phrase=new_phrase)
         self.publish_event(event)
 
     def handle_delete_command(self, command: AutomationCommand):
@@ -83,7 +79,7 @@ class CommandsController(BaseController):
 
     async def _on_command_mappings_updated(self, event):
         """Handle command mappings updated event."""
-        if hasattr(event, 'updated_mappings') and event.updated_mappings is not None:
+        if hasattr(event, "updated_mappings") and event.updated_mappings is not None:
             # Use the mappings provided in the event
             self.available_commands = event.updated_mappings
             if self.view_callback:
@@ -94,7 +90,7 @@ class CommandsController(BaseController):
 
     async def _on_command_mappings_response(self, event):
         """Handle command mappings response event."""
-        if hasattr(event, 'mappings'):
+        if hasattr(event, "mappings"):
             self.available_commands = event.mappings
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.display_commands, self.available_commands)
@@ -102,13 +98,9 @@ class CommandsController(BaseController):
     async def _on_command_validation_error(self, event):
         """Handle command validation error event."""
         error_message = event.error_message
-        command_phrase = getattr(event, 'command_phrase', 'Unknown')
-        
+        command_phrase = getattr(event, "command_phrase", "Unknown")
+
         self.logger.error(f"Command validation error for phrase '{command_phrase}': {error_message}")
-        
+
         if self.view_callback:
-            self.schedule_ui_update(
-                self.view_callback.show_error_message, 
-                "Validation Error", 
-                error_message
-            ) 
+            self.schedule_ui_update(self.view_callback.show_error_message, "Validation Error", error_message)

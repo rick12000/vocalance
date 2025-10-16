@@ -1,20 +1,26 @@
 # filepath: src/events/grid_events.py
-from iris.app.events.base_event import BaseEvent, EventPriority
-from pydantic import Field
-from typing import Optional, Dict, Any, List, Literal
 import uuid
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import Field
+
+from iris.app.events.base_event import BaseEvent, EventPriority
+
 
 class ShowGridRequestEventData(BaseEvent):
     rows: Optional[int] = None
     cols: Optional[int] = None
     priority: EventPriority = EventPriority.NORMAL
 
+
 class HideGridRequestEventData(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
+
 
 class ClickGridCellRequestEventData(BaseEvent):
     cell_label: str = Field(description="The label of the grid cell to click (e.g., 'A1', 'C5').")
     priority: EventPriority = EventPriority.NORMAL
+
 
 class UpdateGridConfigRequestEventData(BaseEvent):
     rows: Optional[int] = None
@@ -28,11 +34,13 @@ class UpdateGridConfigRequestEventData(BaseEvent):
     show_labels: Optional[bool] = None
     priority: EventPriority = EventPriority.NORMAL
 
+
 class GridVisibilityChangedEventData(BaseEvent):
     visible: bool
     rows: Optional[int] = None
     cols: Optional[int] = None
     priority: EventPriority = EventPriority.LOW
+
 
 class GridConfigUpdatedEventData(BaseEvent):
     rows: int
@@ -47,11 +55,13 @@ class GridConfigUpdatedEventData(BaseEvent):
     message: str = "Grid configuration updated."
     priority: EventPriority = EventPriority.LOW
 
+
 class GridInteractionSuccessEventData(BaseEvent):
     operation: Literal["select_cell"]
     details: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
     priority: EventPriority = EventPriority.LOW
+
 
 class GridInteractionFailedEventData(BaseEvent):
     operation: Literal["select_cell"]
@@ -60,13 +70,14 @@ class GridInteractionFailedEventData(BaseEvent):
     details: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
 
+
 class RequestClickCountsForGridEventData(BaseEvent):
     rect_definitions: List[Dict[str, Any]]
     request_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     priority: EventPriority = EventPriority.NORMAL
 
+
 class ClickCountsForGridEventData(BaseEvent):
     request_id: str
     processed_rects_with_clicks: List[Dict[str, Any]]
     priority: EventPriority = EventPriority.NORMAL
-

@@ -1,41 +1,38 @@
-import logging
-from typing import List, Optional, Dict, Any
-import asyncio
+from typing import Any, Dict, List, Optional
+
 from iris.app.config.app_config import GlobalAppConfig
+from iris.app.events.dictation_events import AgenticPromptActionRequest, AgenticPromptListUpdatedEvent, AgenticPromptUpdatedEvent
 from iris.app.ui.controls.base_control import BaseController
-from iris.app.events.dictation_events import (
-    AgenticPromptActionRequest,
-    AgenticPromptListUpdatedEvent,
-    AgenticPromptUpdatedEvent
-)
 
 
 class DictationController(BaseController):
     """Business logic controller for dictation functionality."""
-    
+
     def __init__(self, event_bus, event_loop, logger, config: GlobalAppConfig):
         super().__init__(event_bus, event_loop, logger, "DictationController")
         self.config = config
-        
+
         # State
         self.prompts = []
         self.current_prompt_id = None
-        
-        self.subscribe_to_events([
-            (AgenticPromptListUpdatedEvent, self._on_prompts_updated),
-            (AgenticPromptUpdatedEvent, self._on_current_prompt_updated),
-        ])
+
+        self.subscribe_to_events(
+            [
+                (AgenticPromptListUpdatedEvent, self._on_prompts_updated),
+                (AgenticPromptUpdatedEvent, self._on_current_prompt_updated),
+            ]
+        )
 
     async def _on_prompts_updated(self, event):
         """Handle prompts list updated event."""
-        self.prompts = getattr(event, 'prompts', [])
+        self.prompts = getattr(event, "prompts", [])
         if self.view_callback:
             self.schedule_ui_update(self.view_callback.on_prompts_updated, self.prompts)
         self.notify_status(f"Loaded {len(self.prompts)} prompts.")
 
     async def _on_current_prompt_updated(self, event):
         """Handle current prompt updated event."""
-        if hasattr(event, 'prompt_id'):
+        if hasattr(event, "prompt_id"):
             self.current_prompt_id = event.prompt_id
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_current_prompt_updated, self.current_prompt_id)
@@ -46,11 +43,11 @@ class DictationController(BaseController):
         if not name.strip():
             self.notify_status("Please enter a prompt name.", True)
             return False
-        
+
         if not prompt_text.strip():
             self.notify_status("Please enter prompt instructions.", True)
             return False
-        
+
         event = AgenticPromptActionRequest(action="add_prompt", name=name, text=prompt_text)
         self.publish_event(event)
         self.notify_status(f"Added custom prompt: {name}")
@@ -66,10 +63,10 @@ class DictationController(BaseController):
         """Delete a prompt."""
         prompt_name = "Unknown"
         for prompt_data in self.prompts:
-            if prompt_data.get('id') == prompt_id:
-                prompt_name = prompt_data.get('name', 'Unknown')
+            if prompt_data.get("id") == prompt_id:
+                prompt_name = prompt_data.get("name", "Unknown")
                 break
-        
+
         event = AgenticPromptActionRequest(action="delete_prompt", prompt_id=prompt_id)
         self.publish_event(event)
         self.notify_status(f"Deleted prompt: {prompt_name}")
@@ -80,11 +77,11 @@ class DictationController(BaseController):
         if not name.strip():
             self.notify_status("Please enter a prompt name.", True)
             return False
-        
+
         if not text.strip():
             self.notify_status("Please enter prompt instructions.", True)
             return False
-        
+
         event = AgenticPromptActionRequest(action="edit_prompt", prompt_id=prompt_id, name=name, text=text)
         self.publish_event(event)
         self.notify_status(f"Updated prompt: {name}")
@@ -102,4 +99,4 @@ class DictationController(BaseController):
 
     def get_current_prompt_id(self) -> Optional[str]:
         """Get current prompt ID."""
-        return self.current_prompt_id 
+        return self.current_prompt_id

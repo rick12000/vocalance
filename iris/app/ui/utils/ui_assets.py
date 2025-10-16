@@ -5,17 +5,19 @@ Handles loading, caching, and management of UI assets like images and icons.
 Single responsibility: Asset loading and caching.
 """
 
-import customtkinter as ctk
 import logging
-import sys
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Dict, Optional, Tuple
+
+import customtkinter as ctk
 from PIL import Image
 
+from iris.app.config.app_config import AssetPathsConfig
 from iris.app.ui import ui_theme
 from iris.app.ui.utils.icon_transform_utils import transform_monochrome_icon
-from iris.app.config.app_config import AssetPathsConfig
+
 logger = logging.getLogger("UIAssets")
+
 
 class AssetCache:
     """Simple asset cache for images and icons."""
@@ -29,74 +31,72 @@ class AssetCache:
     def _setup_assets_path(self) -> None:
         """Set up the path to UI assets."""
         self._assets_path = Path(self._asset_paths_config.logo_dir)
-    
+
     def get_assets_path(self) -> Optional[Path]:
         """Get the assets directory path."""
         return self._assets_path
-    
+
     def load_image(self, filename: str, size: Optional[Tuple[int, int]] = None) -> Optional[ctk.CTkImage]:
         """
         Load and cache an image for use in CustomTkinter components.
-        
+
         Args:
             filename: Image filename in assets directory
             size: Optional (width, height) tuple for resizing
-            
+
         Returns:
             CTkImage object or None if loading fails
         """
         cache_key = f"{filename}_{size}"
-        
+
         if cache_key in self._image_cache:
             return self._image_cache[cache_key]
-        
+
         if not self._assets_path:
             logger.error("Assets path not available")
             return None
-        
+
         try:
             image_path = self._assets_path / filename
             if not image_path.exists():
                 logger.warning(f"Image file not found: {image_path}")
                 return None
-            
+
             # Load with PIL
             pil_image = Image.open(image_path)
-            
+
             # Resize if requested
             if size:
                 pil_image = pil_image.resize(size, Image.Resampling.LANCZOS)
-            
+
             # Create CTkImage
-            ctk_image = ctk.CTkImage(
-                light_image=pil_image,
-                dark_image=pil_image,
-                size=size or pil_image.size
-            )
-            
+            ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=size or pil_image.size)
+
             # Cache the result
             self._image_cache[cache_key] = ctk_image
             logger.info(f"Loaded and cached image: {filename}")
             return ctk_image
-            
+
         except Exception as e:
             logger.error(f"Failed to load image {filename}: {e}")
             return None
-    
+
     def get_icon_path(self) -> Optional[Path]:
         """Get the path to the application icon."""
         if not self._assets_path:
             return None
-        
+
         icon_path = self._assets_path / "icon.ico"
         return icon_path if icon_path.exists() else None
-    
+
     def clear_cache(self) -> None:
         """Clear the image cache."""
         self._image_cache.clear()
         logger.info("Asset cache cleared")
 
-    def load_image_monochrome_colored(self, filename: str, color: str, size: Optional[Tuple[int, int]] = None) -> Optional[ctk.CTkImage]:
+    def load_image_monochrome_colored(
+        self, filename: str, color: str, size: Optional[Tuple[int, int]] = None
+    ) -> Optional[ctk.CTkImage]:
         """
         Load and cache a monochrome image, recolor it using the provided color, and return a CTkImage.
 
@@ -123,11 +123,7 @@ class AssetCache:
             if pil_image is None:
                 logger.error(f"Failed to recolor image {filename}")
                 return None
-            ctk_image = ctk.CTkImage(
-                light_image=pil_image,
-                dark_image=pil_image,
-                size=size or pil_image.size
-            )
+            ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=size or pil_image.size)
             self._image_cache[cache_key] = ctk_image
             logger.info(f"Loaded and cached colored image: {filename} with color {color}")
             return ctk_image
@@ -155,9 +151,13 @@ class AssetCache:
 
         if size is not None:
             # Use exact size if provided
-            return transform_monochrome_icon(str(logo_path), logo_props.color, size, force_all_pixels=True, preserve_aspect_ratio=True)
+            return transform_monochrome_icon(
+                str(logo_path), logo_props.color, size, force_all_pixels=True, preserve_aspect_ratio=True
+            )
         else:
             # Use max_dimension constraint with aspect ratio preservation
             # Create a square constraint that will be scaled down by aspect ratio preservation
             constraint_size = (max_dimension, max_dimension)
-            return transform_monochrome_icon(str(logo_path), logo_props.color, constraint_size, force_all_pixels=True, preserve_aspect_ratio=True)
+            return transform_monochrome_icon(
+                str(logo_path), logo_props.color, constraint_size, force_all_pixels=True, preserve_aspect_ratio=True
+            )

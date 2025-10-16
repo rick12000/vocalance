@@ -1,20 +1,21 @@
 import logging
 import math
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.events.core_events import CommandExecutedStatusEvent
+from iris.app.config.command_types import GridCancelCommand, GridSelectCommand, GridShowCommand
+from iris.app.event_bus import EventBus
 from iris.app.events.command_events import GridCommandParsedEvent
+from iris.app.events.core_events import CommandExecutedStatusEvent
 from iris.app.events.grid_events import (
-    GridVisibilityChangedEventData, GridConfigUpdatedEventData,
-    ShowGridRequestEventData, HideGridRequestEventData, 
-    ClickGridCellRequestEventData, UpdateGridConfigRequestEventData
+    ClickGridCellRequestEventData,
+    GridConfigUpdatedEventData,
+    GridVisibilityChangedEventData,
+    HideGridRequestEventData,
+    ShowGridRequestEventData,
+    UpdateGridConfigRequestEventData,
 )
-from iris.app.config.command_types import GridShowCommand, GridSelectCommand, GridCancelCommand
-from iris.app.utils.event_utils import ThreadSafeEventPublisher, EventSubscriptionManager
-
-
+from iris.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,10 @@ class GridService:
         self._event_bus = event_bus
         self._config = config
         self._visible = False
-        
+
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="GridService")
-        
+
         logger.info("GridService initialized")
 
     def setup_subscriptions(self) -> None:
@@ -38,10 +39,10 @@ class GridService:
             (GridCommandParsedEvent, self._handle_grid_command),
             (UpdateGridConfigRequestEventData, self._handle_config_update),
         ]
-        
+
         for event_type, handler in subscriptions:
             self.subscription_manager.subscribe(event_type, handler)
-        
+
         logger.info("GridService subscriptions set up")
 
     def _calculate_grid_dimensions(self, num_rects: int) -> tuple[int, int]:
@@ -56,13 +57,12 @@ class GridService:
         event = GridVisibilityChangedEventData(visible=visible, rows=rows, cols=cols)
         self.event_publisher.publish(event)
 
-    def _publish_command_status(self, command_type: str, success: bool, message: str, details: Optional[Dict[str, Any]] = None) -> None:
+    def _publish_command_status(
+        self, command_type: str, success: bool, message: str, details: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Publish command execution status."""
         status_event = CommandExecutedStatusEvent(
-            command={"command_type": command_type, "details": details or {}},
-            success=success,
-            message=message,
-            source="grid"
+            command={"command_type": command_type, "details": details or {}}, success=success, message=message, source="grid"
         )
         self.event_publisher.publish(status_event)
 
@@ -70,42 +70,46 @@ class GridService:
         """Handle all grid commands through centralized dispatch."""
         command = event_data.command
         command_type = type(command).__name__
-        
+
         try:
             if isinstance(command, GridShowCommand):
                 num_rects = command.num_rects or self._config.grid.default_rect_count
                 rows, cols = self._calculate_grid_dimensions(num_rects)
-                
+
                 # Publish show request and update visibility
                 show_event = ShowGridRequestEventData(rows=rows, cols=cols)
                 self.event_publisher.publish(show_event)
                 self._publish_visibility_event(True, rows, cols)
-                
+
                 self._publish_command_status(command_type, True, f"Grid shown with {num_rects} cells", {"num_rects": num_rects})
-                
+
             elif isinstance(command, GridSelectCommand):
                 if not self._visible:
                     self._publish_command_status(command_type, False, "Grid not visible")
                     return
-                
+
                 # Publish cell click request
                 click_event = ClickGridCellRequestEventData(cell_label=str(command.selected_number))
                 self.event_publisher.publish(click_event)
-                
-                self._publish_command_status(command_type, True, f"Grid cell {command.selected_number} selected", 
-                                           {"selected_number": command.selected_number})
-                
+
+                self._publish_command_status(
+                    command_type,
+                    True,
+                    f"Grid cell {command.selected_number} selected",
+                    {"selected_number": command.selected_number},
+                )
+
             elif isinstance(command, GridCancelCommand):
                 if self._visible:
                     hide_event = HideGridRequestEventData()
                     self.event_publisher.publish(hide_event)
                     self._publish_visibility_event(False)
-                
+
                 self._publish_command_status(command_type, True, "Grid hidden")
-                
+
             else:
                 logger.warning(f"Unknown grid command type: {command_type}")
-                
+
         except Exception as e:
             logger.error(f"Error executing {command_type}: {e}", exc_info=True)
             self._publish_command_status(command_type, False, f"Error: {e}")
@@ -113,11 +117,20 @@ class GridService:
     async def _handle_config_update(self, event_data: UpdateGridConfigRequestEventData) -> None:
         """Handle grid configuration updates."""
         config_fields = [
-            "rows", "cols", "cell_width", "cell_height", "line_color", 
-            "label_color", "font_size", "font_name", "show_labels", 
-            "default_rect_count", "trigger_keyword", "cancel_phrases"
+            "rows",
+            "cols",
+            "cell_width",
+            "cell_height",
+            "line_color",
+            "label_color",
+            "font_size",
+            "font_name",
+            "show_labels",
+            "default_rect_count",
+            "trigger_keyword",
+            "cancel_phrases",
         ]
-        
+
         updated_fields = {}
         for field in config_fields:
             value = getattr(event_data, field, None)
@@ -126,7 +139,7 @@ class GridService:
                     value = list(set(value))  # Remove duplicates
                 setattr(self._config.grid, field, value)
                 updated_fields[field] = value
-        
+
         if updated_fields:
             # Create and publish config update event
             config_event = GridConfigUpdatedEventData(
@@ -142,7 +155,7 @@ class GridService:
                 default_rect_count=self._config.grid.default_rect_count,
                 trigger_keyword=self._config.grid.trigger_keyword,
                 cancel_phrases=list(self._config.grid.cancel_phrases),
-                message=f"Updated: {list(updated_fields.keys())}"
+                message=f"Updated: {list(updated_fields.keys())}",
             )
             self.event_publisher.publish(config_event)
             logger.info(f"Grid config updated: {updated_fields}")
@@ -160,5 +173,3 @@ class GridService:
         """Shut down the grid service."""
         logger.info("Shutting down GridService")
         self.subscription_manager.unsubscribe_all()
-
-

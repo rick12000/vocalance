@@ -16,7 +16,7 @@ def _get_expected_text(filename: str) -> str:
 
 def _load_audio_bytes(file_path: Path) -> bytes:
     """Load audio bytes from file."""
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         return f.read()
 
 
@@ -33,17 +33,14 @@ def _calculate_word_accuracy(expected: str, recognized: str):
         (accuracy, correct_words, total_words)
     """
     expected_words = expected.lower().strip().split()
-    recognized_words = [w.lower().rstrip('.,!?;:') for w in recognized.strip().split()]
+    recognized_words = [w.lower().rstrip(".,!?;:") for w in recognized.strip().split()]
 
     total_words = len(expected_words)
 
     if total_words == 0:
         return 0.0, 0, 0
 
-    correct_words = sum(
-        1 for exp_word in expected_words
-        if exp_word in recognized_words
-    )
+    correct_words = sum(1 for exp_word in expected_words if exp_word in recognized_words)
 
     accuracy = correct_words / total_words
     return accuracy
@@ -67,13 +64,13 @@ def test_vosk_recognition_accuracy_and_performance(vosk_stt, vosk_test_files, sa
         accuracy = 1.0 if is_correct else 0.0
 
         result = {
-            'filename': file_path.name,
-            'expected': expected_text,
-            'recognized': recognized_text.strip().lower(),
-            'correct': is_correct,
-            'accuracy': accuracy,
-            'runtime_ms': runtime_ms,
-            'word_count': word_count
+            "filename": file_path.name,
+            "expected": expected_text,
+            "recognized": recognized_text.strip().lower(),
+            "correct": is_correct,
+            "accuracy": accuracy,
+            "runtime_ms": runtime_ms,
+            "word_count": word_count,
         }
 
         if word_count == 1:
@@ -83,21 +80,21 @@ def test_vosk_recognition_accuracy_and_performance(vosk_stt, vosk_test_files, sa
 
     # Calculate overall metrics
     all_results = single_word_results + multi_word_results
-    overall_accuracy = sum(r['accuracy'] for r in all_results) / len(all_results)
-    overall_avg_runtime = sum(r['runtime_ms'] for r in all_results) / len(all_results)
+    overall_accuracy = sum(r["accuracy"] for r in all_results) / len(all_results)
+    overall_avg_runtime = sum(r["runtime_ms"] for r in all_results) / len(all_results)
 
     # Calculate single-word metrics
     if single_word_results:
-        single_word_accuracy = sum(r['accuracy'] for r in single_word_results) / len(single_word_results)
-        single_word_avg_runtime = sum(r['runtime_ms'] for r in single_word_results) / len(single_word_results)
+        single_word_accuracy = sum(r["accuracy"] for r in single_word_results) / len(single_word_results)
+        single_word_avg_runtime = sum(r["runtime_ms"] for r in single_word_results) / len(single_word_results)
     else:
         single_word_accuracy = None
         single_word_avg_runtime = None
 
     # Calculate multi-word metrics
     if multi_word_results:
-        multi_word_accuracy = sum(r['accuracy'] for r in multi_word_results) / len(multi_word_results)
-        multi_word_avg_runtime = sum(r['runtime_ms'] for r in multi_word_results) / len(multi_word_results)
+        multi_word_accuracy = sum(r["accuracy"] for r in multi_word_results) / len(multi_word_results)
+        multi_word_avg_runtime = sum(r["runtime_ms"] for r in multi_word_results) / len(multi_word_results)
     else:
         multi_word_accuracy = None
         multi_word_avg_runtime = None
@@ -125,10 +122,7 @@ def test_whisper_dictation_accuracy_and_performance(whisper_stt, dictation_file,
     runtime_s = runtime_ms / 1000
 
     # NOTE: We use per word accuracy on a single prompt for Whisper:
-    accuracy = _calculate_word_accuracy(
-        expected_text, recognized_text
-    )
+    accuracy = _calculate_word_accuracy(expected_text, recognized_text)
 
     assert runtime_s < 2.0
     assert accuracy == 1.0
-

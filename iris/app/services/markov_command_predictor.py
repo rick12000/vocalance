@@ -7,56 +7,48 @@ Uses first-order Markov chain to enable ultra-low latency command execution.
 
 import logging
 import time
-import asyncio
+from collections import Counter, defaultdict, deque
 from typing import Dict, List, Optional, Tuple
-from collections import defaultdict, Counter, deque
-from datetime import datetime, timedelta
 
-from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.services.storage.storage_service import StorageService
+from iris.app.event_bus import EventBus
+from iris.app.events.core_events import AudioDetectedEvent, MarkovPredictionEvent, MarkovPredictionFeedbackEvent
 from iris.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
-from iris.app.events.core_events import AudioDetectedEvent
-from iris.app.events.core_events import MarkovPredictionEvent, MarkovPredictionFeedbackEvent
+from iris.app.services.storage.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
 
 class MarkovCommandService:
     """Backoff Markov chain predictor (2nd-4th order) for command sequences"""
-    
-    def __init__(
-        self,
-        event_bus: EventBus,
-        config: GlobalAppConfig,
-        storage: StorageService
-    ):
+
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
         self._event_bus = event_bus
         self._config = config
         self._markov_config = config.markov_predictor
         self._storage = storage
-        
+
         # Multi-order transition counts: {order: {context: Counter}}
         self._transition_counts: Dict[int, Dict[tuple, Counter]] = {
             2: defaultdict(Counter),
             3: defaultdict(Counter),
-            4: defaultdict(Counter)
+            4: defaultdict(Counter),
         }
-        
+
         # Command history buffer for in-memory model (NOT for storage)
         self._command_history: deque = deque(maxlen=self._markov_config.max_order)
         self._model_trained = False
-        
+
         # Fast-track prediction on audio detection
         self._last_prediction_time = 0.0
         self._prediction_cooldown = 0.05
-        
+
         # Prediction verification and cooldown management
         self._pending_prediction: Optional[Tuple[str, float]] = None
         self._cooldown_remaining = 0
-        
+
         logger.info(f"MarkovCommandPredictor initialized (orders {self._markov_config.min_order}-{self._markov_config.max_order})")
-    
+
     async def initialize(self) -> bool:
         """Initialize and train the model"""
         try:
@@ -65,129 +57,122 @@ class MarkovCommandService:
         except Exception as e:
             logger.error(f"Failed to initialize predictor: {e}", exc_info=True)
             return False
-    
+
     def setup_subscriptions(self) -> None:
         """Setup event subscriptions"""
         self._event_bus.subscribe(event_type=AudioDetectedEvent, handler=self._handle_audio_detected_fast_track)
         self._event_bus.subscribe(event_type=MarkovPredictionFeedbackEvent, handler=self._handle_prediction_feedback)
-        
+
         logger.info("Markov predictor event subscriptions configured")
-    
+
     async def _train_model(self) -> None:
         """Train multi-order Markov models on historical command data (async)"""
         try:
             # Clear existing models
             for order in range(self._markov_config.min_order, self._markov_config.max_order + 1):
                 self._transition_counts[order].clear()
-            
+
             # Train each order separately
             for order in range(self._markov_config.min_order, self._markov_config.max_order + 1):
                 await self._train_order(order)
-            
+
             self._model_trained = True
-            
+
         except Exception as e:
             logger.error(f"Error training model: {e}", exc_info=True)
-    
+
     async def _train_order(self, order: int) -> None:
         """Train a specific order Markov chain"""
         try:
             history = await self._load_filtered_history(order)
-            
+
             if len(history) < order + 1:
                 logger.info(f"Insufficient history for order-{order} chain (need {order + 1}, have {len(history)})")
                 return
-            
+
             # Extract command texts
             commands = [cmd.command for cmd in history]
-            
+
             # Build transitions for this order
             transitions_built = 0
             for i in range(len(commands) - order):
-                context = tuple(commands[i:i + order])
+                context = tuple(commands[i : i + order])
                 next_cmd = commands[i + order]
                 self._transition_counts[order][context][next_cmd] += 1
                 transitions_built += 1
-            
+
             logger.info(
                 f"Order-{order} chain trained: {len(history)} commands, "
                 f"{transitions_built} transitions, "
                 f"{len(self._transition_counts[order])} unique contexts"
             )
-            
+
         except Exception as e:
             logger.error(f"Error training order-{order} model: {e}", exc_info=True)
-    
+
     async def _load_filtered_history(self, order: int) -> List[CommandHistoryEntry]:
         """Load and filter command history based on config for specific order"""
         history_data = await self._storage.read(model_type=CommandHistoryData)
         all_history = history_data.history
-        
+
         if not all_history:
             return []
-        
+
         # Get order-specific windows
         days_window = self._markov_config.training_window_days.get(order, 7)
         commands_window = self._markov_config.training_window_commands.get(order, 1000)
-        
+
         cutoff_timestamp = time.time() - (days_window * 86400)
-        filtered = [
-            cmd for cmd in all_history
-            if cmd.timestamp >= cutoff_timestamp
-        ]
-        
+        filtered = [cmd for cmd in all_history if cmd.timestamp >= cutoff_timestamp]
+
         if len(filtered) > commands_window:
             filtered = filtered[-commands_window:]
-        
+
         return filtered
-    
+
     async def _handle_audio_detected_fast_track(self, event: AudioDetectedEvent) -> None:
         """FAST-TRACK: Predict immediately when audio is first detected"""
         try:
             current_time = time.time()
-            
+
             # Cooldown to prevent spam
             if current_time - self._last_prediction_time < self._prediction_cooldown:
                 return
-            
+
             if not self._markov_config.enabled:
                 return
-            
+
             # Check if we're in cooldown from incorrect prediction
             if self._cooldown_remaining > 0:
                 logger.debug(f"Skipping Markov (cooldown: {self._cooldown_remaining} commands remaining)")
                 return
-            
+
             if not self._model_trained or len(self._command_history) < self._markov_config.min_order:
                 return
-            
+
             # Backoff prediction using context
             prediction = self._predict_next_command()
-            
+
             if prediction:
                 predicted_cmd, confidence, order = prediction
-                
+
                 if confidence >= self._markov_config.confidence_threshold:
                     self._last_prediction_time = current_time
-                    
+
                     # Store prediction for feedback verification
                     self._pending_prediction = (predicted_cmd, confidence)
-                    
-                    logger.info(
-                        f"ULTRA-FAST (order-{order}): '{predicted_cmd}' (confidence={confidence:.2%})"
-                    )
-                    
+
+                    logger.info(f"ULTRA-FAST (order-{order}): '{predicted_cmd}' (confidence={confidence:.2%})")
+
                     await self._event_bus.publish(
                         MarkovPredictionEvent(
-                            predicted_command=predicted_cmd,
-                            confidence=confidence,
-                            audio_id=int(current_time * 1000000)
+                            predicted_command=predicted_cmd, confidence=confidence, audio_id=int(current_time * 1000000)
                         )
                     )
-        
+
         except Exception as e:
             logger.error(f"Error in fast-track handling: {e}", exc_info=True)
-    
+
     async def _handle_prediction_feedback(self, event: MarkovPredictionFeedbackEvent) -> None:
         """
         Handle feedback from the parser about prediction accuracy.
@@ -197,7 +182,7 @@ class MarkovCommandService:
             actual_command = event.actual_command
             was_correct = event.was_correct
             source = event.source
-            
+
             if was_correct:
                 logger.info(f"Markov prediction CORRECT (verified by {source}): '{event.predicted_command}'")
             else:
@@ -207,54 +192,51 @@ class MarkovCommandService:
                 )
                 # Enter cooldown mode
                 self._cooldown_remaining = self._markov_config.incorrect_prediction_cooldown
-            
+
             # Update in-memory command history (for model predictions)
             self._command_history.append(actual_command)
-            
+
         except Exception as e:
             logger.error(f"Error handling prediction feedback: {e}", exc_info=True)
-    
+
     def _predict_next_command(self) -> Optional[Tuple[str, float, int]]:
         """Predict next command using backoff strategy (tries highest order first)"""
-        
+
         # Try from highest to lowest order
         for order in range(self._markov_config.max_order, self._markov_config.min_order - 1, -1):
             if len(self._command_history) < order:
                 continue
-            
+
             # Get context of length 'order'
             context = tuple(list(self._command_history)[-order:])
-            
+
             if context not in self._transition_counts[order]:
                 continue
-            
+
             transitions = self._transition_counts[order][context]
-            
+
             if not transitions:
                 continue
-            
+
             total_count = sum(transitions.values())
-            
+
             # Get order-specific minimum frequency
             min_freq = self._markov_config.min_command_frequency.get(order, 2)
-            valid_transitions = {
-                cmd: count for cmd, count in transitions.items()
-                if count >= min_freq
-            }
-            
+            valid_transitions = {cmd: count for cmd, count in transitions.items() if count >= min_freq}
+
             if not valid_transitions:
                 continue
-            
+
             # Found valid prediction at this order
             most_common_cmd = max(valid_transitions.items(), key=lambda x: x[1])
             predicted_cmd, count = most_common_cmd
-            
+
             confidence = count / total_count
-            
+
             return (predicted_cmd, confidence, order)
-        
+
         return None
-    
+
     async def retrain(self) -> bool:
         """Manually trigger model retraining"""
         try:
@@ -263,7 +245,7 @@ class MarkovCommandService:
         except Exception as e:
             logger.error(f"Error during retraining: {e}", exc_info=True)
             return False
-    
+
     def on_confidence_threshold_updated(self, threshold: float) -> None:
         """
         Called by SettingsUpdateCoordinator when confidence threshold is updated.
@@ -272,11 +254,10 @@ class MarkovCommandService:
         old_threshold = self._markov_config.confidence_threshold
         self._markov_config.confidence_threshold = threshold
         logger.info(f"Markov predictor confidence threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
-    
+
     async def shutdown(self) -> None:
         """Shutdown predictor"""
         try:
             logger.info("Markov predictor shutdown complete")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}", exc_info=True)
-    
