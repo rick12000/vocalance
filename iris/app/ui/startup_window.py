@@ -11,7 +11,7 @@ import time
 import queue
 
 from iris.app.ui import ui_theme
-from iris.app.ui.utils.ui_icon_utils import set_window_icon_with_parent_inheritance
+from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from iris.app.ui.utils.logo_service import LogoService
 from iris.app.ui.utils.ui_assets import AssetCache
 from iris.app.config.app_config import AssetPathsConfig
@@ -70,18 +70,21 @@ class StartupWindow:
 
             # Window configuration
             self._center_window()
-            set_window_icon_with_parent_inheritance(self.window, self.main_root)
             self.window.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing during startup
             self.window.attributes("-toolwindow", False)
             self.window.attributes("-disabled", False)
 
             # Build UI
             self._create_ui()
-            self._start_queue_checker()
-
-            # Display
+            
+            # Display window first
             self.window.update_idletasks()
             self.window.lift()
+            
+            # Set icon after window is displayed with delayed calls to ensure persistence
+            self._set_icon_with_retry()
+            
+            self._start_queue_checker()
             self.logger.info("Startup window displayed")
 
         except Exception as e:
@@ -311,6 +314,31 @@ class StartupWindow:
         """Check if window is visible."""
         with self._lock:
             return self.window is not None and not self.is_closed
+
+    def _set_icon_with_retry(self) -> None:
+        """Set icon with retries to ensure it persists and doesn't revert to CustomTkinter default."""
+        if not self.window or self.is_closed:
+            return
+        
+        try:
+            set_window_icon_robust(self.window)
+            
+            # Schedule additional attempts to prevent CustomTkinter from overriding it
+            self.window.after(100, self._reinforce_icon)
+            self.window.after(300, self._reinforce_icon)
+            
+        except Exception as e:
+            self.logger.warning(f"Error setting startup window icon: {e}")
+    
+    def _reinforce_icon(self) -> None:
+        """Reinforce the icon setting to prevent CustomTkinter override."""
+        if not self.window or self.is_closed:
+            return
+        
+        try:
+            set_window_icon_robust(self.window)
+        except Exception as e:
+            self.logger.debug(f"Error reinforcing icon: {e}")
 
 
 class StartupProgressTracker:
