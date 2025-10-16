@@ -21,6 +21,7 @@ class FontFamily(BaseModel):
     primary: str = "Manrope"
     secondary: str = "Segoe UI"
     fallback: str = "Arial"
+    monospace: str = "Courier"
     _font_service = None
 
     def set_font_service(self, font_service):
@@ -36,6 +37,10 @@ class FontFamily(BaseModel):
                 pass
         # Fallback to default fonts
         return self.secondary
+    
+    def get_monospace_font(self) -> str:
+        """Get the monospace font family (e.g. for spinner animation)"""
+        return self.monospace
     
     def get_button_font(self, size: int = None) -> tuple:
         """Get standardized button font configuration"""

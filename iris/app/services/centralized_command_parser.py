@@ -18,14 +18,14 @@ Key features:
 import logging
 import time
 import pyautogui
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple
 import inspect
 
 from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.automation_command_registry import AutomationCommandRegistry
 from iris.app.services.storage.storage_service import StorageService
-from iris.app.services.storage.storage_models import CommandsData
+from iris.app.services.storage.storage_models import CommandsData, CommandHistoryData, CommandHistoryEntry
 from iris.app.config.command_types import (
     # Base classes
     BaseCommand, ParseResultType, NoMatchResult, ErrorResult,
@@ -44,7 +44,8 @@ from iris.app.config.command_types import (
 
 # Import events
 from iris.app.events.core_events import (
-    CustomSoundRecognizedEvent, ProcessCommandPhraseEvent
+    CustomSoundRecognizedEvent, ProcessCommandPhraseEvent,
+    MarkovPredictionEvent, MarkovPredictionFeedbackEvent
 )
 from iris.app.events.core_events import CommandTextRecognizedEvent
 from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
@@ -94,6 +95,14 @@ class CentralizedCommandParser:
         self._last_text = None
         self._last_text_time = 0.0
         self._duplicate_interval = 1.0
+        
+        # In-memory command history (fast, no I/O during commands)
+        # Accumulated throughout session, written once at shutdown
+        self._session_command_history: List[CommandHistoryEntry] = []
+        
+        # Markov prediction deduplication
+        self._recent_predictions: Dict[float, Tuple[str, float]] = {}
+        self._prediction_window = 0.5  # 500ms deduplication window
         
         logger.info("CentralizedCommandParser initialized")
 
@@ -160,6 +169,7 @@ class CentralizedCommandParser:
             (CustomSoundRecognizedEvent, self._handle_custom_sound_recognized),
             (SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated),
             (SoundMappingsResponseEvent, self._handle_sound_mappings_response),
+            (MarkovPredictionEvent, self._handle_markov_prediction),
         ]
         
         for event_type, handler in subscriptions:
@@ -168,9 +178,19 @@ class CentralizedCommandParser:
         logger.info("CentralizedCommandParser subscriptions set up")
 
     async def initialize(self) -> bool:
-        """Initialize the service by requesting current sound mappings"""
+        """Initialize the service by requesting current sound mappings and loading existing history"""
         try:
             await self._event_bus.publish(RequestSoundMappingsEvent())
+            
+            # Load existing command history from storage into memory
+            try:
+                history_data = await self._storage.read(model_type=CommandHistoryData)
+                self._session_command_history = list(history_data.history)
+                logger.info(f"Loaded {len(self._session_command_history)} existing commands from history")
+            except Exception as e:
+                logger.warning(f"Could not load existing history (starting fresh): {e}")
+                self._session_command_history = []
+            
             return True
         except Exception as e:
             logger.error(f"Error initializing command parser: {e}", exc_info=True)
@@ -181,13 +201,23 @@ class CentralizedCommandParser:
     # ============================================================================
 
     async def _handle_custom_sound_recognized(self, event_data: CustomSoundRecognizedEvent) -> None:
-        """Handle custom sound recognition events and map to commands"""
+        """Handle custom sound recognition events - route to unified processing"""
         sound_label = event_data.label
         
-        if sound_label in self._sound_to_command_mapping:
-            command_phrase = self._sound_to_command_mapping[sound_label]
-            logger.info(f"Sound '{sound_label}' mapped to command: '{command_phrase}'")
-            await self._process_text_input(command_phrase, source=f"sound:{sound_label}")
+        # Get mapped command (use event's mapped_command if available, otherwise check our mapping)
+        command_text = None
+        if event_data.mapped_command:
+            command_text = event_data.mapped_command
+        elif sound_label in self._sound_to_command_mapping:
+            command_text = self._sound_to_command_mapping[sound_label]
+        
+        if command_text:
+            logger.info(f"Sound '{sound_label}' → command: '{command_text}'")
+            await self._process_recognized_command(
+                command_text=command_text,
+                source="sound",
+                timestamp=time.time()
+            )
         else:
             logger.warning(f"No command mapping found for sound: {sound_label}")
 
@@ -207,10 +237,6 @@ class CentralizedCommandParser:
     # ============================================================================
     # TEXT PROCESSING METHODS
     # ============================================================================
-
-    async def _handle_command_text_recognized(self, event_data: CommandTextRecognizedEvent) -> None:
-        """Handle command text from STT service"""
-        await self._process_text_input(event_data.text, source="speech_command")
 
     async def _handle_process_command_phrase(self, event_data: ProcessCommandPhraseEvent) -> None:
         """Handle command phrase processing requests"""
@@ -482,4 +508,186 @@ class CentralizedCommandParser:
             event = event_class(**base_kwargs, command=command)
             await self._event_bus.publish(event)
         else:
-            logger.warning(f"Unknown command type: {command_type}") 
+            logger.warning(f"Unknown command type: {command_type}")
+    
+    # ============================================================================
+    # EVENT HANDLERS - ROUTE TO UNIFIED PROCESSING
+    # ============================================================================
+    
+    async def _handle_command_text_recognized(self, event: CommandTextRecognizedEvent) -> None:
+        """Handle STT recognized text - route to unified processing"""
+        command_text = event.text
+        await self._process_recognized_command(
+            command_text=command_text,
+            source="stt",
+            timestamp=time.time()
+        )
+    
+    # ============================================================================
+    # MARKOV PREDICTION HANDLING
+    # ============================================================================
+    
+    async def _handle_markov_prediction(self, event: MarkovPredictionEvent) -> None:
+        """
+        Handle Markov prediction events - execute immediately and store for deduplication.
+        This provides ultra-fast command execution before STT completes.
+        """
+        try:
+            predicted_command = event.predicted_command
+            current_time = time.time()
+            
+            logger.info(f"Markov prediction received: '{predicted_command}' (confidence={event.confidence:.2%})")
+            
+            # Store prediction for deduplication (keyed by timestamp)
+            self._recent_predictions[current_time] = (predicted_command, current_time)
+            
+            # Clean old predictions (outside deduplication window)
+            self._clean_old_predictions(current_time)
+            
+            # Parse and execute the predicted command immediately
+            await self._process_text_input(text=predicted_command, source="markov")
+            
+        except Exception as e:
+            logger.error(f"Error handling Markov prediction: {e}", exc_info=True)
+    
+    def _clean_old_predictions(self, current_time: float) -> None:
+        """Remove predictions outside the deduplication window"""
+        cutoff_time = current_time - self._prediction_window
+        keys_to_remove = [ts for ts in self._recent_predictions.keys() if ts < cutoff_time]
+        for key in keys_to_remove:
+            del self._recent_predictions[key]
+    
+    def _find_recent_prediction(self, command_time: float) -> Optional[Tuple[str, float]]:
+        """
+        Find a recent Markov prediction within the deduplication window.
+        
+        Returns:
+            (predicted_command, prediction_time) if found, None otherwise
+        """
+        # Check predictions within the deduplication window
+        for pred_time, (predicted_cmd, _) in self._recent_predictions.items():
+            if command_time - pred_time < self._prediction_window:
+                return (predicted_cmd, pred_time)
+        
+        return None
+    
+    # ============================================================================
+    # UNIFIED COMMAND PROCESSING (STT + SOUND)
+    # ============================================================================
+    
+    async def _process_recognized_command(self, command_text: str, source: str, timestamp: float) -> None:
+        """
+        Unified processing for STT and Sound recognized commands.
+        Handles deduplication, feedback, history tracking, and execution.
+        
+        Args:
+            command_text: The final command text to process
+            source: "stt" or "sound"
+            timestamp: When the command was recognized
+        """
+        try:
+            # Check for recent Markov prediction
+            recent_prediction = self._find_recent_prediction(timestamp)
+            
+            if recent_prediction:
+                predicted_cmd, pred_time = recent_prediction
+                
+                # Send feedback to Markov predictor
+                was_correct = (command_text.lower().strip() == predicted_cmd.lower().strip())
+                await self._send_markov_feedback(
+                    predicted=predicted_cmd,
+                    actual=command_text,
+                    was_correct=was_correct,
+                    source=source
+                )
+                
+                # Always record actual command to history (not the prediction)
+                self._record_command_to_history(command=command_text, source=source)
+                
+                # Skip execution (Markov already executed)
+                logger.info(
+                    f"Skipping duplicate execution: Markov predicted '{predicted_cmd}', "
+                    f"{source} recognized '{command_text}' "
+                    f"({'CORRECT' if was_correct else 'INCORRECT'})"
+                )
+                
+                # Remove the prediction from tracking (processed)
+                if pred_time in self._recent_predictions:
+                    del self._recent_predictions[pred_time]
+                
+                return  # DONE - don't execute again
+            
+            # No recent prediction - normal execution path
+            logger.debug(f"No recent Markov prediction found for {source} command: '{command_text}'")
+            
+            # Parse and execute command normally
+            await self._process_text_input(text=command_text, source=source)
+            
+            # Record to history
+            self._record_command_to_history(command=command_text, source=source)
+            
+        except Exception as e:
+            logger.error(f"Error processing recognized command from {source}: {e}", exc_info=True)
+    
+    async def _send_markov_feedback(self, predicted: str, actual: str, was_correct: bool, source: str) -> None:
+        """Send feedback to Markov predictor about prediction accuracy"""
+        try:
+            feedback_event = MarkovPredictionFeedbackEvent(
+                predicted_command=predicted,
+                actual_command=actual,
+                was_correct=was_correct,
+                source=source
+            )
+            await self._event_bus.publish(feedback_event)
+            
+            logger.info(f"Markov feedback sent: {source} command '{actual}' vs prediction '{predicted}' - {'CORRECT' if was_correct else 'INCORRECT'}")
+            
+        except Exception as e:
+            logger.error(f"Error sending Markov feedback: {e}", exc_info=True)
+    
+    # ============================================================================
+    # COMMAND HISTORY TRACKING
+    # ============================================================================
+    
+    def _record_command_to_history(self, command: str, source: str) -> None:
+        """
+        Record a command to the in-memory session history (fast, no I/O).
+        Only records actual commands (STT, Sound), NOT Markov predictions.
+        History is written to storage once at shutdown.
+        """
+        try:
+            entry = CommandHistoryEntry(
+                command=command,
+                timestamp=time.time(),
+                success=None,
+                metadata={"source": source}
+            )
+            
+            self._session_command_history.append(entry)
+            logger.debug(f"Recorded to in-memory history: '{command}' (source={source}, total={len(self._session_command_history)})")
+            
+        except Exception as e:
+            logger.error(f"Error recording command to history: {e}", exc_info=True)
+    
+    async def shutdown(self) -> None:
+        """Shutdown the parser and write all session history to storage"""
+        try:
+            if self._session_command_history:
+                logger.info(f"Writing {len(self._session_command_history)} commands to storage at shutdown")
+                
+                # Create history data with all accumulated session commands
+                history_data = CommandHistoryData(history=self._session_command_history)
+                
+                # Write to storage (overwrites with full history)
+                success = await self._storage.write(data=history_data)
+                
+                if success:
+                    logger.info(f"Successfully wrote command history ({len(self._session_command_history)} commands)")
+                else:
+                    logger.error("Failed to write command history to storage")
+            else:
+                logger.info("No commands to write at shutdown")
+            
+            logger.info("CentralizedCommandParser shutdown complete")
+        except Exception as e:
+            logger.error(f"Error during parser shutdown: {e}", exc_info=True) 

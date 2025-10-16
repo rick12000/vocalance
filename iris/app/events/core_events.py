@@ -81,6 +81,15 @@ class MarkovPredictionEvent(BaseEvent):
     priority: EventPriority = EventPriority.CRITICAL
 
 
+class MarkovPredictionFeedbackEvent(BaseEvent):
+    """Feedback from command parser to Markov predictor about prediction accuracy"""
+    predicted_command: str = Field(description="The command that was predicted")
+    actual_command: str = Field(description="The command that was actually recognized")
+    was_correct: bool = Field(description="True if prediction matched actual command")
+    source: str = Field(description="Source of actual command: 'stt' or 'sound'")
+    priority: EventPriority = EventPriority.NORMAL
+
+
 class SettingsResponseEvent(BaseEvent):
     """Event containing current effective settings for UI and services"""
     settings: Dict[str, Any]

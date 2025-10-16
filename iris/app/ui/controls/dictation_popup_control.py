@@ -53,8 +53,9 @@ class DictationPopupController(BaseController):
                 if self.view_callback:
                     schedule_ui_update(self.view_callback.show_simple_listening, event_data.mode, event_data.stop_command)
         else:
-            # Hide popup for non-smart modes
-            if not event_data.is_active and self.current_mode == DictationPopupMode.SIMPLE_LISTENING:
+            # Hide popup for non-smart modes and also smart dictation when stopped immediately
+            if not event_data.is_active and (self.current_mode == DictationPopupMode.SIMPLE_LISTENING or
+                                           self.current_mode in [DictationPopupMode.SMART_DICTATION, DictationPopupMode.LLM_PROCESSING]):
                 if self.view_callback:
                     schedule_ui_update(self.view_callback.hide_popup)
                 self.current_mode = DictationPopupMode.HIDDEN

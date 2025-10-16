@@ -16,14 +16,8 @@ from iris.app.event_bus import EventBus
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.services.storage.storage_service import StorageService
 from iris.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
-from iris.app.events.core_events import CommandAudioSegmentReadyEvent, AudioDetectedEvent
-from iris.app.events.core_events import MarkovPredictionEvent, CommandTextRecognizedEvent
-from iris.app.events.command_events import (
-    AutomationCommandParsedEvent,
-    MarkCommandParsedEvent,
-    GridCommandParsedEvent,
-    DictationCommandParsedEvent
-)
+from iris.app.events.core_events import AudioDetectedEvent
+from iris.app.events.core_events import MarkovPredictionEvent, MarkovPredictionFeedbackEvent
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +43,15 @@ class MarkovCommandService:
             4: defaultdict(Counter)
         }
         
-        # Command history buffer for context
+        # Command history buffer for in-memory model (NOT for storage)
         self._command_history: deque = deque(maxlen=self._markov_config.max_order)
         self._model_trained = False
-        
-        # Batch writes for performance
-        self._pending_commands: deque = deque(maxlen=100)
-        self._write_task: Optional[asyncio.Task] = None
-        self._write_interval = 5.0
         
         # Fast-track prediction on audio detection
         self._last_prediction_time = 0.0
         self._prediction_cooldown = 0.05
         
-        # Prediction verification and feedback
+        # Prediction verification and cooldown management
         self._pending_prediction: Optional[Tuple[str, float]] = None
         self._cooldown_remaining = 0
         
@@ -72,8 +61,6 @@ class MarkovCommandService:
         """Initialize and train the model"""
         try:
             await self._train_model()
-            # Start batch write task
-            self._write_task = asyncio.create_task(self._batch_write_loop())
             return True
         except Exception as e:
             logger.error(f"Failed to initialize predictor: {e}", exc_info=True)
@@ -82,13 +69,9 @@ class MarkovCommandService:
     def setup_subscriptions(self) -> None:
         """Setup event subscriptions"""
         self._event_bus.subscribe(event_type=AudioDetectedEvent, handler=self._handle_audio_detected_fast_track)
-        self._event_bus.subscribe(event_type=CommandTextRecognizedEvent, handler=self._handle_stt_feedback)
-        self._event_bus.subscribe(event_type=AutomationCommandParsedEvent, handler=self._handle_command_executed)
-        self._event_bus.subscribe(event_type=MarkCommandParsedEvent, handler=self._handle_command_executed)
-        self._event_bus.subscribe(event_type=GridCommandParsedEvent, handler=self._handle_command_executed)
-        self._event_bus.subscribe(event_type=DictationCommandParsedEvent, handler=self._handle_command_executed)
+        self._event_bus.subscribe(event_type=MarkovPredictionFeedbackEvent, handler=self._handle_prediction_feedback)
         
-        logger.info("Markov predictor event subscriptions configured with fast-track and feedback")
+        logger.info("Markov predictor event subscriptions configured")
     
     async def _train_model(self) -> None:
         """Train multi-order Markov models on historical command data (async)"""
@@ -205,54 +188,31 @@ class MarkovCommandService:
         except Exception as e:
             logger.error(f"Error in fast-track handling: {e}", exc_info=True)
     
-    async def _handle_stt_feedback(self, event: CommandTextRecognizedEvent) -> None:
-        """Handle STT feedback to verify Markov predictions"""
+    async def _handle_prediction_feedback(self, event: MarkovPredictionFeedbackEvent) -> None:
+        """
+        Handle feedback from the parser about prediction accuracy.
+        Updates in-memory command history and manages cooldown on incorrect predictions.
+        """
         try:
-            # Only process Vosk feedback (true STT), not Markov predictions
-            if event.engine != "vosk":
-                return
+            actual_command = event.actual_command
+            was_correct = event.was_correct
+            source = event.source
             
-            actual_command = event.text.strip().lower()
+            if was_correct:
+                logger.info(f"Markov prediction CORRECT (verified by {source}): '{event.predicted_command}'")
+            else:
+                logger.warning(
+                    f"Markov prediction INCORRECT (verified by {source}): "
+                    f"predicted '{event.predicted_command}', actual '{actual_command}' - entering cooldown"
+                )
+                # Enter cooldown mode
+                self._cooldown_remaining = self._markov_config.incorrect_prediction_cooldown
             
-            # Check if we have a pending prediction to verify
-            if self._pending_prediction:
-                predicted_cmd, confidence = self._pending_prediction
-                self._pending_prediction = None
-                
-                if actual_command == predicted_cmd:
-                    # Correct prediction!
-                    logger.info(f"Markov prediction CORRECT: '{predicted_cmd}'")
-                    
-                    # Add to command history (verified by STT)
-                    timestamp = time.time()
-                    self._pending_commands.append({
-                        "command": actual_command,
-                        "timestamp": timestamp
-                    })
-                    
-                    # Update in-memory model
-                    self._command_history.append(actual_command)
-                    
-                else:
-                    # Incorrect prediction!
-                    logger.warning(
-                        f"Markov prediction INCORRECT: predicted '{predicted_cmd}', "
-                        f"actual '{actual_command}' - entering cooldown"
-                    )
-                    
-                    # Enter cooldown mode
-                    self._cooldown_remaining = self._markov_config.incorrect_prediction_cooldown
-                    
-                    # Add actual command to history
-                    timestamp = time.time()
-                    self._pending_commands.append(
-                        CommandHistoryEntry(command=actual_command, timestamp=timestamp)
-                    )
-                    
-                    self._command_history.append(actual_command)
+            # Update in-memory command history (for model predictions)
+            self._command_history.append(actual_command)
             
         except Exception as e:
-            logger.error(f"Error handling STT feedback: {e}", exc_info=True)
+            logger.error(f"Error handling prediction feedback: {e}", exc_info=True)
     
     def _predict_next_command(self) -> Optional[Tuple[str, float, int]]:
         """Predict next command using backoff strategy (tries highest order first)"""
@@ -295,88 +255,6 @@ class MarkovCommandService:
         
         return None
     
-    async def _handle_command_executed(self, event) -> None:
-        """Track executed commands ONLY when NOT from Markov prediction"""
-        try:
-            command_text = self._extract_command_text(event)
-            
-            if not command_text:
-                return
-            
-            # Decrement cooldown counter
-            if self._cooldown_remaining > 0:
-                self._cooldown_remaining -= 1
-                logger.debug(f"Cooldown decremented: {self._cooldown_remaining} remaining")
-            
-            # Only add to history if not already added by feedback mechanism
-            # (feedback mechanism adds verified Markov predictions)
-            if not self._pending_prediction:
-                timestamp = time.time()
-                
-                # Add to pending queue
-                self._pending_commands.append(
-                    CommandHistoryEntry(command=command_text, timestamp=timestamp)
-                )
-                
-                # Update command history buffer
-                self._command_history.append(command_text)
-                
-                logger.debug(f"Command tracked: '{command_text}'")
-            
-        except Exception as e:
-            logger.error(f"Error tracking command: {e}", exc_info=True)
-    
-    async def _batch_write_loop(self) -> None:
-        """Background task that batches writes to storage"""
-        while True:
-            try:
-                await asyncio.sleep(self._write_interval)
-                
-                if self._pending_commands:
-                    # Get all pending commands
-                    commands_to_write = list(self._pending_commands)
-                    self._pending_commands.clear()
-                    
-                    # Load current history
-                    history_data = await self._storage.read(model_type=CommandHistoryData)
-                    
-                    # Append new commands
-                    history_data.history.extend(commands_to_write)
-                    
-                    # Write in one batch
-                    await self._storage.write(data=history_data)
-                    
-                    logger.debug(f"Batch wrote {len(commands_to_write)} commands to storage")
-            
-            except asyncio.CancelledError:
-                # Flush remaining commands before exiting
-                if self._pending_commands:
-                    try:
-                        commands_to_write = list(self._pending_commands)
-                        history_data = await self._storage.read(model_type=CommandHistoryData)
-                        history_data.history.extend(commands_to_write)
-                        await self._storage.write(data=history_data)
-                        logger.info(f"Flushed {len(commands_to_write)} commands on shutdown")
-                    except Exception as e:
-                        logger.error(f"Error flushing commands: {e}")
-                break
-            
-            except Exception as e:
-                logger.error(f"Error in batch write loop: {e}", exc_info=True)
-    
-    def _extract_command_text(self, event) -> Optional[str]:
-        """Extract command text from various command events"""
-        if isinstance(event, DictationCommandParsedEvent):
-            return None
-        
-        if hasattr(event, 'command') and hasattr(event.command, 'command_key'):
-            return event.command.command_key
-        
-        if hasattr(event, 'command_text'):
-            return event.command_text
-        
-        return None
-    
     async def retrain(self) -> bool:
         """Manually trigger model retraining"""
         try:
@@ -396,14 +274,8 @@ class MarkovCommandService:
         logger.info(f"Markov predictor confidence threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
     
     async def shutdown(self) -> None:
-        """Shutdown predictor and flush pending writes"""
+        """Shutdown predictor"""
         try:
-            if self._write_task:
-                self._write_task.cancel()
-                try:
-                    await self._write_task
-                except asyncio.CancelledError:
-                    pass
             logger.info("Markov predictor shutdown complete")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}", exc_info=True)

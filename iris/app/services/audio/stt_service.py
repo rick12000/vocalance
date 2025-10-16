@@ -23,7 +23,6 @@ from iris.app.events.core_events import CommandTextRecognizedEvent, DictationTex
 from iris.app.events.dictation_events import DictationModeDisableOthersEvent
 from iris.app.events.core_events import ProcessAudioChunkForSoundRecognitionEvent, CommandAudioSegmentReadyEvent, DictationAudioSegmentReadyEvent
 from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
-from iris.app.events.core_events import MarkovPredictionEvent
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +55,6 @@ class SpeechToTextService:
         
         # Amber trigger words
         self._amber_words = {"amber", "stop", "end"}
-        
-        # Markov bypass flag - prevents STT processing when Markov has already handled the audio
-        self._markov_handled_audio = set()
         
         logger.info(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
 
@@ -100,7 +96,6 @@ class SpeechToTextService:
         self.event_bus.subscribe(event_type=DictationAudioSegmentReadyEvent, handler=self._handle_dictation_audio_segment)
         self.event_bus.subscribe(event_type=DictationModeDisableOthersEvent, handler=self._handle_dictation_mode_change)
         self.event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=self._handle_command_mappings_updated)
-        self.event_bus.subscribe(event_type=MarkovPredictionEvent, handler=self._handle_markov_prediction)
         
         logger.info("STT service event subscriptions configured")
 
@@ -143,13 +138,6 @@ class SpeechToTextService:
     async def _handle_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent):
         """Process command audio"""
         try:
-            # Check if Markov has already handled this audio
-            audio_id = id(event_data.audio_bytes)
-            if audio_id in self._markov_handled_audio:
-                logger.debug("Skipping STT - Markov already handled this audio")
-                self._markov_handled_audio.discard(audio_id)
-                return
-            
             if not self._engines_initialized:
                 logger.error("STT engines not initialized")
                 return
@@ -270,31 +258,6 @@ class SpeechToTextService:
         except Exception as e:
             logger.error(f"Error handling command mappings update: {e}")
     
-    async def _handle_markov_prediction(self, event_data: MarkovPredictionEvent):
-        """Handle high-confidence Markov prediction and bypass STT"""
-        try:
-            logger.info(
-                f"Markov prediction bypassing STT: '{event_data.predicted_command}' "
-                f"(confidence={event_data.confidence:.2%})"
-            )
-            
-            # Mark the audio as handled by Markov to prevent STT from processing it
-            if hasattr(event_data, 'audio_id'):
-                self._markov_handled_audio.add(event_data.audio_id)
-            
-            processing_time = 0.0
-            
-            await self._publish_recognition_result(
-                text=event_data.predicted_command,
-                processing_time=processing_time,
-                engine="markov",
-                mode=STTMode.COMMAND
-            )
-            
-        except Exception as e:
-            logger.error(f"Error handling Markov prediction: {e}", exc_info=True)
-
-    
     def update_command_action_map(self, command_action_map):
         """Update the command action map in smart timeout manager"""
         if self._smart_timeout_manager:
@@ -327,11 +290,6 @@ class SpeechToTextService:
             if hasattr(self, '_smart_timeout_manager') and self._smart_timeout_manager is not None:
                 del self._smart_timeout_manager
                 self._smart_timeout_manager = None
-            
-            # Clear any cached data
-            if hasattr(self, '_markov_handled_audio') and self._markov_handled_audio is not None:
-                self._markov_handled_audio.clear()
-                self._markov_handled_audio = None
             
             # Force garbage collection
             gc.collect()

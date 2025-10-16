@@ -1,5 +1,5 @@
 """
-Streamlined Startup Window for Iris Application
+Production-Ready Startup Window with Thread-Safe Animation
 """
 
 import customtkinter as ctk
@@ -8,76 +8,87 @@ from typing import Optional, Union
 import logging
 import threading
 import time
+import queue
 
 from iris.app.ui import ui_theme
-from iris.app.ui.utils.ui_thread_utils import schedule_ui_update_immediate, is_main_thread
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_with_parent_inheritance
 from iris.app.ui.utils.logo_service import LogoService
 from iris.app.ui.utils.ui_assets import AssetCache
-from iris.app.config.app_config import AssetPathsConfig 
+from iris.app.config.app_config import AssetPathsConfig
+
 
 class StartupWindow:
-    """Thread-safe startup window with progress tracking"""
-    
+    """
+    Thread-safe startup window with reliable spinner animation.
+
+    Design:
+    - All GUI operations run in the main Tkinter thread
+    - Background threads queue updates via thread-safe queue
+    - Animation runs via Tkinter's after() mechanism
+    - Monospace spinner font prevents character width jitter
+    """
+
     def __init__(self, logger: logging.Logger, main_root: Union[tk.Tk, ctk.CTk], asset_paths_config: AssetPathsConfig):
         self.logger = logger
         self.main_root = main_root
         self.window: Optional[ctk.CTkToplevel] = None
         self.progress_bar: Optional[ctk.CTkProgressBar] = None
-        self.status_label: Optional[ctk.CTkLabel] = None
+        self.text_label: Optional[ctk.CTkLabel] = None
+        self.spinner_label: Optional[ctk.CTkLabel] = None
         self.is_closed = False
+        self._lock = threading.Lock()
 
-        # Initialize asset services
+        # Animation state
+        self.is_animating = False
+        self.animation_base_text = ""
+        self.animation_frame = 0
+        self.animation_frames = ["\\", "|", "/", "-", "|", "/", "-"]
+        self.animation_after_id = None
+
+        # Thread-safe update queue and checker
+        self._update_queue = queue.Queue()
+        self._check_queue_id = None
+
+        # Asset services
         self.asset_cache = AssetCache(asset_paths_config=asset_paths_config)
         self.logo_service = LogoService(self.asset_cache)
-        
+
     def show(self) -> None:
-        """Show the startup window in a thread-safe manner."""
-        if not is_main_thread():
-            schedule_ui_update_immediate(self._show_impl)
-        else:
-            self._show_impl()
-    
-    def _show_impl(self) -> None:
-        """Internal implementation of show that must run in main thread."""
+        """Display the startup window - must be called from main thread."""
         if self.window is not None:
             return
-        
+
         try:
             self.main_root.update_idletasks()
-            
+
             # Create window
             self.window = ctk.CTkToplevel(self.main_root)
-            self.window.title("Iris")
+            self.window.title("Iris - Starting Up")
             self.window.geometry(f"{ui_theme.theme.dimensions.startup_width}x{ui_theme.theme.dimensions.startup_height}")
             self.window.resizable(False, False)
-            self.window.attributes("-topmost", True)
             self.window.configure(fg_color=ui_theme.theme.shape_colors.darkest)
-            
-            # Center window
+
+            # Window configuration
             self._center_window()
-            
-            # Set icon
             set_window_icon_with_parent_inheritance(self.window, self.main_root)
-            
-            # Prevent closing during startup
-            self.window.protocol("WM_DELETE_WINDOW", lambda: None)
-            
-            # Create UI components
+            self.window.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing during startup
+            self.window.attributes("-toolwindow", False)
+            self.window.attributes("-disabled", False)
+
+            # Build UI
             self._create_ui()
-            
-            # Show window
+            self._start_queue_checker()
+
+            # Display
             self.window.update_idletasks()
             self.window.lift()
-            self.window.focus_force()
-            
             self.logger.info("Startup window displayed")
-            
+
         except Exception as e:
             self.logger.error(f"Error creating startup window: {e}", exc_info=True)
-    
+
     def _center_window(self) -> None:
-        """Center the window on screen"""
+        """Center window on screen."""
         try:
             self.window.update_idletasks()
             width = ui_theme.theme.dimensions.startup_width
@@ -87,28 +98,21 @@ class StartupWindow:
             self.window.geometry(f"{width}x{height}+{x}+{y}")
         except Exception as e:
             self.logger.warning(f"Could not center window: {e}")
-    
+
     def _create_ui(self) -> None:
-        """Create the UI components"""
-        # Configure window grid
+        """Build UI components."""
         self.window.grid_rowconfigure(0, weight=1)
         self.window.grid_columnconfigure(0, weight=1)
-        
+
         # Main container
-        main_frame = ctk.CTkFrame(
-            self.window,
-            fg_color=ui_theme.theme.shape_colors.darkest,
-            corner_radius=0
-        )
+        main_frame = ctk.CTkFrame(self.window, fg_color=ui_theme.theme.shape_colors.darkest, corner_radius=0)
         main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
-        
-        # Configure main frame grid
         main_frame.grid_columnconfigure(0, weight=1)
         main_frame.grid_rowconfigure(0, weight=0)  # Logo
         main_frame.grid_rowconfigure(1, weight=0)  # Progress bar
-        main_frame.grid_rowconfigure(2, weight=1)  # Status label
-        
-        # Logo with automatic image/text fallback
+        main_frame.grid_rowconfigure(2, weight=0)  # Status (no vertical expansion)
+
+        # Logo
         self.logo_label = self.logo_service.create_logo_widget(
             main_frame,
             max_size=ui_theme.theme.dimensions.startup_logo_size,
@@ -116,7 +120,7 @@ class StartupWindow:
             text_fallback="IRIS"
         )
         self.logo_label.grid(row=0, column=0, pady=(10, 20), sticky="ew")
-        
+
         # Progress bar
         self.progress_bar = ctk.CTkProgressBar(
             main_frame,
@@ -126,117 +130,253 @@ class StartupWindow:
             fg_color=ui_theme.theme.shape_colors.light
         )
         self.progress_bar.set(0)
-        self.progress_bar.grid(row=1, column=0, pady=(0, 15), sticky="ew")
-        
-        # Status label
+        self.progress_bar.grid(row=1, column=0, pady=(0, 5), sticky="ew")
+
+        # Status container (centered text + spinner)
+        status_frame = ctk.CTkFrame(main_frame, fg_color="transparent", corner_radius=0)
+        status_frame.grid(row=2, column=0, pady=(2, 0), padx=10, sticky="ew")
+        status_frame.grid_columnconfigure(0, weight=1)  # Left expand
+        status_frame.grid_columnconfigure(1, weight=0)  # Text (fixed)
+        status_frame.grid_columnconfigure(2, weight=0)  # Spinner (fixed)
+        status_frame.grid_columnconfigure(3, weight=1)  # Right expand
+
+        # Text label (uses font_family)
         font_family = ui_theme.theme.font_family.get_primary_font("regular")
-        self.status_label = ctk.CTkLabel(
-            main_frame,
-            text="Starting up...",
+        self.text_label = ctk.CTkLabel(
+            status_frame,
+            text="Starting up",
             font=(font_family, ui_theme.theme.font_sizes.small),
             text_color=ui_theme.theme.text_colors.dark,
-            justify="center"
+            justify="center",
+            anchor="center"
         )
-        self.status_label.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="new")
-    
+        self.text_label.grid(row=0, column=1, padx=(0, 10), sticky="e")
 
-    
-    def update_progress(self, progress: float, status: str) -> None:
-        """Update progress in a thread-safe manner."""
-        schedule_ui_update_immediate(self._update_progress_impl, progress, status)
-    
-    def _update_progress_impl(self, progress: float, status: str) -> None:
-        """Internal implementation of progress update."""
-        if self.is_closed or not self.window:
+        # Spinner label (uses monospace font from theme)
+        monospace_font = ui_theme.theme.font_family.get_monospace_font()
+        self.spinner_label = ctk.CTkLabel(
+            status_frame,
+            text="\\",
+            font=(monospace_font, ui_theme.theme.font_sizes.small),
+            text_color=ui_theme.theme.text_colors.dark,
+            justify="center",
+            anchor="w",
+            width=15
+        )
+        self.spinner_label.grid(row=0, column=2, sticky="w")
+
+    def _start_queue_checker(self) -> None:
+        """Start queue polling from main thread."""
+        if not self.window or self.is_closed:
             return
-        
+        self._check_update_queue()
+
+    def _check_update_queue(self) -> None:
+        """Poll queue for updates from background threads (runs in main thread)."""
+        if not self.window or self.is_closed:
+            return
+
         try:
-            progress = max(0.0, min(1.0, progress))
-            
-            if self.progress_bar:
-                self.progress_bar.set(progress)
-            
-            if self.status_label and status:
-                self.status_label.configure(text=status)
-            
-            if self.window:
-                self.window.update_idletasks()
-                
+            while not self._update_queue.empty():
+                item = self._update_queue.get_nowait()
+                if isinstance(item, tuple) and len(item) == 3:
+                    progress, status, animate = item
+                    if progress == "CLOSE":
+                        self._close_impl()
+                        return
+                    self._update_progress_impl(progress, status, animate)
+
+            # Schedule next check
+            if not self.is_closed:
+                self._check_queue_id = self.window.after(50, self._check_update_queue)
+
+        except queue.Empty:
+            if not self.is_closed:
+                self._check_queue_id = self.window.after(50, self._check_update_queue)
         except Exception as e:
-            self.logger.error(f"Error updating startup progress: {e}")
-    
-    def close(self) -> None:
-        """Close the startup window in a thread-safe manner."""
-        if not is_main_thread():
-            schedule_ui_update_immediate(self._close_impl)
+            self.logger.error(f"Error checking queue: {e}")
+
+    def update_progress(self, progress: float, status: str, animate: bool = False) -> None:
+        """
+        Thread-safe progress update.
+        
+        From main thread: Execute immediately.
+        From background thread: Queue for later execution.
+        """
+        if threading.current_thread() == threading.main_thread():
+            self._update_progress_impl(progress, status, animate)
         else:
-            self._close_impl()
-    
-    def _close_impl(self) -> None:
-        """Internal implementation of close that must run in main thread."""
+            self._update_queue.put((progress, status, animate))
+
+    def _update_progress_impl(self, progress: float, status: str, animate: bool) -> None:
+        """Update progress bar and status text."""
+        with self._lock:
+            if self.is_closed or not self.window:
+                return
+
+            try:
+                progress = max(0.0, min(1.0, progress))
+                if self.progress_bar:
+                    self.progress_bar.set(progress)
+
+                if self.text_label and self.spinner_label and status:
+                    if animate:
+                        self._start_animation_impl(status.rstrip('.'))
+                    else:
+                        self._stop_animation_impl()
+                        self.text_label.configure(text=status)
+                        self.spinner_label.configure(text="")
+
+            except Exception as e:
+                self.logger.error(f"Error updating progress: {e}")
+
+    def _start_animation_impl(self, base_text: str) -> None:
+        """Begin spinner animation."""
         if self.is_closed or not self.window:
             return
-        
+
+        self._stop_animation_impl()
+        self.is_animating = True
+        self.animation_base_text = base_text
+        self.animation_frame = 0
+
+        if self.text_label:
+            self.text_label.configure(text=base_text)
+
+        self._update_animation_frame()
+
+    def _update_animation_frame(self) -> None:
+        """Cycle to next spinner frame."""
+        if not self.is_animating or self.is_closed or not self.window or not self.spinner_label:
+            return
+
         try:
-            self.is_closed = True
-            self.window.destroy()
-            self.window = None
-            self.logger.info("Startup window closed")
+            self.spinner_label.configure(text=self.animation_frames[self.animation_frame])
+            self.animation_frame = (self.animation_frame + 1) % len(self.animation_frames)
+
+            if self.window and self.is_animating:
+                self.animation_after_id = self.window.after(100, self._update_animation_frame)
+
         except Exception as e:
-            self.logger.error(f"Error closing startup window: {e}")
-    
+            self.logger.error(f"Error updating animation: {e}")
+            self.is_animating = False
+
+    def _stop_animation_impl(self) -> None:
+        """Stop spinner animation."""
+        self.is_animating = False
+        self.animation_base_text = ""
+
+        if self.spinner_label:
+            self.spinner_label.configure(text="")
+
+        if self.animation_after_id and self.window:
+            try:
+                self.window.after_cancel(self.animation_after_id)
+            except Exception:
+                pass
+            self.animation_after_id = None
+
+    def _close_impl(self) -> None:
+        """Close window (must run in main thread)."""
+        with self._lock:
+            if self.is_closed or not self.window:
+                return
+
+            try:
+                self._stop_animation_impl()
+
+                if self._check_queue_id and self.window:
+                    try:
+                        self.window.after_cancel(self._check_queue_id)
+                    except Exception:
+                        pass
+                    self._check_queue_id = None
+
+                self.is_closed = True
+                self.window.destroy()
+                self.window = None
+                self.logger.info("Startup window closed")
+
+            except Exception as e:
+                self.logger.error(f"Error closing window: {e}")
+
+    def close(self) -> None:
+        """Close window - thread-safe."""
+        if threading.current_thread() == threading.main_thread():
+            self._close_impl()
+        else:
+            self._update_queue.put(("CLOSE", None, None))
+
     def is_visible(self) -> bool:
-        """Check if the startup window is visible."""
-        return self.window is not None and not self.is_closed
+        """Check if window is visible."""
+        with self._lock:
+            return self.window is not None and not self.is_closed
 
 
 class StartupProgressTracker:
-    """Startup progress tracker with sub-step support"""
-    
+    """Track and display progress during startup."""
+
     def __init__(self, startup_window: StartupWindow, total_steps: int):
         self.startup_window = startup_window
         self.total_steps = total_steps
         self.current_step = 0
         self.current_step_name = ""
         self.sub_step_progress = 0.0
-        
+        self._lock = threading.Lock()
+
     def start_step(self, step_name: str) -> None:
-        """Start a new step"""
-        self.current_step += 1
-        self.current_step_name = step_name
-        self.sub_step_progress = 0.0
-        self._update_display(step_name)
-        
+        """Start a new initialization step."""
+        with self._lock:
+            self.current_step += 1
+            self.current_step_name = step_name
+            self.sub_step_progress = 0.0
+        self._update_display(step_name, animate=True)
+
     def update_sub_step(self, sub_step_name: str, progress: float = 0.5) -> None:
-        """Update sub-step progress within current step"""
-        self.sub_step_progress = max(0.0, min(1.0, progress))
-        self._update_display(sub_step_name)
-        
+        """Update status within current step."""
+        with self._lock:
+            self.sub_step_progress = max(0.0, min(1.0, progress))
+        self._update_display(sub_step_name, animate=True)
+
+    def update_status_animated(self, status: str, progress: float = 0.5) -> None:
+        """Update status (animated)."""
+        with self._lock:
+            self.sub_step_progress = max(0.0, min(1.0, progress))
+        self._update_display(status, animate=True)
+
+    def update_status_static(self, status: str, progress: float = 0.5) -> None:
+        """Update status (animated - all updates animate now)."""
+        with self._lock:
+            self.sub_step_progress = max(0.0, min(1.0, progress))
+        self._update_display(status, animate=True)
+
     def complete_step(self, step_name: str = "") -> None:
-        """Complete the current step"""
-        self.sub_step_progress = 1.0
-        self._update_display(step_name or f"{self.current_step_name} completed")
-        
-    def _update_display(self, status: str) -> None:
-        """Update the startup window display"""
-        if self.total_steps > 0:
-            # Base progress from completed steps
-            base_progress = (self.current_step - 1) / self.total_steps
-            # Add current step progress
-            current_step_contribution = self.sub_step_progress / self.total_steps
-            progress = base_progress + current_step_contribution
-        else:
-            progress = 0.0
-            
-        progress = min(1.0, progress)
-        self.startup_window.update_progress(progress, status)
-        
+        """Mark current step as complete."""
+        with self._lock:
+            self.sub_step_progress = 1.0
+        self._update_display(step_name or f"{self.current_step_name} completed", animate=True)
+
+    def _update_display(self, status: str, animate: bool = False) -> None:
+        """Calculate and update progress display."""
+        with self._lock:
+            if self.total_steps > 0:
+                base_progress = (self.current_step - 1) / self.total_steps
+                step_contribution = self.sub_step_progress / self.total_steps
+                progress = base_progress + step_contribution
+            else:
+                progress = 0.0
+
+            progress = min(1.0, progress)
+
+        self.startup_window.update_progress(progress, status, animate=animate)
+
     def finish(self) -> None:
-        """Finish progress tracking and close window"""
-        self.startup_window.update_progress(1.0, "Ready!")
-        
+        """Complete initialization and close window."""
+        self.startup_window.update_progress(1.0, "Ready!", animate=False)
+
         def delayed_close():
             time.sleep(0.8)
             self.startup_window.close()
 
         threading.Thread(target=delayed_close, daemon=True).start()
+

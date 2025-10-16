@@ -45,6 +45,52 @@ from iris.app.ui import ui_theme
 from iris.app.ui.utils.font_service import FontService
 
 
+async def initialize_services_in_background(initializer, progress_tracker, root_window):
+    """
+    Initialize services in background thread to avoid blocking Tkinter main loop.
+    
+    Key Design:
+    - Service initialization runs in a separate thread pool
+    - Progress updates are thread-safe via startup window
+    - Tkinter main loop stays responsive
+    - No blocking of async event loop
+    """
+    import asyncio
+    import concurrent.futures
+    
+    def run_sync_init():
+        """Run synchronous service initialization in thread pool"""
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # Run the initialization
+            result = loop.run_until_complete(initializer.initialize_all(progress_tracker))
+            return result
+        finally:
+            loop.close()
+    
+    # Run initialization in thread pool executor
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        # Submit the initialization task
+        future = executor.submit(run_sync_init)
+        
+        # Poll for completion without blocking
+        while not future.done():
+            # Process Tkinter events to keep GUI responsive
+            try:
+                root_window.update_idletasks()
+                root_window.update()
+            except Exception:
+                pass  # Window might be destroyed
+            
+            # Small sleep to avoid busy loop
+            await asyncio.sleep(0.05)
+        
+        # Get the result
+        return future.result()
+
+
 class FastServiceInitializer:
     """Streamlined service initialization for maximum startup speed"""
     
@@ -56,7 +102,7 @@ class FastServiceInitializer:
         self.services = {}
         
     async def initialize_all(self, progress_tracker: StartupProgressTracker) -> Dict[str, Any]:
-        """Fast parallel initialization of all services"""
+        """Fast parallel initialization of all services (non-UI only)"""
         
         # Step 1: Core infrastructure (fastest services first)
         progress_tracker.start_step("Starting core services...")
@@ -76,13 +122,14 @@ class FastServiceInitializer:
         await self._init_audio_services(progress_tracker)
         progress_tracker.complete_step()
         
-        # Step 4: UI components
+        return self.services
+    
+    async def initialize_ui_components(self, progress_tracker: StartupProgressTracker) -> None:
+        """Initialize UI components - MUST run in main thread"""
         progress_tracker.start_step("Creating interface...")
-        progress_tracker.update_sub_step("Building main window...")
+        progress_tracker.update_status_animated("Building main window")
         await self._init_ui_components()
         progress_tracker.complete_step()
-        
-        return self.services
     
     async def _init_core_services(self):
         """Initialize lightweight core services"""
@@ -96,16 +143,8 @@ class FastServiceInitializer:
     
     async def _init_storage_services(self, progress_tracker=None):
         """Initialize storage services in parallel"""
-        if progress_tracker:
-            progress_tracker.update_sub_step("Configuring storage backend...")
-            
-
-        
         # Storage service
         self.services['storage'] = StorageService(config=self.config)
-        
-        if progress_tracker:
-            progress_tracker.update_sub_step("Loading data services...")
         
         # Individual storage services
         
@@ -114,8 +153,7 @@ class FastServiceInitializer:
         
         async def init_settings():
             if progress_tracker:
-                progress_tracker.update_sub_step("Loading user settings...")
-                await asyncio.sleep(0.05)
+                progress_tracker.update_status_animated("Loading user settings")
             
             # Initialize settings update coordinator
             self.services['settings_coordinator'] = SettingsUpdateCoordinator(
@@ -138,8 +176,7 @@ class FastServiceInitializer:
         
         async def init_commands():
             if progress_tracker:
-                progress_tracker.update_sub_step("Setting up command storage...")
-                await asyncio.sleep(0.05)
+                progress_tracker.update_status_animated("Setting up command storage")
             # Command management service for event handling
             self.services['command_management'] = CommandManagementService(
                 event_bus=self.event_bus, app_config=self.config, storage=self.services['storage']
@@ -148,8 +185,7 @@ class FastServiceInitializer:
         
         async def init_click_tracker():
             if progress_tracker:
-                progress_tracker.update_sub_step("Initializing click tracking...")
-                await asyncio.sleep(0.05)
+                progress_tracker.update_status_animated("Initializing click tracking")
             self.services['click_tracker'] = ClickTrackerService(
                 event_bus=self.event_bus, config=self.config, storage=self.services['storage']
             )
@@ -157,8 +193,7 @@ class FastServiceInitializer:
         
         async def init_marks():
             if progress_tracker:
-                progress_tracker.update_sub_step("Configuring mark system...")
-                await asyncio.sleep(0.05)
+                progress_tracker.update_status_animated("Configuring mark system")
             # Collect trigger phrases for mark service
             trigger_phrases = {
                 self.config.grid.show_grid_phrase,
@@ -191,7 +226,6 @@ class FastServiceInitializer:
         async def init_audio():
             if progress_tracker:
                 progress_tracker.update_sub_step("Starting audio capture...")
-                await asyncio.sleep(0.1)  # Brief pause to show progress
             self.services['audio'] = SimpleAudioService(
                 event_bus=self.event_bus, config=self.config, main_event_loop=self.gui_loop
             )
@@ -200,8 +234,7 @@ class FastServiceInitializer:
         
         async def init_sound():
             if progress_tracker:
-                progress_tracker.update_sub_step("Loading sound recognition...")
-                await asyncio.sleep(0.1)
+                progress_tracker.update_status_animated("Loading sound recognition")
             self.services['sound_service'] = StreamlinedSoundService(
                 event_bus=self.event_bus, config=self.config, storage=self.services['storage']
             )
@@ -209,16 +242,14 @@ class FastServiceInitializer:
         
         async def init_stt():
             if progress_tracker:
-                progress_tracker.update_sub_step("Initializing speech-to-text...")
-                await asyncio.sleep(0.1)
+                progress_tracker.update_status_animated("Initializing speech-to-text")
             self.services['stt'] = SpeechToTextService(event_bus=self.event_bus, config=self.config)
             self.services['stt'].initialize_engines()
             self.services['stt'].setup_subscriptions()
         
         async def init_command_parser():
             if progress_tracker:
-                progress_tracker.update_sub_step("Setting up command processing...")
-                await asyncio.sleep(0.1)
+                progress_tracker.update_status_animated("Setting up command processing")
             self.services['centralized_parser'] = CentralizedCommandParser(
                 event_bus=self.event_bus, app_config=self.config, storage=self.services['storage']
             )
@@ -227,8 +258,7 @@ class FastServiceInitializer:
         
         async def init_dictation():
             if progress_tracker:
-                progress_tracker.update_sub_step("Preparing dictation system...")
-                await asyncio.sleep(0.1)
+                progress_tracker.update_status_animated("Preparing dictation system")
             self.services['dictation'] = DictationCoordinator(
                 event_bus=self.event_bus, config=self.config, storage=self.services['storage'], gui_event_loop=self.gui_loop
             )
@@ -238,16 +268,14 @@ class FastServiceInitializer:
             llm_mode = getattr(self.config.llm, 'startup_mode', 'startup')
             if llm_mode == 'startup':
                 if progress_tracker:
-                    progress_tracker.update_sub_step("Loading AI model...")
-                    await asyncio.sleep(0.1)
+                    progress_tracker.update_sub_step("Setting up dictation resources...\n(This may take a while if you're running Vocalance for the first time)")
                 await self.services['dictation'].initialize()
             elif llm_mode == 'background':
                 asyncio.create_task(self._background_llm_init())
         
         async def init_markov_predictor():
             if progress_tracker:
-                progress_tracker.update_sub_step("Initializing command predictor...")
-                await asyncio.sleep(0.05)
+                progress_tracker.update_status_animated("Initializing command predictor")
             self.services['markov_predictor'] = MarkovCommandService(
                 event_bus=self.event_bus, config=self.config, storage=self.services['storage']
             )
@@ -396,28 +424,38 @@ async def main():
         initialize_ui_scheduler(root_window=app_tk_root)
         
         # Create startup window
+        from iris.app.ui.startup_window import StartupWindow, StartupProgressTracker
         startup_window = StartupWindow(logger=logging.getLogger("StartupWindow"), main_root=app_tk_root, asset_paths_config=app_config.asset_paths)
         startup_window.show()
-        
+
         # Force startup window to appear
         app_tk_root.update_idletasks()
         app_tk_root.update()
-        
+
         # Initialize services with progress tracking
+        # Total steps: 3 background (core, storage, audio) + 1 main thread (UI)
         progress_tracker = StartupProgressTracker(startup_window, total_steps=4)
         service_initializer = FastServiceInitializer(event_bus=event_bus, config=app_config, gui_loop=gui_event_loop, root=app_tk_root)
+
+        # Initialize services in background to avoid blocking Tkinter main loop
+        # This initializes everything EXCEPT UI components
+        services = await initialize_services_in_background(
+            service_initializer,
+            progress_tracker,
+            app_tk_root
+        )
         
-        services = await service_initializer.initialize_all(progress_tracker=progress_tracker)
+        # Initialize UI components in main thread (required for Tkinter)
+        await service_initializer.initialize_ui_components(progress_tracker)
         
         # Store GUI thread reference for cleanup
         services['gui_thread'] = gui_thread
         
         # Show main window
-        progress_tracker.start_step("Launching interface...")
+        progress_tracker.update_status_static("Ready!")
         app_tk_root.deiconify()
         app_tk_root.lift()
         app_tk_root.focus_force()
-        progress_tracker.complete_step()
         progress_tracker.finish()
         
         # Brief delay for startup window to close

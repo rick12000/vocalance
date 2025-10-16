@@ -237,11 +237,11 @@ Speech recognition result events carry the transcribed text along with performan
   
   - ``text`` (str): Recognized command text from Vosk STT engine
   - ``processing_time_ms`` (float): Time taken for STT processing in milliseconds
-  - ``engine`` (str): STT engine identifier ("vosk" or "markov")
+  - ``engine`` (str): STT engine identifier ("vosk")
   - ``mode`` (str): Processing mode ("command")
   - ``confidence`` (float): Recognition confidence (0.0-1.0, default 1.0)
   - Published by: ``SpeechToTextService._publish_recognition_result()``
-  - Consumed by: ``CentralizedCommandParser``, ``DictationCoordinator`` (for trigger detection), ``MarkovCommandPredictor`` (for feedback)
+  - Consumed by: ``CentralizedCommandParser._handle_command_text_recognized()``, ``DictationCoordinator`` (for trigger detection)
   - When dictation is active: Only published if amber stop words are detected
 
 - **DictationTextRecognizedEvent** (Priority: HIGH, extends TextRecognizedEvent)
@@ -282,9 +282,19 @@ Prediction bypass for ultra-low latency:
   - ``confidence`` (float): Prediction confidence (0.0-1.0, typically >0.7 to publish)
   - ``audio_id`` (int): Identifier for the audio bytes that triggered prediction
   - Published by: ``MarkovCommandPredictor._handle_audio_detected()``
-  - Consumed by: ``SpeechToTextService._handle_markov_prediction()``
-  - Result: Bypasses STT processing entirely, publishing CommandTextRecognizedEvent with engine="markov"
+  - Consumed by: ``CentralizedCommandParser._handle_markov_prediction()``
+  - Result: Directly executes predicted command and stores prediction for deduplication
   - Latency reduction: 200-800ms faster than standard STT processing
+
+- **MarkovPredictionFeedbackEvent** (Priority: NORMAL)
+  
+  - ``predicted_command`` (str): The command that was predicted by Markov
+  - ``actual_command`` (str): The command that was actually recognized by STT or Sound
+  - ``was_correct`` (bool): True if prediction matched actual command
+  - ``source`` (str): Source of actual command ("stt" or "sound")
+  - Published by: ``CentralizedCommandParser._send_markov_feedback()``
+  - Consumed by: ``MarkovCommandPredictor._handle_prediction_feedback()``
+  - Purpose: Allows Markov predictor to learn from correct/incorrect predictions and enter cooldown on errors
 
 Command Processing Event Flow
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -294,9 +304,22 @@ The command processing pipeline transforms recognized text into structured comma
 .. mermaid::
 
    graph TB
+   %% Markov Prediction Flow
+   AudioDetect[AudioDetectedEvent] -->|consumed by| Markov[MarkovCommandPredictor]
+   Markov -->|publishes| MarkovPred[MarkovPredictionEvent]
+
+   %% Command Recognition Flow
    CmdText[CommandTextRecognizedEvent] -->|consumed by| Parser[CentralizedCommandParser]
    CustomSound[CustomSoundRecognizedEvent] -->|consumed by| Parser
 
+   %% Markov Prediction Flow
+   MarkovPred -->|consumed by| Parser
+
+   %% Feedback Loop
+   Parser -->|publishes| Feedback[MarkovPredictionFeedbackEvent]
+   Feedback -->|consumed by| Markov
+
+   %% Command Execution Flow
    Parser -->|publishes| DictCmd[DictationCommandParsedEvent]
    Parser -->|publishes| AutoCmd[AutomationCommandParsedEvent]
    Parser -->|publishes| MarkCmd[MarkCommandParsedEvent]
@@ -315,6 +338,17 @@ The command processing pipeline transforms recognized text into structured comma
 **Command Event Details and Parsing Hierarchy**:
 
 The ``CentralizedCommandParser`` implements a hierarchical parsing strategy, checking commands in order of priority: dictation controls first (highest priority for interruption), then marks, grids, automation, and finally sound commands. This ordering ensures that critical state-changing commands like "stop dictation" are never misinterpreted as automation commands.
+
+**Command History Management**:
+
+The parser maintains an in-memory command history throughout the session for fast, zero-I/O command recording:
+
+1. **Initialization**: Loads existing command history from storage into ``_session_command_history``
+2. **Runtime**: Appends new commands to in-memory list (microsecond operation)
+3. **Shutdown**: Writes complete history back to storage (single operation)
+4. **Training**: Markov predictor accesses in-memory history for immediate training updates
+
+This approach eliminates background task complexity while ensuring commands are never lost on normal shutdown.
 
 Input events to the parser:
 
@@ -841,24 +875,23 @@ The predictor trains on historical command sequences stored by ``CommandHistoryS
 
 **Continuous Training** (during operation):
 
-1. Subscribe to ``CommandTextRecognizedEvent`` for real-time feedback
-2. When command executes, append to ``_command_history`` deque
+1. Subscribe to ``CommandTextRecognizedEvent`` and ``CustomSoundRecognizedEvent`` for real-time feedback
+2. When command executes, append to ``_command_history`` deque for immediate training
 3. Extract contexts and update transition counts for all orders
-4. Add command to ``_pending_commands`` buffer for batch persistence
-5. Every 5 seconds, batch-write pending commands to storage via ``_batch_write_loop()``
+4. Commands are recorded to in-memory history and persisted at shutdown
 
 **Prediction Verification and Feedback Loop**:
 
 The predictor implements a verification mechanism to track prediction accuracy:
 
 1. When ``MarkovPredictionEvent`` published, store prediction in ``_pending_prediction``
-2. Subscribe to ``CommandTextRecognizedEvent`` to receive actual STT result
-3. Compare predicted command with actual command:
-   
-   - **Match**: Log success, maintain/increase confidence in that transition
-   - **Mismatch**: Log failure, potentially decrease transition weight (future enhancement)
+2. Subscribe to ``MarkovPredictionFeedbackEvent`` from ``CentralizedCommandParser``
+3. When STT/Sound recognizes actual command, parser compares with prediction:
 
-4. Update ``_cooldown_remaining`` to prevent prediction spam on verification failures
+   - **Match**: Sends feedback with ``was_correct=True``, logs success
+   - **Mismatch**: Sends feedback with ``was_correct=False``, enters cooldown
+
+4. Markov predictor receives feedback and adjusts cooldown state to prevent prediction spam
 
 **Fast-Track Bypass Mechanism**:
 
@@ -867,22 +900,28 @@ The prediction bypass flow operates as follows:
 1. ``AudioRecorder`` detects voice activity, publishes ``AudioDetectedEvent`` immediately
 2. ``MarkovCommandPredictor`` receives event, performs prediction query (1-5ms)
 3. If high confidence, publishes ``MarkovPredictionEvent`` with predicted command text
-4. ``SpeechToTextService`` receives ``MarkovPredictionEvent``:
-   
-   - Marks audio with ``audio_id`` as handled by Markov (in ``_markov_handled_audio`` set)
-   - Publishes ``CommandTextRecognizedEvent`` with ``engine="markov"``
-   - When original ``CommandAudioSegmentReadyEvent`` arrives, skips STT processing
+4. ``CentralizedCommandParser`` receives ``MarkovPredictionEvent``:
 
-5. ``CentralizedCommandParser`` parses command and publishes execution event
+   - Stores prediction for deduplication (500ms window)
+   - Immediately parses and executes predicted command
+   - Logs ultra-fast execution
+
+5. When STT/Sound recognizes actual command (200-800ms later):
+
+   - Parser checks for recent Markov prediction within 500ms
+   - If found: sends feedback to Markov, skips duplicate execution
+   - If not found: processes normally
+
 6. Command executes 200-800ms faster than standard STT path
 
 **Performance Optimizations**:
 
-- **Batch Writing**: Commands buffered in memory, written to disk every 5 seconds to reduce I/O
+- **In-Memory History**: Commands accumulated in memory during session, written once at shutdown (no I/O overhead during commands)
 - **Context Deque**: Fixed-size deque for O(1) append and automatic oldest-item eviction
 - **Hash-Based Lookups**: Context tuples used as dict keys for O(1) transition lookups
 - **Confidence Thresholding**: Only publishes predictions above 70% confidence to minimize false positives
 - **Prediction Cooldown**: 50ms minimum between predictions prevents rapid-fire mistakes
+- **Deduplication Window**: 500ms window prevents duplicate command execution when STT/Sound lags behind Markov
 
 **Configuration Parameters** (``GlobalAppConfig.markov_predictor``):
 
@@ -896,22 +935,18 @@ The prediction bypass flow operates as follows:
 
 Event subscriptions:
 
-- ``AudioDetectedEvent`` → ``_handle_audio_detected()``: Trigger prediction
-- ``CommandTextRecognizedEvent`` → ``_handle_command_recognized()``: Feedback and training
-- ``AutomationCommandParsedEvent`` → ``_handle_command_executed()``: Record successful execution
-- ``MarkCommandParsedEvent`` → ``_handle_command_executed()``: Record mark commands
-- ``GridCommandParsedEvent`` → ``_handle_command_executed()``: Record grid commands
-- ``DictationCommandParsedEvent`` → ``_handle_command_executed()``: Record dictation transitions
+- ``AudioDetectedEvent`` → ``_handle_audio_detected_fast_track()``: Trigger prediction
+- ``MarkovPredictionFeedbackEvent`` → ``_handle_prediction_feedback()``: Receive accuracy feedback
 
 Event publications:
 
-- ``MarkovPredictionEvent``: Published to ``EventBus`` for STT bypass
+- ``MarkovPredictionEvent``: Published to ``CentralizedCommandParser`` for immediate execution
 
 Storage integration:
 
-- Uses ``CommandHistoryStorageAdapter`` for persistent command sequence storage
-- Reads from ``command_history.json`` during initialization
-- Writes batched updates via ``_batch_write_loop()`` async task
+- Reads from ``command_history.json`` via ``StorageService`` during initialization
+- Uses in-memory history from ``CentralizedCommandParser`` for training (no direct storage writes)
+- Command history persistence handled by parser at shutdown
 
 Storage Service Architecture
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
