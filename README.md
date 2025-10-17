@@ -6,7 +6,7 @@
 
 ### 🎤 Advanced Speech Recognition
 - **Multi-Engine STT Support**: Dual-mode processing with Vosk and Open AI Whisper engines for ultra fast command execution and good transcription accuracy.
-- **Low Latency**: Voice commands execute instantly thanks to smart optimizations (dictionary pruning, predictive word recognition, disambiguation timeouts).
+- **Low Latency**: Voice commands execute instantly thanks to smart optimizations (dictionary pruning, predictive word recognition).
 
 ### 🤖 AI-Powered Dictation
 - **LLM Integration**: Local large language model processing of dictation outputs to correct grammar, rephrase in a custom tone, etc. at source.

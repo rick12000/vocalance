@@ -31,7 +31,16 @@ class SimpleAudioService:
     ) -> None:
         self._event_bus = event_bus
         self._config = config
-        self._main_event_loop = main_event_loop or asyncio.get_event_loop()
+
+        if main_event_loop:
+            self._main_event_loop = main_event_loop
+        else:
+            try:
+                self._main_event_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self._main_event_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._main_event_loop)
+
         self._is_dictation_mode: bool = False
         self._lock = threading.Lock()
         self._command_recorder: Optional[AudioRecorder] = None
@@ -87,8 +96,13 @@ class SimpleAudioService:
             logger.error(f"Error handling audio detected: {e}")
 
     def _publish_audio_event(self, event_data: BaseEvent) -> None:
-        if self._main_event_loop and not self._main_event_loop.is_closed():
+        if not self._main_event_loop or self._main_event_loop.is_closed():
+            return
+
+        try:
             asyncio.run_coroutine_threadsafe(self._event_bus.publish(event_data), self._main_event_loop)
+        except RuntimeError as e:
+            logger.debug(f"Event loop closed while publishing event: {e}")
 
     def init_listeners(self) -> None:
         self._event_bus.subscribe(event_type=RecordingTriggerEvent, handler=self._handle_recording_trigger)

@@ -20,8 +20,8 @@ import soundfile as sf
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.event_bus import EventBus
 from iris.app.services.audio.stt.stt_service import SpeechToTextService
-from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
-from iris.app.services.audio.whisper_stt import WhisperSpeechToText
+from iris.app.services.audio.stt.vosk_stt import EnhancedVoskSTT
+from iris.app.services.audio.stt.whisper_stt import WhisperSpeechToText
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

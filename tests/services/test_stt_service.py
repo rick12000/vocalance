@@ -2,12 +2,11 @@
 Tests for SpeechToTextService - core STT processing and mode management.
 """
 import asyncio
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
 
-from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
 from iris.app.events.core_events import (
     CommandAudioSegmentReadyEvent,
     CommandTextRecognizedEvent,
@@ -24,11 +23,10 @@ async def stt_service_with_mocked_engines(event_bus, app_config):
     service = SpeechToTextService(event_bus, app_config)
 
     service.vosk_engine = Mock()
-    service.vosk_engine.recognize = Mock(return_value="copy")
-    service.vosk_engine.set_smart_timeout_manager = Mock()
+    service.vosk_engine.recognize = AsyncMock(return_value="copy")
 
     service.whisper_engine = Mock()
-    service.whisper_engine.recognize = Mock(return_value="this is a test")
+    service.whisper_engine.recognize = AsyncMock(return_value="this is a test")
 
     service._engines_initialized = True
     service.setup_subscriptions()
@@ -89,9 +87,9 @@ async def test_amber_trigger_detection_during_dictation(stt_service_with_mocked_
     service = stt_service_with_mocked_engines
     event_bus = service.event_bus
 
-    service.vosk_engine.recognize = Mock(return_value="amber")
+    service.vosk_engine.recognize = AsyncMock(return_value="amber")
 
-    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="continuous"))
+    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard"))
     await asyncio.sleep(0.05)
 
     captured_events = []
@@ -115,9 +113,9 @@ async def test_non_amber_suppressed_during_dictation(stt_service_with_mocked_eng
     service = stt_service_with_mocked_engines
     event_bus = service.event_bus
 
-    service.vosk_engine.recognize = Mock(return_value="copy")
+    service.vosk_engine.recognize = AsyncMock(return_value="copy")
 
-    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="continuous"))
+    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard"))
     await asyncio.sleep(0.05)
 
     captured_events = []
@@ -142,7 +140,7 @@ async def test_dictation_mode_state_changes(stt_service_with_mocked_engines):
 
     assert service._dictation_active is False
 
-    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="continuous"))
+    await event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard"))
     await asyncio.sleep(0.05)
     assert service._dictation_active is True
 
@@ -157,7 +155,7 @@ async def test_duplicate_text_filtering(stt_service_with_mocked_engines, command
     service = stt_service_with_mocked_engines
     event_bus = service.event_bus
 
-    service.vosk_engine.recognize = Mock(return_value="copy")
+    service.vosk_engine.recognize = AsyncMock(return_value="copy")
 
     captured_events = []
 
@@ -177,49 +175,12 @@ async def test_duplicate_text_filtering(stt_service_with_mocked_engines, command
 
 
 @pytest.mark.asyncio
-async def test_command_mappings_update_propagation(stt_service_with_mocked_engines):
-    """Test that command mappings updates propagate to smart timeout manager."""
-    service = stt_service_with_mocked_engines
-    event_bus = service.event_bus
-
-    service._smart_timeout_manager = Mock()
-    service._smart_timeout_manager.update_command_action_map = Mock()
-
-    from iris.app.config.command_types import ExactMatchCommand
-
-    updated_mappings = [
-        ExactMatchCommand(
-            command_key="copy",
-            action_type="hotkey",
-            action_value="ctrl+c",
-            is_custom=False,
-            short_description="Copy",
-            long_description="Copy",
-        ),
-        ExactMatchCommand(
-            command_key="paste",
-            action_type="hotkey",
-            action_value="ctrl+v",
-            is_custom=False,
-            short_description="Paste",
-            long_description="Paste",
-        ),
-    ]
-    event = CommandMappingsUpdatedEvent(success=True, updated_mappings=updated_mappings)
-
-    await event_bus.publish(event)
-    await asyncio.sleep(0.1)
-
-    service._smart_timeout_manager.update_command_action_map.assert_called_once()
-
-
-@pytest.mark.asyncio
 async def test_empty_text_triggers_sound_recognition(stt_service_with_mocked_engines, command_audio_bytes):
     """Test that empty recognition triggers sound recognition event."""
     service = stt_service_with_mocked_engines
     event_bus = service.event_bus
 
-    service.vosk_engine.recognize = Mock(return_value="")
+    service.vosk_engine.recognize = AsyncMock(return_value="")
 
     from iris.app.events.core_events import ProcessAudioChunkForSoundRecognitionEvent
 

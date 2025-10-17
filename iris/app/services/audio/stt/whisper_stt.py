@@ -1,14 +1,12 @@
+import asyncio
 import gc
 import logging
 import re
-import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from faster_whisper import WhisperModel
-
-from iris.app.services.audio.stt.stt_utils import DuplicateTextFilter
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +20,7 @@ class WhisperSpeechToText:
         self._sample_rate = sample_rate
         self._model = None
         self._config = config
-        self._model_lock = threading.RLock()
-        self._duplicate_filter = DuplicateTextFilter(cache_size=10, duplicate_threshold_ms=4000)
+        self._model_lock = asyncio.Lock()
         self._beam_size = getattr(config, "whisper_beam_size", 5) if config else 5
         self._temperature = getattr(config, "whisper_temperature", 0.0) if config else 0.0
         self._no_speech_threshold = getattr(config, "whisper_no_speech_threshold", 0.6) if config else 0.6
@@ -49,9 +46,8 @@ class WhisperSpeechToText:
             logger.info("Warming up faster-whisper model...")
             dummy_audio = np.zeros(16000, dtype=np.float32)
 
-            with self._model_lock:
-                segments, _ = self._model.transcribe(dummy_audio, beam_size=1, vad_filter=False)
-                list(segments)
+            segments, _ = self._model.transcribe(dummy_audio, beam_size=1, vad_filter=False)
+            list(segments)
 
             logger.info("Faster-whisper model warmed up successfully")
         except Exception as e:
@@ -103,60 +99,41 @@ class WhisperSpeechToText:
 
         return combined_text, avg_confidence
 
-    def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
+    def recognize_sync(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
         if sample_rate and sample_rate != self._sample_rate:
             logger.warning(f"Sample rate mismatch. Expected {self._sample_rate}, got {sample_rate}")
 
         if not audio_bytes or not self._model:
             return ""
 
-        # Calculate duration and skip very short segments
         duration_sec = len(audio_bytes) / (self._sample_rate * 2)
         if duration_sec < 0.3:
             return ""
 
-        with self._model_lock:
-            try:
-                recognition_start = time.time()
+        recognition_start = time.time()
 
-                # Prepare audio
-                audio_np = self._prepare_audio(audio_bytes)
+        audio_np = self._prepare_audio(audio_bytes)
+        options = self._get_transcription_options(duration_sec)
+        segments, info = self._model.transcribe(audio_np, **options)
+        recognized_text, avg_confidence = self._extract_text_from_segments(segments)
 
-                # Get transcription options
-                options = self._get_transcription_options(duration_sec)
+        recognition_time = time.time() - recognition_start
 
-                # Transcribe
-                segments, info = self._model.transcribe(audio_np, **options)
+        if not recognized_text:
+            return ""
 
-                # Extract text
-                recognized_text, avg_confidence = self._extract_text_from_segments(segments)
+        recognized_text = self._normalize_text(recognized_text)
 
-                recognition_time = time.time() - recognition_start
+        if recognized_text:
+            logger.info(
+                f"Whisper recognized: '{recognized_text}' " f"(confidence: {avg_confidence:.3f}, time: {recognition_time:.3f}s)"
+            )
 
-                if not recognized_text:
-                    return ""
+        return recognized_text
 
-                # Normalize text
-                recognized_text = self._normalize_text(recognized_text)
-
-                if not recognized_text:
-                    return ""
-
-                # Check for duplicates
-                current_time_ms = time.time() * 1000
-                if self._duplicate_filter.is_duplicate(recognized_text, current_time_ms):
-                    return ""
-
-                logger.info(
-                    f"Whisper recognized: '{recognized_text}' "
-                    f"(confidence: {avg_confidence:.3f}, time: {recognition_time:.3f}s)"
-                )
-
-                return recognized_text
-
-            except Exception as e:
-                logger.error(f"Error during recognition: {e}", exc_info=True)
-                return ""
+    async def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
+        async with self._model_lock:
+            return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
 
     def _normalize_text(self, text: str) -> str:
         if not text:
@@ -185,50 +162,29 @@ class WhisperSpeechToText:
 
         return text.strip()
 
-    def reset_context(self) -> None:
-        with self._model_lock:
+    async def reset_context(self) -> None:
+        async with self._model_lock:
             if hasattr(self, "_text_cache"):
                 self._text_cache.clear()
             logger.debug("Whisper context and cache reset")
 
     async def shutdown(self) -> None:
-        try:
-            logger.info("Shutting down WhisperSpeechToText")
+        logger.info("Shutting down WhisperSpeechToText")
 
-            with self._model_lock:
-                # Clear the model to free memory - faster-whisper/CTranslate2 specific cleanup
-                if hasattr(self, "_model") and self._model is not None:
-                    # Try to explicitly unload the model if the library supports it
-                    try:
-                        # CTranslate2 models should be deleted to free memory
-                        if hasattr(self._model, "unload"):
-                            self._model.unload()
-                        # Force deletion
-                        del self._model
-                        self._model = None
-                        logger.info("Whisper model deleted")
-                    except Exception as model_error:
-                        logger.warning(f"Error during model cleanup: {model_error}")
-                        self._model = None
+        async with self._model_lock:
+            if hasattr(self, "_model") and self._model is not None:
+                if hasattr(self._model, "unload"):
+                    self._model.unload()
+                del self._model
+                self._model = None
+                logger.info("Whisper model deleted")
 
-                # Clear duplicate filter
-                if hasattr(self, "_duplicate_filter") and self._duplicate_filter is not None:
-                    del self._duplicate_filter
-                    self._duplicate_filter = None
+            if hasattr(self, "_noise_samples") and self._noise_samples is not None:
+                self._noise_samples.clear()
+                self._noise_samples = None
 
-                # Clear noise samples
-                if hasattr(self, "_noise_samples") and self._noise_samples is not None:
-                    self._noise_samples.clear()
-                    self._noise_samples = None
+            if hasattr(self, "_last_result"):
+                self._last_result = None
 
-                # Clear any cached data
-                if hasattr(self, "_last_result"):
-                    self._last_result = None
-
-            # Force garbage collection for CTranslate2 memory
-            gc.collect()
-
-            logger.info("WhisperSpeechToText shutdown complete")
-
-        except Exception as e:
-            logger.error(f"Error during WhisperSpeechToText shutdown: {e}", exc_info=True)
+        gc.collect()
+        logger.info("WhisperSpeechToText shutdown complete")

@@ -47,7 +47,6 @@ Module Dependency Graph
 
     %% Optimization Services
     MarkovCommandService[MarkovCommandService]
-    SmartTimeoutManager[SmartTimeoutManager]
 
     %% Dependencies
     EventBus --> SimpleAudioService
@@ -122,8 +121,6 @@ Module Dependency Graph
     %% Optimization Dependencies
     MarkovCommandService --> StorageService
     MarkovCommandService --> EventBus
-
-    SmartTimeoutManager --> GlobalAppConfig
 
 High-Level Information Flow
 ---------------------------

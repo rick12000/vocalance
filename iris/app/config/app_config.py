@@ -268,6 +268,36 @@ class VADConfig(BaseModel):
     )
     training_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for training sample collection.")
 
+    # Adaptive threshold configuration
+    silence_threshold_multiplier: float = Field(
+        default=0.35, description="Multiplier for silence threshold relative to energy threshold"
+    )
+    command_adaptive_margin_multiplier: float = Field(
+        default=3.0, description="Multiplier for adaptive noise floor in command mode"
+    )
+    dictation_adaptive_margin_multiplier: float = Field(
+        default=2.5, description="Multiplier for adaptive noise floor in dictation mode"
+    )
+    adaptive_threshold_max_multiplier: float = Field(
+        default=2.0, description="Maximum multiplier before applying adaptive threshold"
+    )
+    adaptive_silence_threshold_multiplier: float = Field(
+        default=0.4, description="Adjustment factor for silence threshold after adaptation"
+    )
+
+    # Minimum duration thresholds
+    command_min_recording_duration: float = Field(
+        default=0.05, description="Minimum recording duration for command mode in seconds"
+    )
+    dictation_min_recording_duration: float = Field(
+        default=0.1, description="Minimum recording duration for dictation mode in seconds"
+    )
+
+    # Noise floor estimation settings
+    max_noise_samples: int = Field(default=20, description="Maximum number of samples to collect for noise floor estimation")
+    noise_floor_initial_value: float = Field(default=0.002, description="Initial noise floor value before estimation")
+    noise_floor_percentile: int = Field(default=75, description="Percentile to use for noise floor calculation")
+
 
 class MarkovPredictorConfig(BaseModel):
     """Configuration for Markov chain command predictor with backoff"""
