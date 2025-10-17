@@ -14,10 +14,14 @@ from iris.app.services.mark_service import MarkService
 
 
 @pytest_asyncio.fixture
-async def mark_service(event_bus, app_config, mock_storage_adapters):
+async def mark_service(event_bus, app_config, mock_storage_service, mock_protected_terms_validator):
     """Create mark service with mocked storage."""
-    reserved_labels = {"start dictation", "stop dictation", "show grid"}
-    service = MarkService(event_bus, app_config, mock_storage_adapters, reserved_labels)
+    service = MarkService(
+        event_bus=event_bus,
+        config=app_config,
+        storage=mock_storage_service,
+        protected_terms_validator=mock_protected_terms_validator,
+    )
     service.setup_subscriptions()
 
     await event_bus.start_worker()
@@ -51,10 +55,13 @@ async def test_mark_create_command(mock_move, mark_service):
 
 
 @pytest.mark.asyncio
-async def test_reserved_label_rejection(mark_service):
+async def test_reserved_label_rejection(mark_service, mock_protected_terms_validator):
     """Test that reserved labels cannot be used for marks."""
     service = mark_service
     event_bus = service._event_bus
+
+    # Make validator reject "show grid"
+    mock_protected_terms_validator.validate_term.return_value = (False, "'show grid' is a protected term and cannot be used")
 
     captured_events = []
 

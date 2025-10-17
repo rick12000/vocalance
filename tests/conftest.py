@@ -366,6 +366,29 @@ def mock_command_storage_adapter():
 
 
 @pytest.fixture
+def mock_storage_service():
+    """Mock unified storage service for testing."""
+    from iris.app.services.storage.storage_models import CommandHistoryData, CommandsData, MarksData
+
+    storage = Mock()
+
+    # Mock the read method to return appropriate data models
+    async def mock_read(model_type):
+        if model_type == MarksData:
+            return MarksData(marks={})
+        elif model_type == CommandsData:
+            return CommandsData(custom_commands={}, phrase_overrides={})
+        elif model_type == CommandHistoryData:
+            return CommandHistoryData(history=[])
+        return None
+
+    storage.read = AsyncMock(side_effect=mock_read)
+    storage.write = AsyncMock(return_value=True)
+
+    return storage
+
+
+@pytest.fixture
 def mock_storage_adapters(mock_command_storage_adapter):
     """Mock storage adapter factory for testing."""
 
@@ -495,3 +518,33 @@ def preprocessor():
     from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
 
     return AudioPreprocessor(target_sr=16000, silence_threshold=0.005, min_sound_duration=0.1, max_sound_duration=2.0)
+
+
+@pytest.fixture
+def mock_action_map_provider(mock_command_storage_adapter):
+    """Mock action map provider for testing."""
+    provider = Mock()
+    provider.get_action_map = mock_command_storage_adapter.get_action_map
+    return provider
+
+
+@pytest.fixture
+def mock_command_history_manager():
+    """Mock command history manager for testing."""
+    manager = Mock()
+    manager.initialize = AsyncMock(return_value=True)
+    manager.record_command = AsyncMock()
+    manager.get_recent_history = AsyncMock(return_value=[])
+    manager.get_full_history = AsyncMock(return_value=[])
+    manager.shutdown = AsyncMock(return_value=True)
+    return manager
+
+
+@pytest.fixture
+def mock_protected_terms_validator():
+    """Mock protected terms validator for testing."""
+    validator = Mock()
+    validator.validate_term = AsyncMock(return_value=(True, None))
+    validator.is_term_protected = AsyncMock(return_value=False)
+    validator.get_all_protected_terms = AsyncMock(return_value={"start dictation", "stop dictation", "show grid"})
+    return validator

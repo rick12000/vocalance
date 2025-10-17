@@ -74,21 +74,14 @@ class ClickTrackerService:
             logger.debug(f"Click logged: ({event_data.x}, {event_data.y})")
 
     async def _handle_click_counts_request(self, event_data: RequestClickCountsForGridEventData) -> None:
-        try:
-            clicks_data = await self._storage.read(model_type=GridClicksData)
-            # Convert GridClickEvent objects to dictionaries for compatibility with existing logic
-            all_clicks = [click.model_dump() for click in clicks_data.clicks]
-            processed_rects = self._calculate_click_counts(all_clicks, event_data.rect_definitions)
+        clicks_data = await self._storage.read(model_type=GridClicksData)
+        all_clicks = [click.model_dump() for click in clicks_data.clicks]
+        processed_rects = self._calculate_click_counts(all_clicks, event_data.rect_definitions)
 
-            response_event = ClickCountsForGridEventData(
-                request_id=event_data.request_id, processed_rects_with_clicks=processed_rects
-            )
+        response_event = ClickCountsForGridEventData(request_id=event_data.request_id, processed_rects_with_clicks=processed_rects)
 
-            self.event_publisher.publish(response_event)
-            logger.debug(f"Published click counts for request {event_data.request_id}")
-
-        except Exception as e:
-            logger.error(f"Error processing click counts request: {e}", exc_info=True)
+        self.event_publisher.publish(response_event)
+        logger.debug(f"Published click counts for request {event_data.request_id}")
 
     def _calculate_click_counts(
         self, all_clicks: List[Dict[str, Any]], rect_definitions: List[Dict[str, Any]]
@@ -117,30 +110,25 @@ class ClickTrackerService:
             return False
 
     async def get_click_statistics(self) -> Dict[str, Any]:
-        try:
-            clicks_data = await self._storage.read(model_type=GridClicksData)
-            all_clicks = [click.model_dump() for click in clicks_data.clicks]
+        clicks_data = await self._storage.read(model_type=GridClicksData)
+        all_clicks = [click.model_dump() for click in clicks_data.clicks]
 
-            if not all_clicks:
-                return {"total_clicks": 0}
+        if not all_clicks:
+            return {"total_clicks": 0}
 
-            timestamps = [click.get("timestamp", 0) for click in all_clicks if click.get("timestamp")]
-            sources = [click.get("source", "unknown") for click in all_clicks]
+        timestamps = [click.get("timestamp", 0) for click in all_clicks if click.get("timestamp")]
+        sources = [click.get("source", "unknown") for click in all_clicks]
 
-            source_counts = {}
-            for source in sources:
-                source_counts[source] = source_counts.get(source, 0) + 1
+        source_counts = {}
+        for source in sources:
+            source_counts[source] = source_counts.get(source, 0) + 1
 
-            return {
-                "total_clicks": len(all_clicks),
-                "earliest_click": min(timestamps) if timestamps else 0,
-                "latest_click": max(timestamps) if timestamps else 0,
-                "source_distribution": source_counts,
-            }
-
-        except Exception as e:
-            logger.error(f"Error getting click statistics: {e}", exc_info=True)
-            return {"error": str(e)}
+        return {
+            "total_clicks": len(all_clicks),
+            "earliest_click": min(timestamps) if timestamps else 0,
+            "latest_click": max(timestamps) if timestamps else 0,
+            "source_distribution": source_counts,
+        }
 
     async def cleanup(self) -> None:
         self.subscription_manager.unsubscribe_all()

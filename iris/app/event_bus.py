@@ -21,11 +21,16 @@ class EventBus:
         self._high_priority_sleep = high_priority_sleep
         self._low_priority_sleep = low_priority_sleep
         self._counter = itertools.count()
+        self._state_lock = asyncio.Lock()
+        self._critical_ops_lock = asyncio.Lock()
 
     async def publish(self, event: BaseEvent) -> None:
         """Publish an event instance to the bus using the new single-argument API."""
 
-        if self._is_shutting_down:
+        async with self._state_lock:
+            is_shutting_down = self._is_shutting_down
+
+        if is_shutting_down:
             logger.debug(f"Rejecting event {type(event).__name__} during shutdown")
             return
 
@@ -58,7 +63,11 @@ class EventBus:
 
     async def _process_events(self):
         logger.info("Event processing worker started")
-        while not self._is_shutting_down:
+
+        async with self._state_lock:
+            is_shutting_down = self._is_shutting_down
+
+        while not is_shutting_down:
             try:
                 priority, _, event = await self._event_queue.get()
 
@@ -99,16 +108,25 @@ class EventBus:
                 sleep_duration = self._low_priority_sleep if priority >= EventPriority.NORMAL else self._high_priority_sleep
                 await asyncio.sleep(sleep_duration)
 
+                # Check shutdown status
+                async with self._state_lock:
+                    is_shutting_down = self._is_shutting_down
+
             except asyncio.CancelledError:
                 logger.info("Event processing worker cancelled")
                 break
             except Exception as e:
                 logger.critical(f"Fatal error in event processing worker: {e}", exc_info=True)
-                if not self._is_shutting_down:
+                async with self._state_lock:
+                    is_shutting_down = self._is_shutting_down
+                if not is_shutting_down:
                     await asyncio.sleep(1)  # a brief pause before the loop continues
 
     async def start_worker(self):
-        if self._is_shutting_down:
+        async with self._state_lock:
+            is_shutting_down = self._is_shutting_down
+
+        if is_shutting_down:
             logger.info("Not starting worker during shutdown")
             return
 
@@ -119,11 +137,14 @@ class EventBus:
             logger.info("Event bus worker already running")
 
     async def stop_worker(self):
-        if self.has_critical_operations():
-            logger.warning(f"Cannot shutdown event bus - critical operations active: {list(self._critical_operations)}")
+        if await self.has_critical_operations():
+            async with self._critical_ops_lock:
+                critical_ops = list(self._critical_operations)
+            logger.warning(f"Cannot shutdown event bus - critical operations active: {critical_ops}")
             return
 
-        self._is_shutting_down = True
+        async with self._state_lock:
+            self._is_shutting_down = True
 
         try:
             await asyncio.wait_for(self._event_queue.join(), timeout=2.0)
@@ -148,7 +169,7 @@ class EventBus:
 
         logger.info("Event bus shutdown complete.")
 
-    def get_stats(self):
+    async def get_stats(self):
         worker_status = "running"
         if self._worker_task is None:
             worker_status = "not_created"
@@ -159,21 +180,30 @@ class EventBus:
             elif self._worker_task.exception():
                 worker_status = f"error: {self._worker_task.exception()}"
 
+        async with self._state_lock:
+            is_shutting_down = self._is_shutting_down
+
+        async with self._critical_ops_lock:
+            critical_ops = list(self._critical_operations)
+
         return {
             "queue_size": self._event_queue.qsize(),
             "subscribers": {event.__name__: len(handlers) for event, handlers in self._subscribers.items()},
             "worker_status": worker_status,
-            "is_shutting_down": self._is_shutting_down,
-            "critical_operations": list(self._critical_operations),
+            "is_shutting_down": is_shutting_down,
+            "critical_operations": critical_ops,
         }
 
-    def register_critical_operation(self, operation_id: str) -> None:
-        self._critical_operations.add(operation_id)
+    async def register_critical_operation(self, operation_id: str) -> None:
+        async with self._critical_ops_lock:
+            self._critical_operations.add(operation_id)
         logger.info(f"Registered critical operation: {operation_id}")
 
-    def unregister_critical_operation(self, operation_id: str) -> None:
-        self._critical_operations.discard(operation_id)
+    async def unregister_critical_operation(self, operation_id: str) -> None:
+        async with self._critical_ops_lock:
+            self._critical_operations.discard(operation_id)
         logger.info(f"Unregistered critical operation: {operation_id}")
 
-    def has_critical_operations(self) -> bool:
-        return len(self._critical_operations) > 0
+    async def has_critical_operations(self) -> bool:
+        async with self._critical_ops_lock:
+            return len(self._critical_operations) > 0

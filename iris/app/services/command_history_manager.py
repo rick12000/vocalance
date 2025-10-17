@@ -1,5 +1,5 @@
+import asyncio
 import logging
-import threading
 import time
 from typing import List
 
@@ -14,13 +14,13 @@ class CommandHistoryManager:
 
     Records commands to in-memory buffer during session for fast zero-I/O tracking,
     then persists full history to storage at shutdown. History used by Markov
-    predictor for training.
+    predictor for training. Thread-safe using async locks.
     """
 
     def __init__(self, storage: StorageService) -> None:
         self._storage = storage
         self._session_history: List[CommandHistoryEntry] = []
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
 
         logger.info("CommandHistoryManager initialized")
 
@@ -32,34 +32,31 @@ class CommandHistoryManager:
         """
         try:
             history_data = await self._storage.read(model_type=CommandHistoryData)
-            with self._lock:
+            async with self._lock:
                 self._session_history = list(history_data.history)
             logger.info(f"Loaded {len(self._session_history)} commands from history")
             return True
         except Exception as e:
             logger.warning(f"Could not load history (starting fresh): {e}")
-            self._session_history = []
+            async with self._lock:
+                self._session_history = []
             return False
 
-    def record_command(self, command: str, source: str) -> None:
+    async def record_command(self, command: str, source: str) -> None:
         """Record command to in-memory history (fast, no I/O).
 
         Args:
             command: The command text that was executed
             source: Source of the command ("stt", "sound", "markov")
         """
-        try:
-            entry = CommandHistoryEntry(command=command, timestamp=time.time(), success=None, metadata={"source": source})
+        entry = CommandHistoryEntry(command=command, timestamp=time.time(), success=None, metadata={"source": source})
 
-            with self._lock:
-                self._session_history.append(entry)
+        async with self._lock:
+            self._session_history.append(entry)
 
-            logger.debug(f"Recorded to history: '{command}' (source={source}, " f"total={len(self._session_history)})")
+        logger.debug(f"Recorded to history: '{command}' (source={source}, total={len(self._session_history)})")
 
-        except Exception as e:
-            logger.error(f"Error recording command to history: {e}", exc_info=True)
-
-    def get_recent_history(self, count: int) -> List[CommandHistoryEntry]:
+    async def get_recent_history(self, count: int) -> List[CommandHistoryEntry]:
         """Get N most recent commands from history.
 
         Args:
@@ -68,16 +65,16 @@ class CommandHistoryManager:
         Returns:
             List of most recent command history entries
         """
-        with self._lock:
+        async with self._lock:
             return list(self._session_history[-count:])
 
-    def get_full_history(self) -> List[CommandHistoryEntry]:
+    async def get_full_history(self) -> List[CommandHistoryEntry]:
         """Get complete command history.
 
         Returns:
             Full list of command history entries
         """
-        with self._lock:
+        async with self._lock:
             return list(self._session_history)
 
     async def shutdown(self) -> bool:
@@ -86,23 +83,18 @@ class CommandHistoryManager:
         Returns:
             True if write succeeded, False otherwise
         """
-        try:
-            with self._lock:
-                if not self._session_history:
-                    logger.info("No commands to write at shutdown")
-                    return True
+        async with self._lock:
+            if not self._session_history:
+                logger.info("No commands to write at shutdown")
+                return True
 
-                history_data = CommandHistoryData(history=self._session_history)
+            history_data = CommandHistoryData(history=self._session_history)
 
-            success = await self._storage.write(data=history_data)
+        success = await self._storage.write(data=history_data)
 
-            if success:
-                logger.info(f"Successfully wrote {len(self._session_history)} commands")
-            else:
-                logger.error("Failed to write command history")
+        if success:
+            logger.info(f"Successfully wrote {len(history_data.history)} commands")
+        else:
+            logger.error("Failed to write command history")
 
-            return success
-
-        except Exception as e:
-            logger.error(f"Error during history shutdown: {e}", exc_info=True)
-            return False
+        return success

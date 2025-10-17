@@ -79,8 +79,8 @@ async def initialize_services_in_background(initializer, progress_tracker, root_
             try:
                 root_window.update_idletasks()
                 root_window.update()
-            except Exception:
-                pass  # Window might be destroyed
+            except Exception as e:
+                logging.debug(f"GUI update failed during initialization (window may be destroyed): {e}")
 
             # Small sleep to avoid busy loop
             await asyncio.sleep(0.05)
@@ -472,8 +472,8 @@ async def main():
 
         logging.info("Application shutdown complete")
 
-    except Exception:
-        logging.exception("Unexpected error during application execution")
+    except Exception as e:
+        logging.exception(f"Unexpected error during application execution: {e}")
 
 
 async def _cleanup_services(

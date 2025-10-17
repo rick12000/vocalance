@@ -123,89 +123,75 @@ class CommandManagementService:
 
     async def _handle_add_custom_command(self, event_data: AddCustomCommandEvent) -> None:
         """Handle adding a new custom command"""
-        try:
-            command = event_data.command
-            command_phrase = command.command_key.lower().strip()
+        command = event_data.command
+        command_phrase = command.command_key.lower().strip()
 
-            validation_error = await self._validate_command_phrase(command_phrase)
-            if validation_error:
-                await self._publish_validation_error(validation_error, command_phrase)
-                return
+        validation_error = await self._validate_command_phrase(command_phrase)
+        if validation_error:
+            await self._publish_validation_error(validation_error, command_phrase)
+            return
 
-            command.is_custom = True
+        command.is_custom = True
 
-            commands_data = await self._storage.read(model_type=CommandsData)
-            commands_data.custom_commands[command_phrase] = command
+        commands_data = await self._storage.read(model_type=CommandsData)
+        commands_data.custom_commands[command_phrase] = command
 
-            success = await self._storage.write(data=commands_data)
+        success = await self._storage.write(data=commands_data)
 
-            if success:
-                await self._publish_mappings_updated(True, f"Added custom command: {command_phrase}")
-                logger.info(f"Successfully added custom command: {command_phrase}")
-            else:
-                await self._publish_validation_error("Failed to store custom command", command_phrase)
-
-        except Exception as e:
-            logger.error(f"Error adding custom command: {e}", exc_info=True)
-            await self._publish_validation_error(
-                f"Error adding custom command: {str(e)}", getattr(event_data.command, "command_key", "")
-            )
+        if success:
+            await self._publish_mappings_updated(True, f"Added custom command: {command_phrase}")
+            logger.info(f"Successfully added custom command: {command_phrase}")
+        else:
+            await self._publish_validation_error("Failed to store custom command", command_phrase)
 
     async def _handle_update_command_phrase(self, event: UpdateCommandPhraseEvent) -> None:
         """Handle update command phrase request."""
-        try:
-            old_phrase = event.old_command_phrase
-            new_phrase = event.new_command_phrase
+        old_phrase = event.old_command_phrase
+        new_phrase = event.new_command_phrase
 
-            validation_error = await self._validate_command_phrase(new_phrase, exclude_phrase=old_phrase)
-            if validation_error:
-                logger.warning(f"Validation failed for command phrase update '{old_phrase}' -> '{new_phrase}': {validation_error}")
-                await self._publish_validation_error(validation_error, new_phrase)
-                return
+        validation_error = await self._validate_command_phrase(new_phrase, exclude_phrase=old_phrase)
+        if validation_error:
+            logger.warning(f"Validation failed for command phrase update '{old_phrase}' -> '{new_phrase}': {validation_error}")
+            await self._publish_validation_error(validation_error, new_phrase)
+            return
 
-            commands_data = await self._storage.read(model_type=CommandsData)
-            is_custom_command = old_phrase.lower().strip() in commands_data.custom_commands
+        commands_data = await self._storage.read(model_type=CommandsData)
+        is_custom_command = old_phrase.lower().strip() in commands_data.custom_commands
 
-            success = False
-            if is_custom_command:
-                command_obj = commands_data.custom_commands[old_phrase]
-                command_obj.command_key = new_phrase
-                del commands_data.custom_commands[old_phrase]
-                commands_data.custom_commands[new_phrase] = command_obj
+        success = False
+        if is_custom_command:
+            command_obj = commands_data.custom_commands[old_phrase]
+            command_obj.command_key = new_phrase
+            del commands_data.custom_commands[old_phrase]
+            commands_data.custom_commands[new_phrase] = command_obj
+            success = await self._storage.write(data=commands_data)
+        else:
+            default_commands = AutomationCommandRegistry.get_default_commands()
+            default_phrases = {cmd.command_key for cmd in default_commands}
+
+            original_phrase = None
+
+            for orig_phrase, override_phrase in commands_data.phrase_overrides.items():
+                if override_phrase == old_phrase:
+                    original_phrase = orig_phrase
+                    break
+
+            if original_phrase is None and old_phrase in default_phrases:
+                original_phrase = old_phrase
+
+            if original_phrase:
+                commands_data.phrase_overrides[original_phrase] = new_phrase
                 success = await self._storage.write(data=commands_data)
             else:
-                default_commands = AutomationCommandRegistry.get_default_commands()
-                default_phrases = {cmd.command_key for cmd in default_commands}
+                logger.error(f"Could not find original command for phrase '{old_phrase}'")
+                await self._publish_validation_error(f"Could not find command '{old_phrase}' to update", old_phrase)
+                return
 
-                original_phrase = None
-
-                for orig_phrase, override_phrase in commands_data.phrase_overrides.items():
-                    if override_phrase == old_phrase:
-                        original_phrase = orig_phrase
-                        break
-
-                if original_phrase is None and old_phrase in default_phrases:
-                    original_phrase = old_phrase
-
-                if original_phrase:
-                    commands_data.phrase_overrides[original_phrase] = new_phrase
-                    success = await self._storage.write(data=commands_data)
-                else:
-                    logger.error(f"Could not find original command for phrase '{old_phrase}'")
-                    await self._publish_validation_error(f"Could not find command '{old_phrase}' to update", old_phrase)
-                    return
-
-            if success:
-                await self._publish_mappings_updated(True, f"Updated command phrase: '{old_phrase}' -> '{new_phrase}'")
-                logger.info(f"Successfully updated command phrase: '{old_phrase}' -> '{new_phrase}'")
-            else:
-                await self._publish_validation_error("Failed to update command phrase", new_phrase)
-
-        except Exception as e:
-            logger.error(
-                f"Error updating command phrase '{event.old_command_phrase}' -> '{event.new_command_phrase}': {e}", exc_info=True
-            )
-            await self._publish_validation_error(f"Error updating command phrase: {str(e)}", event.new_command_phrase)
+        if success:
+            await self._publish_mappings_updated(True, f"Updated command phrase: '{old_phrase}' -> '{new_phrase}'")
+            logger.info(f"Successfully updated command phrase: '{old_phrase}' -> '{new_phrase}'")
+        else:
+            await self._publish_validation_error("Failed to update command phrase", new_phrase)
 
     async def _handle_delete_custom_command(self, event: DeleteCustomCommandEvent) -> None:
         """Handle delete custom command request."""
@@ -246,13 +232,9 @@ class CommandManagementService:
 
     async def _publish_mappings_updated(self, success: bool, message: str) -> None:
         """Publish mappings updated event with current command mappings."""
-        try:
-            current_mappings = await self.get_command_mappings()
-            await self._event_bus.publish(
-                CommandMappingsUpdatedEvent(
-                    success=success, message=message, updated_mappings=current_mappings, updated_count=len(current_mappings)
-                )
+        current_mappings = await self.get_command_mappings()
+        await self._event_bus.publish(
+            CommandMappingsUpdatedEvent(
+                success=success, message=message, updated_mappings=current_mappings, updated_count=len(current_mappings)
             )
-        except Exception as e:
-            logger.error(f"Error publishing mappings updated event: {e}")
-            await self._event_bus.publish(CommandMappingsUpdatedEvent(success=success, message=message))
+        )

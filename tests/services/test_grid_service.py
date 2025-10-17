@@ -98,7 +98,8 @@ async def test_grid_cancel(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    service._visible = True
+    async with service._state_lock:
+        service._visible = True
 
     captured_events = []
 
@@ -127,7 +128,8 @@ async def test_grid_select_cell(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    service._visible = True
+    async with service._state_lock:
+        service._visible = True
 
     captured_events = []
 
@@ -159,7 +161,8 @@ async def test_grid_select_when_not_visible(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    service._visible = False
+    async with service._state_lock:
+        service._visible = False
 
     captured_events = []
 
@@ -184,21 +187,24 @@ async def test_grid_visibility_state_tracking(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    assert service._visible is False
+    async with service._state_lock:
+        assert service._visible is False
 
     show_command = GridShowCommand(num_rects=9)
     show_event = GridCommandParsedEvent(command=show_command, source="speech")
     await event_bus.publish(show_event)
     await asyncio.sleep(0.1)
 
-    assert service._visible is True
+    async with service._state_lock:
+        assert service._visible is True
 
     cancel_command = GridCancelCommand()
     cancel_event = GridCommandParsedEvent(command=cancel_command, source="speech")
     await event_bus.publish(cancel_event)
     await asyncio.sleep(0.1)
 
-    assert service._visible is False
+    async with service._state_lock:
+        assert service._visible is False
 
 
 @pytest.mark.parametrize("num_rects,expected_min_cells", [(4, 4), (9, 9), (16, 16), (12, 12), (25, 25)])

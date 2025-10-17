@@ -159,11 +159,8 @@ class CentralizedCommandParser:
 
     async def _handle_sound_mappings_response(self, event_data: SoundMappingsResponseEvent) -> None:
         """Handle sound mappings response from sound service"""
-        try:
-            self._sound_to_command_mapping = event_data.mappings
-            logger.info(f"Updated sound mappings with {len(self._sound_to_command_mapping)} entries")
-        except Exception as e:
-            logger.error(f"Error handling sound mappings response: {e}", exc_info=True)
+        self._sound_to_command_mapping = event_data.mappings
+        logger.info(f"Updated sound mappings with {len(self._sound_to_command_mapping)} entries")
 
     # ============================================================================
     # TEXT PROCESSING METHODS
@@ -190,31 +187,20 @@ class CentralizedCommandParser:
 
         logger.info(f"Processing text input: '{text}' from source: {source}")
 
-        try:
-            # Parse through the hierarchy of parsers
-            parse_result = await self._parse_text(text)
+        parse_result = await self._parse_text(text)
 
-            # Handle parse result
-            if isinstance(parse_result, BaseCommand):
-                await self._publish_command_event(parse_result, source)
-            elif isinstance(parse_result, NoMatchResult):
-                await self._event_bus.publish(
-                    CommandNoMatchEvent(source=source, attempted_parsers=["dictation", "mark", "grid", "automation"])
-                )
-            elif isinstance(parse_result, ErrorResult):
-                await self._event_bus.publish(
-                    CommandParseErrorEvent(
-                        source=source, error_message=parse_result.error_message, attempted_parser="CentralizedCommandParser"
-                    )
-                )
-
-        except Exception as e:
+        if isinstance(parse_result, BaseCommand):
+            await self._publish_command_event(parse_result, source)
+        elif isinstance(parse_result, NoMatchResult):
+            await self._event_bus.publish(
+                CommandNoMatchEvent(source=source, attempted_parsers=["dictation", "mark", "grid", "automation"])
+            )
+        elif isinstance(parse_result, ErrorResult):
             await self._event_bus.publish(
                 CommandParseErrorEvent(
-                    source=source, error_message=f"Parser exception: {str(e)}", attempted_parser="CentralizedCommandParser"
+                    source=source, error_message=parse_result.error_message, attempted_parser="CentralizedCommandParser"
                 )
             )
-            logger.error(f"Error parsing text '{text}': {e}", exc_info=True)
 
     async def _parse_text(self, text: str) -> ParseResultType:
         """Parse text through hierarchical command parsers in priority order.
@@ -465,19 +451,15 @@ class CentralizedCommandParser:
         Args:
             event: Markov prediction event with predicted command and confidence
         """
-        try:
-            predicted_command = event.predicted_command
-            current_time = time.time()
+        predicted_command = event.predicted_command
+        current_time = time.time()
 
-            logger.info(f"Markov prediction received: '{predicted_command}' (confidence={event.confidence:.2%})")
+        logger.info(f"Markov prediction received: '{predicted_command}' (confidence={event.confidence:.2%})")
 
-            self._recent_predictions[current_time] = (predicted_command, current_time)
-            self._clean_old_predictions(current_time)
+        self._recent_predictions[current_time] = (predicted_command, current_time)
+        self._clean_old_predictions(current_time)
 
-            await self._process_text_input(text=predicted_command, source="markov")
-
-        except Exception as e:
-            logger.error(f"Error handling Markov prediction: {e}", exc_info=True)
+        await self._process_text_input(text=predicted_command, source="markov")
 
     def _clean_old_predictions(self, current_time: float) -> None:
         """Remove predictions outside the deduplication window."""
@@ -515,37 +497,31 @@ class CentralizedCommandParser:
             source: Source of recognition ("stt" or "sound")
             timestamp: When the command was recognized
         """
-        try:
-            recent_pred = self._find_recent_prediction(timestamp)
+        recent_pred = self._find_recent_prediction(timestamp)
 
-            if recent_pred:
-                predicted_cmd, pred_time = recent_pred
-                was_correct = command_text.lower().strip() == predicted_cmd.lower().strip()
+        if recent_pred:
+            predicted_cmd, pred_time = recent_pred
+            was_correct = command_text.lower().strip() == predicted_cmd.lower().strip()
 
-                await self._send_markov_feedback(
-                    predicted=predicted_cmd, actual=command_text, was_correct=was_correct, source=source
-                )
+            await self._send_markov_feedback(predicted=predicted_cmd, actual=command_text, was_correct=was_correct, source=source)
 
-                self._history_manager.record_command(command=command_text, source=source)
+            await self._history_manager.record_command(command=command_text, source=source)
 
-                logger.info(
-                    f"Skipping duplicate: Markov predicted '{predicted_cmd}', "
-                    f"{source} recognized '{command_text}' "
-                    f"({'CORRECT' if was_correct else 'INCORRECT'})"
-                )
+            logger.info(
+                f"Skipping duplicate: Markov predicted '{predicted_cmd}', "
+                f"{source} recognized '{command_text}' "
+                f"({'CORRECT' if was_correct else 'INCORRECT'})"
+            )
 
-                if pred_time in self._recent_predictions:
-                    del self._recent_predictions[pred_time]
+            if pred_time in self._recent_predictions:
+                del self._recent_predictions[pred_time]
 
-                return
+            return
 
-            logger.debug(f"No recent Markov prediction found for {source} command: '{command_text}'")
+        logger.debug(f"No recent Markov prediction found for {source} command: '{command_text}'")
 
-            await self._process_text_input(text=command_text, source=source)
-            self._history_manager.record_command(command=command_text, source=source)
-
-        except Exception as e:
-            logger.error(f"Error processing recognized command from {source}: {e}", exc_info=True)
+        await self._process_text_input(text=command_text, source=source)
+        await self._history_manager.record_command(command=command_text, source=source)
 
     async def _send_markov_feedback(self, predicted: str, actual: str, was_correct: bool, source: str) -> None:
         """Send feedback to Markov predictor about prediction accuracy.
@@ -556,19 +532,14 @@ class CentralizedCommandParser:
             was_correct: Whether prediction matched actual
             source: Source of actual command ("stt" or "sound")
         """
-        try:
-            feedback = MarkovPredictionFeedbackEvent(
-                predicted_command=predicted, actual_command=actual, was_correct=was_correct, source=source
-            )
-            await self._event_bus.publish(feedback)
+        feedback = MarkovPredictionFeedbackEvent(
+            predicted_command=predicted, actual_command=actual, was_correct=was_correct, source=source
+        )
+        await self._event_bus.publish(feedback)
 
-            logger.info(
-                f"Markov feedback: {source} '{actual}' vs prediction '{predicted}' - "
-                f"{'CORRECT' if was_correct else 'INCORRECT'}"
-            )
-
-        except Exception as e:
-            logger.error(f"Error sending Markov feedback: {e}", exc_info=True)
+        logger.info(
+            f"Markov feedback: {source} '{actual}' vs prediction '{predicted}' - " f"{'CORRECT' if was_correct else 'INCORRECT'}"
+        )
 
     async def shutdown(self) -> None:
         """Shutdown parser and persist accumulated command history to storage.
@@ -576,8 +547,5 @@ class CentralizedCommandParser:
         Writes all in-memory session command history to storage for future
         Markov training, ensuring no command data is lost.
         """
-        try:
-            await self._history_manager.shutdown()
-            logger.info("CentralizedCommandParser shutdown complete")
-        except Exception as e:
-            logger.error(f"Error during parser shutdown: {e}", exc_info=True)
+        await self._history_manager.shutdown()
+        logger.info("CentralizedCommandParser shutdown complete")

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, Optional
@@ -21,7 +20,7 @@ class AutomationService:
     """Service for executing automation commands with cooldown management.
 
     Processes automation commands through pyautogui, manages execution timing
-    with per-command cooldowns, and provides thread-safe execution with status
+    with per-command cooldowns, and provides async-safe execution with status
     reporting through the event bus.
     """
 
@@ -29,7 +28,8 @@ class AutomationService:
         self._event_bus = event_bus
         self._app_config = app_config
         self._thread_pool = ThreadPoolExecutor(max_workers=app_config.automation_service.thread_pool_max_workers)
-        self._execution_lock = threading.Lock()
+        self._execution_lock = asyncio.Lock()
+        self._cooldown_lock = asyncio.Lock()
         self._cooldown_timers: Dict[str, float] = {}
 
         logger.info("AutomationService initialized")
@@ -55,14 +55,15 @@ class AutomationService:
             await self._publish_status(command, event_data.source, False, f"Invalid repeat count: {count}")
             return
 
-        if not self._check_cooldown(command.command_key):
+        if not await self._check_cooldown(command.command_key):
             await self._publish_status(command, event_data.source, False, f"Command '{command.command_key}' is on cooldown")
             return
 
         success = await self._execute_command(command.action_type, command.action_value, count)
 
         if success:
-            self._cooldown_timers[command.command_key] = time.time()
+            async with self._cooldown_lock:
+                self._cooldown_timers[command.command_key] = time.time()
 
         count_text = f" {count} times" if count > 1 else ""
         status = "successfully" if success else "failed"
@@ -70,7 +71,7 @@ class AutomationService:
         await self._publish_status(command, event_data.source, success, message)
 
     async def _execute_command(self, action_type: ActionType, action_value: str, count: int = 1) -> bool:
-        """Execute automation action in thread pool with error handling.
+        """Execute automation action in thread pool.
 
         Creates action function from type and value, then executes it in a
         thread pool to avoid blocking the event loop.
@@ -83,32 +84,22 @@ class AutomationService:
         Returns:
             True if execution succeeded, False otherwise
         """
-        try:
-            action_function = self._create_action_function(action_type, action_value)
-            if not action_function:
-                return False
-
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(self._thread_pool, lambda: self._execute_with_lock(action_function, count))
-
-        except Exception as e:
-            logger.error(f"Error executing automation action {action_type}:{action_value}: {e}")
+        action_function = self._create_action_function(action_type, action_value)
+        if not action_function:
             return False
 
-    def _execute_with_lock(self, action_function: Callable[[], None], count: int) -> bool:
-        if not self._execution_lock.acquire(blocking=False):
+        if not self._execution_lock.locked():
+            async with self._execution_lock:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(self._thread_pool, lambda: self._execute_action(action_function, count))
+        else:
             logger.warning("Could not acquire execution lock - another command in progress")
             return False
 
-        try:
-            for _ in range(count):
-                action_function()
-            return True
-        except Exception as e:
-            logger.error(f"Error during action execution: {e}")
-            return False
-        finally:
-            self._execution_lock.release()
+    def _execute_action(self, action_function: Callable[[], None], count: int) -> bool:
+        for _ in range(count):
+            action_function()
+        return True
 
     def _create_action_function(self, action_type: ActionType, action_value: str) -> Optional[Callable[[], None]]:
         """Create pyautogui action function from action type and value.
@@ -123,37 +114,33 @@ class AutomationService:
         Returns:
             Callable function that executes the action, or None if invalid
         """
-        try:
-            if action_type == "hotkey":
-                keys = [key.strip() for key in action_value.replace(" ", "+").split("+")]
-                return lambda: pyautogui.hotkey(*keys)
+        if action_type == "hotkey":
+            keys = [key.strip() for key in action_value.replace(" ", "+").split("+")]
+            return lambda: pyautogui.hotkey(*keys)
 
-            elif action_type == "key":
-                return lambda: pyautogui.press(action_value)
+        elif action_type == "key":
+            return lambda: pyautogui.press(action_value)
 
-            elif action_type == "key_sequence":
-                key_list = [key.strip() for key in action_value.split(",")]
-                return lambda: self._execute_key_sequence(key_list)
+        elif action_type == "key_sequence":
+            key_list = [key.strip() for key in action_value.split(",")]
+            return lambda: self._execute_key_sequence(key_list)
 
-            elif action_type == "click":
-                click_actions = {
-                    "click": lambda: pyautogui.click(button="left"),
-                    "left_click": lambda: pyautogui.click(button="left"),
-                    "right_click": lambda: pyautogui.click(button="right"),
-                    "double_click": pyautogui.doubleClick,
-                    "triple_click": pyautogui.tripleClick,
-                }
-                return click_actions.get(action_value)
+        elif action_type == "click":
+            click_actions = {
+                "click": lambda: pyautogui.click(button="left"),
+                "left_click": lambda: pyautogui.click(button="left"),
+                "right_click": lambda: pyautogui.click(button="right"),
+                "double_click": pyautogui.doubleClick,
+                "triple_click": pyautogui.tripleClick,
+            }
+            return click_actions.get(action_value)
 
-            elif action_type == "scroll":
-                scroll_amount = self._app_config.scroll_amount_vertical
-                if action_value == "scroll_up":
-                    return lambda: pyautogui.scroll(scroll_amount)
-                elif action_value == "scroll_down":
-                    return lambda: pyautogui.scroll(-scroll_amount)
-
-        except Exception as e:
-            logger.error(f"Error creating action function for {action_type}:{action_value}: {e}")
+        elif action_type == "scroll":
+            scroll_amount = self._app_config.scroll_amount_vertical
+            if action_value == "scroll_up":
+                return lambda: pyautogui.scroll(scroll_amount)
+            elif action_value == "scroll_down":
+                return lambda: pyautogui.scroll(-scroll_amount)
 
         return None
 
@@ -166,30 +153,29 @@ class AutomationService:
                 pyautogui.press(key_combination.strip())
             time.sleep(self._app_config.automation_service.key_sequence_delay_seconds)
 
-    def _check_cooldown(self, command_key: str) -> bool:
+    async def _check_cooldown(self, command_key: str) -> bool:
         current_time = time.time()
-        last_execution = self._cooldown_timers.get(command_key, 0)
+        async with self._cooldown_lock:
+            last_execution = self._cooldown_timers.get(command_key, 0)
         cooldown_period = self._app_config.automation_cooldown_seconds
         return current_time - last_execution >= cooldown_period
 
     async def _publish_status(self, command: BaseCommand, source: Optional[str], success: bool, message: str) -> None:
-        try:
-            status_event = CommandExecutedStatusEvent(
-                command={
-                    "command_key": command.command_key,
-                    "action_type": command.action_type,
-                    "action_value": command.action_value,
-                },
-                success=success,
-                message=message,
-                source=source,
-            )
-            await self._event_bus.publish(status_event)
-        except Exception as e:
-            logger.error(f"Error publishing command status: {e}")
+        status_event = CommandExecutedStatusEvent(
+            command={
+                "command_key": command.command_key,
+                "action_type": command.action_type,
+                "action_value": command.action_value,
+            },
+            success=success,
+            message=message,
+            source=source,
+        )
+        await self._event_bus.publish(status_event)
 
     async def _handle_command_mappings_updated(self, event_data: CommandMappingsUpdatedEvent) -> None:
-        self._cooldown_timers.clear()
+        async with self._cooldown_lock:
+            self._cooldown_timers.clear()
         logger.info("Cleared automation command cooldown timers after mappings update")
 
     async def shutdown(self) -> None:
