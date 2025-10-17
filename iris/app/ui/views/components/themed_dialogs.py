@@ -3,6 +3,8 @@ Themed dialog components that match the application's dark theme.
 Provides CustomTkinter-based replacements for standard tkinter messageboxes.
 """
 
+from typing import Callable, List, Optional, Tuple
+
 import customtkinter as ctk
 
 from iris.app.ui import ui_theme
@@ -33,31 +35,42 @@ def _setup_dialog_window(dialog: ctk.CTkToplevel, title: str, parent=None) -> No
     dialog.geometry(f"{ui_theme.theme.dimensions.dialog_width}x{ui_theme.theme.dimensions.dialog_height}+{x}+{y}")
 
 
-def askokcancel(title: str, message: str, parent=None) -> bool:
-    """Show a themed OK/Cancel dialog and return True if OK was clicked."""
-    result = [False]  # Use list to allow modification in nested function
+def _create_dialog_base(
+    title: str,
+    message: str,
+    parent=None,
+    buttons: Optional[List[Tuple[str, Callable]]] = None,
+) -> Optional[bool]:
+    """
+    Base function for creating themed dialogs with configurable buttons.
 
-    # Create dialog window
+    Args:
+        title: Dialog title
+        message: Dialog message
+        parent: Parent window
+        buttons: List of (button_text, callback) tuples. Callback receives dialog as arg.
+
+    Returns:
+        Result from button callback if applicable, None otherwise
+    """
+    result = [None]
+
     dialog = ctk.CTkToplevel(parent)
     _setup_dialog_window(dialog, title, parent)
 
-    # Configure dialog grid
     dialog.grid_rowconfigure(0, weight=1)
     dialog.grid_columnconfigure(0, weight=1)
 
-    # Main frame
     main_frame = ctk.CTkFrame(
         dialog, fg_color=ui_theme.theme.shape_colors.darkest, corner_radius=ui_theme.theme.border_radius.small
     )
     main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
 
-    # Configure main frame grid
     main_frame.grid_columnconfigure(0, weight=1)
-    main_frame.grid_rowconfigure(0, weight=0)  # Title
-    main_frame.grid_rowconfigure(1, weight=0)  # Message
-    main_frame.grid_rowconfigure(2, weight=1)  # Button frame (expandable)
+    main_frame.grid_rowconfigure(0, weight=0)
+    main_frame.grid_rowconfigure(1, weight=0)
+    main_frame.grid_rowconfigure(2, weight=1)
 
-    # Title label
     title_label = ctk.CTkLabel(
         main_frame,
         text=title,
@@ -66,7 +79,6 @@ def askokcancel(title: str, message: str, parent=None) -> bool:
     )
     title_label.grid(row=0, column=0, pady=(20, 10), sticky="ew")
 
-    # Message label
     message_label = ctk.CTkLabel(
         main_frame,
         text=message,
@@ -76,356 +88,110 @@ def askokcancel(title: str, message: str, parent=None) -> bool:
     )
     message_label.grid(row=1, column=0, pady=(0, 20), sticky="ew")
 
-    # Button frame
-    button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-    button_frame.grid(row=2, column=0, pady=(0, 20), sticky="ew")
+    if buttons:
+        if len(buttons) == 1:
+            # Single button centered
+            btn_text, btn_callback = buttons[0]
+            btn = ctk.CTkButton(
+                main_frame,
+                text=btn_text,
+                font=ui_theme.theme.font_family.get_button_font(),
+                fg_color=ui_theme.theme.shape_colors.darkest,
+                hover_color=ui_theme.theme.shape_colors.dark,
+                text_color=ui_theme.theme.text_colors.light,
+                width=80,
+                corner_radius=ui_theme.theme.border_radius.rounded,
+                command=lambda: [result.__setitem__(0, btn_callback()), dialog.destroy()][1],
+            )
+            btn.grid(row=2, column=0, pady=(0, 20))
+            dialog.bind("<Return>", lambda e: [result.__setitem__(0, btn_callback()), dialog.destroy()])
+            dialog.bind("<Escape>", lambda e: [result.__setitem__(0, btn_callback()), dialog.destroy()])
+        else:
+            # Multiple buttons in a row
+            button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+            button_frame.grid(row=2, column=0, pady=(0, 20), sticky="ew")
 
-    def on_ok():
-        result[0] = True
-        dialog.destroy()
+            for i, (btn_text, btn_callback) in enumerate(buttons):
+                button_frame.grid_columnconfigure(i, weight=1)
+                btn = ctk.CTkButton(
+                    button_frame,
+                    text=btn_text,
+                    font=ui_theme.theme.font_family.get_button_font(),
+                    fg_color=ui_theme.theme.shape_colors.darkest,
+                    hover_color=ui_theme.theme.shape_colors.dark,
+                    text_color=ui_theme.theme.text_colors.light,
+                    width=80,
+                    corner_radius=ui_theme.theme.border_radius.rounded,
+                    command=lambda cb=btn_callback: [result.__setitem__(0, cb()), dialog.destroy()][1],
+                )
+                btn.grid(row=0, column=i, padx=5, sticky="ew")
 
-    def on_cancel():
-        result[0] = False
-        dialog.destroy()
+            # Bind keyboard shortcuts to first two buttons
+            if len(buttons) >= 2:
+                first_callback = buttons[0][1]
+                second_callback = buttons[1][1]
+                dialog.bind("<Return>", lambda e: [result.__setitem__(0, first_callback()), dialog.destroy()])
+                dialog.bind("<Escape>", lambda e: [result.__setitem__(0, second_callback()), dialog.destroy()])
 
-    # Configure button frame grid
-    button_frame.grid_columnconfigure(0, weight=1)
-    button_frame.grid_columnconfigure(1, weight=1)
-
-    # OK button
-    ok_button = ctk.CTkButton(
-        button_frame,
-        text=ui_theme.theme.button_text.ok,
-        font=ui_theme.theme.font_family.get_button_font(),
-        fg_color=ui_theme.theme.shape_colors.darkest,
-        hover_color=ui_theme.theme.shape_colors.dark,
-        text_color=ui_theme.theme.text_colors.light,
-        width=80,
-        corner_radius=ui_theme.theme.border_radius.rounded,
-        command=on_ok,
-    )
-    ok_button.grid(row=0, column=0, padx=5, sticky="ew")
-
-    # Cancel button
-    cancel_button = ctk.CTkButton(
-        button_frame,
-        text=ui_theme.theme.button_text.cancel,
-        font=ui_theme.theme.font_family.get_button_font(),
-        fg_color=ui_theme.theme.shape_colors.darkest,
-        hover_color=ui_theme.theme.shape_colors.dark,
-        text_color=ui_theme.theme.text_colors.light,
-        width=80,
-        corner_radius=ui_theme.theme.border_radius.rounded,
-        command=on_cancel,
-    )
-    cancel_button.grid(row=0, column=1, padx=5, sticky="ew")
-
-    # Bind keyboard shortcuts
-    dialog.bind("<Return>", lambda e: on_ok())
-    dialog.bind("<Escape>", lambda e: on_cancel())
-
-    # Focus the dialog
     dialog.focus_force()
-
-    # Wait for dialog to close
     dialog.wait_window()
 
     return result[0]
+
+
+def askokcancel(title: str, message: str, parent=None) -> bool:
+    """Show a themed OK/Cancel dialog and return True if OK was clicked."""
+    result = _create_dialog_base(
+        title=title,
+        message=message,
+        parent=parent,
+        buttons=[
+            (ui_theme.theme.button_text.ok, lambda: True),
+            (ui_theme.theme.button_text.cancel, lambda: False),
+        ],
+    )
+    return result if result is not None else False
 
 
 def askyesno(title: str, message: str, parent=None) -> bool:
     """Show a themed Yes/No dialog and return True if Yes was clicked."""
-    result = [False]  # Use list to allow modification in nested function
-
-    # Create dialog window
-    dialog = ctk.CTkToplevel(parent)
-    _setup_dialog_window(dialog, title, parent)
-
-    # Configure dialog grid
-    dialog.grid_rowconfigure(0, weight=1)
-    dialog.grid_columnconfigure(0, weight=1)
-
-    # Main frame
-    main_frame = ctk.CTkFrame(
-        dialog, fg_color=ui_theme.theme.shape_colors.darkest, corner_radius=ui_theme.theme.border_radius.small
+    result = _create_dialog_base(
+        title=title,
+        message=message,
+        parent=parent,
+        buttons=[
+            (ui_theme.theme.button_text.yes, lambda: True),
+            (ui_theme.theme.button_text.no, lambda: False),
+        ],
     )
-    main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
-
-    # Configure main frame grid
-    main_frame.grid_columnconfigure(0, weight=1)
-    main_frame.grid_rowconfigure(0, weight=0)  # Title
-    main_frame.grid_rowconfigure(1, weight=0)  # Message
-    main_frame.grid_rowconfigure(2, weight=1)  # Button frame (expandable)
-
-    # Title label
-    title_label = ctk.CTkLabel(
-        main_frame,
-        text=title,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-    )
-    title_label.grid(row=0, column=0, pady=(20, 10), sticky="ew")
-
-    # Message label
-    message_label = ctk.CTkLabel(
-        main_frame,
-        text=message,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-        wraplength=350,
-    )
-    message_label.grid(row=1, column=0, pady=(0, 20), sticky="ew")
-
-    # Button frame
-    button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-    button_frame.grid(row=2, column=0, pady=(0, 20), sticky="ew")
-
-    def on_yes():
-        result[0] = True
-        dialog.destroy()
-
-    def on_no():
-        result[0] = False
-        dialog.destroy()
-
-    # Configure button frame grid
-    button_frame.grid_columnconfigure(0, weight=1)
-    button_frame.grid_columnconfigure(1, weight=1)
-
-    # Yes button
-    yes_button = ctk.CTkButton(
-        button_frame,
-        text=ui_theme.theme.button_text.yes,
-        font=ui_theme.theme.font_family.get_button_font(),
-        fg_color=ui_theme.theme.shape_colors.darkest,
-        hover_color=ui_theme.theme.shape_colors.dark,
-        text_color=ui_theme.theme.text_colors.light,
-        width=80,
-        corner_radius=ui_theme.theme.border_radius.rounded,
-        command=on_yes,
-    )
-    yes_button.grid(row=0, column=0, padx=5, sticky="ew")
-
-    # No button
-    no_button = ctk.CTkButton(
-        button_frame,
-        text=ui_theme.theme.button_text.no,
-        font=ui_theme.theme.font_family.get_button_font(),
-        fg_color=ui_theme.theme.shape_colors.darkest,
-        hover_color=ui_theme.theme.shape_colors.dark,
-        text_color=ui_theme.theme.text_colors.light,
-        width=80,
-        corner_radius=ui_theme.theme.border_radius.rounded,
-        command=on_no,
-    )
-    no_button.grid(row=0, column=1, padx=5, sticky="ew")
-
-    # Bind keyboard shortcuts
-    dialog.bind("<Return>", lambda e: on_yes())
-    dialog.bind("<Escape>", lambda e: on_no())
-
-    # Focus the dialog
-    dialog.focus_force()
-
-    # Wait for dialog to close
-    dialog.wait_window()
-
-    return result[0]
+    return result if result is not None else False
 
 
 def showerror(title: str, message: str, parent=None):
     """Show a themed error dialog."""
-    # Create dialog window
-    dialog = ctk.CTkToplevel(parent)
-    _setup_dialog_window(dialog, title, parent)
-
-    # Configure dialog grid
-    dialog.grid_rowconfigure(0, weight=1)
-    dialog.grid_columnconfigure(0, weight=1)
-
-    # Main frame
-    main_frame = ctk.CTkFrame(
-        dialog, fg_color=ui_theme.theme.shape_colors.darkest, corner_radius=ui_theme.theme.border_radius.small
+    _create_dialog_base(
+        title=title,
+        message=message,
+        parent=parent,
+        buttons=[(ui_theme.theme.button_text.ok, lambda: None)],
     )
-    main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
-
-    # Configure main frame grid
-    main_frame.grid_columnconfigure(0, weight=1)
-    main_frame.grid_rowconfigure(0, weight=0)  # Title
-    main_frame.grid_rowconfigure(1, weight=0)  # Message
-    main_frame.grid_rowconfigure(2, weight=1)  # OK button (expandable)
-
-    # Title label with error styling
-    title_label = ctk.CTkLabel(
-        main_frame,
-        text=title,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-    )
-    title_label.grid(row=0, column=0, pady=(20, 10), sticky="ew")
-
-    # Message label
-    message_label = ctk.CTkLabel(
-        main_frame,
-        text=message,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-        wraplength=350,
-    )
-    message_label.grid(row=1, column=0, pady=(0, 20), sticky="ew")
-
-    # OK button
-    ok_button = ctk.CTkButton(
-        main_frame,
-        text=ui_theme.theme.button_text.ok,
-        font=ui_theme.theme.font_family.get_button_font(),
-        fg_color=ui_theme.theme.shape_colors.darkest,
-        hover_color=ui_theme.theme.shape_colors.dark,
-        text_color=ui_theme.theme.text_colors.light,
-        width=80,
-        corner_radius=ui_theme.theme.border_radius.rounded,
-        command=dialog.destroy,
-    )
-    ok_button.grid(row=2, column=0, pady=(0, 20))
-
-    # Bind keyboard shortcuts
-    dialog.bind("<Return>", lambda e: dialog.destroy())
-    dialog.bind("<Escape>", lambda e: dialog.destroy())
-
-    # Focus the dialog
-    dialog.focus_force()
-
-    # Wait for dialog to close
-    dialog.wait_window()
 
 
 def showinfo(title: str, message: str, parent=None):
     """Show a themed info dialog."""
-    # Create dialog window
-    dialog = ctk.CTkToplevel(parent)
-    _setup_dialog_window(dialog, title, parent)
-
-    # Configure dialog grid
-    dialog.grid_rowconfigure(0, weight=1)
-    dialog.grid_columnconfigure(0, weight=1)
-
-    # Main frame
-    main_frame = ctk.CTkFrame(
-        dialog, fg_color=ui_theme.theme.shape_colors.darkest, corner_radius=ui_theme.theme.border_radius.small
+    _create_dialog_base(
+        title=title,
+        message=message,
+        parent=parent,
+        buttons=[(ui_theme.theme.button_text.ok, lambda: None)],
     )
-    main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
-
-    # Configure main frame grid
-    main_frame.grid_columnconfigure(0, weight=1)
-    main_frame.grid_rowconfigure(0, weight=0)  # Title
-    main_frame.grid_rowconfigure(1, weight=0)  # Message
-    main_frame.grid_rowconfigure(2, weight=1)  # OK button (expandable)
-
-    # Title label with success styling
-    title_label = ctk.CTkLabel(
-        main_frame,
-        text=title,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-    )
-    title_label.grid(row=0, column=0, pady=(20, 10), sticky="ew")
-
-    # Message label
-    message_label = ctk.CTkLabel(
-        main_frame,
-        text=message,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-        wraplength=350,
-    )
-    message_label.grid(row=1, column=0, pady=(0, 20), sticky="ew")
-
-    # OK button
-    ok_button = ctk.CTkButton(
-        main_frame,
-        text=ui_theme.theme.button_text.ok,
-        font=ui_theme.theme.font_family.get_button_font(),
-        fg_color=ui_theme.theme.shape_colors.darkest,
-        hover_color=ui_theme.theme.shape_colors.dark,
-        text_color=ui_theme.theme.text_colors.light,
-        width=80,
-        corner_radius=ui_theme.theme.border_radius.rounded,
-        command=dialog.destroy,
-    )
-    ok_button.grid(row=2, column=0, pady=(0, 20))
-
-    # Bind keyboard shortcuts
-    dialog.bind("<Return>", lambda e: dialog.destroy())
-    dialog.bind("<Escape>", lambda e: dialog.destroy())
-
-    # Focus the dialog
-    dialog.focus_force()
-
-    # Wait for dialog to close
-    dialog.wait_window()
 
 
 def showwarning(title: str, message: str, parent=None):
     """Show a themed warning dialog."""
-    # Create dialog window
-    dialog = ctk.CTkToplevel(parent)
-    _setup_dialog_window(dialog, title, parent)
-
-    # Configure dialog grid
-    dialog.grid_rowconfigure(0, weight=1)
-    dialog.grid_columnconfigure(0, weight=1)
-
-    # Main frame
-    main_frame = ctk.CTkFrame(
-        dialog, fg_color=ui_theme.theme.shape_colors.darkest, corner_radius=ui_theme.theme.border_radius.small
+    _create_dialog_base(
+        title=title,
+        message=message,
+        parent=parent,
+        buttons=[(ui_theme.theme.button_text.ok, lambda: None)],
     )
-    main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
-
-    # Configure main frame grid
-    main_frame.grid_columnconfigure(0, weight=1)
-    main_frame.grid_rowconfigure(0, weight=0)  # Title
-    main_frame.grid_rowconfigure(1, weight=0)  # Message
-    main_frame.grid_rowconfigure(2, weight=1)  # OK button (expandable)
-
-    # Title label with warning styling
-    title_label = ctk.CTkLabel(
-        main_frame,
-        text=title,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-    )
-    title_label.grid(row=0, column=0, pady=(20, 10), sticky="ew")
-
-    # Message label
-    message_label = ctk.CTkLabel(
-        main_frame,
-        text=message,
-        font=(ui_theme.theme.font_family.primary, ui_theme.theme.font_sizes.medium),
-        text_color=ui_theme.theme.text_colors.light,
-        wraplength=350,
-    )
-    message_label.grid(row=1, column=0, pady=(0, 20), sticky="ew")
-
-    # OK button
-    ok_button = ctk.CTkButton(
-        main_frame,
-        text=ui_theme.theme.button_text.ok,
-        font=ui_theme.theme.font_family.get_button_font(),
-        fg_color=ui_theme.theme.shape_colors.darkest,
-        hover_color=ui_theme.theme.shape_colors.dark,
-        text_color=ui_theme.theme.text_colors.light,
-        width=80,
-        corner_radius=ui_theme.theme.border_radius.rounded,
-        command=dialog.destroy,
-    )
-    ok_button.grid(row=2, column=0, pady=(0, 20))
-
-    # Bind keyboard shortcuts
-    dialog.bind("<Return>", lambda e: dialog.destroy())
-    dialog.bind("<Escape>", lambda e: dialog.destroy())
-
-    # Focus the dialog
-    dialog.focus_force()
-
-    # Wait for dialog to close
-    dialog.wait_window()

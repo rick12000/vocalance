@@ -79,10 +79,6 @@ class PrimaryButton(ThemedButton):
     """Primary themed button"""
 
     def __init__(self, parent, text: str = "", command: Optional[Callable] = None, **kwargs):
-        # Set primary colors before calling parent
-        # kwargs.setdefault("fg_color", theme.accent_colors.primary)
-        # kwargs.setdefault("text_color", theme.text_colors.lightest)
-        # kwargs.setdefault("hover_color", theme.accent_colors.primary_hover)
         super().__init__(parent, text=text, command=command, **kwargs)
 
 
@@ -194,17 +190,7 @@ class TransparentFrame(ctk.CTkFrame):
         super().__init__(parent, **default_kwargs)
 
 
-class BorderlessFrame(ctk.CTkFrame):
-    """Borderless transparent frame for seamless content"""
-
-    def __init__(self, parent, **kwargs):
-        default_kwargs = {
-            "fg_color": "transparent",
-            "corner_radius": theme.border_radius.medium,
-            "border_width": 0,
-        }
-        default_kwargs.update(kwargs)
-        super().__init__(parent, **default_kwargs)
+BorderlessFrame = TransparentFrame
 
 
 class TileFrame(ctk.CTkFrame):
@@ -374,36 +360,6 @@ class TwoColumnTabLayout(TransparentFrame):
         # Ensure boxes expand to fill available space consistently
         self.left_box.grid_propagate(False)
         self.right_box.grid_propagate(False)
-
-        # Override any child grid configuration that might break consistency
-        self.configure_consistent_child_grids()
-
-    def configure_consistent_child_grids(self):
-        """Ensure all child containers maintain consistent grid configuration"""
-        # Monitor and enforce grid consistency on scrollable frames
-        # This prevents complex table layouts from affecting box sizing
-
-        def after_widget_added():
-            """Called after any widget is added to enforce consistency"""
-            # Recursively ensure all scrollable frames use single-column layout
-            for box in [self.left_box, self.right_box]:
-                for child in box.winfo_children():
-                    if hasattr(child, "grid_columnconfigure"):
-                        # For scrollable frames, enforce single-column layout
-                        if isinstance(child, ctk.CTkScrollableFrame):
-                            # Override any multi-column configuration
-                            child.grid_columnconfigure(0, weight=1)
-                            # Clear any other column configurations that might interfere
-                            try:
-                                child.grid_columnconfigure(1, weight=0)
-                                child.grid_columnconfigure(2, weight=0)
-                                child.grid_columnconfigure(3, weight=0)
-                                child.grid_columnconfigure(4, weight=0)
-                            except Exception:
-                                pass  # Columns may not exist
-
-        # Schedule the check to run after initial setup
-        self.after(100, after_widget_added)
 
 
 class InstructionTile(TileFrame):

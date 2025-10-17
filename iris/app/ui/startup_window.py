@@ -43,7 +43,7 @@ class StartupWindow:
         self.is_animating = False
         self.animation_base_text = ""
         self.animation_frame = 0
-        self.animation_frames = ["\\", "|", "/", "-", "|", "/", "-"]
+        self.animation_frames = ["|", "/", "-", "\\"]
         self.animation_after_id = None
 
         # Thread-safe update queue and checker
@@ -371,10 +371,10 @@ class StartupProgressTracker:
         self._update_display(status, animate=True)
 
     def update_status_static(self, status: str, progress: float = 0.5) -> None:
-        """Update status (animated - all updates animate now)."""
+        """Update status (static/non-animated)."""
         with self._lock:
             self.sub_step_progress = max(0.0, min(1.0, progress))
-        self._update_display(status, animate=True)
+        self._update_display(status, animate=False)
 
     def complete_step(self, step_name: str = "") -> None:
         """Mark current step as complete."""

@@ -194,7 +194,6 @@ class SoundView(ViewHelper):
         # Get theme
         theme = view_config.theme
         label_font_bold = (theme.font_family.primary, theme.font_sizes.medium, "bold")
-        (theme.font_family.primary, theme.font_sizes.medium)
         dropdown_font = (theme.font_family.primary, theme.font_sizes.medium)
 
         dialog = ctk.CTkToplevel(self.root_window)

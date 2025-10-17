@@ -16,21 +16,14 @@ class FormBuilder:
     def __init__(self):
         """Initialize FormBuilder with row counter starting at 0"""
         self.row = 0
-        self._configured_rows = set()  # Track which rows have been configured
 
     def _ensure_row_configured(self, parent: ctk.CTkFrame, row: int) -> None:
         """Ensure a specific row is configured in the parent's grid"""
-        if row not in self._configured_rows:
-            parent.grid_rowconfigure(row, weight=0)
-            self._configured_rows.add(row)
+        parent.grid_rowconfigure(row, weight=0)
 
-    def setup_form_grid(self, parent: ctk.CTkFrame, rows: Optional[int] = None) -> None:
+    def setup_form_grid(self, parent: ctk.CTkFrame) -> None:
         """Configure grid weights for a standard form layout"""
         parent.grid_columnconfigure(0, weight=1)
-        if rows is not None:
-            # Pre-configure specified number of rows
-            for i in range(rows):
-                self._ensure_row_configured(parent, i)
 
     def create_labeled_entry(
         self,

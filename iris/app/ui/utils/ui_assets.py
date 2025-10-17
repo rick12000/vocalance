@@ -85,14 +85,8 @@ class AssetCache:
         """Get the path to the application icon."""
         if not self._assets_path:
             return None
-
         icon_path = self._assets_path / "icon.ico"
         return icon_path if icon_path.exists() else None
-
-    def clear_cache(self) -> None:
-        """Clear the image cache."""
-        self._image_cache.clear()
-        logger.info("Asset cache cleared")
 
     def load_image_monochrome_colored(
         self, filename: str, color: str, size: Optional[Tuple[int, int]] = None

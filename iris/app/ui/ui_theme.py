@@ -78,21 +78,8 @@ class ShapeColors(BaseModel):
 class AccentColors(BaseModel):
     """Accent color design tokens"""
 
-    primary: str = "#c79b9b"
-    primary_hover: str = "#bd9393"
-    primary_text: str = "#625353"
-
-    danger: str = "#ffffff"
-    danger_hover: str = "#ffffff"
-    danger_text: str = "#2c2626"
-
     success: str = "#28a745"
-    success_hover: str = "#218838"
     success_text: str = "#ffffff"
-
-    warning: str = "#ffc107"
-    warning_hover: str = "#e0a800"
-    warning_text: str = "#212529"
 
 
 class Spacing(BaseModel):
@@ -104,7 +91,6 @@ class Spacing(BaseModel):
     medium: int = 15
     large: int = 20
     xlarge: int = 30
-    frame_padding: int = 20
 
 
 class ButtonText(BaseModel):
@@ -381,33 +367,18 @@ class EntryFieldStyling(BaseModel):
 class IconProperties(BaseModel):
     """Icon styling properties"""
 
-    # Base icon size in pixels
-    base_size: int = 30
-
-    # Icon size multiplier (1.0 = base size, 0.5 = half size, 2.0 = double size)
-    size_multiplier: float = 1.2
-
-    # Icon size as percentage of available button width for responsive sizing
-    # Set to None to use base_size * size_multiplier instead
     width_percentage: float = 0.35
-
-    # Icon color (hex color for monochrome icon recoloring)
     color: str = ShapeColors().medium
-
-    # Spacing between icon and text (vertical padding)
     icon_text_spacing: int = 5
 
 
 class BorderRadius(BaseModel):
     """Border radius design tokens"""
 
-    none: int = 0
     small: int = 8
     medium: int = 10
-    large: int = 15
+    rounded: int = 20
     xlarge: int = 30
-    # New rounded option for modern look
-    rounded: int = 20  # More rounded than large, less than xlarge
 
 
 class Dimensions(BaseModel):
@@ -427,31 +398,16 @@ class Dimensions(BaseModel):
     logo_size: int = 15
     sidebar_logo_size: int = 15
 
-    # Button dimensions
-    button_width_small: int = 60
-    button_width_medium: int = 80
-    button_width_large: int = 100
-    button_width_xlarge: int = 120
-
     # Entry field dimensions
     entry_width_small: int = 150
-    entry_width_medium: int = 200
     entry_width_large: int = 300
-    entry_width_xlarge: int = 400
 
     # Textbox dimensions
     textbox_height_small: int = 150
-    textbox_height_medium: int = 200
-    textbox_height_large: int = 300
 
     # Progress bar dimensions
     training_progress_width: int = 200
     training_progress_height: int = 20
-
-    # Text wrapping
-    text_wrap_small: int = 250
-    text_wrap_medium: int = 350
-    text_wrap_large: int = 450
 
     # Dictation popup dimensions
     dictation_simple_width: int = 250
@@ -477,41 +433,9 @@ class Dimensions(BaseModel):
     command_dialog_width: int = 500
     command_dialog_height: int = 500
 
-    # Layout spacing
-    tab_box_padding: int = 20
-    content_padding: int = 10
-    title_shift_right: int = 15
-
-    # Legacy dimensions for compatibility
-    two_box_min_width: int = 300
-    two_box_min_height: int = 500
-
-    @property
-    def sidebar_width(self) -> int:
-        """Backward compatibility property - use sidebar_layout.width instead"""
-        return 80  # Default fallback, should use theme.sidebar_layout.width
-
 
 class LayoutProperties(BaseModel):
     """Layout positioning and spacing properties"""
-
-    # Tab layout
-    tab_title_row_weight: int = 0
-    tab_content_row_weight: int = 1
-    left_panel_weight: int = 1
-    right_panel_weight: int = 1
-
-    # Box positioning
-    tab_box_outer_padding_left: int = 50
-    tab_box_outer_padding_right: int = 50
-    tab_box_outer_padding_top: int = 25
-    tab_box_outer_padding_bottom: int = 25
-    tab_box_inner_spacing: int = 25
-
-    # Title positioning
-    tab_title_padding_x: int = 10
-    tab_title_padding_y: int = 10
-    tab_title_shift_right: int = 15
 
     # Content area positioning
     content_area_padding_x: int = 10

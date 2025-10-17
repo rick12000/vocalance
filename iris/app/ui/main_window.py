@@ -450,16 +450,9 @@ class AppControlRoom:
             self.logger.error(f"Error cleaning up controllers: {e}", exc_info=True)
 
     # Controller callback methods
-    def on_status_update(self, message: str, is_error: bool = False):
-        """Called by controllers to display status messages"""
-        pass  # Status messages handled by individual views
-
     def on_grid_visibility_changed(self, visible: bool, rows: Optional[int], cols: Optional[int], show_numbers: Optional[bool]):
         """Called by grid controller when grid visibility changes"""
         self.logger.info(f"Grid display updated. Visible: {visible}, Rows: {rows}, Cols: {cols}")
-
-    def on_grid_config_updated(self, event_data):
-        """Called by grid controller when grid config is updated"""
 
     def on_prompts_updated(self, prompts):
         """Called by dictation controller when prompts are updated"""
