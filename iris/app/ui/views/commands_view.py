@@ -3,19 +3,14 @@ from typing import List
 
 from iris.app.config.command_types import AutomationCommand
 from iris.app.ui.views.command_dialog_view import CommandEditDialog
-from iris.app.ui.views.components.base_view import BaseView
+from iris.app.ui.views.components.base_view import ViewHelper
 from iris.app.ui.views.components.form_builder import FormBuilder
-from iris.app.ui.views.components.themed_components import (
-    BorderlessFrame,
-    PrimaryButton,
-    ThemedLabel,
-    ThemedScrollableFrame,
-    TwoColumnTabLayout,
-)
+from iris.app.ui.views.components.list_builder import ButtonType, ListBuilder, ListItemColumn
+from iris.app.ui.views.components.themed_components import TwoColumnTabLayout
 from iris.app.ui.views.components.view_config import view_config
 
 
-class CommandsView(BaseView):
+class CommandsView(ViewHelper):
     """Simplified commands view using base components and form builder"""
 
     def __init__(self, parent, controller, root_window, logger: logging.Logger):
@@ -59,17 +54,8 @@ class CommandsView(BaseView):
         container.grid_rowconfigure(1, weight=0)
         container.grid_columnconfigure(0, weight=1)
 
-        # Scrollable list
-        self.command_list_container = ThemedScrollableFrame(container)
-        self.command_list_container.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=view_config.theme.two_box_layout.box_content_padding,
-            pady=(0, view_config.theme.spacing.small),
-        )
+        self.command_list_container = ListBuilder.create_scrollable_list_container(container, row=0, column=0)
 
-        # Buttons with bottom padding for rounded corners
         form_builder = FormBuilder()
         form_builder.create_button_row(
             container,
@@ -93,48 +79,28 @@ class CommandsView(BaseView):
         """Display commands in a scrollable list"""
         self.logger.info(f"CommandsView: display_commands called with {len(commands)} commands")
 
-        # Clear existing content
-        if self.command_list_container:
-            for widget in self.command_list_container.winfo_children():
-                widget.destroy()
-
-        self.command_list_container.grid_columnconfigure(0, weight=1)
-
-        # Build command list items
-        for i, command in enumerate(commands):
-            self._create_command_item(command, i)
+        ListBuilder.display_items(
+            container=self.command_list_container,
+            items=commands,
+            create_item_callback=self._create_command_item,
+        )
 
         self.logger.info(f"CommandsView: Finished displaying {len(commands)} commands")
 
     def _create_command_item(self, command: AutomationCommand, row_idx: int) -> None:
         """Create a streamlined command list item with only trigger word and change button"""
-        command_frame = BorderlessFrame(self.command_list_container)
-        command_frame.grid(
-            row=row_idx,
-            column=0,
-            sticky="ew",
-            padx=view_config.theme.spacing.tiny,
-            pady=view_config.theme.list_layout.item_vertical_spacing,
+        ListBuilder.create_list_item(
+            container=self.command_list_container,
+            row_index=row_idx,
+            columns=[
+                ListItemColumn.label(text=command.command_key, weight=1),
+                ListItemColumn.button(
+                    text=view_config.theme.button_text.change,
+                    command=lambda c=command: self.handle_change_command(c),
+                    button_type=ButtonType.PRIMARY,
+                ),
+            ],
         )
-
-        # Simplified grid configuration - only trigger word and change button
-        command_frame.grid_columnconfigure(0, weight=1)  # Command phrase (expandable)
-        command_frame.grid_columnconfigure(1, weight=0)  # Change button
-
-        # Command phrase with color coding
-        phrase_color = view_config.theme.text_colors.light
-
-        ThemedLabel(command_frame, text=command.command_key, color=phrase_color, anchor="w").grid(
-            row=0, column=0, sticky="ew", padx=(view_config.theme.spacing.tiny, view_config.theme.spacing.medium)
-        )
-
-        # Change button
-        PrimaryButton(
-            command_frame,
-            text=view_config.theme.button_text.change,
-            compact=True,
-            command=lambda c=command: self.handle_change_command(c),
-        ).grid(row=0, column=1, padx=view_config.theme.spacing.tiny)
 
     def handle_change_command(self, command: AutomationCommand) -> None:
         """Handle changing a command"""

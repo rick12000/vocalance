@@ -5,21 +5,14 @@ import customtkinter as ctk
 
 from iris.app.ui.controls.dictation_control import DictationController
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
-from iris.app.ui.views.components.base_view import BaseView
+from iris.app.ui.views.components.base_view import ViewHelper
 from iris.app.ui.views.components.form_builder import FormBuilder
-from iris.app.ui.views.components.themed_components import (
-    BorderlessFrame,
-    DangerButton,
-    PrimaryButton,
-    ThemedFrame,
-    ThemedLabel,
-    ThemedScrollableFrame,
-    TwoColumnTabLayout,
-)
+from iris.app.ui.views.components.list_builder import ButtonType, ListBuilder, ListItemColumn
+from iris.app.ui.views.components.themed_components import ThemedFrame, TwoColumnTabLayout
 from iris.app.ui.views.components.view_config import view_config
 
 
-class DictationView(BaseView):
+class DictationView(ViewHelper):
     """Simplified dictation view using base components and form builder"""
 
     def __init__(self, parent, controller: DictationController):
@@ -75,12 +68,10 @@ class DictationView(BaseView):
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
-        self.prompts_container = ThemedScrollableFrame(container)
-        self.prompts_container.grid(
+        self.prompts_container = ListBuilder.create_scrollable_list_container(
+            container,
             row=0,
             column=0,
-            sticky="nsew",
-            padx=view_config.theme.two_box_layout.box_content_padding,
             pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
         )
 
@@ -113,86 +104,53 @@ class DictationView(BaseView):
 
     def display_prompts(self, prompts: List[Dict[str, Any]]) -> None:
         """Display prompts using simplified tile creation"""
-        # Clear existing prompts
-        for widget in self.prompts_container.winfo_children():
-            widget.destroy()
-
-        self.prompts_container.grid_columnconfigure(0, weight=1)
-
-        for row_idx, prompt_data in enumerate(prompts):
-            self._create_prompt_tile(prompt_data, row_idx)
-
-    def _create_prompt_tile(self, prompt_data: Dict[str, Any], row_idx: int) -> None:
-        """Create a simplified prompt tile with 4-column layout"""
-        # Create a borderless frame for the prompt item
-        prompt_frame = BorderlessFrame(self.prompts_container)
-        prompt_frame.grid(
-            row=row_idx,
-            column=0,
-            sticky="ew",
-            padx=view_config.theme.spacing.tiny,
-            pady=view_config.theme.list_layout.item_vertical_spacing,
+        ListBuilder.display_items(
+            container=self.prompts_container,
+            items=prompts,
+            create_item_callback=self._create_prompt_tile,
         )
 
-        # Configure 4-column grid
-        prompt_frame.grid_columnconfigure(0, weight=0)  # Radio button
-        prompt_frame.grid_columnconfigure(1, weight=1)  # Prompt title (expandable)
-        prompt_frame.grid_columnconfigure(2, weight=0)  # Edit button
-        prompt_frame.grid_columnconfigure(3, weight=0)  # Delete button
+    def _create_prompt_tile(self, prompt_data: Dict[str, Any], row_idx: int) -> None:
+        """Create a simplified prompt tile with 4-column layout using ListBuilder"""
 
         def on_radio_select():
             self.selected_prompt_var.set(prompt_data["id"])
             self.controller.select_prompt(prompt_data["id"])
 
-        # Column 1: Radio button
-        radio = ctk.CTkRadioButton(
-            prompt_frame,
-            text="",
-            width=24,  # NOTE: Hardcoded to width of radio button in Tkinter
-            variable=self.selected_prompt_var,
-            value=prompt_data["id"],
-            command=on_radio_select,
-            fg_color=view_config.theme.shape_colors.light,
-            hover_color=view_config.theme.shape_colors.lightest,
-            border_width_checked=4,
-            border_width_unchecked=2,
-        )
-        radio.grid(
-            row=0, column=0, padx=view_config.theme.spacing.tiny, pady=(view_config.theme.list_layout.item_vertical_spacing, 0)
+        def create_radio(parent: ctk.CTkFrame) -> ctk.CTkRadioButton:
+            """Factory function to create the radio button"""
+            return ctk.CTkRadioButton(
+                parent,
+                text="",
+                width=24,
+                variable=self.selected_prompt_var,
+                value=prompt_data["id"],
+                command=on_radio_select,
+                fg_color=view_config.theme.shape_colors.light,
+                hover_color=view_config.theme.shape_colors.lightest,
+                border_width_checked=4,
+                border_width_unchecked=2,
+            )
+
+        ListBuilder.create_list_item(
+            container=self.prompts_container,
+            row_index=row_idx,
+            columns=[
+                ListItemColumn.widget(widget_factory=create_radio, weight=0),
+                ListItemColumn.label(text=prompt_data.get("name", "Unnamed"), weight=1),
+                ListItemColumn.button(
+                    text=view_config.theme.button_text.edit,
+                    command=lambda: self._edit_prompt(prompt_data),
+                    button_type=ButtonType.PRIMARY,
+                ),
+                ListItemColumn.button(
+                    text=view_config.theme.button_text.delete,
+                    command=lambda: self._delete_prompt(prompt_data["id"]),
+                    button_type=ButtonType.DANGER,
+                ),
+            ],
         )
 
-        # Column 2: Prompt title
-        title_label = ThemedLabel(
-            prompt_frame, text=prompt_data.get("name", "Unnamed"), anchor="w", color=view_config.theme.text_colors.light
-        )
-        title_label.grid(
-            row=0,
-            column=1,
-            sticky="ew",
-            padx=view_config.theme.spacing.tiny,
-            pady=(view_config.theme.list_layout.item_vertical_spacing, 0),
-        )
-
-        # Column 3: Edit button
-        edit_button = PrimaryButton(
-            prompt_frame, text=view_config.theme.button_text.edit, compact=True, command=lambda: self._edit_prompt(prompt_data)
-        )
-        edit_button.grid(
-            row=0, column=2, padx=view_config.theme.spacing.tiny, pady=(view_config.theme.list_layout.item_vertical_spacing, 0)
-        )
-
-        # Column 4: Delete button
-        delete_button = DangerButton(
-            prompt_frame,
-            text=view_config.theme.button_text.delete,
-            compact=True,
-            command=lambda: self._delete_prompt(prompt_data["id"]),
-        )
-        delete_button.grid(
-            row=0, column=3, padx=view_config.theme.spacing.tiny, pady=(view_config.theme.list_layout.item_vertical_spacing, 0)
-        )
-
-        # Set selection state
         if prompt_data.get("is_current", False):
             self.selected_prompt_var.set(prompt_data["id"])
 

@@ -12,7 +12,7 @@ from iris.app.ui.views.components import themed_dialogs as messagebox
 from iris.app.ui.views.components.view_config import view_config
 
 
-class BaseView(ctk.CTkFrame):
+class ViewHelper(ctk.CTkFrame):
     """Base class for all view components with common functionality"""
 
     def __init__(self, parent, controller=None, root_window=None):

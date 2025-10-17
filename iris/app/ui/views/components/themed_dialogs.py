@@ -9,14 +9,6 @@ from iris.app.ui import ui_theme
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 
-def _get_dialog_font(size: int = None) -> tuple:
-    """Get font configuration for dialogs using the font service"""
-    if size is None:
-        size = ui_theme.theme.font_sizes.medium
-    font_family = ui_theme.theme.font_family.get_primary_font("regular")
-    return (font_family, size)
-
-
 def _setup_dialog_window(dialog: ctk.CTkToplevel, title: str, parent=None) -> None:
     """Helper function to set up common dialog window properties including icon."""
     dialog.title(title)

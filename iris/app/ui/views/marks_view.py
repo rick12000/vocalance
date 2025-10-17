@@ -2,7 +2,7 @@ from typing import List
 
 from iris.app.events.mark_events import MarkData
 from iris.app.ui.controls.marks_control import MarksController
-from iris.app.ui.views.components.base_view import BaseView
+from iris.app.ui.views.components.base_view import ViewHelper
 from iris.app.ui.views.components.themed_components import (
     BorderlessFrame,
     BorderlessListItemFrame,
@@ -17,7 +17,7 @@ from iris.app.ui.views.components.themed_components import (
 from iris.app.ui.views.components.view_config import view_config
 
 
-class MarksView(BaseView):
+class MarksView(ViewHelper):
     """Simplified marks view using base components"""
 
     def __init__(self, parent, controller: MarksController):

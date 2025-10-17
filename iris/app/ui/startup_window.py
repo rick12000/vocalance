@@ -127,8 +127,8 @@ class StartupWindow:
             main_frame,
             width=ui_theme.theme.dimensions.progress_bar_width,
             height=ui_theme.theme.dimensions.progress_bar_height,
-            progress_color=ui_theme.theme.shape_colors.lightest,
-            fg_color=ui_theme.theme.shape_colors.light,
+            progress_color=ui_theme.theme.shape_colors.light,
+            fg_color=ui_theme.theme.shape_colors.medium,
         )
         self.progress_bar.set(0)
         self.progress_bar.grid(row=1, column=0, pady=(0, 5), sticky="ew")
@@ -147,7 +147,7 @@ class StartupWindow:
             status_frame,
             text="Starting up",
             font=(font_family, ui_theme.theme.font_sizes.small),
-            text_color=ui_theme.theme.text_colors.dark,
+            text_color=ui_theme.theme.shape_colors.light,
             justify="center",
             anchor="center",
         )
@@ -159,7 +159,7 @@ class StartupWindow:
             status_frame,
             text="\\",
             font=(monospace_font, ui_theme.theme.font_sizes.small),
-            text_color=ui_theme.theme.text_colors.dark,
+            text_color=ui_theme.theme.shape_colors.light,
             justify="center",
             anchor="w",
             width=15,

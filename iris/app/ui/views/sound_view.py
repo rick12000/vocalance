@@ -5,21 +5,14 @@ import customtkinter as ctk
 
 from iris.app.ui.controls.sound_control import SoundController
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
-from iris.app.ui.views.components.base_view import BaseView
+from iris.app.ui.views.components.base_view import ViewHelper
 from iris.app.ui.views.components.form_builder import FormBuilder
-from iris.app.ui.views.components.themed_components import (
-    BorderlessFrame,
-    DangerButton,
-    PrimaryButton,
-    ThemedLabel,
-    ThemedScrollableFrame,
-    TransparentFrame,
-    TwoColumnTabLayout,
-)
+from iris.app.ui.views.components.list_builder import ButtonType, ListBuilder, ListItemColumn
+from iris.app.ui.views.components.themed_components import PrimaryButton, ThemedLabel, TransparentFrame, TwoColumnTabLayout
 from iris.app.ui.views.components.view_config import view_config
 
 
-class SoundView(BaseView):
+class SoundView(ViewHelper):
     """Simplified sound view using base components and form builder"""
 
     def __init__(self, parent, controller: SoundController, root_window):
@@ -92,16 +85,8 @@ class SoundView(BaseView):
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
-        self.sounds_scroll_frame = ThemedScrollableFrame(container)
-        self.sounds_scroll_frame.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=view_config.theme.two_box_layout.box_content_padding,
-            pady=(0, view_config.theme.spacing.small),
-        )
+        self.sounds_scroll_frame = ListBuilder.create_scrollable_list_container(container, row=0, column=0)
 
-        # Delete all button with bottom padding for rounded corners
         form_builder = FormBuilder()
         form_builder.create_button_row(
             container,
@@ -165,35 +150,12 @@ class SoundView(BaseView):
             self.schedule_delayed_action(lambda: self.display_sounds(sounds))
             return
 
-        # Clear existing sounds
-        for widget in self.sounds_scroll_frame.winfo_children():
-            widget.destroy()
-
-        self.sounds_scroll_frame.grid_columnconfigure(0, weight=1)
-
-        if not sounds:
-            # Show empty state message
-            empty_frame = BorderlessFrame(self.sounds_scroll_frame)
-            empty_frame.grid(
-                row=0,
-                column=0,
-                sticky="ew",
-                padx=view_config.theme.spacing.tiny,
-                pady=view_config.theme.list_layout.item_vertical_spacing,
-            )
-
-            empty_frame.grid_columnconfigure(0, weight=1)
-
-            ThemedLabel(
-                empty_frame,
-                text="No available sounds.\nUse the left panel to record a sound.",
-                anchor="center",
-                color=view_config.theme.text_colors.medium,
-                size=view_config.theme.font_sizes.medium,
-            ).grid(row=0, column=0, sticky="ew", padx=view_config.theme.spacing.medium, pady=view_config.theme.spacing.large)
-        else:
-            for i, sound in enumerate(sounds):
-                self._create_sound_item(sound, i)
+        ListBuilder.display_items(
+            container=self.sounds_scroll_frame,
+            items=sounds,
+            create_item_callback=self._create_sound_item,
+            empty_message="No available sounds.\nUse the left panel to record a sound.",
+        )
 
     def _create_sound_item(self, sound_name: str, row_index: int) -> None:
         """Create a sound item in the list"""
@@ -204,48 +166,28 @@ class SoundView(BaseView):
             self.logger.debug(f"Could not get command mapping for {sound_name}: {e}")
             mapping_status = "Unmapped"
 
-        sound_frame = BorderlessFrame(self.sounds_scroll_frame)
-        sound_frame.grid(
-            row=row_index,
-            column=0,
-            sticky="ew",
-            padx=view_config.theme.spacing.tiny,
-            pady=view_config.theme.list_layout.item_vertical_spacing,
-        )
-
-        # Configure grid
-        sound_frame.grid_columnconfigure(0, weight=1)  # Sound name
-        sound_frame.grid_columnconfigure(1, weight=0)  # Status
-        sound_frame.grid_columnconfigure(2, weight=0)  # Map button
-        sound_frame.grid_columnconfigure(3, weight=0)  # Delete button
-
-        # Sound name
-        ThemedLabel(sound_frame, text=sound_name, anchor="w", color=view_config.theme.text_colors.light).grid(
-            row=0, column=0, sticky="ew", padx=view_config.theme.spacing.small
-        )
-
-        # Status
         status_color = (
             view_config.theme.text_colors.medium if mapping_status == "Unmapped" else view_config.theme.accent_colors.success_text
         )
-        ThemedLabel(sound_frame, text=mapping_status, anchor="e", color=status_color).grid(
-            row=0, column=1, sticky="e", padx=(0, view_config.theme.spacing.tiny)
+
+        ListBuilder.create_list_item(
+            container=self.sounds_scroll_frame,
+            row_index=row_index,
+            columns=[
+                ListItemColumn.label(text=sound_name, weight=1),
+                ListItemColumn.label(text=mapping_status, weight=0, anchor="e", color=status_color),
+                ListItemColumn.button(
+                    text=view_config.theme.button_text.map,
+                    command=lambda s=sound_name: self._map_sound_to_command(s),
+                    button_type=ButtonType.PRIMARY,
+                ),
+                ListItemColumn.button(
+                    text=view_config.theme.button_text.delete,
+                    command=lambda s=sound_name: self._delete_sound(s),
+                    button_type=ButtonType.DANGER,
+                ),
+            ],
         )
-
-        # Buttons
-        PrimaryButton(
-            sound_frame,
-            text=view_config.theme.button_text.map,
-            compact=True,
-            command=lambda s=sound_name: self._map_sound_to_command(s),
-        ).grid(row=0, column=2, padx=view_config.theme.spacing.tiny)
-
-        DangerButton(
-            sound_frame,
-            text=view_config.theme.button_text.delete,
-            compact=True,
-            command=lambda s=sound_name: self._delete_sound(s),
-        ).grid(row=0, column=3, padx=view_config.theme.spacing.tiny)
 
     def _map_sound_to_command(self, sound_name: str) -> None:
         """Show dialog to map sound to command with proper dropdown filtering and themed UI"""
