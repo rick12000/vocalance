@@ -29,7 +29,7 @@ class MarksView(ViewHelper):
         """Setup the main UI layout"""
         self.setup_main_layout()
 
-        self.layout = TwoColumnTabLayout(self, "Voice commands", "Manage marks")
+        self.layout = TwoColumnTabLayout(self, "Instructions", "Manage Marks")
         self.layout.grid(row=0, column=0, sticky="nsew")
 
         self._setup_instructions_panel()

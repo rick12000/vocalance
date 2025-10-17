@@ -70,7 +70,7 @@ class SettingsView(ctk.CTkFrame):
         header.grid(
             row=0,
             column=0,
-            columnspan=3,
+            columnspan=2,
             padx=ui_theme.theme.spacing.medium,
             pady=(ui_theme.theme.spacing.medium, ui_theme.theme.spacing.small),
             sticky="w",
@@ -86,22 +86,17 @@ class SettingsView(ctk.CTkFrame):
             entry.grid(row=idx, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
             entries.append(entry)
 
-            ThemedLabel(frame, text=description, color=ui_theme.theme.text_colors.medium).grid(
-                row=idx, column=2, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w"
-            )
-
         frame.grid_columnconfigure(1, weight=1)
-        frame.grid_columnconfigure(2, weight=2)
 
         buttons_frame = TransparentFrame(frame)
-        buttons_frame.grid(row=len(fields) + 1, column=0, columnspan=3, pady=20, padx=20, sticky="ew")
+        buttons_frame.grid(row=len(fields) + 1, column=0, columnspan=2, pady=20, padx=20, sticky="ew")
         buttons_frame.grid_columnconfigure(0, weight=0)
         buttons_frame.grid_columnconfigure(1, weight=0)
 
-        PrimaryButton(buttons_frame, text=f"Save {title}", command=save_command).grid(
+        PrimaryButton(buttons_frame, text="Save", command=save_command).grid(
             row=0, column=0, padx=(0, ui_theme.theme.spacing.small), sticky="w"
         )
-        DangerButton(buttons_frame, text="Reset to Defaults", command=reset_command).grid(row=0, column=1, sticky="w")
+        DangerButton(buttons_frame, text="Reset", command=reset_command).grid(row=0, column=1, sticky="w")
 
         return entries
 

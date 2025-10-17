@@ -127,7 +127,7 @@ class StartupWindow:
             main_frame,
             width=ui_theme.theme.dimensions.progress_bar_width,
             height=ui_theme.theme.dimensions.progress_bar_height,
-            progress_color=ui_theme.theme.shape_colors.light,
+            progress_color=ui_theme.theme.shape_colors.lightest,
             fg_color=ui_theme.theme.shape_colors.medium,
         )
         self.progress_bar.set(0)

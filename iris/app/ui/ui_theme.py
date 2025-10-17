@@ -116,7 +116,7 @@ class ButtonText(BaseModel):
     record: str = "Record"
     show_marks: str = "Show Marks"
     refresh: str = "Refresh"
-    reset: str = "Reset to Defaults"
+    reset: str = "Reset"
 
     # Compound actions
     add_command: str = "Add Hotkey Command"
@@ -417,10 +417,10 @@ class Dimensions(BaseModel):
 
     # Startup window dimensions
     startup_width: int = 500
-    startup_height: int = 300
+    startup_height: int = 250
     startup_logo_size: int = 150
     progress_bar_width: int = 300
-    progress_bar_height: int = 20
+    progress_bar_height: int = 5
 
     # Dialog dimensions
     dialog_width: int = 400

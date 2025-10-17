@@ -26,7 +26,7 @@ class SoundView(ViewHelper):
         """Setup the main UI layout"""
         self.setup_main_layout()
 
-        self.layout = TwoColumnTabLayout(self, "Train new sound", "Trained sounds")
+        self.layout = TwoColumnTabLayout(self, "Add Sound", "Manage Sounds")
         self.layout.grid(row=0, column=0, sticky="nsew")
 
         self._setup_training_form()
