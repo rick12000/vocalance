@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """High-performance LLM service optimized for speed and quality"""
+    """High-performance LLM service optimized for speed and quality with proper resource management"""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
         self.event_bus = event_bus
@@ -68,7 +68,12 @@ class LLMService:
 
             if self.llm:
                 self._model_loaded = True
-                logger.info("Model loaded successfully (warmup deferred to first use)")
+                logger.info("Model loaded successfully, warming up...")
+
+                # Warm up model immediately during initialization
+                await self._warmup_model()
+                self._warmed_up = True
+                logger.info("Model initialization and warmup complete")
                 return True
 
             logger.error("Model loading failed")
@@ -98,7 +103,7 @@ class LLMService:
                 type_v=cfg.type_v,
                 verbose=cfg.verbose,
             )
-            logger.info("Model loaded")
+            logger.info("Model loaded successfully")
             return model
         except Exception as e:
             logger.error(f"Model load error: {e}", exc_info=True)
@@ -125,10 +130,6 @@ class LLMService:
         if not self._model_loaded or not self.llm:
             logger.error("Model not loaded")
             return raw_text.strip()
-
-        if not self._warmed_up:
-            await self._warmup_model()
-            self._warmed_up = True
 
         try:
             messages = self._build_messages(agentic_prompt, raw_text)
@@ -190,13 +191,23 @@ class LLMService:
                             delta = chunk["choices"][0].get("delta", {})
                             token = delta.get("content", "")
                             if token:
-                                asyncio.run_coroutine_threadsafe(token_queue.put(token), loop)
+                                try:
+                                    asyncio.run_coroutine_threadsafe(token_queue.put(token), loop)
+                                except RuntimeError:
+                                    logger.warning("Event loop closed during token streaming")
+                                    break
 
-                    asyncio.run_coroutine_threadsafe(token_queue.put(None), loop)
+                    try:
+                        asyncio.run_coroutine_threadsafe(token_queue.put(None), loop)
+                    except RuntimeError:
+                        logger.warning("Event loop closed during streaming completion")
 
                 except Exception as e:
                     logger.error(f"Generation error: {e}", exc_info=True)
-                    asyncio.run_coroutine_threadsafe(token_queue.put(None), loop)
+                    try:
+                        asyncio.run_coroutine_threadsafe(token_queue.put(None), loop)
+                    except RuntimeError:
+                        pass
 
             executor_task = loop.run_in_executor(None, sync_generate)
 
@@ -240,17 +251,29 @@ class LLMService:
         return self._model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
-        """Shutdown and cleanup"""
+        """Shutdown and cleanup with proper resource management"""
         try:
+            logger.info("LLM service shutting down - cleaning up model and GPU memory")
             self._model_loaded = False
 
             if self.llm:
-                if hasattr(self.llm, "close"):
-                    self.llm.close()
-                del self.llm
-                self.llm = None
+                try:
+                    # Properly close the llama model to release resources
+                    if hasattr(self.llm, "close"):
+                        self.llm.close()
+                        logger.info("LLM model closed successfully")
+                except Exception as e:
+                    logger.warning(f"Error closing LLM model: {e}")
+                finally:
+                    # Delete reference to allow garbage collection
+                    del self.llm
+                    self.llm = None
 
-            gc.collect()
+            # Force garbage collection to free memory immediately
+            # Multiple rounds to catch cyclic references
+            for i in range(2):
+                gc.collect()
+                logger.debug(f"Garbage collection round {i+1} performed")
 
             logger.info("LLM service shutdown complete")
         except Exception as e:

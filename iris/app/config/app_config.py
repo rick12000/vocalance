@@ -85,6 +85,14 @@ class SoundRecognizerConfig(BaseModel):
         description="ESC-50 categories used as negative examples",
     )
 
+    # Audio preprocessing configuration
+    silence_threshold: float = Field(0.005, description="RMS energy threshold for silence detection")
+    min_sound_duration: float = Field(0.1, description="Minimum sound duration in seconds")
+    max_sound_duration: float = Field(2.0, description="Maximum sound duration in seconds")
+    frame_length: int = Field(1024, description="Frame length for RMS energy analysis")
+    hop_length: int = Field(512, description="Hop length for RMS energy analysis")
+    normalization_level: float = Field(0.7, description="Peak normalization level (0.0-1.0)")
+
 
 class MarkTriggersConfig(BaseModel):
     create_mark: str = "mark"
@@ -98,6 +106,9 @@ class MarkConfig(BaseModel):
     triggers: MarkTriggersConfig = MarkTriggersConfig()
     visualization_duration_seconds: int = Field(
         default=15, description="Duration in seconds for mark visualization overlay before auto-hide."
+    )
+    shutdown_grace_period_seconds: float = Field(
+        default=0.1, description="Time to wait for pending writes during service shutdown"
     )
 
 
@@ -145,6 +156,12 @@ class DictationConfig(BaseModel):
 
     # Type dictation specific settings
     type_dictation_silence_timeout: float = 1.0
+
+    # Text input timing settings
+    pyautogui_pause: float = Field(default=0.01, description="Global pause interval between pyautogui operations (seconds)")
+    clipboard_paste_delay_pre: float = Field(default=0.05, description="Delay before clipboard paste operation (seconds)")
+    clipboard_paste_delay_post: float = Field(default=0.1, description="Delay after clipboard paste operation (seconds)")
+    type_text_post_delay: float = Field(default=0.1, description="Delay after typing text (seconds)")
 
 
 class LLMConfig(BaseModel):
@@ -281,6 +298,36 @@ class MarkovPredictorConfig(BaseModel):
         default=2, description="Number of commands to skip Markov after incorrect prediction"
     )
 
+    prediction_cooldown_seconds: float = Field(
+        default=0.05, description="Minimum time in seconds between consecutive Markov predictions to prevent spam"
+    )
+
+
+class CommandParserConfig(BaseModel):
+    """Configuration for centralized command parser behavior"""
+
+    duplicate_detection_interval: float = Field(default=1.0, description="Interval in seconds to detect duplicate text input")
+
+    prediction_deduplication_window: float = Field(
+        default=1.0, description="Time window in seconds to match Markov predictions with STT results"
+    )
+
+
+class AutomationServiceConfig(BaseModel):
+    """Configuration for automation command execution"""
+
+    thread_pool_max_workers: int = Field(default=2, description="Maximum number of worker threads for automation action execution")
+
+    key_sequence_delay_seconds: float = Field(
+        default=0.25, description="Delay in seconds between individual key presses in a key sequence"
+    )
+
+
+class ProtectedTermsValidatorConfig(BaseModel):
+    """Configuration for protected terms validator"""
+
+    cache_ttl_seconds: float = Field(default=60.0, description="Cache time-to-live in seconds for protected terms")
+
 
 class AppInfoConfig(BaseModel):
     default_app_name_for_data_dir: str = Field(default="iris_voice_assistant", description="Default app name for data directory")
@@ -404,6 +451,9 @@ class StorageConfig(BaseModel):
     llm_models_dir: Optional[str] = None  # Directory for LLM models, set at runtime
     click_tracker_dir: Optional[str] = None  # New: directory for click tracker
     command_history_dir: Optional[str] = None  # Directory for command history
+    cache_ttl_seconds: float = Field(
+        default=300.0, description="Cache time-to-live in seconds for storage service read operations"
+    )
 
 
 class GlobalAppConfig(BaseModel):
@@ -422,6 +472,9 @@ class GlobalAppConfig(BaseModel):
     dictation: DictationConfig = DictationConfig()
     llm: LLMConfig = LLMConfig()
     markov_predictor: MarkovPredictorConfig = MarkovPredictorConfig()
+    command_parser: CommandParserConfig = CommandParserConfig()
+    automation_service: AutomationServiceConfig = AutomationServiceConfig()
+    protected_terms_validator: ProtectedTermsValidatorConfig = ProtectedTermsValidatorConfig()
     scroll_amount_vertical: int = Field(default=120, description="The amount to scroll vertically for 'sky' and 'earth' commands.")
     automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
 

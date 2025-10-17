@@ -1,9 +1,3 @@
-"""
-Enhanced Vosk STT Service
-
-Provides optimized Vosk STT functionality for command recognition.
-"""
-
 import gc
 import json
 import logging
@@ -19,18 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 class EnhancedVoskSTT:
-    """Enhanced Vosk STT with duplicate filtering"""
+    """Vosk STT engine optimized for fast command recognition with duplicate filtering."""
 
-    def __init__(self, model_path: str, sample_rate: int, config: GlobalAppConfig):
-        """Initialize Vosk STT"""
+    def __init__(self, model_path: str, sample_rate: int, config: GlobalAppConfig) -> None:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.config = config
-
-        # Core settings
         self._sample_rate = sample_rate
         self._model_path = model_path
 
-        # Initialize Vosk components
         try:
             self._model = vosk.Model(model_path)
             self._recognizer = vosk.KaldiRecognizer(self._model, sample_rate)
@@ -41,20 +31,9 @@ class EnhancedVoskSTT:
             self.logger.error(f"Failed to initialize Vosk: {e}")
             raise
 
-        # Lightweight duplicate filtering
         self._duplicate_filter = DuplicateTextFilter(cache_size=5, duplicate_threshold_ms=300)
 
     def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
-        """
-        Recognize speech using Vosk
-
-        Args:
-            audio_bytes: Raw audio bytes to process
-            sample_rate: Sample rate of the audio
-
-        Returns:
-            Recognized text string
-        """
         if not audio_bytes:
             return ""
 
@@ -80,7 +59,6 @@ class EnhancedVoskSTT:
                 return ""
 
     async def shutdown(self) -> None:
-        """Shutdown Vosk STT and cleanup resources"""
         try:
             logger.info("Shutting down EnhancedVoskSTT")
 

@@ -173,9 +173,24 @@ class FastServiceInitializer:
         async def init_commands():
             if progress_tracker:
                 progress_tracker.update_status_animated("Setting up command storage")
+
+            # Create shared helper services
+            from iris.app.services.command_action_map_provider import CommandActionMapProvider
+            from iris.app.services.protected_terms_validator import ProtectedTermsValidator
+
+            self.services["protected_terms_validator"] = ProtectedTermsValidator(
+                config=self.config, storage=self.services["storage"]
+            )
+
+            self.services["action_map_provider"] = CommandActionMapProvider(storage=self.services["storage"])
+
             # Command management service for event handling
             self.services["command_management"] = CommandManagementService(
-                event_bus=self.event_bus, app_config=self.config, storage=self.services["storage"]
+                event_bus=self.event_bus,
+                app_config=self.config,
+                storage=self.services["storage"],
+                protected_terms_validator=self.services["protected_terms_validator"],
+                action_map_provider=self.services["action_map_provider"],
             )
             self.services["command_management"].setup_subscriptions()
 
@@ -190,24 +205,12 @@ class FastServiceInitializer:
         async def init_marks():
             if progress_tracker:
                 progress_tracker.update_status_animated("Configuring mark system")
-            # Collect trigger phrases for mark service
-            trigger_phrases = {
-                self.config.grid.show_grid_phrase,
-                self.config.grid.select_cell_phrase,
-                self.config.grid.cancel_grid_phrase,
-                self.config.mark.triggers.create_mark,
-                self.config.mark.triggers.delete_mark,
-                self.config.dictation.start_trigger,
-                self.config.dictation.stop_trigger,
-                self.config.dictation.type_trigger,
-                self.config.dictation.smart_start_trigger,
-            }
-            trigger_phrases.update(self.config.mark.triggers.visualize_marks)
-            trigger_phrases.update(self.config.mark.triggers.reset_marks)
-            trigger_phrases.update(self.config.mark.triggers.visualization_cancel)
 
             self.services["mark"] = MarkService(
-                self.event_bus, self.config, self.services["storage"], reserved_labels=trigger_phrases
+                event_bus=self.event_bus,
+                config=self.config,
+                storage=self.services["storage"],
+                protected_terms_validator=self.services["protected_terms_validator"],
             )
             self.services["mark"].setup_subscriptions()
 
@@ -237,7 +240,7 @@ class FastServiceInitializer:
 
         async def init_stt():
             if progress_tracker:
-                progress_tracker.update_status_animated("Initializing speech-to-text (on first run, this may take a while)")
+                progress_tracker.update_status_animated("Initializing speech-to-text (slow on first run)")
             self.services["stt"] = SpeechToTextService(event_bus=self.event_bus, config=self.config)
             self.services["stt"].initialize_engines()
             self.services["stt"].setup_subscriptions()
@@ -245,8 +248,18 @@ class FastServiceInitializer:
         async def init_command_parser():
             if progress_tracker:
                 progress_tracker.update_status_animated("Setting up command processing")
+
+            # Create helper services for command parser
+            from iris.app.services.command_history_manager import CommandHistoryManager
+
+            self.services["history_manager"] = CommandHistoryManager(storage=self.services["storage"])
+
             self.services["centralized_parser"] = CentralizedCommandParser(
-                event_bus=self.event_bus, app_config=self.config, storage=self.services["storage"]
+                event_bus=self.event_bus,
+                app_config=self.config,
+                storage=self.services["storage"],
+                action_map_provider=self.services["action_map_provider"],
+                history_manager=self.services["history_manager"],
             )
             await self.services["centralized_parser"].initialize()
             self.services["centralized_parser"].setup_subscriptions()
@@ -263,7 +276,7 @@ class FastServiceInitializer:
             llm_mode = getattr(self.config.llm, "startup_mode", "startup")
             if llm_mode == "startup":
                 if progress_tracker:
-                    progress_tracker.update_sub_step("Setting up LLM resources (on first run, this may take a while)")
+                    progress_tracker.update_sub_step("Setting up LLM resources (slow on first run)")
                 await self.services["dictation"].initialize()
             elif llm_mode == "background":
                 asyncio.create_task(self._background_llm_init())
@@ -466,7 +479,7 @@ async def main():
 async def _cleanup_services(
     services: Dict[str, Any], event_bus: EventBus, gui_event_loop: asyncio.AbstractEventLoop, gui_thread: threading.Thread
 ):
-    """Clean up all services during shutdown"""
+    """Clean up all services during shutdown with proper async task cleanup"""
     cleanup_errors = []
 
     try:
@@ -497,6 +510,30 @@ async def _cleanup_services(
                 error_msg = f"Error stopping mark service: {e}"
                 logging.error(error_msg)
                 cleanup_errors.append(error_msg)
+
+        # Cancel all pending tasks in GUI event loop before closing
+        if not gui_event_loop.is_closed():
+            pending_tasks = []
+            try:
+                # Get all tasks from the GUI event loop
+                for task in asyncio.all_tasks(gui_event_loop):
+                    if not task.done():
+                        pending_tasks.append(task)
+                        task.cancel()
+
+                # Wait for all tasks to be cancelled
+                if pending_tasks:
+                    logging.info(f"Cancelling {len(pending_tasks)} pending tasks...")
+                    try:
+                        cancel_future = asyncio.run_coroutine_threadsafe(
+                            asyncio.gather(*pending_tasks, return_exceptions=True), gui_event_loop
+                        )
+                        cancel_future.result(timeout=2.0)
+                        logging.info("All pending tasks cancelled successfully")
+                    except asyncio.TimeoutError:
+                        logging.warning("Timeout waiting for tasks to be cancelled")
+            except Exception as e:
+                logging.warning(f"Error cancelling pending tasks: {e}")
 
         # Now stop GUI event loop after event bus is shutdown
         if not gui_event_loop.is_closed():
@@ -533,6 +570,7 @@ async def _cleanup_services(
             "stt",
             "dictation",
             "markov_predictor",
+            "audio",
         ]
         for service_name in shutdown_order:
             if service_name in services and hasattr(services[service_name], "shutdown"):

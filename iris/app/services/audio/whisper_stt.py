@@ -14,36 +14,26 @@ logger = logging.getLogger(__name__)
 
 
 class WhisperSpeechToText:
-    def __init__(self, model_name: str = "base", device: str = "cpu", sample_rate: int = 16000, config=None):
-        """Initialize Whisper STT using faster-whisper"""
+    """Faster-Whisper STT engine optimized for dictation accuracy with normalization."""
+
+    def __init__(self, model_name: str = "base", device: str = "cpu", sample_rate: int = 16000, config=None) -> None:
         self._model_name = model_name
-        self._device = "cpu"  # Force CPU for stability
+        self._device = "cpu"
         self._sample_rate = sample_rate
         self._model = None
         self._config = config
-
-        # Thread safety
         self._model_lock = threading.RLock()
-
-        # Simple duplicate detection
         self._duplicate_filter = DuplicateTextFilter(cache_size=10, duplicate_threshold_ms=4000)
-
-        # Quality settings from config
         self._beam_size = getattr(config, "whisper_beam_size", 5) if config else 5
         self._temperature = getattr(config, "whisper_temperature", 0.0) if config else 0.0
         self._no_speech_threshold = getattr(config, "whisper_no_speech_threshold", 0.6) if config else 0.6
-
-        # Use int8 for CPU efficiency
         self._compute_type = "int8"
-
-        # Initialize and warm up model
         self._load_model()
         self._warm_up_model()
 
         logger.info(f"Initialized faster-whisper: {model_name}, device: {self._device}")
 
-    def _load_model(self):
-        """Load the faster-whisper model"""
+    def _load_model(self) -> None:
         try:
             logger.info(f"Loading faster-whisper model: {self._model_name}")
             self._model = WhisperModel(
@@ -54,22 +44,20 @@ class WhisperSpeechToText:
             logger.error(f"Failed to load faster-whisper model: {e}", exc_info=True)
             raise
 
-    def _warm_up_model(self):
-        """Warm up the model with dummy audio"""
+    def _warm_up_model(self) -> None:
         try:
             logger.info("Warming up faster-whisper model...")
             dummy_audio = np.zeros(16000, dtype=np.float32)
 
             with self._model_lock:
                 segments, _ = self._model.transcribe(dummy_audio, beam_size=1, vad_filter=False)
-                list(segments)  # Consume generator
+                list(segments)
 
             logger.info("Faster-whisper model warmed up successfully")
         except Exception as e:
             logger.warning(f"Failed to warm up model: {e}")
 
     def _get_transcription_options(self, audio_duration: float) -> Dict[str, Any]:
-        """Get transcription options based on audio duration"""
         options = {
             "language": "en",
             "beam_size": self._beam_size,
@@ -87,12 +75,10 @@ class WhisperSpeechToText:
         return options
 
     def _prepare_audio(self, audio_bytes: bytes) -> np.ndarray:
-        """Convert audio bytes to numpy array"""
         audio_np = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         return audio_np
 
     def _extract_text_from_segments(self, segments: List[Any]) -> Tuple[str, float]:
-        """Extract text from faster-whisper segments"""
         all_text_parts = []
         total_confidence = 0.0
         segment_count = 0
@@ -118,16 +104,6 @@ class WhisperSpeechToText:
         return combined_text, avg_confidence
 
     def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
-        """
-        Recognize speech using faster-whisper
-
-        Args:
-            audio_bytes: Raw audio bytes (16-bit PCM)
-            sample_rate: Sample rate (should match initialized rate)
-
-        Returns:
-            Recognized text or empty string
-        """
         if sample_rate and sample_rate != self._sample_rate:
             logger.warning(f"Sample rate mismatch. Expected {self._sample_rate}, got {sample_rate}")
 
@@ -183,7 +159,6 @@ class WhisperSpeechToText:
                 return ""
 
     def _normalize_text(self, text: str) -> str:
-        """Basic text normalization"""
         if not text:
             return ""
 
@@ -210,15 +185,13 @@ class WhisperSpeechToText:
 
         return text.strip()
 
-    def reset_context(self):
-        """Reset context and cache"""
+    def reset_context(self) -> None:
         with self._model_lock:
             if hasattr(self, "_text_cache"):
                 self._text_cache.clear()
             logger.debug("Whisper context and cache reset")
 
     async def shutdown(self) -> None:
-        """Shutdown Whisper STT and cleanup resources"""
         try:
             logger.info("Shutting down WhisperSpeechToText")
 

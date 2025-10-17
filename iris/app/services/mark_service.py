@@ -1,13 +1,3 @@
-"""
-Mark Service V2 - Unified Storage Implementation
-
-Migrated mark service using the unified storage system for:
-- High-performance mark coordinate storage with caching
-- Non-blocking mark operations for voice command responsiveness
-- Event-driven architecture with unified storage
-- Separated storage logic from business logic for better maintainability
-"""
-
 import asyncio
 import logging
 from typing import Any, Dict, Optional, Set, Tuple
@@ -40,6 +30,7 @@ from iris.app.events.mark_events import (
     MarkVisualizeAllRequestEventData,
     MarkVisualizeCancelRequestEventData,
 )
+from iris.app.services.protected_terms_validator import ProtectedTermsValidator
 from iris.app.services.storage.storage_models import Coordinate, MarksData
 from iris.app.services.storage.storage_service import StorageService
 
@@ -47,31 +38,28 @@ logger = logging.getLogger(__name__)
 
 
 class MarkService:
-    """
-    Enhanced mark service using unified storage backend
+    """Service for managing screen position marks with unified storage.
 
-    Performance improvements for voice commands:
-    - Cached mark coordinate lookups for instant navigation
-    - Non-blocking mark operations with debounced writes
-    - Event-driven architecture with unified storage
-    - Separated storage concerns from business logic
+    Provides fast mark creation, navigation (click), and deletion with cached
+    coordinate lookups and validation against reserved labels (commands, sounds).
     """
 
     def __init__(
-        self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService, reserved_labels: Optional[Set[str]] = None
-    ):
+        self,
+        event_bus: EventBus,
+        config: GlobalAppConfig,
+        storage: StorageService,
+        protected_terms_validator: ProtectedTermsValidator,
+    ) -> None:
         self._event_bus = event_bus
         self._config = config
         self._storage = storage
-        self._is_viz_active = False
+        self._protected_terms_validator = protected_terms_validator
+        self._is_viz_active: bool = False
 
-        # Reserved labels for validation
-        self._reserved_labels = set(label.lower() for label in reserved_labels) if reserved_labels else set()
-
-        logger.info(f"MarkService initialized with new storage service. Reserved labels: {self._reserved_labels}")
+        logger.info("MarkService initialized with protected terms validation")
 
     def setup_subscriptions(self) -> None:
-        """Set up event subscriptions for mark operations."""
         logger.info("Setting up MarkServiceV2 event subscriptions...")
 
         # Subscribe to visualization state changes
@@ -116,7 +104,14 @@ class MarkService:
         return label.lower().strip() in marks_data.marks
 
     async def _execute_mark_command(self, command: BaseCommand) -> None:
-        """Execute mark commands with unified storage backend."""
+        """Execute mark commands (create, execute, delete, visualize, reset).
+
+        Processes mark command types through appropriate handlers, performs actions
+        (create mark, click at mark, delete mark, etc.), and publishes status events.
+
+        Args:
+            command: Parsed mark command to execute
+        """
         success = False
         message = ""
         mark_data_for_event: Optional[Dict[str, Any]] = None
@@ -210,24 +205,22 @@ class MarkService:
         # Publish command status
         await self._publish_command_status("", operation_type, success, message, mark_data_for_event)
 
-    def update_reserved_labels(self, new_reserved_labels: Set[str]):
-        """Update the set of reserved labels for validation."""
-        self._reserved_labels.update(label.lower() for label in new_reserved_labels)
-        logger.info(f"MarkServiceV2 reserved labels updated: {self._reserved_labels}")
-
     async def _is_label_valid(self, label: str) -> Tuple[bool, str]:
-        """Validate a mark label with unified storage lookup."""
-        normalized_label = label.lower().strip()
-        if not normalized_label:
-            return False, "Mark label cannot be empty."
-        if " " in normalized_label:
-            return False, "Mark label must be a single word."
-        if normalized_label in self._reserved_labels:
-            return False, f"Mark label '{normalized_label}' is a reserved command or keyword."
+        """Validate mark label using protected terms validator.
 
-        # Check if mark already exists using unified storage
-        if await self._mark_exists(normalized_label):
-            return False, f"Mark label '{normalized_label}' is already in use."
+        Args:
+            label: The mark label to validate
+
+        Returns:
+            Tuple of (is_valid, error_message) where error_message is empty if valid
+        """
+        is_valid, error_msg = await self._protected_terms_validator.validate_term(term=label)
+
+        if not is_valid:
+            return False, error_msg
+
+        if await self._mark_exists(label.lower().strip()):
+            return False, f"Mark label '{label}' is already in use."
 
         return True, ""
 
@@ -269,10 +262,6 @@ class MarkService:
         marks_data = await self._storage.read(model_type=MarksData)
         return set(marks_data.marks.keys())
 
-    def _get_reserved_labels(self) -> Set[str]:
-        """Get the set of reserved labels."""
-        return self._reserved_labels
-
     async def _remove_mark(self, label: str) -> bool:
         """Remove a mark using unified storage."""
         normalized_label = label.lower().strip()
@@ -300,10 +289,6 @@ class MarkService:
             logger.error("Failed to reset marks in storage")
 
         return num_cleared
-
-    async def _get_defined_mark_labels(self) -> Set[str]:
-        """Get all defined mark labels using unified storage."""
-        return await self._get_all_mark_names()
 
     async def _publish_command_status(
         self, raw_phrase: str, command_name: str, success: bool, message: str, details: Optional[Dict[str, Any]] = None
@@ -348,7 +333,7 @@ class MarkService:
         """Stop background service tasks and ensure cleanup."""
         try:
             # Allow any pending writes to complete
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(self._config.mark.shutdown_grace_period_seconds)
             logger.info("MarkServiceV2 cleanup complete")
         except Exception as e:
             logger.error(f"Error during MarkServiceV2 cleanup: {e}", exc_info=True)

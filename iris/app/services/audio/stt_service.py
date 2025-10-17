@@ -1,9 +1,3 @@
-"""
-Streamlined Speech-to-Text Service
-
-Provides efficient STT processing with mode-aware handling for command and dictation modes.
-"""
-
 import gc
 import logging
 import threading
@@ -33,41 +27,34 @@ logger = logging.getLogger(__name__)
 
 
 class STTMode(Enum):
-    """STT processing modes"""
-
     COMMAND = "command"
     DICTATION = "dictation"
 
 
 class SpeechToTextService:
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
+    """STT service with dual engines (Vosk for commands, Whisper for dictation).
+
+    Manages mode-aware audio processing with amber trigger detection during dictation
+    and smart timeout management for command ambiguity resolution.
+    """
+
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         self.event_bus = event_bus
         self.config = config
         self.stt_config = config.stt
         self.logger = logging.getLogger(self.__class__.__name__)
-
-        # Current processing mode
-        self._dictation_active = False
+        self._dictation_active: bool = False
         self._processing_lock = threading.RLock()
-
-        # STT engines
-        self.vosk_engine = None
-        self.whisper_engine = None
-        self._engines_initialized = False
-
-        # Duplicate detection
+        self.vosk_engine: Optional[EnhancedVoskSTT] = None
+        self.whisper_engine: Optional[WhisperSpeechToText] = None
+        self._engines_initialized: bool = False
         self._duplicate_filter = DuplicateTextFilter(cache_size=5, duplicate_threshold_ms=1000)
-
-        # Smart timeout management
         self._smart_timeout_manager = SmartTimeoutManager(app_config=config)
-
-        # Amber trigger words
         self._amber_words = {"amber", "stop", "end"}
 
         logger.info(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
 
-    def initialize_engines(self):
-        """Initialize STT engines at startup"""
+    def initialize_engines(self) -> None:
         if self._engines_initialized:
             return
 
@@ -98,8 +85,7 @@ class SpeechToTextService:
             logger.error(f"Failed to initialize STT engines: {e}", exc_info=True)
             raise
 
-    def setup_subscriptions(self):
-        """Setup event subscriptions"""
+    def setup_subscriptions(self) -> None:
         self.event_bus.subscribe(event_type=CommandAudioSegmentReadyEvent, handler=self._handle_command_audio_segment)
         self.event_bus.subscribe(event_type=DictationAudioSegmentReadyEvent, handler=self._handle_dictation_audio_segment)
         self.event_bus.subscribe(event_type=DictationModeDisableOthersEvent, handler=self._handle_dictation_mode_change)
@@ -107,9 +93,7 @@ class SpeechToTextService:
 
         logger.info("STT service event subscriptions configured")
 
-    async def _publish_recognition_result(self, text: str, processing_time: float, engine: str, mode: STTMode):
-        """Publish recognition results using mode-specific events"""
-
+    async def _publish_recognition_result(self, text: str, processing_time: float, engine: str, mode: STTMode) -> None:
         if mode == STTMode.DICTATION:
             event = DictationTextRecognizedEvent(text=text, processing_time_ms=processing_time, engine=engine, mode=mode.value)
         else:
@@ -117,12 +101,10 @@ class SpeechToTextService:
         await self.event_bus.publish(event)
         logger.info(f"Published {type(event).__name__}: '{text}' from {engine}")
 
-        # Update duplicate tracking
         self._last_recognized_text = text
         self._last_text_time = time.time()
 
-    async def _publish_sound_recognition_event(self, audio_bytes: bytes, sample_rate: int):
-        """Publish audio chunk for sound recognition"""
+    async def _publish_sound_recognition_event(self, audio_bytes: bytes, sample_rate: int) -> None:
         try:
             sound_event = ProcessAudioChunkForSoundRecognitionEvent(audio_chunk=audio_bytes, sample_rate=sample_rate)
             await self.event_bus.publish(sound_event)
@@ -218,13 +200,11 @@ class SpeechToTextService:
             logger.error(f"Error processing dictation audio: {e}")
 
     def _is_amber_trigger(self, text: Optional[str]) -> bool:
-        """Check if text contains amber trigger words"""
         if not text:
             return False
         return any(word in text.lower().strip() for word in self._amber_words)
 
-    async def _handle_dictation_mode_change(self, event_data: DictationModeDisableOthersEvent):
-        """Handle dictation mode changes"""
+    async def _handle_dictation_mode_change(self, event_data: DictationModeDisableOthersEvent) -> None:
         with self._processing_lock:
             old_state = self._dictation_active
             self._dictation_active = event_data.dictation_mode_active
@@ -249,14 +229,12 @@ class SpeechToTextService:
         except Exception as e:
             logger.error(f"Error handling command mappings update: {e}")
 
-    def update_command_action_map(self, command_action_map):
-        """Update the command action map in smart timeout manager"""
+    def update_command_action_map(self, command_action_map) -> None:
         if self._smart_timeout_manager:
             self._smart_timeout_manager.update_command_action_map(command_action_map)
             logger.info(f"Updated smart timeout manager with {len(command_action_map)} commands")
 
-    async def shutdown(self):
-        """Shutdown STT service"""
+    async def shutdown(self) -> None:
         try:
             logger.info("Shutting down STT service")
 

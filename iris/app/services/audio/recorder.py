@@ -10,7 +10,12 @@ from iris.app.config.app_config import GlobalAppConfig
 
 
 class AudioRecorder:
-    """Simplified audio recorder optimized for either command or dictation mode"""
+    """Mode-specific audio recorder with VAD and adaptive noise floor.
+
+    Optimized separately for command mode (speed) and dictation mode (accuracy),
+    with real-time energy-based voice activity detection and automatic noise floor
+    adaptation for robust speech detection.
+    """
 
     def __init__(
         self,
@@ -18,22 +23,20 @@ class AudioRecorder:
         mode: str = "command",
         on_audio_segment: Optional[Callable[[bytes], None]] = None,
         on_audio_detected: Optional[Callable[[], None]] = None,
-    ):
+    ) -> None:
         self.logger = logging.getLogger(f"{self.__class__.__name__}_{mode}")
-
         self.app_config = app_config
         self.mode = mode
         self.on_audio_segment = on_audio_segment
         self.on_audio_detected = on_audio_detected
 
-        # Mode-specific configuration
         if mode == "command":
             self.chunk_size = app_config.audio.command_chunk_size
             self.energy_threshold = app_config.vad.command_energy_threshold
             self.silent_chunks_for_end = app_config.vad.command_silent_chunks_for_end
             self.max_duration = app_config.vad.command_max_recording_duration
             self.pre_roll_chunks = app_config.vad.command_pre_roll_buffers
-        else:  # dictation
+        else:
             self.chunk_size = app_config.audio.chunk_size
             self.energy_threshold = app_config.vad.dictation_energy_threshold
             self.silent_chunks_for_end = app_config.vad.dictation_silent_chunks_for_end
@@ -43,18 +46,14 @@ class AudioRecorder:
         self.sample_rate = app_config.audio.sample_rate
         self.device = getattr(app_config.audio, "device", None)
         self.silence_threshold = self.energy_threshold * 0.35
-
-        # Recording state
-        self._is_recording = False
-        self._is_active = True
+        self._is_recording: bool = False
+        self._is_active: bool = True
         self._thread: Optional[threading.Thread] = None
         self._stream: Optional[sd.InputStream] = None
         self._lock = threading.Lock()
-
-        # Noise floor adaptation
-        self._noise_floor = 0.002
-        self._noise_samples = []
-        self._max_noise_samples = 20
+        self._noise_floor: float = 0.002
+        self._noise_samples: list[float] = []
+        self._max_noise_samples: int = 20
 
         self.logger.info(
             f"AudioRecorder initialized for {mode} mode: chunk_size={self.chunk_size}samples, "
@@ -62,13 +61,12 @@ class AudioRecorder:
         )
 
     def _calculate_energy(self, audio_chunk: np.ndarray) -> float:
-        """Calculate RMS energy"""
         if audio_chunk.dtype == np.int16:
             return np.sqrt(np.mean((audio_chunk.astype(np.float32) / 32768.0) ** 2))
         return np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2))
 
-    def _update_noise_floor(self, energy: float):
-        """Update noise floor estimation"""
+    def _update_noise_floor(self, energy: float) -> None:
+        """Update adaptive noise floor from quiet samples and adjust thresholds."""
         if len(self._noise_samples) < self._max_noise_samples:
             self._noise_samples.append(energy)
 
@@ -83,8 +81,12 @@ class AudioRecorder:
                     self.silence_threshold = self.energy_threshold * 0.4
                     self.logger.info(f"Adapted thresholds: {old_threshold:.6f} -> {self.energy_threshold:.6f}")
 
-    def _recording_thread(self):
-        """Main recording thread"""
+    def _recording_thread(self) -> None:
+        """Main recording loop with VAD, pre-roll buffering, and segment capture.
+
+        Continuously monitors audio for speech detection, maintains pre-roll buffer,
+        captures audio segments until silence detected, and invokes callbacks.
+        """
         try:
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate, blocksize=self.chunk_size, channels=1, dtype="int16", device=self.device
@@ -179,8 +181,7 @@ class AudioRecorder:
         finally:
             self._cleanup_stream()
 
-    def _cleanup_stream(self):
-        """Properly cleanup audio stream with detailed error handling"""
+    def _cleanup_stream(self) -> None:
         if self._stream:
             try:
                 if hasattr(self._stream, "active") and self._stream.active:
@@ -196,8 +197,7 @@ class AudioRecorder:
                 self._stream = None
                 self.logger.info(f"{self.mode} audio stream cleanup completed")
 
-    def start(self):
-        """Start recording"""
+    def start(self) -> None:
         with self._lock:
             if self._is_recording:
                 return
@@ -205,8 +205,7 @@ class AudioRecorder:
             self._thread = threading.Thread(target=self._recording_thread, daemon=True)
             self._thread.start()
 
-    def stop(self):
-        """Stop recording"""
+    def stop(self) -> None:
         with self._lock:
             if not self._is_recording:
                 return
@@ -216,17 +215,13 @@ class AudioRecorder:
                 if self._thread.is_alive():
                     self.logger.warning(f"{self.mode} recording thread did not terminate cleanly")
 
-            # Ensure stream is cleaned up even if thread didn't terminate properly
             self._cleanup_stream()
 
-    def set_active(self, active: bool):
-        """Set recorder active state"""
+    def set_active(self, active: bool) -> None:
         self._is_active = active
 
     def is_recording(self) -> bool:
-        """Check if recording"""
         return self._is_recording
 
     def is_active(self) -> bool:
-        """Check if active"""
         return self._is_active

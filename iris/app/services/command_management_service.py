@@ -1,11 +1,5 @@
-"""
-Command Management Service
-
-Event-driven service that handles command management operations with integrated protected terms validation.
-"""
-
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import List, Optional
 
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.config.automation_command_registry import AutomationCommandRegistry
@@ -21,21 +15,34 @@ from iris.app.events.command_management_events import (
     ResetCommandsToDefaultsEvent,
     UpdateCommandPhraseEvent,
 )
-from iris.app.services.storage.storage_models import CommandsData, MarksData, SoundMappingsData
+from iris.app.services.command_action_map_provider import CommandActionMapProvider
+from iris.app.services.protected_terms_validator import ProtectedTermsValidator
+from iris.app.services.storage.storage_models import CommandsData
 from iris.app.services.storage.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
 
 class CommandManagementService:
-    """
-    Service that handles command management events with integrated protected terms validation.
+    """Service for managing custom automation commands with protected term validation.
+
+    Handles adding, updating, and deleting custom commands while validating against
+    protected terms (system commands, marks, sounds) to prevent conflicts.
     """
 
-    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig, storage: StorageService):
+    def __init__(
+        self,
+        event_bus: EventBus,
+        app_config: GlobalAppConfig,
+        storage: StorageService,
+        protected_terms_validator: ProtectedTermsValidator,
+        action_map_provider: CommandActionMapProvider,
+    ) -> None:
         self._event_bus = event_bus
         self._app_config = app_config
         self._storage = storage
+        self._protected_terms_validator = protected_terms_validator
+        self._action_map_provider = action_map_provider
 
         logger.info("CommandManagementService initialized")
 
@@ -51,80 +58,20 @@ class CommandManagementService:
 
         logger.info("CommandManagementService subscriptions set up")
 
-    async def _get_protected_terms(self) -> Set[str]:
-        """
-        Get all protected terms that cannot be used as custom command names.
-        Includes automation commands, system triggers, live mark names, and live sound names.
-        """
-        protected = set()
-
-        protected.update(phrase.lower().strip() for phrase in AutomationCommandRegistry.get_protected_phrases())
-        protected.add(self._app_config.grid.show_grid_phrase.lower().strip())
-
-        mark_triggers = self._app_config.mark.triggers
-        protected.add(mark_triggers.create_mark.lower().strip())
-        protected.add(mark_triggers.delete_mark.lower().strip())
-        protected.update(phrase.lower().strip() for phrase in mark_triggers.visualize_marks)
-        protected.update(phrase.lower().strip() for phrase in mark_triggers.reset_marks)
-
-        dictation = self._app_config.dictation
-        protected.add(dictation.start_trigger.lower().strip())
-        protected.add(dictation.stop_trigger.lower().strip())
-        protected.add(dictation.type_trigger.lower().strip())
-        protected.add(dictation.smart_start_trigger.lower().strip())
-
-        try:
-            marks_data = await self._storage.read(model_type=MarksData)
-            protected.update(name.lower().strip() for name in marks_data.marks.keys())
-        except Exception as e:
-            logger.warning(f"Could not fetch mark names for protection: {e}")
-
-        try:
-            sound_data = await self._storage.read(model_type=SoundMappingsData)
-            protected.update(sound.lower().strip() for sound in sound_data.mappings.keys())
-        except Exception as e:
-            logger.warning(f"Could not fetch sound names for protection: {e}")
-
-        return protected
-
-    async def _get_action_map(self) -> Dict[str, Any]:
-        """Get action map for command lookup."""
-        action_map = {}
-
-        # Load custom commands (already AutomationCommand objects)
-        commands_data = await self._storage.read(model_type=CommandsData)
-        for normalized_phrase, command_obj in commands_data.custom_commands.items():
-            action_map[normalized_phrase] = command_obj
-
-        # Load default commands
-        default_commands = AutomationCommandRegistry.get_default_commands()
-
-        for command_data in default_commands:
-            normalized_phrase = command_data.command_key.lower().strip()
-
-            if normalized_phrase not in action_map:
-                # Apply any phrase overrides
-                effective_phrase = commands_data.phrase_overrides.get(command_data.command_key, command_data.command_key)
-
-                if effective_phrase != command_data.command_key:
-                    command_data = AutomationCommand(
-                        command_key=effective_phrase,
-                        action_type=command_data.action_type,
-                        action_value=command_data.action_value,
-                        short_description=command_data.short_description,
-                        long_description=command_data.long_description,
-                        is_custom=command_data.is_custom,
-                    )
-                    normalized_phrase = effective_phrase.lower().strip()
-
-                action_map[normalized_phrase] = command_data
-
-        return action_map
-
     async def _validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
-        """Validate a command phrase for conflicts."""
-        if not command_phrase or not command_phrase.strip():
-            return "Command phrase cannot be empty"
+        """Validate command phrase against protected terms and existing commands.
+
+        Args:
+            command_phrase: The command phrase to validate
+            exclude_phrase: Phrase to exclude from conflict check (for updates)
+
+        Returns:
+            Error message string if invalid, None if valid
+        """
+        is_valid, error_msg = await self._protected_terms_validator.validate_term(term=command_phrase, exclude_term=exclude_phrase)
+
+        if not is_valid:
+            return error_msg
 
         normalized_phrase = command_phrase.lower().strip()
         normalized_exclude = exclude_phrase.lower().strip() if exclude_phrase else ""
@@ -132,18 +79,18 @@ class CommandManagementService:
         if normalized_phrase == normalized_exclude:
             return None
 
-        protected_terms = await self._get_protected_terms()
-        if normalized_phrase in protected_terms:
-            return f"'{command_phrase}' is a protected term and cannot be used"
-
-        action_map = await self._get_action_map()
+        action_map = await self._action_map_provider.get_action_map()
         if normalized_phrase in action_map:
             return f"Command phrase '{command_phrase}' already exists"
 
         return None
 
-    async def get_command_mappings(self) -> List[Any]:
-        """Get all command mappings for UI display."""
+    async def get_command_mappings(self) -> List[AutomationCommand]:
+        """Get all command mappings (custom and default with overrides) for UI.
+
+        Returns:
+            List of AutomationCommand objects including custom commands and defaults
+        """
         try:
             mappings = []
             commands_data = await self._storage.read(model_type=CommandsData)

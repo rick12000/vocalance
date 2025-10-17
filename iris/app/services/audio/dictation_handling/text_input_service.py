@@ -1,13 +1,9 @@
-"""
-Streamlined Text Input Service
-
-Simplified text input with clipboard/typing support and minimal complexity.
-"""
 import asyncio
 import logging
 import re
 import threading
 import time
+from typing import Optional
 
 import pyautogui
 import pyperclip
@@ -18,21 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 class TextInputService:
-    """Streamlined text input service with clipboard and typing support"""
+    """Text input service with clipboard-based and typing-based input methods."""
 
-    def __init__(self, config: DictationConfig):
+    def __init__(self, config: DictationConfig) -> None:
         self.config = config
         self._lock = threading.RLock()
-        self.last_text = None
-
-        # Configure PyAutoGUI safety
+        self.last_text: Optional[str] = None
         pyautogui.FAILSAFE = True
-        pyautogui.PAUSE = 0.01
+        pyautogui.PAUSE = config.pyautogui_pause
 
         logger.info("TextInputService initialized")
 
     async def initialize(self) -> bool:
-        """Initialize service"""
         try:
             logger.info("TextInputService ready")
             return True
@@ -41,7 +34,6 @@ class TextInputService:
             return False
 
     async def input_text(self, text: str) -> bool:
-        """Input text at cursor position"""
         if not text:
             return False
 
@@ -78,7 +70,6 @@ class TextInputService:
             return False
 
     def _clean_text(self, text: str) -> str:
-        """Clean text for input while preserving formatting"""
         if not text:
             return ""
 
@@ -94,27 +85,28 @@ class TextInputService:
         return cleaned
 
     def _paste_clipboard(self, text: str) -> bool:
-        """Paste using clipboard"""
+        """Paste using clipboard with proper error handling"""
+        original = None
+
         try:
-            # Save original clipboard
-            original = None
+            # Save original clipboard content
             try:
                 original = pyperclip.paste()
-            except Exception:
-                pass
+            except (pyperclip.PyperclipException, OSError) as e:
+                logger.warning(f"Could not read clipboard: {e}")
 
-            # Paste text
+            # Copy and paste text
             pyperclip.copy(text)
-            time.sleep(0.05)
+            time.sleep(self.config.clipboard_paste_delay_pre)
             pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.1)
+            time.sleep(self.config.clipboard_paste_delay_post)
 
-            # Restore clipboard
+            # Restore original clipboard content
             if original is not None:
                 try:
                     pyperclip.copy(original)
-                except Exception:
-                    pass
+                except (pyperclip.PyperclipException, OSError) as e:
+                    logger.warning(f"Could not restore clipboard: {e}")
 
             return True
 
@@ -127,7 +119,7 @@ class TextInputService:
         try:
             for char in text:
                 pyautogui.write(char, interval=self.config.typing_delay)
-            time.sleep(0.1)
+            time.sleep(self.config.type_text_post_delay)
             return True
 
         except Exception as e:
@@ -163,10 +155,8 @@ class TextInputService:
             return False
 
     async def shutdown(self) -> None:
-        """Shutdown service"""
         logger.info("TextInputService shutdown complete")
 
 
 def create_text_input_service(config: DictationConfig) -> TextInputService:
-    """Factory function for text input service"""
     return TextInputService(config)

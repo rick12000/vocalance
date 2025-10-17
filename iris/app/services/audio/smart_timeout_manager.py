@@ -1,9 +1,3 @@
-"""
-Smart Timeout Manager
-
-Determines command ambiguity based on full-word matching.
-Only used for Markov prediction, not for partial recognition.
-"""
 import logging
 from typing import Dict, Optional, Set
 
@@ -13,20 +7,17 @@ logger = logging.getLogger(__name__)
 
 
 class SmartTimeoutManager:
-    """Manages command ambiguity detection for full recognized commands"""
+    """Command ambiguity detector for Markov prediction optimization.
 
-    def __init__(self, app_config: GlobalAppConfig, command_action_map: Optional[Dict[str, tuple]] = None):
-        """Initialize with command ambiguity analysis"""
+    Identifies commands that are prefixes of other commands to help determine when
+    additional wait time is needed for full command recognition.
+    """
+
+    def __init__(self, app_config: GlobalAppConfig, command_action_map: Optional[Dict[str, tuple]] = None) -> None:
         self.app_config = app_config
         self._command_action_map = command_action_map or {}
-
-        # All recognized complete commands
         self._all_commands: Set[str] = set()
-
-        # Commands that are prefixes of other commands (e.g., "right" is prefix of "right click")
         self._ambiguous_commands: Set[str] = set()
-
-        # Analyze commands
         self._analyze_commands()
 
         logger.info(
@@ -35,13 +26,11 @@ class SmartTimeoutManager:
         )
 
     def update_command_action_map(self, command_action_map: Dict[str, tuple]) -> None:
-        """Update the command action map and re-analyze commands"""
         self._command_action_map = command_action_map
         self._analyze_commands()
         logger.debug(f"Updated command action map with {len(command_action_map)} commands")
 
     def _analyze_commands(self) -> None:
-        """Analyze commands for ambiguity detection based on full words"""
         self._all_commands.clear()
         self._ambiguous_commands.clear()
 
@@ -57,13 +46,6 @@ class SmartTimeoutManager:
         self._build_ambiguity_analysis(commands)
 
     def _build_ambiguity_analysis(self, commands: Set[str]) -> None:
-        """
-        Build ambiguous command set based on full-word prefixes
-
-        Example:
-        - "right" is ambiguous if "right click" exists
-        - "click" is NOT ambiguous if no other command starts with "click "
-        """
         commands_list = list(commands)
 
         for command in commands_list:
@@ -77,21 +59,6 @@ class SmartTimeoutManager:
         logger.info(f"Built ambiguity analysis: {len(self._ambiguous_commands)} ambiguous commands")
 
     def is_ambiguous(self, text: str) -> bool:
-        """
-        Check if a recognized command text is ambiguous
-
-        Args:
-            text: Fully recognized command text
-
-        Returns:
-            True if command is ambiguous (is a prefix of other commands)
-            False if unambiguous
-
-        Examples:
-            - is_ambiguous("right") -> True (if "right click" exists)
-            - is_ambiguous("right click") -> False (complete command)
-            - is_ambiguous("click") -> False (no "click ..." commands)
-        """
         if not text:
             return True
 

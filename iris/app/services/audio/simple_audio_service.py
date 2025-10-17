@@ -1,14 +1,8 @@
-"""
-Streamlined Audio Service
-
-Manages dual independent audio recorders for command and dictation modes.
-Provides clear separation of concerns and optimized threading.
-"""
-
 import asyncio
 import logging
 import threading
 import time
+from typing import Optional
 
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.event_bus import EventBus
@@ -26,36 +20,28 @@ logger = logging.getLogger(__name__)
 
 
 class SimpleAudioService:
-    """Streamlined audio service with independent dual recorders"""
+    """Dual-recorder audio service with independent command and dictation streams.
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, main_event_loop=None):
-        """
-        Initialize the streamlined audio service
+    Manages separate optimized recorders for command (speed) and dictation (accuracy)
+    modes with mode-based activation control for efficient resource usage.
+    """
 
-        Args:
-            event_bus: The event bus for publishing/subscribing to events
-            config: The global application configuration
-            main_event_loop: The main asyncio event loop for scheduling async tasks
-        """
+    def __init__(
+        self, event_bus: EventBus, config: GlobalAppConfig, main_event_loop: Optional[asyncio.AbstractEventLoop] = None
+    ) -> None:
         self._event_bus = event_bus
         self._config = config
         self._main_event_loop = main_event_loop or asyncio.get_event_loop()
-
-        # Mode tracking
-        self._is_dictation_mode = False
+        self._is_dictation_mode: bool = False
         self._lock = threading.Lock()
-
-        # Independent recorders
-        self._command_recorder = None
-        self._dictation_recorder = None
-
-        # Initialize recorders
+        self._command_recorder: Optional[AudioRecorder] = None
+        self._dictation_recorder: Optional[AudioRecorder] = None
+        self._is_processing = False
         self._initialize_recorders()
 
         logger.info("SimpleAudioService initialized with dual independent recorders")
 
-    def _initialize_recorders(self):
-        """Initialize both command and dictation recorders"""
+    def _initialize_recorders(self) -> None:
         try:
             # Command recorder - optimized for speed
             self._command_recorder = AudioRecorder(
@@ -76,8 +62,7 @@ class SimpleAudioService:
             logger.error(f"Failed to initialize audio recorders: {e}", exc_info=True)
             raise
 
-    def _on_command_audio_segment(self, segment_bytes: bytes):
-        """Handle command mode audio segments - optimized for speed"""
+    def _on_command_audio_segment(self, segment_bytes: bytes) -> None:
         try:
             event = CommandAudioSegmentReadyEvent(audio_bytes=segment_bytes, sample_rate=self._config.audio.sample_rate)
             self._publish_audio_event(event)
@@ -85,8 +70,7 @@ class SimpleAudioService:
         except Exception as e:
             logger.error(f"Error handling command audio: {e}")
 
-    def _on_dictation_audio_segment(self, segment_bytes: bytes):
-        """Handle dictation mode audio segments - optimized for accuracy"""
+    def _on_dictation_audio_segment(self, segment_bytes: bytes) -> None:
         try:
             logger.info(f"Publishing dictation audio segment: {len(segment_bytes)} bytes at {self._config.audio.sample_rate}Hz")
             event = DictationAudioSegmentReadyEvent(audio_bytes=segment_bytes, sample_rate=self._config.audio.sample_rate)
@@ -95,21 +79,18 @@ class SimpleAudioService:
         except Exception as e:
             logger.error(f"Error handling dictation audio: {e}", exc_info=True)
 
-    def _on_audio_detected(self):
-        """Handle audio detection callback from command recorder"""
+    def _on_audio_detected(self) -> None:
         try:
             event = AudioDetectedEvent(timestamp=time.time())
             self._publish_audio_event(event)
         except Exception as e:
             logger.error(f"Error handling audio detected: {e}")
 
-    def _publish_audio_event(self, event_data: BaseEvent):
-        """Unified event publication method"""
+    def _publish_audio_event(self, event_data: BaseEvent) -> None:
         if self._main_event_loop and not self._main_event_loop.is_closed():
             asyncio.run_coroutine_threadsafe(self._event_bus.publish(event_data), self._main_event_loop)
 
-    def init_listeners(self):
-        """Subscribe to relevant events."""
+    def init_listeners(self) -> None:
         self._event_bus.subscribe(event_type=RecordingTriggerEvent, handler=self._handle_recording_trigger)
         self._event_bus.subscribe(event_type=AudioModeChangeRequestEvent, handler=self._handle_audio_mode_change_request)
 
@@ -133,14 +114,18 @@ class SimpleAudioService:
                 if event.mode == "dictation":
                     self._is_dictation_mode = True
                     # Both recorders active: command for amber detection, dictation for text
-                    self._command_recorder.set_active(True)
-                    self._dictation_recorder.set_active(True)
+                    if self._command_recorder:
+                        self._command_recorder.set_active(True)
+                    if self._dictation_recorder:
+                        self._dictation_recorder.set_active(True)
                     logger.info("Dictation mode: both recorders active")
                 elif event.mode == "command":
                     self._is_dictation_mode = False
                     # Only command recorder active
-                    self._command_recorder.set_active(True)
-                    self._dictation_recorder.set_active(False)
+                    if self._command_recorder:
+                        self._command_recorder.set_active(True)
+                    if self._dictation_recorder:
+                        self._dictation_recorder.set_active(False)
                     logger.info("Command mode: only command recorder active")
                 else:
                     logger.warning(f"Unknown audio mode requested: {event.mode}")
@@ -148,24 +133,29 @@ class SimpleAudioService:
         except Exception as e:
             logger.error(f"Error handling audio mode change request: {e}", exc_info=True)
 
-    def start_processing(self):
-        """Start both recorders - they run continuously"""
+    def start_processing(self) -> None:
         try:
             logger.info("Starting audio processing with dual recorders")
 
             # Start both recorders - they run continuously until shutdown
-            self._command_recorder.start()
-            self._dictation_recorder.start()
+            if self._command_recorder:
+                self._command_recorder.start()
+            if self._dictation_recorder:
+                self._dictation_recorder.start()
 
             # Set initial active states based on current mode
             with self._lock:
                 if self._is_dictation_mode:
-                    self._command_recorder.set_active(True)
-                    self._dictation_recorder.set_active(True)
+                    if self._command_recorder:
+                        self._command_recorder.set_active(True)
+                    if self._dictation_recorder:
+                        self._dictation_recorder.set_active(True)
                     logger.info("Started in dictation mode: both recorders active")
                 else:
-                    self._command_recorder.set_active(True)
-                    self._dictation_recorder.set_active(False)
+                    if self._command_recorder:
+                        self._command_recorder.set_active(True)
+                    if self._dictation_recorder:
+                        self._dictation_recorder.set_active(False)
                     logger.info("Started in command mode: only command recorder active")
 
             logger.info("Audio processing started successfully")
@@ -174,24 +164,35 @@ class SimpleAudioService:
             logger.error(f"Failed to start audio processing: {e}", exc_info=True)
             raise
 
-    def stop_processing(self):
-        """Stop both recorders - only called during shutdown"""
+    def stop_processing(self) -> None:
+        """Stop audio processing - properly cleans up recorder threads"""
         try:
             logger.info("Stopping audio processing")
-            self._command_recorder.stop()
-            self._dictation_recorder.stop()
+
+            with self._lock:
+                if self._command_recorder:
+                    self._command_recorder.stop()
+                if self._dictation_recorder:
+                    self._dictation_recorder.stop()
+
             logger.info("Audio processing stopped")
         except Exception as e:
             logger.error(f"Error stopping audio processing: {e}", exc_info=True)
 
-    async def shutdown(self):
-        """Shutdown audio service"""
+    async def shutdown(self) -> None:
+        """Shutdown audio service with proper resource cleanup"""
         try:
             logger.info("Shutting down audio service")
             self.stop_processing()
+
+            # Explicitly release recorder references
+            with self._lock:
+                self._command_recorder = None
+                self._dictation_recorder = None
+
             logger.info("Audio service shutdown complete")
         except Exception as e:
             logger.error(f"Error during audio service shutdown: {e}", exc_info=True)
 
-    def setup_subscriptions(self):
+    def setup_subscriptions(self) -> None:
         self.init_listeners()

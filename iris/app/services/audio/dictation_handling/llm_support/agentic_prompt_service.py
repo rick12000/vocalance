@@ -4,6 +4,7 @@ Streamlined Agentic Prompt Service
 Simplified prompt management using unified storage service.
 """
 import logging
+import threading
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -18,21 +19,22 @@ logger = logging.getLogger(__name__)
 
 
 class AgenticPromptService:
-    """Streamlined prompt management service using unified storage"""
+    """Streamlined prompt management service using unified storage with thread safety"""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
         self.event_bus = event_bus
         self.config = config
         self._storage = storage
+        self._lock = threading.RLock()
 
-        # In-memory storage
+        # In-memory storage (protected by _lock)
         self.prompts: Dict[str, AgenticPrompt] = {}
         self.current_prompt_id: Optional[str] = None
 
         # Default prompt
         self.default_prompt_text = "Fix grammar, improve clarity, and make the text more succinct and readable while preserving all original meaning and content. Output ONLY the processed text."
 
-        logger.info("AgenticPromptService initialized")
+        logger.info("AgenticPromptService initialized with thread safety")
 
     async def initialize(self) -> bool:
         """Initialize service"""
@@ -76,90 +78,105 @@ class AgenticPromptService:
         return None
 
     async def add_prompt(self, text: str, name: str) -> Optional[str]:
-        """Add new prompt"""
-        prompt_id = str(uuid.uuid4())
-        prompt = AgenticPrompt(
-            id=prompt_id, text=text.strip(), name=name.strip(), created_at=datetime.now().isoformat(), is_default=False
-        )
+        """Add new prompt with thread safety"""
+        with self._lock:
+            prompt_id = str(uuid.uuid4())
+            prompt = AgenticPrompt(
+                id=prompt_id, text=text.strip(), name=name.strip(), created_at=datetime.now().isoformat(), is_default=False
+            )
 
-        self.prompts[prompt_id] = prompt
+            self.prompts[prompt_id] = prompt
+
         await self._save_prompts()
-
         logger.info(f"Added prompt: {name}")
         return prompt_id
 
     async def delete_prompt(self, prompt_id: str) -> bool:
-        """Delete prompt"""
-        if prompt_id not in self.prompts:
-            return False
+        """Delete prompt with thread safety"""
+        with self._lock:
+            if prompt_id not in self.prompts:
+                return False
 
-        prompt = self.prompts[prompt_id]
+            prompt = self.prompts[prompt_id]
 
-        if prompt.is_default and len(self.prompts) == 1:
-            logger.warning("Cannot delete only remaining prompt")
-            return False
+            if prompt.is_default and len(self.prompts) == 1:
+                logger.warning("Cannot delete only remaining prompt")
+                return False
 
-        if self.current_prompt_id == prompt_id:
-            remaining = [pid for pid in self.prompts.keys() if pid != prompt_id]
-            self.current_prompt_id = remaining[0] if remaining else None
+            if self.current_prompt_id == prompt_id:
+                remaining = [pid for pid in self.prompts.keys() if pid != prompt_id]
+                self.current_prompt_id = remaining[0] if remaining else None
 
-        del self.prompts[prompt_id]
+            del self.prompts[prompt_id]
+            prompt_name = prompt.name
+
         await self._save_prompts()
-
-        logger.info(f"Deleted prompt: {prompt.name}")
+        logger.info(f"Deleted prompt: {prompt_name}")
         return True
 
     async def edit_prompt(self, prompt_id: str, name: str, text: str) -> bool:
-        """Edit existing prompt"""
-        if prompt_id not in self.prompts:
-            logger.warning(f"Prompt ID {prompt_id} not found")
-            return False
+        """Edit existing prompt with thread safety"""
+        with self._lock:
+            if prompt_id not in self.prompts:
+                logger.warning(f"Prompt ID {prompt_id} not found")
+                return False
 
-        prompt = self.prompts[prompt_id]
-        prompt.name = name.strip()
-        prompt.text = text.strip()
+            prompt = self.prompts[prompt_id]
+            prompt.name = name.strip()
+            prompt.text = text.strip()
+
         await self._save_prompts()
         logger.info(f"Edited prompt: {name}")
         return True
 
     async def set_current_prompt(self, prompt_id: str) -> bool:
-        """Set current active prompt"""
-        if prompt_id not in self.prompts:
-            return False
+        """Set current active prompt with thread safety"""
+        with self._lock:
+            if prompt_id not in self.prompts:
+                return False
 
-        self.current_prompt_id = prompt_id
-        logger.info(f"Set current prompt: {self.prompts[prompt_id].name}")
+            self.current_prompt_id = prompt_id
+            prompt_name = self.prompts[prompt_id].name
+
+        logger.info(f"Set current prompt: {prompt_name}")
         return True
 
     def get_current_prompt(self) -> Optional[str]:
-        """Get current prompt text"""
-        if self.current_prompt_id and self.current_prompt_id in self.prompts:
-            return self.prompts[self.current_prompt_id].text
-        return None
+        """Get current prompt text with thread safety"""
+        with self._lock:
+            if self.current_prompt_id and self.current_prompt_id in self.prompts:
+                return self.prompts[self.current_prompt_id].text
+            return None
 
     def get_current_prompt_data(self) -> Optional[AgenticPrompt]:
-        """Get current prompt data"""
-        if self.current_prompt_id and self.current_prompt_id in self.prompts:
-            return self.prompts[self.current_prompt_id]
-        return None
+        """Get current prompt data with thread safety"""
+        with self._lock:
+            if self.current_prompt_id and self.current_prompt_id in self.prompts:
+                return self.prompts[self.current_prompt_id]
+            return None
 
     def get_all_prompts(self) -> List[AgenticPrompt]:
-        """Get all prompts"""
-        return list(self.prompts.values())
+        """Get all prompts with thread safety"""
+        with self._lock:
+            return list(self.prompts.values())
 
     async def _load_prompts(self) -> None:
-        """Load prompts from storage"""
+        """Load prompts from storage with thread safety"""
         prompts_data = await self._storage.read(model_type=AgenticPromptsData)
 
-        for prompt in prompts_data.prompts:
-            self.prompts[prompt.id] = prompt
+        with self._lock:
+            for prompt in prompts_data.prompts:
+                self.prompts[prompt.id] = prompt
 
-        self.current_prompt_id = prompts_data.current_prompt_id
+            self.current_prompt_id = prompts_data.current_prompt_id
+
         logger.info(f"Loaded {len(self.prompts)} prompts")
 
     async def _save_prompts(self) -> None:
-        """Save prompts to storage"""
-        prompts_data = AgenticPromptsData(prompts=list(self.prompts.values()), current_prompt_id=self.current_prompt_id)
+        """Save prompts to storage with thread safety"""
+        with self._lock:
+            prompts_data = AgenticPromptsData(prompts=list(self.prompts.values()), current_prompt_id=self.current_prompt_id)
+
         await self._storage.write(data=prompts_data)
 
     async def _publish_state(self) -> None:

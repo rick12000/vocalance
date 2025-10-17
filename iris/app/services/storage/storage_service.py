@@ -1,10 +1,3 @@
-"""
-Simplified Storage Service
-
-Type-safe storage service with Pydantic model validation.
-Provides caching, atomic writes, and consistent API for all storage operations.
-"""
-
 import asyncio
 import json
 import logging
@@ -34,9 +27,9 @@ logger = logging.getLogger(__name__)
 
 
 class CacheEntry:
-    """Cache entry with expiration tracking"""
+    """Cache entry with timestamp-based expiration tracking."""
 
-    def __init__(self, data: Any, timestamp: float):
+    def __init__(self, data: Any, timestamp: float) -> None:
         self.data = data
         self.timestamp = timestamp
 
@@ -45,21 +38,16 @@ class CacheEntry:
 
 
 class StorageService:
-    """
-    Simplified storage service with type safety and consistent patterns.
+    """Type-safe storage service with caching and atomic writes.
 
-    Features:
-    - Type-safe operations with Pydantic models
-    - Automatic caching with configurable TTL
-    - Atomic file writes with rollback
-    - Thread-safe async operations
-    - Single, consistent API pattern
+    Provides persistent JSON storage for Pydantic models with in-memory caching,
+    atomic file writes, and thread-safe operations for reliable data persistence.
     """
 
-    def __init__(self, config: GlobalAppConfig):
+    def __init__(self, config: GlobalAppConfig) -> None:
         self._config = config
         self._base_dir = Path(config.storage.user_data_root)
-        self._cache_ttl = 300.0
+        self._cache_ttl = config.storage.cache_ttl_seconds
 
         # Thread safety
         self._lock = threading.RLock()
@@ -85,29 +73,25 @@ class StorageService:
         logger.info(f"StorageService initialized with base directory: {self._base_dir}")
 
     def _ensure_directories(self) -> None:
-        """Ensure all storage directories exist"""
         for filepath in self._path_map.values():
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
     def _get_path(self, model_type: Type[StorageData]) -> Path:
-        """Get file path for a model type"""
         if model_type not in self._path_map:
             raise ValueError(f"Unknown storage model type: {model_type.__name__}")
         return Path(self._path_map[model_type])
 
     def _get_cache_key(self, model_type: StorageData) -> str:
-        """Get cache key for a model type"""
         return model_type.__name__
 
     async def read(self, model_type: StorageData) -> StorageData:
-        """
-        Read typed data from storage with caching.
+        """Read typed data from storage with caching and automatic defaults.
 
         Args:
-            model_type: The Pydantic model class to read
+            model_type: Pydantic model class to read
 
         Returns:
-            Instance of model_type with data from storage
+            Instance of model with data from storage or defaults
         """
         cache_key = self._get_cache_key(model_type)
 
@@ -153,14 +137,13 @@ class StorageService:
             return result
 
     async def write(self, data: StorageData) -> bool:
-        """
-        Write typed data to storage atomically.
+        """Write typed data to storage with atomic file writes and cache update.
 
         Args:
             data: Pydantic model instance to write
 
         Returns:
-            True if write succeeded, False otherwise
+            True if write succeeded
         """
         model_type = type(data)
         path = self._get_path(model_type)
@@ -185,7 +168,6 @@ class StorageService:
             return False
 
     def _make_serializable(self, data: Any) -> Any:
-        """Convert Pydantic models and other objects to JSON-serializable format"""
         if isinstance(data, BaseModel):
             return data.model_dump(mode="json")
         elif isinstance(data, dict):
@@ -196,12 +178,10 @@ class StorageService:
             return data
 
     def _read_json(self, path: Path) -> Dict[str, Any]:
-        """Synchronous JSON file read"""
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
     def _write_json(self, path: Path, data: Dict[str, Any]) -> bool:
-        """Synchronous atomic JSON file write"""
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -239,12 +219,6 @@ class StorageService:
             return False
 
     def clear_cache(self, model_type: Optional[StorageData] = None) -> None:
-        """
-        Clear cache entries.
-
-        Args:
-            model_type: Specific model type to clear, or None to clear all
-        """
         with self._lock:
             if model_type:
                 cache_key = self._get_cache_key(model_type)
@@ -256,12 +230,10 @@ class StorageService:
                 logger.debug("Cleared all cache entries")
 
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics for monitoring"""
         with self._lock:
             return {"entries": len(self._cache), "models": list(self._cache.keys()), "ttl_seconds": self._cache_ttl}
 
     async def shutdown(self) -> None:
-        """Shutdown the storage service"""
         try:
             self._executor.shutdown(wait=True)
             logger.info("StorageService shutdown complete")

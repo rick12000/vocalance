@@ -21,20 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 class GridService:
-    """Simplified grid service focused on command processing and state management."""
+    """Grid service for command processing and UI state management.
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
+    Handles grid show/hide/select commands, calculates optimal grid dimensions,
+    and manages grid configuration updates through event-driven architecture.
+    """
+
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         self._event_bus = event_bus
         self._config = config
-        self._visible = False
-
+        self._visible: bool = False
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="GridService")
 
         logger.info("GridService initialized")
 
     def setup_subscriptions(self) -> None:
-        """Set up event subscriptions."""
         subscriptions = [
             (GridCommandParsedEvent, self._handle_grid_command),
             (UpdateGridConfigRequestEventData, self._handle_config_update),
@@ -46,13 +48,11 @@ class GridService:
         logger.info("GridService subscriptions set up")
 
     def _calculate_grid_dimensions(self, num_rects: int) -> tuple[int, int]:
-        """Calculate optimal grid dimensions from rectangle count."""
         cols = math.ceil(math.sqrt(num_rects))
         rows = math.ceil(num_rects / cols)
         return rows, cols
 
     def _publish_visibility_event(self, visible: bool, rows: Optional[int] = None, cols: Optional[int] = None) -> None:
-        """Publish grid visibility change event."""
         self._visible = visible
         event = GridVisibilityChangedEventData(visible=visible, rows=rows, cols=cols)
         self.event_publisher.publish(event)
@@ -60,14 +60,12 @@ class GridService:
     def _publish_command_status(
         self, command_type: str, success: bool, message: str, details: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Publish command execution status."""
         status_event = CommandExecutedStatusEvent(
             command={"command_type": command_type, "details": details or {}}, success=success, message=message, source="grid"
         )
         self.event_publisher.publish(status_event)
 
     async def _handle_grid_command(self, event_data: GridCommandParsedEvent) -> None:
-        """Handle all grid commands through centralized dispatch."""
         command = event_data.command
         command_type = type(command).__name__
 
@@ -115,7 +113,6 @@ class GridService:
             self._publish_command_status(command_type, False, f"Error: {e}")
 
     async def _handle_config_update(self, event_data: UpdateGridConfigRequestEventData) -> None:
-        """Handle grid configuration updates."""
         config_fields = [
             "rows",
             "cols",
@@ -160,16 +157,12 @@ class GridService:
             self.event_publisher.publish(config_event)
             logger.info(f"Grid config updated: {updated_fields}")
 
-    # Public API methods
     def is_grid_visible(self) -> bool:
-        """Check if grid is currently visible."""
         return self._visible
 
     def get_current_config(self):
-        """Get current grid configuration."""
         return self._config.grid
 
     async def shutdown(self) -> None:
-        """Shut down the grid service."""
         logger.info("Shutting down GridService")
         self.subscription_manager.unsubscribe_all()

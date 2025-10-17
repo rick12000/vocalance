@@ -1,13 +1,3 @@
-"""
-Click Tracker Service V2 - Unified Storage Implementation
-
-Migrated click tracker service using the unified storage system for:
-- High-performance click logging with debounced writes
-- Non-blocking operations for voice command responsiveness
-- Cached click history for grid optimization
-- Event-driven architecture with improved reliability
-"""
-
 import logging
 import random
 import time
@@ -25,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Sort rectangles by click count (descending) with random tie-breaker."""
+    """Sort rectangles by click frequency for grid optimization."""
     if not rect_details_with_clicks:
         return []
 
@@ -42,9 +32,13 @@ def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> Lis
 
 
 class ClickTrackerService:
-    """Click tracker service for grid optimization using cached click history."""
+    """Click tracking service with debounced storage for grid optimization.
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
+    Records mouse clicks with position and timestamp, aggregates click counts per
+    grid cell, and provides click frequency data for grid layout optimization.
+    """
+
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
         self._event_bus = event_bus
         self._config = config
         self._storage = storage
@@ -55,7 +49,6 @@ class ClickTrackerService:
         logger.info("ClickTrackerService initialized")
 
     def setup_subscriptions(self) -> None:
-        """Set up event subscriptions."""
         subscriptions = [
             (PerformMouseClickEventData, self._handle_mouse_click),
             (RequestClickCountsForGridEventData, self._handle_click_counts_request),
@@ -67,7 +60,6 @@ class ClickTrackerService:
         logger.info("ClickTrackerService subscriptions set up")
 
     async def _handle_mouse_click(self, event_data: PerformMouseClickEventData) -> None:
-        """Handle mouse click logging."""
         timestamp = time.time()
 
         # Load current clicks, append new one, save
@@ -82,7 +74,6 @@ class ClickTrackerService:
             logger.debug(f"Click logged: ({event_data.x}, {event_data.y})")
 
     async def _handle_click_counts_request(self, event_data: RequestClickCountsForGridEventData) -> None:
-        """Handle request for click counts in grid rectangles."""
         try:
             clicks_data = await self._storage.read(model_type=GridClicksData)
             # Convert GridClickEvent objects to dictionaries for compatibility with existing logic
@@ -102,7 +93,6 @@ class ClickTrackerService:
     def _calculate_click_counts(
         self, all_clicks: List[Dict[str, Any]], rect_definitions: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Calculate click counts for each rectangle definition."""
         processed_rects = []
 
         for rect_def in rect_definitions:
@@ -120,7 +110,6 @@ class ClickTrackerService:
         return processed_rects
 
     def _is_click_in_rect(self, click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
-        """Check if click falls within rectangle bounds."""
         try:
             click_x, click_y = click.get("x", 0), click.get("y", 0)
             return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
@@ -128,7 +117,6 @@ class ClickTrackerService:
             return False
 
     async def get_click_statistics(self) -> Dict[str, Any]:
-        """Get click statistics for monitoring."""
         try:
             clicks_data = await self._storage.read(model_type=GridClicksData)
             all_clicks = [click.model_dump() for click in clicks_data.clicks]
@@ -155,6 +143,5 @@ class ClickTrackerService:
             return {"error": str(e)}
 
     async def cleanup(self) -> None:
-        """Clean up resources."""
         self.subscription_manager.unsubscribe_all()
         logger.info("ClickTrackerService cleanup complete")

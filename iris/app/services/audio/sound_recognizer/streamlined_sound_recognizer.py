@@ -6,13 +6,13 @@ Keeps only essential components: YAMNet embeddings, k-NN classification,
 silence trimming, and ESC-50 negative examples.
 """
 import asyncio
-import concurrent.futures
 import gc
 import logging
 import os
 import shutil
 from collections import Counter
-from typing import Dict, List, Optional, Tuple
+from threading import RLock
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import joblib
 import librosa
@@ -24,6 +24,9 @@ from sklearn.preprocessing import StandardScaler
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.services.storage.storage_models import SoundMappingsData
 from iris.app.services.storage.storage_service import StorageService
+
+if TYPE_CHECKING:
+    from iris.app.config.app_config import SoundRecognizerConfig
 
 # TensorFlow import - can be mocked for testing
 try:
@@ -37,30 +40,46 @@ logger = logging.getLogger(__name__)
 class AudioPreprocessor:
     """Essential audio preprocessing for consistent embeddings."""
 
-    def __init__(
-        self,
-        target_sr: int = 16000,
-        silence_threshold: float = 0.005,
-        min_sound_duration: float = 0.1,
-        max_sound_duration: float = 2.0,
-    ):
-        self.target_sr = target_sr
-        self.silence_threshold = silence_threshold
-        self.min_sound_duration = min_sound_duration
-        self.max_sound_duration = max_sound_duration
+    def __init__(self, config: "SoundRecognizerConfig"):
+        """Initialize preprocessor from configuration."""
+        self.target_sr = config.target_sample_rate
+        self.silence_threshold = config.silence_threshold
+        self.min_sound_duration = config.min_sound_duration
+        self.max_sound_duration = config.max_sound_duration
+        self.frame_length = config.frame_length
+        self.hop_length = config.hop_length
+        self.normalization_level = config.normalization_level
 
     def preprocess_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """Essential preprocessing pipeline: resample, trim silence, normalize."""
+        if not isinstance(audio, np.ndarray):
+            raise TypeError("Audio must be a numpy array")
+
+        if len(audio) == 0:
+            raise ValueError("Audio array is empty")
+
         # Convert to mono if needed
         if audio.ndim > 1:
             audio = np.mean(audio, axis=-1)
 
+        # Ensure audio is float type for processing
+        if audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+
+        # Validate sample rate
+        if not isinstance(sr, (int, np.integer)) or sr <= 0:
+            raise ValueError(f"Invalid sample rate: {sr}")
+
         # Resample if needed
         if sr != self.target_sr:
-            audio = librosa.resample(audio, orig_sr=sr, target_sr=self.target_sr)
+            try:
+                audio = librosa.resample(y=audio, orig_sr=sr, target_sr=self.target_sr)
+            except Exception as e:
+                logger.error(f"Resample failed: sr={sr}, target={self.target_sr}, audio_shape={audio.shape}, error={e}")
+                raise ValueError(f"Failed to resample audio: {e}")
 
         # Trim silence - CRITICAL for consistent embeddings
-        audio = self._trim_silence(audio)
+        audio = self._trim_silence(audio=audio)
 
         # Validate and adjust duration
         duration = len(audio) / self.target_sr
@@ -76,17 +95,14 @@ class AudioPreprocessor:
         # Simple normalization
         peak = np.max(np.abs(audio))
         if peak > 0:
-            audio = audio * (0.7 / peak)  # Normalize to 70% of max amplitude
+            audio = audio * (self.normalization_level / peak)
 
         return audio
 
     def _trim_silence(self, audio: np.ndarray) -> np.ndarray:
         """Trim silence using RMS energy analysis."""
-        frame_length = 1024
-        hop_length = 512
-
         # Calculate RMS energy per frame
-        rms = librosa.feature.rms(y=audio, frame_length=frame_length, hop_length=hop_length)[0]
+        rms = librosa.feature.rms(y=audio, frame_length=self.frame_length, hop_length=self.hop_length)[0]
 
         # Adaptive threshold
         sorted_rms = np.sort(rms)
@@ -105,8 +121,8 @@ class AudioPreprocessor:
         end_frame = min(len(rms) - 1, sound_indices[-1] + 2)
 
         # Convert to sample indices
-        start_sample = start_frame * hop_length
-        end_sample = min(len(audio), (end_frame + 1) * hop_length)
+        start_sample = start_frame * self.hop_length
+        end_sample = min(len(audio), (end_frame + 1) * self.hop_length)
 
         return audio[start_sample:end_sample]
 
@@ -115,7 +131,8 @@ class StreamlinedSoundRecognizer:
     """Streamlined sound recognizer focused on core functionality."""
 
     def __init__(self, config: GlobalAppConfig, storage: StorageService):
-        self.asset_path_config = config.asset_paths  # Store full config to access asset_paths
+        """Initialize recognizer with thread-safe state management."""
+        self.asset_path_config = config.asset_paths
         self.config = config.sound_recognizer
         self._storage = storage
 
@@ -131,6 +148,10 @@ class StreamlinedSoundRecognizer:
         self.labels: List[str] = []
         self.mappings: Dict[str, str] = {}
 
+        # Thread-safety for concurrent access
+        self._model_lock = RLock()
+        self._shutdown_event = asyncio.Event()
+
         # Configuration
         self.target_sr = self.config.target_sample_rate
         self.confidence_threshold = self.config.confidence_threshold
@@ -143,17 +164,19 @@ class StreamlinedSoundRecognizer:
         self.max_total_esc50 = self.config.max_total_esc50_samples
 
         # Audio preprocessing
-        self.preprocessor = AudioPreprocessor(
-            target_sr=self.target_sr, silence_threshold=0.005, min_sound_duration=0.1, max_sound_duration=2.0
-        )
+        self.preprocessor = AudioPreprocessor(config=self.config)
 
         # Create directories once
         os.makedirs(self.model_path, exist_ok=True)
         os.makedirs(self.external_sounds_path, exist_ok=True)
 
+        logger.info("StreamlinedSoundRecognizer initialized")
+
     async def initialize(self) -> bool:
         """Initialize YAMNet model and load existing data."""
         try:
+            logger.info("Initializing StreamlinedSoundRecognizer...")
+
             # Load YAMNet model
             if tf is None:
                 logger.error("TensorFlow not available")
@@ -164,7 +187,7 @@ class StreamlinedSoundRecognizer:
                 return False
 
             # Load existing data
-            self._load_model_data()
+            await self._load_model_data_async()
 
             # Copy ESC-50 samples if needed
             await self._copy_esc50_samples()
@@ -172,79 +195,96 @@ class StreamlinedSoundRecognizer:
             logger.info(f"StreamlinedSoundRecognizer initialized: {len(self.embeddings)} embeddings")
             return True
 
+        except ValueError as e:
+            logger.error(f"Configuration error during initialization: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to initialize recognizer: {e}")
+            logger.error(f"Failed to initialize recognizer: {e}", exc_info=True)
             return False
 
-    def _load_model_data(self):
-        """Load saved model data."""
+    async def _load_model_data_async(self) -> None:
+        """Load saved model data asynchronously."""
         try:
             embeddings_path = os.path.join(self.model_path, "embeddings.npy")
             labels_path = os.path.join(self.model_path, "labels.joblib")
             scaler_path = os.path.join(self.model_path, "scaler.joblib")
 
-            # Load embeddings, labels, and scaler from files
-            if all(os.path.exists(path) for path in [embeddings_path, labels_path, scaler_path]):
+            # Check if all files exist
+            all_exist = all(os.path.exists(path) for path in [embeddings_path, labels_path, scaler_path])
+
+            if not all_exist:
+                logger.info("No existing model files found, starting with empty model")
+                return
+
+            with self._model_lock:
                 self.embeddings = np.load(embeddings_path)
                 self.labels = joblib.load(labels_path)
                 self.scaler = joblib.load(scaler_path)
-                logger.info(f"Loaded model data: {len(self.embeddings)} embeddings, {len(set(self.labels))} unique sounds")
-            else:
-                logger.info("No existing model files found, starting with empty model")
+
+            unique_sounds = len(set(self.labels))
+            logger.info(f"Loaded model data: {len(self.embeddings)} embeddings, {unique_sounds} unique sounds")
 
             # Load mappings from storage
-            try:
-                # Use a thread pool to run the async operation
-                async def load_mappings():
-                    mappings_data = await self._storage.read(model_type=SoundMappingsData)
-                    return mappings_data.mappings
+            await self._load_mappings_from_storage()
 
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, load_mappings())
-                    mappings = future.result(timeout=10)  # 10-second timeout
+        except FileNotFoundError as e:
+            logger.error(f"Model file not found: {e}")
+        except Exception as e:
+            logger.error(f"Failed to load model data: {e}", exc_info=True)
+            # Reset to empty state on load failure
+            with self._model_lock:
+                self.embeddings = np.empty((0, 1024))
+                self.labels = []
+                self.mappings = {}
+                self.scaler = StandardScaler()
 
-                self.mappings = mappings
+    async def _load_mappings_from_storage(self) -> None:
+        """Load sound mappings from storage service."""
+        try:
+            mappings_data = await self._storage.read(model_type=SoundMappingsData)
+            if mappings_data:
+                with self._model_lock:
+                    self.mappings = mappings_data.mappings
                 logger.info(f"Loaded {len(self.mappings)} sound mappings from storage")
-            except Exception as mapping_error:
-                logger.warning(f"Failed to load sound mappings from storage: {mapping_error}")
+            else:
+                logger.info("No mappings found in storage")
+        except Exception as e:
+            logger.warning(f"Failed to load sound mappings from storage: {e}")
+            with self._model_lock:
                 self.mappings = {}
 
-        except Exception as e:
-            logger.error(f"Failed to load model data: {e}")
-            # Reset to empty state on load failure
-            self.embeddings = np.empty((0, 1024))
-            self.labels = []
-            self.mappings = {}
-            self.scaler = StandardScaler()
-
-    def _save_model_data(self):
-        """Save model data."""
+    async def _save_model_data_async(self) -> bool:
+        """Save model data asynchronously."""
         try:
-            # Save embeddings, labels, and scaler to files
-            np.save(os.path.join(self.model_path, "embeddings.npy"), self.embeddings)
-            joblib.dump(self.labels, os.path.join(self.model_path, "labels.joblib"))
-            joblib.dump(self.scaler, os.path.join(self.model_path, "scaler.joblib"))
+            with self._model_lock:
+                embeddings = self.embeddings.copy()
+                labels = self.labels.copy()
+                scaler_obj = self.scaler
+                mappings = self.mappings.copy()
 
-            # Save mappings through storage
+            # Save numpy and joblib files
+            np.save(os.path.join(self.model_path, "embeddings.npy"), embeddings)
+            joblib.dump(labels, os.path.join(self.model_path, "labels.joblib"))
+            joblib.dump(scaler_obj, os.path.join(self.model_path, "scaler.joblib"))
+
+            logger.debug("Saved embeddings, labels, and scaler")
+
+            # Save mappings through storage service
             try:
-                # Use a thread pool to run the async operation
-                async def save_mappings():
-                    mappings_data = SoundMappingsData(mappings=self.mappings)
-                    return await self._storage.write(data=mappings_data)
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, save_mappings())
-                    success = future.result(timeout=10)  # 10-second timeout
-
+                mappings_data = SoundMappingsData(mappings=mappings)
+                success = await self._storage.write(data=mappings_data)
                 if success:
                     logger.debug("Successfully saved sound mappings to storage")
                 else:
                     logger.warning("Failed to save sound mappings to storage")
-            except Exception as mapping_error:
-                logger.error(f"Error saving sound mappings: {mapping_error}")
+                return success
+            except Exception as e:
+                logger.error(f"Error saving sound mappings: {e}")
+                return False
 
         except Exception as e:
-            logger.error(f"Failed to save model data: {e}")
+            logger.error(f"Failed to save model data: {e}", exc_info=True)
+            return False
 
     async def _initialize_yamnet_model(self) -> bool:
         """Initialize YAMNet model by copying from assets."""
@@ -252,7 +292,8 @@ class StreamlinedSoundRecognizer:
             # Get YAMNet path from config
             assets_yamnet_path = self.asset_path_config.yamnet_model_path
             app_yamnet_path = os.path.join(self.model_path, "yamnet")
-            if await self._copy_yamnet_from_assets(assets_yamnet_path, app_yamnet_path):
+
+            if await self._copy_yamnet_from_assets(assets_path=assets_yamnet_path, app_path=app_yamnet_path):
                 # Load from app directory
                 self.yamnet_model = tf.saved_model.load(app_yamnet_path)
                 logger.info("YAMNet model copied from assets and loaded successfully")
@@ -282,16 +323,19 @@ class StreamlinedSoundRecognizer:
             if os.path.exists(app_path):
                 shutil.rmtree(app_path)
 
-            shutil.copytree(assets_path, app_path)
+            shutil.copytree(src=assets_path, dst=app_path)
             logger.info(f"YAMNet model copied from {assets_path} to {app_path}")
 
             # Validate the copied model
             if self._validate_yamnet_model(app_path):
                 return True
-            else:
-                logger.error("Copied YAMNet model failed validation")
-                return False
 
+            logger.error("Copied YAMNet model failed validation")
+            return False
+
+        except OSError as e:
+            logger.error(f"File system error copying YAMNet model: {e}")
+            return False
         except Exception as e:
             logger.error(f"Failed to copy YAMNet model from assets: {e}")
             return False
@@ -322,7 +366,7 @@ class StreamlinedSoundRecognizer:
             logger.error(f"Error validating YAMNet model: {e}")
             return False
 
-    async def _copy_esc50_samples(self):
+    async def _copy_esc50_samples(self) -> None:
         """Copy ESC-50 samples from assets to app directory if needed."""
         try:
             # Get ESC-50 path from config
@@ -343,12 +387,11 @@ class StreamlinedSoundRecognizer:
                 return
 
             logger.info(f"Copying ESC-50 samples for categories: {needed_categories}")
-            copied_count = await self._copy_categories_from_assets(assets_esc50_path, needed_categories)
+            copied_count = await self._copy_categories_from_assets(assets_path=assets_esc50_path, categories=needed_categories)
             logger.info(f"Successfully copied {copied_count} ESC-50 samples from assets")
 
         except Exception as e:
-            logger.error(f"Failed to copy ESC-50 samples: {e}")
-            raise
+            logger.error(f"Failed to copy ESC-50 samples: {e}", exc_info=True)
 
     async def _copy_categories_from_assets(self, assets_path: str, categories: list) -> int:
         """Copy specific ESC-50 categories from assets to app directory."""
@@ -373,32 +416,45 @@ class StreamlinedSoundRecognizer:
                 dst = os.path.join(self.external_sounds_path, f"esc50_{category}_{wav_file}")
 
                 if not os.path.exists(dst):
-                    shutil.copy2(src, dst)
+                    shutil.copy2(src=src, dst=dst)
                     copied_count += 1
 
         return copied_count
 
     def recognize_sound(self, audio: np.ndarray, sr: int) -> Optional[Tuple[str, float]]:
-        """Core recognition method."""
-        if len(self.embeddings) == 0:
-            logger.warning("No trained sounds available for recognition")
+        """Core recognition method - thread-safe."""
+        if not isinstance(audio, np.ndarray) or sr <= 0:
+            logger.warning("Invalid audio input")
             return None
 
+        with self._model_lock:
+            if len(self.embeddings) == 0:
+                logger.debug("No trained sounds available for recognition")
+                return None
+
+            embeddings_copy = self.embeddings.copy()
+            labels_copy = self.labels.copy()
+            scaler_obj = self.scaler
+
         # Extract embedding with preprocessing
-        embedding = self._extract_embedding(audio, sr)
+        embedding = self._extract_embedding(audio=audio, sr=sr)
         if embedding is None:
             return None
 
         # Scale embedding
-        scaled_embedding = self.scaler.transform(embedding.reshape(1, -1))[0]
+        try:
+            scaled_embedding = scaler_obj.transform(embedding.reshape(1, -1))[0]
+        except Exception as e:
+            logger.error(f"Failed to scale embedding: {e}")
+            return None
 
         # Calculate similarities
-        similarities = cosine_similarity(scaled_embedding.reshape(1, -1), self.embeddings)[0]
+        similarities = cosine_similarity(scaled_embedding.reshape(1, -1), embeddings_copy)[0]
 
         # Get top-k neighbors
         top_indices = np.argsort(similarities)[-self.k_neighbors :][::-1]
         top_similarities = similarities[top_indices]
-        top_labels = [self.labels[i] for i in top_indices]
+        top_labels = [labels_copy[i] for i in top_indices]
 
         # Confidence check
         best_similarity = top_similarities[0]
@@ -437,7 +493,7 @@ class StreamlinedSoundRecognizer:
         """Extract YAMNet embedding with preprocessing."""
         try:
             # Preprocess audio
-            processed_audio = self.preprocessor.preprocess_audio(audio, sr)
+            processed_audio = self.preprocessor.preprocess_audio(audio=audio, sr=sr)
 
             # Convert to tensor
             if tf is None:
@@ -454,6 +510,9 @@ class StreamlinedSoundRecognizer:
 
             return embedding
 
+        except ValueError as e:
+            logger.error(f"Invalid audio for embedding: {e}")
+            return None
         except Exception as e:
             logger.error(f"Failed to extract embedding: {e}")
             return None
@@ -461,13 +520,24 @@ class StreamlinedSoundRecognizer:
     async def train_sound(self, label: str, samples: List[Tuple[np.ndarray, int]]) -> bool:
         """Train the recognizer with sound samples."""
         try:
+            if not label or not isinstance(label, str):
+                raise ValueError("Sound label must be a non-empty string")
+
+            if not samples or not isinstance(samples, list):
+                raise ValueError("Samples must be a non-empty list")
+
             new_embeddings = []
             new_labels = []
 
             logger.info(f"Training '{label}' with {len(samples)} samples...")
 
-            for i, (audio, sr) in enumerate(samples):
-                embedding = self._extract_embedding(audio, sr)
+            for i, sample_data in enumerate(samples):
+                if not isinstance(sample_data, tuple) or len(sample_data) != 2:
+                    logger.warning(f"  Sample {i+1}: invalid format, skipping")
+                    continue
+
+                audio, sr = sample_data
+                embedding = self._extract_embedding(audio=audio, sr=sr)
                 if embedding is not None:
                     new_embeddings.append(embedding)
                     new_labels.append(label)
@@ -479,40 +549,43 @@ class StreamlinedSoundRecognizer:
                 logger.error(f"No valid embeddings extracted for '{label}'")
                 return False
 
-            # Add to existing data
-            if len(self.embeddings) == 0:
-                self.embeddings = np.array(new_embeddings)
-            else:
-                self.embeddings = np.vstack([self.embeddings, new_embeddings])
+            # Add to existing data - thread-safe
+            with self._model_lock:
+                if len(self.embeddings) == 0:
+                    self.embeddings = np.array(new_embeddings)
+                else:
+                    self.embeddings = np.vstack([self.embeddings, new_embeddings])
 
-            self.labels.extend(new_labels)
+                self.labels.extend(new_labels)
 
-            # Retrain scaler with all data
-            self.scaler.fit(self.embeddings)
+                # Retrain scaler with all data
+                self.scaler.fit(self.embeddings)
+
+            logger.info(f"Training completed: {len(self.embeddings)} total embeddings")
 
             # Load and add ESC-50 samples as negative examples
             await self._add_esc50_samples()
 
             # Save updated model
-            self._save_model_data()
+            return await self._save_model_data_async()
 
-            logger.info(f"Training completed: {len(self.embeddings)} total embeddings")
-            return True
-
+        except ValueError as e:
+            logger.error(f"Training input validation failed: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Training failed: {e}")
+            logger.error(f"Training failed: {e}", exc_info=True)
             return False
 
-    async def _add_esc50_samples(self):
+    async def _add_esc50_samples(self) -> None:
         """Add ESC-50 samples as negative examples."""
         if not os.path.exists(self.external_sounds_path):
-            logger.info("No external sounds path found, skipping ESC-50 samples")
+            logger.debug("No external sounds path found, skipping ESC-50 samples")
             return
 
         esc50_files = [f for f in os.listdir(self.external_sounds_path) if f.startswith("esc50_") and f.endswith(".wav")]
 
         if not esc50_files:
-            logger.info("No ESC-50 files found, skipping negative examples")
+            logger.debug("No ESC-50 files found, skipping negative examples")
             return
 
         # Limit total ESC-50 samples
@@ -523,8 +596,29 @@ class StreamlinedSoundRecognizer:
 
         for wav_file in esc50_files:
             try:
-                audio, sr = sf.read(os.path.join(self.external_sounds_path, wav_file))
-                embedding = self._extract_embedding(audio, sr)
+                audio_data = sf.read(os.path.join(self.external_sounds_path, wav_file))
+
+                # soundfile.read() returns (audio, sr) tuple
+                if isinstance(audio_data, tuple) and len(audio_data) == 2:
+                    audio, sr = audio_data
+                else:
+                    logger.warning(f"Unexpected format from soundfile.read() for {wav_file}")
+                    continue
+
+                # Validate audio format
+                if not isinstance(audio, np.ndarray):
+                    logger.warning(f"Audio from {wav_file} is not numpy array, skipping")
+                    continue
+
+                if len(audio) == 0:
+                    logger.warning(f"Audio from {wav_file} is empty, skipping")
+                    continue
+
+                if not isinstance(sr, (int, np.integer)) or sr <= 0:
+                    logger.warning(f"Invalid sample rate {sr} from {wav_file}, skipping")
+                    continue
+
+                embedding = self._extract_embedding(audio=audio, sr=sr)
 
                 if embedding is not None:
                     esc50_embeddings.append(embedding)
@@ -532,38 +626,51 @@ class StreamlinedSoundRecognizer:
                     category = wav_file.split("_")[1]  # esc50_category_file.wav
                     esc50_labels.append(f"esc50_{category}")
 
+            except (FileNotFoundError, ValueError, TypeError) as e:
+                logger.warning(f"Failed to read/validate ESC-50 file {wav_file}: {e}")
             except Exception as e:
                 logger.warning(f"Failed to process ESC-50 file {wav_file}: {e}")
 
         if esc50_embeddings:
-            # Add ESC-50 embeddings
-            self.embeddings = np.vstack([self.embeddings, esc50_embeddings])
-            self.labels.extend(esc50_labels)
+            with self._model_lock:
+                # Add ESC-50 embeddings
+                self.embeddings = np.vstack([self.embeddings, esc50_embeddings])
+                self.labels.extend(esc50_labels)
 
-            # Retrain scaler
-            self.scaler.fit(self.embeddings)
+                # Retrain scaler
+                self.scaler.fit(self.embeddings)
 
             logger.info(f"Added {len(esc50_embeddings)} ESC-50 negative examples")
         else:
-            logger.info("No valid ESC-50 embeddings extracted")
+            logger.debug("No valid ESC-50 embeddings extracted")
 
-    def set_mapping(self, sound_label: str, command: str):
-        """Set command mapping for a sound."""
-        self.mappings[sound_label] = command
-        self._save_model_data()
+    def set_mapping(self, sound_label: str, command: str) -> None:
+        """Set command mapping for a sound - thread-safe."""
+        if not sound_label or not isinstance(sound_label, str):
+            raise ValueError("Sound label must be a non-empty string")
+        if not command or not isinstance(command, str):
+            raise ValueError("Command must be a non-empty string")
+
+        with self._model_lock:
+            self.mappings[sound_label] = command
 
     def get_mapping(self, sound_label: str) -> Optional[str]:
-        """Get command mapping for a sound."""
-        return self.mappings.get(sound_label)
+        """Get command mapping for a sound - thread-safe."""
+        if not sound_label or not isinstance(sound_label, str):
+            return None
 
-    def reset_all_sounds(self) -> bool:
+        with self._model_lock:
+            return self.mappings.get(sound_label)
+
+    async def reset_all_sounds(self) -> bool:
         """Reset all trained sounds and mappings."""
         try:
-            # Clear in-memory data
-            self.embeddings = np.empty((0, 1024))
-            self.labels = []
-            self.mappings = {}
-            self.scaler = StandardScaler()
+            # Clear in-memory data - thread-safe
+            with self._model_lock:
+                self.embeddings = np.empty((0, 1024))
+                self.labels = []
+                self.mappings = {}
+                self.scaler = StandardScaler()
 
             # Remove saved model files
             model_files = ["embeddings.npy", "labels.joblib", "scaler.joblib"]
@@ -575,93 +682,106 @@ class StreamlinedSoundRecognizer:
 
             # Clear mappings through storage
             try:
-                # Use a thread pool to run the async operation
-                async def clear_mappings():
-                    from iris.app.services.storage.storage_models import SoundMappingsData
-
-                    empty_mappings = SoundMappingsData(mappings={})
-                    return await self._storage.write(data=empty_mappings)
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, clear_mappings())
-                    success = future.result(timeout=10)  # 10-second timeout
+                empty_mappings = SoundMappingsData(mappings={})
+                success = await self._storage.write(data=empty_mappings)
 
                 if success:
                     logger.debug("Successfully cleared sound mappings in storage")
                 else:
                     logger.warning("Failed to clear sound mappings in storage")
-            except Exception as mapping_error:
-                logger.error(f"Error clearing sound mappings: {mapping_error}")
+                    return False
+            except Exception as e:
+                logger.error(f"Error clearing sound mappings: {e}")
+                return False
 
             logger.info("Successfully reset all sounds and mappings")
             return True
 
+        except OSError as e:
+            logger.error(f"File system error during reset: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to reset sounds: {e}")
+            logger.error(f"Failed to reset sounds: {e}", exc_info=True)
             return False
 
-    def delete_sound(self, sound_label: str) -> bool:
-        """Delete a specific trained sound."""
+    async def delete_sound(self, sound_label: str) -> bool:
+        """Delete a specific trained sound - thread-safe."""
         try:
-            if sound_label not in self.labels:
-                logger.warning(f"Sound '{sound_label}' not found in trained sounds")
-                return False
+            if not sound_label or not isinstance(sound_label, str):
+                raise ValueError("Sound label must be a non-empty string")
 
-            # Find indices of embeddings for this sound
-            indices_to_remove = [i for i, label in enumerate(self.labels) if label == sound_label]
+            with self._model_lock:
+                if sound_label not in self.labels:
+                    logger.warning(f"Sound '{sound_label}' not found in trained sounds")
+                    return False
 
-            if not indices_to_remove:
-                logger.warning(f"No embeddings found for sound '{sound_label}'")
-                return False
+                # Find indices of embeddings for this sound
+                indices_to_remove = [i for i, label in enumerate(self.labels) if label == sound_label]
 
-            # Remove embeddings and labels
-            mask = np.ones(len(self.embeddings), dtype=bool)
-            mask[indices_to_remove] = False
+                if not indices_to_remove:
+                    logger.warning(f"No embeddings found for sound '{sound_label}'")
+                    return False
 
-            self.embeddings = self.embeddings[mask]
-            self.labels = [label for i, label in enumerate(self.labels) if i not in indices_to_remove]
+                # Remove embeddings and labels
+                mask = np.ones(len(self.embeddings), dtype=bool)
+                mask[indices_to_remove] = False
 
-            # Remove mapping if it exists
-            if sound_label in self.mappings:
-                del self.mappings[sound_label]
+                self.embeddings = self.embeddings[mask]
+                self.labels = [label for i, label in enumerate(self.labels) if i not in indices_to_remove]
 
-            # Retrain scaler if we still have data
-            if len(self.embeddings) > 0:
-                self.scaler.fit(self.embeddings)
-            else:
-                self.scaler = StandardScaler()
+                # Remove mapping if it exists
+                if sound_label in self.mappings:
+                    del self.mappings[sound_label]
+
+                # Retrain scaler if we still have data
+                if len(self.embeddings) > 0:
+                    self.scaler.fit(self.embeddings)
+                else:
+                    self.scaler = StandardScaler()
 
             # Save updated model
-            self._save_model_data()
+            success = await self._save_model_data_async()
 
-            logger.info(f"Successfully deleted sound '{sound_label}' ({len(indices_to_remove)} embeddings removed)")
-            return True
+            if success:
+                logger.info(f"Successfully deleted sound '{sound_label}' ({len(indices_to_remove)} embeddings removed)")
+            else:
+                logger.error(f"Failed to save model after deleting '{sound_label}'")
 
+            return success
+
+        except ValueError as e:
+            logger.error(f"Delete validation failed: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to delete sound '{sound_label}': {e}")
+            logger.error(f"Failed to delete sound '{sound_label}': {e}", exc_info=True)
             return False
 
     def get_stats(self) -> Dict:
-        """Get recognizer statistics."""
-        custom_sounds = [label for label in self.labels if not label.startswith("esc50_")]
-        esc50_sounds = [label for label in self.labels if label.startswith("esc50_")]
-        trained_sounds = list(set(custom_sounds))  # Unique custom sound names
+        """Get recognizer statistics - thread-safe."""
+        with self._model_lock:
+            custom_sounds = [label for label in self.labels if not label.startswith("esc50_")]
+            esc50_sounds = [label for label in self.labels if label.startswith("esc50_")]
+            trained_sounds = list(set(custom_sounds))  # Unique custom sound names
 
-        return {
-            "total_embeddings": len(self.embeddings),
-            "custom_sounds": len(set(custom_sounds)),
-            "trained_sounds": {sound: self.labels.count(sound) for sound in trained_sounds},
-            "esc50_samples": len(esc50_sounds),
-            "mappings": len(self.mappings),
-            "sound_mappings": self.mappings.copy(),
-            "model_ready": len(self.embeddings) > 0,
-        }
+            return {
+                "total_embeddings": len(self.embeddings),
+                "custom_sounds": len(set(custom_sounds)),
+                "trained_sounds": {sound: self.labels.count(sound) for sound in trained_sounds},
+                "esc50_samples": len(esc50_sounds),
+                "mappings": len(self.mappings),
+                "sound_mappings": self.mappings.copy(),
+                "model_ready": len(self.embeddings) > 0,
+            }
 
     def on_confidence_threshold_updated(self, threshold: float) -> None:
         """
         Called by SettingsUpdateCoordinator when confidence threshold is updated.
         Config is already updated - this updates the recognizer's instance variable.
         """
+        if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
+            logger.warning(f"Invalid confidence threshold: {threshold}")
+            return
+
         old_threshold = self.confidence_threshold
         self.confidence_threshold = threshold
         logger.info(f"Sound recognizer confidence threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
@@ -671,54 +791,53 @@ class StreamlinedSoundRecognizer:
         Called by SettingsUpdateCoordinator when vote threshold is updated.
         Config is already updated - this updates the recognizer's instance variable.
         """
+        if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
+            logger.warning(f"Invalid vote threshold: {threshold}")
+            return
+
         old_threshold = self.vote_threshold
         self.vote_threshold = threshold
         logger.info(f"Sound recognizer vote threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
 
     async def shutdown(self) -> None:
-        """Shutdown sound recognizer and cleanup TensorFlow resources"""
+        """Shutdown sound recognizer and cleanup TensorFlow resources."""
         try:
             logger.info("Shutting down StreamlinedSoundRecognizer")
 
+            # Signal shutdown
+            self._shutdown_event.set()
+
             # Clear TensorFlow model and free GPU/CPU memory
-            if hasattr(self, "yamnet_model") and self.yamnet_model is not None:
-                # Force deletion of the model
+            if self.yamnet_model is not None:
                 del self.yamnet_model
                 self.yamnet_model = None
                 logger.info("YAMNet model deleted")
 
-            # Clear TensorFlow session and backend - CRITICAL for memory release
+            # Clear TensorFlow session using modern TensorFlow 2.x API
             if tf is not None:
                 try:
-                    # Clear all TensorFlow graphs and sessions
                     tf.keras.backend.clear_session()
-
-                    # Reset default graph (releases graph memory)
-                    if hasattr(tf, "compat") and hasattr(tf.compat, "v1"):
-                        tf.compat.v1.reset_default_graph()
-
-                    logger.info("TensorFlow session and graphs cleared")
+                    logger.info("TensorFlow Keras session cleared")
                 except Exception as e:
                     logger.warning(f"Error clearing TensorFlow session: {e}")
 
-            # Clear numpy arrays to free memory
-            if hasattr(self, "embeddings") and self.embeddings is not None:
-                del self.embeddings
-                self.embeddings = None
+            # Clear numpy arrays and other resources
+            with self._model_lock:
+                if self.embeddings is not None:
+                    del self.embeddings
+                    self.embeddings = None
 
-            if hasattr(self, "labels") and self.labels is not None:
-                self.labels.clear()
-                self.labels = None
+                if self.labels:
+                    self.labels.clear()
+                    self.labels = None
 
-            # Clear scaler
-            if hasattr(self, "scaler") and self.scaler is not None:
-                del self.scaler
-                self.scaler = None
+                if self.scaler is not None:
+                    del self.scaler
+                    self.scaler = None
 
-            # Clear mappings
-            if hasattr(self, "mappings") and self.mappings is not None:
-                self.mappings.clear()
-                self.mappings = None
+                if self.mappings:
+                    self.mappings.clear()
+                    self.mappings = None
 
             # Force garbage collection
             gc.collect()
@@ -726,4 +845,4 @@ class StreamlinedSoundRecognizer:
             logger.info("StreamlinedSoundRecognizer shutdown complete")
 
         except Exception as e:
-            logger.error(f"Error during StreamlinedSoundRecognizer shutdown: {e}", exc_info=True)
+            logger.error(f"Error during shutdown: {e}", exc_info=True)

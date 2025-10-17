@@ -1,10 +1,3 @@
-"""
-Markov Chain Command Predictor
-
-Predicts next command based on historical command sequences.
-Uses first-order Markov chain to enable ultra-low latency command execution.
-"""
-
 import logging
 import time
 from collections import Counter, defaultdict, deque
@@ -20,37 +13,38 @@ logger = logging.getLogger(__name__)
 
 
 class MarkovCommandService:
-    """Backoff Markov chain predictor (2nd-4th order) for command sequences"""
+    """Multi-order Markov predictor with backoff strategy for ultra-fast command prediction.
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
+    Trains 2nd through 4th order Markov chains on command history, uses backoff from
+    highest to lowest order for prediction, and provides feedback-based cooldown on
+    incorrect predictions to maintain accuracy.
+    """
+
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
         self._event_bus = event_bus
         self._config = config
         self._markov_config = config.markov_predictor
         self._storage = storage
-
-        # Multi-order transition counts: {order: {context: Counter}}
         self._transition_counts: Dict[int, Dict[tuple, Counter]] = {
             2: defaultdict(Counter),
             3: defaultdict(Counter),
             4: defaultdict(Counter),
         }
-
-        # Command history buffer for in-memory model (NOT for storage)
         self._command_history: deque = deque(maxlen=self._markov_config.max_order)
-        self._model_trained = False
-
-        # Fast-track prediction on audio detection
-        self._last_prediction_time = 0.0
-        self._prediction_cooldown = 0.05
-
-        # Prediction verification and cooldown management
+        self._model_trained: bool = False
+        self._last_prediction_time: float = 0.0
+        self._prediction_cooldown: float = self._markov_config.prediction_cooldown_seconds
         self._pending_prediction: Optional[Tuple[str, float]] = None
-        self._cooldown_remaining = 0
+        self._cooldown_remaining: int = 0
 
         logger.info(f"MarkovCommandPredictor initialized (orders {self._markov_config.min_order}-{self._markov_config.max_order})")
 
     async def initialize(self) -> bool:
-        """Initialize and train the model"""
+        """Initialize predictor by training models on stored command history.
+
+        Returns:
+            True if initialization succeeded, False otherwise
+        """
         try:
             await self._train_model()
             return True
@@ -66,7 +60,11 @@ class MarkovCommandService:
         logger.info("Markov predictor event subscriptions configured")
 
     async def _train_model(self) -> None:
-        """Train multi-order Markov models on historical command data (async)"""
+        """Train all Markov chain orders on filtered historical command data.
+
+        Loads command history from storage, filters by configured time and count
+        windows for each order, and builds transition count matrices for prediction.
+        """
         try:
             # Clear existing models
             for order in range(self._markov_config.min_order, self._markov_config.max_order + 1):
@@ -131,7 +129,14 @@ class MarkovCommandService:
         return filtered
 
     async def _handle_audio_detected_fast_track(self, event: AudioDetectedEvent) -> None:
-        """FAST-TRACK: Predict immediately when audio is first detected"""
+        """Predict and execute command immediately when audio detected for ultra-low latency.
+
+        Uses backoff Markov prediction based on recent command history to execute the
+        most likely next command before STT completes, subject to cooldown and confidence.
+
+        Args:
+            event: Audio detection event from recorder
+        """
         try:
             current_time = time.time()
 
@@ -174,9 +179,13 @@ class MarkovCommandService:
             logger.error(f"Error in fast-track handling: {e}", exc_info=True)
 
     async def _handle_prediction_feedback(self, event: MarkovPredictionFeedbackEvent) -> None:
-        """
-        Handle feedback from the parser about prediction accuracy.
-        Updates in-memory command history and manages cooldown on incorrect predictions.
+        """Process prediction accuracy feedback and manage cooldown.
+
+        Updates in-memory command history with actual executed command and enters
+        cooldown mode on incorrect predictions to maintain accuracy.
+
+        Args:
+            event: Feedback event with prediction accuracy and actual command
         """
         try:
             actual_command = event.actual_command
@@ -200,9 +209,14 @@ class MarkovCommandService:
             logger.error(f"Error handling prediction feedback: {e}", exc_info=True)
 
     def _predict_next_command(self) -> Optional[Tuple[str, float, int]]:
-        """Predict next command using backoff strategy (tries highest order first)"""
+        """Predict next command using backoff from highest to lowest order.
 
-        # Try from highest to lowest order
+        Attempts prediction starting at max_order, falling back to lower orders if
+        no valid transitions found, returns first match above minimum frequency.
+
+        Returns:
+            Tuple of (predicted_command, confidence, order_used) or None if no prediction
+        """
         for order in range(self._markov_config.max_order, self._markov_config.min_order - 1, -1):
             if len(self._command_history) < order:
                 continue
@@ -247,16 +261,16 @@ class MarkovCommandService:
             return False
 
     def on_confidence_threshold_updated(self, threshold: float) -> None:
-        """
-        Called by SettingsUpdateCoordinator when confidence threshold is updated.
-        Config is already updated - this method is for any service-specific logic.
+        """Handle real-time confidence threshold update from settings.
+
+        Args:
+            threshold: New confidence threshold value (0.0 to 1.0)
         """
         old_threshold = self._markov_config.confidence_threshold
         self._markov_config.confidence_threshold = threshold
         logger.info(f"Markov predictor confidence threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
 
     async def shutdown(self) -> None:
-        """Shutdown predictor"""
         try:
             logger.info("Markov predictor shutdown complete")
         except Exception as e:

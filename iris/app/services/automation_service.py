@@ -1,9 +1,3 @@
-"""
-Automation Service
-
-Centralized service for automation command handling.
-Executes automation commands with cooldown management and error handling.
-"""
 import asyncio
 import logging
 import threading
@@ -14,7 +8,7 @@ from typing import Callable, Dict, Optional
 import pyautogui
 
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.config.command_types import ActionType, ParameterizedCommand
+from iris.app.config.command_types import ActionType, BaseCommand, ParameterizedCommand
 from iris.app.event_bus import EventBus
 from iris.app.events.command_events import AutomationCommandParsedEvent
 from iris.app.events.command_management_events import CommandMappingsUpdatedEvent
@@ -24,68 +18,76 @@ logger = logging.getLogger(__name__)
 
 
 class AutomationService:
-    """
-    Service responsible for processing and executing automation commands.
+    """Service for executing automation commands with cooldown management.
 
-    Handles command execution with cooldown management, thread safety,
-    and status reporting via events.
+    Processes automation commands through pyautogui, manages execution timing
+    with per-command cooldowns, and provides thread-safe execution with status
+    reporting through the event bus.
     """
 
-    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig):
+    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig) -> None:
         self._event_bus = event_bus
         self._app_config = app_config
-
-        # Execution components
-        self._thread_pool = ThreadPoolExecutor(max_workers=2)
+        self._thread_pool = ThreadPoolExecutor(max_workers=app_config.automation_service.thread_pool_max_workers)
         self._execution_lock = threading.Lock()
-
-        # Cooldown management
         self._cooldown_timers: Dict[str, float] = {}
 
         logger.info("AutomationService initialized")
 
     def setup_subscriptions(self) -> None:
-        """Set up event subscriptions for automation commands"""
         self._event_bus.subscribe(event_type=AutomationCommandParsedEvent, handler=self._handle_automation_command)
         self._event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=self._handle_command_mappings_updated)
         logger.info("AutomationService subscriptions set up")
 
     async def _handle_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:
-        """Handle automation command execution"""
+        """Process and execute automation commands with cooldown and count handling.
+
+        Validates command parameters, checks cooldown status, executes the command
+        through thread pool, and publishes execution status events.
+
+        Args:
+            event_data: Event containing the automation command to execute
+        """
         command = event_data.command
         count = getattr(command, "count", 1)
 
-        # Validate count for parameterized commands
         if isinstance(command, ParameterizedCommand) and count <= 0:
             await self._publish_status(command, event_data.source, False, f"Invalid repeat count: {count}")
             return
 
-        # Check cooldown
         if not self._check_cooldown(command.command_key):
             await self._publish_status(command, event_data.source, False, f"Command '{command.command_key}' is on cooldown")
             return
 
-        # Execute command
         success = await self._execute_command(command.action_type, command.action_value, count)
 
-        # Update cooldown on success
         if success:
             self._cooldown_timers[command.command_key] = time.time()
 
-        # Report status
         count_text = f" {count} times" if count > 1 else ""
         status = "successfully" if success else "failed"
         message = f"Command '{command.command_key}' executed{count_text} {status}"
         await self._publish_status(command, event_data.source, success, message)
 
     async def _execute_command(self, action_type: ActionType, action_value: str, count: int = 1) -> bool:
-        """Execute automation action with thread safety"""
+        """Execute automation action in thread pool with error handling.
+
+        Creates action function from type and value, then executes it in a
+        thread pool to avoid blocking the event loop.
+
+        Args:
+            action_type: Type of automation action (hotkey, key, click, scroll, etc.)
+            action_value: Value/parameter for the action
+            count: Number of times to repeat the action
+
+        Returns:
+            True if execution succeeded, False otherwise
+        """
         try:
             action_function = self._create_action_function(action_type, action_value)
             if not action_function:
                 return False
 
-            # Execute in thread pool with locking
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self._thread_pool, lambda: self._execute_with_lock(action_function, count))
 
@@ -93,8 +95,7 @@ class AutomationService:
             logger.error(f"Error executing automation action {action_type}:{action_value}: {e}")
             return False
 
-    def _execute_with_lock(self, action_function: Callable, count: int) -> bool:
-        """Execute action function with thread safety"""
+    def _execute_with_lock(self, action_function: Callable[[], None], count: int) -> bool:
         if not self._execution_lock.acquire(blocking=False):
             logger.warning("Could not acquire execution lock - another command in progress")
             return False
@@ -109,8 +110,19 @@ class AutomationService:
         finally:
             self._execution_lock.release()
 
-    def _create_action_function(self, action_type: ActionType, action_value: str) -> Optional[Callable]:
-        """Create pyautogui action function from action type and value"""
+    def _create_action_function(self, action_type: ActionType, action_value: str) -> Optional[Callable[[], None]]:
+        """Create pyautogui action function from action type and value.
+
+        Maps action types to corresponding pyautogui function calls with proper
+        parameter handling for hotkeys, key sequences, clicks, and scrolls.
+
+        Args:
+            action_type: Type of automation action
+            action_value: Value/parameter for the action
+
+        Returns:
+            Callable function that executes the action, or None if invalid
+        """
         try:
             if action_type == "hotkey":
                 keys = [key.strip() for key in action_value.replace(" ", "+").split("+")]
@@ -145,25 +157,22 @@ class AutomationService:
 
         return None
 
-    def _execute_key_sequence(self, key_list: list) -> None:
-        """Execute a sequence of keys or hotkeys in order"""
+    def _execute_key_sequence(self, key_list: list[str]) -> None:
         for key_combination in key_list:
             if "+" in key_combination:
                 keys = [k.strip() for k in key_combination.split("+")]
                 pyautogui.hotkey(*keys)
             else:
                 pyautogui.press(key_combination.strip())
-            time.sleep(0.25)
+            time.sleep(self._app_config.automation_service.key_sequence_delay_seconds)
 
     def _check_cooldown(self, command_key: str) -> bool:
-        """Check if command is not on cooldown"""
         current_time = time.time()
         last_execution = self._cooldown_timers.get(command_key, 0)
         cooldown_period = self._app_config.automation_cooldown_seconds
         return current_time - last_execution >= cooldown_period
 
-    async def _publish_status(self, command, source: Optional[str], success: bool, message: str) -> None:
-        """Publish command execution status event"""
+    async def _publish_status(self, command: BaseCommand, source: Optional[str], success: bool, message: str) -> None:
         try:
             status_event = CommandExecutedStatusEvent(
                 command={
@@ -180,12 +189,10 @@ class AutomationService:
             logger.error(f"Error publishing command status: {e}")
 
     async def _handle_command_mappings_updated(self, event_data: CommandMappingsUpdatedEvent) -> None:
-        """Clear cooldown timers when command mappings change"""
         self._cooldown_timers.clear()
         logger.info("Cleared automation command cooldown timers after mappings update")
 
     async def shutdown(self) -> None:
-        """Shutdown the automation service"""
         if self._thread_pool:
             self._thread_pool.shutdown(wait=True)
         logger.info("AutomationService shutdown")
