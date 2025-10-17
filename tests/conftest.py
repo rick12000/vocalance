@@ -19,7 +19,7 @@ import soundfile as sf
 
 from iris.app.config.app_config import GlobalAppConfig
 from iris.app.event_bus import EventBus
-from iris.app.services.audio.stt_service import SpeechToTextService
+from iris.app.services.audio.stt.stt_service import SpeechToTextService
 from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
 from iris.app.services.audio.whisper_stt import WhisperSpeechToText
 

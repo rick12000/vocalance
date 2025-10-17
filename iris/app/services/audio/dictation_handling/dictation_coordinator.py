@@ -732,7 +732,6 @@ class DictationCoordinator:
             with self._state_lock:
                 self._current_session = None
                 self._pending_llm_session = None
-                self._set_state(DictationState.IDLE)
 
             # Force garbage collection
             gc.collect()

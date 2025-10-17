@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from faster_whisper import WhisperModel
 
-from iris.app.services.audio.stt_utils import DuplicateTextFilter
+from iris.app.services.audio.stt.stt_utils import DuplicateTextFilter
 
 logger = logging.getLogger(__name__)
 

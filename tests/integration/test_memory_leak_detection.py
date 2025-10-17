@@ -63,7 +63,7 @@ async def test_process_exit_releases_memory(app_config):
 async def test_repeated_initialization_memory(app_config):
     """Test that repeated initialization cycles don't accumulate memory."""
     from iris.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
-    from iris.app.services.audio.stt_service import SpeechToTextService
+    from iris.app.services.audio.stt.stt_service import SpeechToTextService
     from iris.app.services.automation_service import AutomationService
     from iris.app.services.grid.grid_service import GridService
     from iris.app.services.storage.storage_service import StorageService

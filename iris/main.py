@@ -20,7 +20,7 @@ from iris.app.event_bus import EventBus
 from iris.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
 from iris.app.services.audio.simple_audio_service import SimpleAudioService
 from iris.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
-from iris.app.services.audio.stt_service import SpeechToTextService
+from iris.app.services.audio.stt.stt_service import SpeechToTextService
 from iris.app.services.automation_service import AutomationService
 from iris.app.services.centralized_command_parser import CentralizedCommandParser
 from iris.app.services.command_management_service import CommandManagementService

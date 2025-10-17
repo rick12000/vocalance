@@ -7,7 +7,7 @@ from typing import Optional
 import vosk
 
 from iris.app.config.app_config import GlobalAppConfig
-from iris.app.services.audio.stt_utils import DuplicateTextFilter
+from iris.app.services.audio.stt.stt_utils import DuplicateTextFilter
 
 logger = logging.getLogger(__name__)
 

@@ -15,7 +15,7 @@ from iris.app.events.core_events import (
     DictationTextRecognizedEvent,
 )
 from iris.app.events.dictation_events import DictationModeDisableOthersEvent
-from iris.app.services.audio.stt_service import SpeechToTextService
+from iris.app.services.audio.stt.stt_service import SpeechToTextService
 
 
 @pytest_asyncio.fixture

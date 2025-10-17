@@ -18,10 +18,10 @@ from iris.app.events.core_events import (
     STTProcessingStartedEvent,
 )
 from iris.app.events.dictation_events import DictationModeDisableOthersEvent
-from iris.app.services.audio.smart_timeout_manager import SmartTimeoutManager
-from iris.app.services.audio.stt_utils import DuplicateTextFilter
-from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
-from iris.app.services.audio.whisper_stt import WhisperSpeechToText
+from iris.app.services.audio.stt.smart_timeout_manager import SmartTimeoutManager
+from iris.app.services.audio.stt.stt_utils import DuplicateTextFilter
+from iris.app.services.audio.stt.vosk_stt import EnhancedVoskSTT
+from iris.app.services.audio.stt.whisper_stt import WhisperSpeechToText
 
 logger = logging.getLogger(__name__)
 
