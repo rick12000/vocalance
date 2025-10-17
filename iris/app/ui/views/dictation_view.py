@@ -41,18 +41,18 @@ class DictationView(BaseView):
     def _setup_add_prompt_form(self) -> None:
         """Setup the add prompt form using form builder"""
         container = self.layout.left_content
-        FormBuilder.setup_form_grid(container, 4)
+        form_builder = FormBuilder()
+        form_builder.setup_form_grid(container)
 
         # Create form fields using form builder
-        self.title_label, self.title_entry = FormBuilder.create_labeled_entry(
-            container, "Prompt Title:", "e.g. 'Professional Email Cleanup'", row=0
+        self.title_label, self.title_entry = form_builder.create_labeled_entry(
+            container, "Prompt Title:", "e.g. 'Professional Email Cleanup'"
         )
 
-        self.prompt_label, self.prompt_textbox = FormBuilder.create_labeled_textbox(
+        self.prompt_label, self.prompt_textbox = form_builder.create_labeled_textbox(
             container,
             "Prompt Instructions:",
             "e.g. Convert informal speech to professional writing while preserving all key information and maintaining clarity.",
-            row=2,
             height=100,
         )
 
@@ -65,8 +65,8 @@ class DictationView(BaseView):
         self.prompt_textbox.bind("<Button-1>", on_textbox_click)
 
         # Add button
-        FormBuilder.create_button_row(
-            container, [{"text": view_config.theme.button_text.add_prompt, "command": self._add_prompt, "type": "primary"}], row=4
+        form_builder.create_button_row(
+            container, [{"text": view_config.theme.button_text.add_prompt, "command": self._add_prompt, "type": "primary"}]
         )
 
     def _setup_manage_prompts_panel(self) -> None:
@@ -95,11 +95,13 @@ class DictationView(BaseView):
 
         # Validate inputs
         if not title:
-            FormBuilder.show_temporary_message(self.layout.left_content, "Please enter a title for the prompt.", 4)
+            form_builder = FormBuilder()
+            form_builder.show_temporary_message(self.layout.left_content, "Please enter a title for the prompt.")
             return
 
         if not prompt_text:
-            FormBuilder.show_temporary_message(self.layout.left_content, "Please enter prompt instructions.", 4)
+            form_builder = FormBuilder()
+            form_builder.show_temporary_message(self.layout.left_content, "Please enter prompt instructions.")
             return
 
         # Add prompt and clear form on success
@@ -223,11 +225,12 @@ class DictationView(BaseView):
         main_frame.grid_columnconfigure(0, weight=1)
 
         # Form fields (changed "Name:" to "Title:")
-        title_label, title_entry = FormBuilder.create_labeled_entry(
-            main_frame, "Title:", default_value=prompt_data.get("name", ""), row=0
+        form_builder = FormBuilder()
+        title_label, title_entry = form_builder.create_labeled_entry(
+            main_frame, "Title:", default_value=prompt_data.get("name", "")
         )
 
-        prompt_label, prompt_textbox = FormBuilder.create_labeled_textbox(main_frame, "Prompt:", height=200, row=2)
+        prompt_label, prompt_textbox = form_builder.create_labeled_textbox(main_frame, "Prompt:", height=200)
         prompt_textbox.insert("1.0", prompt_data.get("text", ""))
 
         # Buttons
@@ -237,26 +240,25 @@ class DictationView(BaseView):
 
             # Validate inputs
             if not new_name:
-                FormBuilder.show_temporary_message(main_frame, "Please enter a name for the prompt", 5)
+                form_builder.show_temporary_message(main_frame, "Please enter a name for the prompt")
                 return
 
             if not new_text:
-                FormBuilder.show_temporary_message(main_frame, "Please enter prompt text", 5)
+                form_builder.show_temporary_message(main_frame, "Please enter prompt text")
                 return
 
             # Try to save the changes
             if self.controller.edit_prompt(prompt_data["id"], new_name, new_text):
                 dialog.destroy()
             else:
-                FormBuilder.show_temporary_message(main_frame, "Failed to update prompt", 5)
+                form_builder.show_temporary_message(main_frame, "Failed to update prompt")
 
-        FormBuilder.create_button_row(
+        form_builder.create_button_row(
             main_frame,
             [
                 {"text": view_config.theme.button_text.save_changes, "command": save_changes, "type": "primary"},
                 {"text": view_config.theme.button_text.cancel, "command": dialog.destroy, "type": "danger"},
             ],
-            row=4,
         )
 
     def _delete_prompt(self, prompt_id: str) -> None:

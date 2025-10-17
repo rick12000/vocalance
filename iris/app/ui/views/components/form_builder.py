@@ -13,16 +13,43 @@ from iris.app.ui.views.components.view_config import view_config
 class FormBuilder:
     """Utility class for building common form patterns with minimal code"""
 
-    @staticmethod
+    def __init__(self):
+        """Initialize FormBuilder with row counter starting at 0"""
+        self.row = 0
+        self._configured_rows = set()  # Track which rows have been configured
+
+    def _ensure_row_configured(self, parent: ctk.CTkFrame, row: int) -> None:
+        """Ensure a specific row is configured in the parent's grid"""
+        if row not in self._configured_rows:
+            parent.grid_rowconfigure(row, weight=0)
+            self._configured_rows.add(row)
+
+    def setup_form_grid(self, parent: ctk.CTkFrame, rows: Optional[int] = None) -> None:
+        """Configure grid weights for a standard form layout"""
+        parent.grid_columnconfigure(0, weight=1)
+        if rows is not None:
+            # Pre-configure specified number of rows
+            for i in range(rows):
+                self._ensure_row_configured(parent, i)
+
     def create_labeled_entry(
+        self,
         parent: ctk.CTkFrame,
         label_text: str,
         placeholder: str = "",
         default_value: str = "",
-        row: int = 0,
+        row: Optional[int] = None,
         width: Optional[int] = None,
     ) -> Tuple[ThemedLabel, ThemedEntry]:
         """Create a label and entry pair with consistent styling"""
+        # Use self.row if row not specified
+        if row is None:
+            row = self.row
+
+        # Ensure rows are configured
+        self._ensure_row_configured(parent, row)
+        self._ensure_row_configured(parent, row + 1)
+
         label = ThemedLabel(parent, text=label_text, bold=True)
         label.grid(
             row=row,
@@ -43,13 +70,23 @@ class FormBuilder:
             row=row + 1, column=0, sticky="ew", pady=(0, view_config.theme.spacing.small), padx=view_config.theme.spacing.medium
         )
 
+        # Increment row counter by 2 (label + entry)
+        self.row += 2
+
         return label, entry
 
-    @staticmethod
     def create_labeled_textbox(
-        parent: ctk.CTkFrame, label_text: str, placeholder: str = "", height: Optional[int] = None, row: int = 0
+        self, parent: ctk.CTkFrame, label_text: str, placeholder: str = "", height: Optional[int] = None, row: Optional[int] = None
     ) -> Tuple[ThemedLabel, ThemedTextbox]:
         """Create a label and textbox pair with consistent styling"""
+        # Use self.row if row not specified
+        if row is None:
+            row = self.row
+
+        # Ensure rows are configured
+        self._ensure_row_configured(parent, row)
+        self._ensure_row_configured(parent, row + 1)
+
         label = ThemedLabel(parent, text=label_text, bold=True)
         label.grid(row=row, column=0, sticky="w", pady=(view_config.theme.spacing.tiny, 0), padx=view_config.theme.spacing.medium)
 
@@ -72,17 +109,27 @@ class FormBuilder:
         if placeholder:
             textbox.insert("1.0", placeholder)
 
+        # Increment row counter by 2 (label + textbox)
+        self.row += 2
+
         return label, textbox
 
-    @staticmethod
     def create_button_row(
+        self,
         parent: ctk.CTkFrame,
         buttons: List[Dict[str, Any]],
-        row: int = 0,
+        row: Optional[int] = None,
         extra_pady: Optional[Tuple[int, int]] = None,
         extra_padx: Optional[int] = None,
     ) -> List[ctk.CTkButton]:
         """Create a row of buttons with consistent spacing"""
+        # Use self.row if row not specified
+        if row is None:
+            row = self.row
+
+        # Ensure row is configured
+        self._ensure_row_configured(parent, row)
+
         pady = extra_pady if extra_pady is not None else view_config.theme.spacing.small
         padx = extra_padx if extra_padx is not None else view_config.theme.spacing.medium
 
@@ -108,20 +155,27 @@ class FormBuilder:
             button_frame.grid_columnconfigure(i, weight=1)
             created_buttons.append(button)
 
+        # Increment row counter by 1 (single row of buttons)
+        self.row += 1
+
         return created_buttons
 
-    @staticmethod
-    def setup_form_grid(parent: ctk.CTkFrame, rows: int) -> None:
-        """Configure grid weights for a standard form layout"""
-        parent.grid_columnconfigure(0, weight=1)
-        for i in range(rows):
-            parent.grid_rowconfigure(i, weight=0)
-
-    @staticmethod
     def show_temporary_message(
-        parent: ctk.CTkFrame, message: str, row: int, duration_ms: Optional[int] = None, is_error: bool = True
+        self,
+        parent: ctk.CTkFrame,
+        message: str,
+        row: Optional[int] = None,
+        duration_ms: Optional[int] = None,
+        is_error: bool = True,
     ) -> None:
         """Show a temporary message that auto-dismisses"""
+        # Use self.row if row not specified
+        if row is None:
+            row = self.row
+
+        # Ensure row is configured
+        self._ensure_row_configured(parent, row)
+
         if duration_ms is None:
             duration_ms = view_config.timings.error_message_display_ms
 
@@ -140,9 +194,20 @@ class FormBuilder:
 
         parent.after(duration_ms, remove_message)
 
-    @staticmethod
-    def create_example_textbox_with_placeholder(parent: ctk.CTkFrame, example_text: str, row: int = 0) -> ThemedTextbox:
+        # Increment row counter by 1 (temporary message row)
+        self.row += 1
+
+    def create_example_textbox_with_placeholder(
+        self, parent: ctk.CTkFrame, example_text: str, row: Optional[int] = None
+    ) -> ThemedTextbox:
         """Create a textbox with example text that disappears on click"""
+        # Use self.row if row not specified
+        if row is None:
+            row = self.row
+
+        # Ensure row is configured
+        self._ensure_row_configured(parent, row)
+
         textbox = ThemedTextbox(
             parent,
             height=view_config.theme.dimensions.textbox_height_small,
@@ -169,4 +234,8 @@ class FormBuilder:
                 textbox.delete("1.0", "end")
 
         textbox.bind("<Button-1>", on_textbox_click)
+
+        # Increment row counter by 1 (textbox row)
+        self.row += 1
+
         return textbox

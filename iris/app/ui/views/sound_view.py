@@ -42,19 +42,17 @@ class SoundView(BaseView):
     def _setup_training_form(self) -> None:
         """Setup training form using form builder"""
         container = self.layout.left_content
-        FormBuilder.setup_form_grid(container, 6)
+        form_builder = FormBuilder()
+        form_builder.setup_form_grid(container)
 
         # Create form fields
-        self.name_label, self.sound_name_entry = FormBuilder.create_labeled_entry(
-            container, "Sound name:", "Choose a name...", row=0
-        )
+        self.name_label, self.sound_name_entry = form_builder.create_labeled_entry(container, "Sound name:", "Choose a name...")
 
-        self.samples_label, self.samples_entry = FormBuilder.create_labeled_entry(
+        self.samples_label, self.samples_entry = form_builder.create_labeled_entry(
             container,
             "Number of samples:",
             view_config.form_defaults.placeholder_samples,
             default_value=view_config.form_defaults.placeholder_samples,
-            row=2,
         )
 
         # Add button - store reference to the button frame
@@ -104,12 +102,13 @@ class SoundView(BaseView):
         )
 
         # Delete all button with bottom padding for rounded corners
-        FormBuilder.create_button_row(
+        form_builder = FormBuilder()
+        form_builder.create_button_row(
             container,
             [{"text": view_config.theme.button_text.delete_all_sounds, "command": self._delete_all_sounds, "type": "danger"}],
-            row=1,
             extra_pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
             extra_padx=view_config.theme.two_box_layout.box_content_padding,
+            row=1,
         )
 
     def _start_training(self) -> None:
@@ -347,13 +346,13 @@ class SoundView(BaseView):
                 delattr(self, "_temp_dialog_refs")
 
         # Use FormBuilder to create the button row for consistent styling
-        FormBuilder.create_button_row(
+        form_builder = FormBuilder()
+        form_builder.create_button_row(
             main_frame,
             [
                 {"text": theme.button_text.confirm, "command": on_confirm, "type": "primary"},
                 {"text": theme.button_text.cancel, "command": on_cancel, "type": "danger"},
             ],
-            row=4,
         )
 
         # Initialize the value dropdown with the default command type

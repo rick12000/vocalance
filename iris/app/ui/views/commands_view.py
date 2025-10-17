@@ -36,20 +36,20 @@ class CommandsView(BaseView):
     def _setup_add_command_form(self) -> None:
         """Setup add command form using form builder"""
         container = self.layout.left_content
-        FormBuilder.setup_form_grid(container, 6)
+        form_builder = FormBuilder()
+        form_builder.setup_form_grid(container)
 
         # Form fields
-        self.phrase_label, self.command_phrase_entry = FormBuilder.create_labeled_entry(
-            container, "Command Phrase:", "Enter command phrase...", row=0
+        self.phrase_label, self.command_phrase_entry = form_builder.create_labeled_entry(
+            container, "Command Phrase:", "Enter command phrase..."
         )
 
-        self.hotkey_label, self.hotkey_entry = FormBuilder.create_labeled_entry(container, "Hotkey:", "e.g., ctrl+alt+7", row=2)
+        self.hotkey_label, self.hotkey_entry = form_builder.create_labeled_entry(container, "Hotkey:", "e.g., ctrl+alt+7")
 
         # Add button
-        FormBuilder.create_button_row(
+        form_builder.create_button_row(
             container,
             [{"text": view_config.theme.button_text.add_command, "command": self._on_add_command_clicked, "type": "primary"}],
-            row=4,
         )
 
     def _setup_commands_list_panel(self) -> None:
@@ -70,12 +70,13 @@ class CommandsView(BaseView):
         )
 
         # Buttons with bottom padding for rounded corners
-        FormBuilder.create_button_row(
+        form_builder = FormBuilder()
+        form_builder.create_button_row(
             container,
             [{"text": view_config.theme.button_text.reset, "command": self._on_reset_to_defaults_clicked, "type": "danger"}],
-            row=1,
             extra_pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
             extra_padx=view_config.theme.two_box_layout.box_content_padding,
+            row=1,
         )
 
     def _on_add_command_clicked(self) -> None:
@@ -124,7 +125,7 @@ class CommandsView(BaseView):
         phrase_color = view_config.theme.text_colors.light
 
         ThemedLabel(command_frame, text=command.command_key, color=phrase_color, anchor="w").grid(
-            row=0, column=0, sticky="ew", padx=(5, 15)
+            row=0, column=0, sticky="ew", padx=(view_config.theme.spacing.tiny, view_config.theme.spacing.medium)
         )
 
         # Change button
