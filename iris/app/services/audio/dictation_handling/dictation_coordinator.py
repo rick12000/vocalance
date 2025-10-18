@@ -26,7 +26,7 @@ from iris.app.config.command_types import (
 from iris.app.event_bus import EventBus
 from iris.app.events.base_event import BaseEvent
 from iris.app.events.command_events import DictationCommandParsedEvent
-from iris.app.events.core_events import CommandTextRecognizedEvent, CustomSoundRecognizedEvent, DictationTextRecognizedEvent
+from iris.app.events.core_events import DictationTextRecognizedEvent
 from iris.app.events.dictation_events import (
     AudioModeChangeRequestEvent,
     DictationModeDisableOthersEvent,
@@ -191,9 +191,7 @@ class DictationCoordinator:
     def setup_subscriptions(self) -> None:
         """Set up event subscriptions"""
         subscriptions = [
-            (CommandTextRecognizedEvent, self._handle_trigger_text),
             (DictationTextRecognizedEvent, self._handle_dictation_text),
-            (CustomSoundRecognizedEvent, self._handle_sound_trigger),
             (LLMProcessingCompletedEvent, self._handle_llm_completed),
             (LLMProcessingFailedEvent, self._handle_llm_failed),
             (DictationCommandParsedEvent, self._handle_dictation_command),
@@ -204,13 +202,6 @@ class DictationCoordinator:
             self.subscription_manager.subscribe(event_type, handler)
 
         logger.info("Event subscriptions configured")
-
-    async def _handle_trigger_text(self, event: CommandTextRecognizedEvent) -> None:
-        """Handle trigger word detection"""
-        try:
-            await self._process_trigger(event.text.strip().lower())
-        except Exception as e:
-            logger.error(f"Trigger handling error: {e}", exc_info=True)
 
     async def _handle_dictation_text(self, event: DictationTextRecognizedEvent) -> None:
         """Handle dictated text - centralized processing for all dictation modes"""
@@ -259,14 +250,6 @@ class DictationCoordinator:
 
         except Exception as e:
             logger.error(f"Dictation text error: {e}", exc_info=True)
-
-    async def _handle_sound_trigger(self, event: CustomSoundRecognizedEvent) -> None:
-        """Handle sound-based triggers"""
-        try:
-            trigger_text = event.mapped_command.lower() if event.mapped_command else event.label.lower()
-            await self._process_trigger(trigger_text)
-        except Exception as e:
-            logger.error(f"Sound trigger error: {e}", exc_info=True)
 
     async def _cleanup_llm_session(self) -> None:
         """Common cleanup for LLM session completion or failure"""
@@ -376,21 +359,6 @@ class DictationCoordinator:
             self._type_silence_task.cancel()
             self._type_silence_task = None
             logger.debug("Type silence task cancelled")
-
-    async def _process_trigger(self, text: str) -> None:
-        """Process trigger words"""
-        cfg = self.config.dictation
-
-        if self.is_active():
-            if text == cfg.stop_trigger.lower():
-                await self._stop_session()
-        else:
-            if text == cfg.smart_start_trigger.lower():
-                await self._start_session(DictationMode.SMART)
-            elif text == cfg.start_trigger.lower():
-                await self._start_session(DictationMode.STANDARD)
-            elif text == cfg.type_trigger.lower():
-                await self._start_session(DictationMode.TYPE)
 
     async def _start_session(self, mode: DictationMode) -> None:
         """Start dictation session with guards against concurrent starts"""

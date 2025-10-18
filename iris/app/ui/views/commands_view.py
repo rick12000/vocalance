@@ -114,8 +114,7 @@ class CommandsView(ViewHelper):
 
     def handle_delete_command(self, command: AutomationCommand) -> None:
         """Handle deleting a command"""
-        if self.show_delete_confirmation(f"command '{command.command_key}'"):
-            self.controller.handle_delete_command(command)
+        self.controller.handle_delete_command(command)
 
     def _on_reset_to_defaults_clicked(self) -> None:
         """Handle reset to defaults button click"""

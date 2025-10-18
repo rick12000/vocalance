@@ -12,7 +12,6 @@ import customtkinter as ctk
 from iris.app.config.command_types import AutomationCommand
 from iris.app.ui import ui_theme
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
-from iris.app.ui.views.components import themed_dialogs as messagebox
 from iris.app.ui.views.components.themed_components import (
     DangerButton,
     PrimaryButton,
@@ -74,7 +73,13 @@ class CommandEditDialog:
 
             # Main frame - transparent to match dialog background
             main_frame = TransparentFrame(dialog)
-            main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+            main_frame.grid(
+                row=0,
+                column=0,
+                sticky="nsew",
+                padx=ui_theme.theme.two_box_layout.base_spacing,
+                pady=ui_theme.theme.two_box_layout.base_spacing,
+            )
 
             # Configure dialog grid
             dialog.grid_columnconfigure(0, weight=1)
@@ -85,23 +90,18 @@ class CommandEditDialog:
             main_frame.grid_rowconfigure(0, weight=0)  # Command info
             main_frame.grid_rowconfigure(1, weight=0)  # Edit tile
             main_frame.grid_rowconfigure(2, weight=0)  # Delete tile
-            main_frame.grid_rowconfigure(3, weight=1)  # Bottom frame
+            main_frame.grid_rowconfigure(3, weight=1)  # Spacer
 
-            # Command information at the top (centered)
-            info_frame = TransparentFrame(main_frame)
-            info_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 20))
-            info_frame.grid_columnconfigure(0, weight=1)
-
-            # Command description (with "Description:" prefix)
+            # Command description
             description_text = self._get_command_description()
             description_label = ThemedLabel(
-                info_frame, text=f"Description: {description_text}", color=ui_theme.theme.text_colors.light, justify="center"
+                main_frame, text=f"Description: {description_text}", color=ui_theme.theme.text_colors.light, justify="center"
             )
-            description_label.grid(row=0, column=0, pady=(0, 0))
+            description_label.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.medium))
 
             # Edit tile
             edit_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
-            edit_tile.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 15))
+            edit_tile.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.small))
             edit_tile.grid_columnconfigure(0, weight=1)
             edit_tile.grid_rowconfigure(0, weight=0)
             edit_tile.grid_rowconfigure(1, weight=0)
@@ -109,17 +109,35 @@ class CommandEditDialog:
 
             # Edit title
             edit_title = ThemedLabel(edit_tile, text="Edit Command Phrase", bold=True, color=ui_theme.theme.text_colors.light)
-            edit_title.grid(row=0, column=0, sticky="w", padx=15, pady=(15, 10))
+            edit_title.grid(
+                row=0,
+                column=0,
+                sticky="w",
+                padx=ui_theme.theme.two_box_layout.title_padx_left,
+                pady=(ui_theme.theme.spacing.small, ui_theme.theme.spacing.tiny),
+            )
 
             # Entry field (removed "New phrase:" label)
             self.entry = ThemedEntry(edit_tile, width=ui_theme.theme.dimensions.entry_width_large)
-            self.entry.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 10))
+            self.entry.grid(
+                row=1,
+                column=0,
+                sticky="ew",
+                padx=ui_theme.theme.two_box_layout.title_padx_left,
+                pady=(0, ui_theme.theme.spacing.small),
+            )
             self.entry.insert(0, self.command.command_key)
             self.entry.select_range(0, tk.END)
 
             # Edit button frame
             edit_button_frame = TransparentFrame(edit_tile)
-            edit_button_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
+            edit_button_frame.grid(
+                row=2,
+                column=0,
+                sticky="ew",
+                padx=ui_theme.theme.two_box_layout.title_padx_left,
+                pady=(0, ui_theme.theme.spacing.small),
+            )
             edit_button_frame.grid_columnconfigure(0, weight=1)
 
             # Save button
@@ -130,12 +148,18 @@ class CommandEditDialog:
 
             # Delete tile
             delete_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
-            delete_tile.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 15))
+            delete_tile.grid(row=2, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.small))
             delete_tile.grid_columnconfigure(0, weight=1)
 
             # Delete title (removed trash emoji)
             delete_title = ThemedLabel(delete_tile, text="Delete Command", bold=True, color=ui_theme.theme.text_colors.light)
-            delete_title.grid(row=0, column=0, sticky="w", padx=15, pady=(15, 5))
+            delete_title.grid(
+                row=0,
+                column=0,
+                sticky="w",
+                padx=ui_theme.theme.two_box_layout.title_padx_left,
+                pady=(ui_theme.theme.spacing.small, ui_theme.theme.spacing.tiny),
+            )
 
             # Delete content based on command type
             if self.command.is_custom:
@@ -143,11 +167,23 @@ class CommandEditDialog:
                 delete_desc = ThemedLabel(
                     delete_tile, text="This is a custom command and can be safely deleted.", color=ui_theme.theme.text_colors.light
                 )
-                delete_desc.grid(row=1, column=0, sticky="w", padx=15, pady=(0, 10))
+                delete_desc.grid(
+                    row=1,
+                    column=0,
+                    sticky="w",
+                    padx=ui_theme.theme.two_box_layout.title_padx_left,
+                    pady=(0, ui_theme.theme.spacing.small),
+                )
 
                 # Delete button frame
                 delete_button_frame = TransparentFrame(delete_tile)
-                delete_button_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
+                delete_button_frame.grid(
+                    row=2,
+                    column=0,
+                    sticky="ew",
+                    padx=ui_theme.theme.two_box_layout.title_padx_left,
+                    pady=(0, ui_theme.theme.spacing.small),
+                )
                 delete_button_frame.grid_columnconfigure(0, weight=1)
 
                 # Delete button
@@ -160,25 +196,19 @@ class CommandEditDialog:
                 delete_desc = ThemedLabel(
                     delete_tile, text="This is a built-in command and cannot be deleted.", color=ui_theme.theme.text_colors.light
                 )
-                delete_desc.grid(row=1, column=0, sticky="w", padx=15, pady=(0, 15))
-
-            # Bottom frame for cancel button
-            bottom_frame = TransparentFrame(main_frame)
-            bottom_frame.grid(row=3, column=0, sticky="ew", padx=20, pady=(10, 20))
-            bottom_frame.grid_columnconfigure(0, weight=1)
-
-            # Cancel button
-            cancel_btn = PrimaryButton(
-                bottom_frame, text=ui_theme.theme.button_text.cancel, command=lambda: self._on_cancel(dialog)
-            )
-            cancel_btn.grid(row=0, column=0, sticky="ew")
+                delete_desc.grid(
+                    row=1,
+                    column=0,
+                    sticky="w",
+                    padx=ui_theme.theme.two_box_layout.title_padx_left,
+                    pady=(0, ui_theme.theme.spacing.small),
+                )
 
             # Focus the entry field
             self.entry.focus_set()
 
             # Bind Enter key to save
             dialog.bind("<Return>", lambda e: self._on_save(dialog))
-            dialog.bind("<Escape>", lambda e: self._on_cancel(dialog))
 
             # Wait for dialog to close
             dialog.wait_window()
@@ -236,18 +266,11 @@ class CommandEditDialog:
                 self.logger.warning("Attempted to delete builtin command")
                 return
 
-            # Show confirmation
-            confirm = messagebox.askyesno(
-                "Confirm Delete",
-                f"Are you sure you want to delete the command '{self.command.command_key}'?\n\nThis action cannot be undone.",
-                parent=dialog,
-            )
-
-            if confirm:
-                self.result = "delete"
-                self.new_phrase = None
-                self.logger.info(f"Confirmed deletion of command: '{self.command.command_key}'")
-                dialog.destroy()
+            # Directly delete without confirmation
+            self.result = "delete"
+            self.new_phrase = None
+            self.logger.info(f"Deleted command: '{self.command.command_key}'")
+            dialog.destroy()
         except Exception as e:
             self.logger.error(f"Error deleting command: {e}", exc_info=True)
 

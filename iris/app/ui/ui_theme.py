@@ -68,6 +68,7 @@ class ShapeColors(BaseModel):
     """Shape/background color design tokens - 5 shades from light to dark"""
 
     accent: str = "#b4c7c6"
+    accent_minus: str = "#9dabaa"
     lightest: str = "#494e4e"
     light: str = "#2a2c2c"
     medium: str = "#222424"
@@ -119,8 +120,8 @@ class ButtonText(BaseModel):
     reset: str = "Reset"
 
     # Compound actions
-    add_command: str = "Add Hotkey Command"
-    add_prompt: str = "Add Custom Prompt"
+    add_command: str = "Add"
+    add_prompt: str = "Add"
     delete_all_sounds: str = "Delete All Sounds"
     delete_all_marks: str = "Delete All Marks"
     save_llm_settings: str = "Save LLM Settings"
@@ -144,19 +145,36 @@ class HeaderLayout(BaseModel):
     This class provides centralized control over header frame positioning and spacing.
     The header frame is the dark rounded rectangle at the top of each tab that contains
     the tab title and subtitle.
+
+    IMPORTANT: Header padding MUST align with TwoBoxLayout for visual consistency.
+    Header frame_padding_left/right should match TwoBoxLayout.outer_padding_left/right
     """
 
-    # Header frame padding (space around the header frame itself)
-    frame_padding_left: int = 50
-    frame_padding_right: int = 50
-    frame_padding_top: int = 20
-    frame_padding_bottom: int = 10
+    # Header frame padding (space around the header frame itself) - references Spacing
+    @property
+    def frame_padding_top(self) -> int:
+        return Spacing().large
 
-    # Header content padding (space inside the header frame)
-    content_padding_left: int = 30
-    content_padding_right: int = 30
-    content_padding_top: int = 10
-    content_padding_bottom: int = 10
+    @property
+    def frame_padding_bottom(self) -> int:
+        return Spacing().none
+
+    # Header content padding - references TwoBoxLayout for consistency
+    @property
+    def content_padding_left(self) -> int:
+        return TwoBoxLayout().inner_content_padx
+
+    @property
+    def content_padding_right(self) -> int:
+        return TwoBoxLayout().inner_content_padx
+
+    @property
+    def content_padding_top(self) -> int:
+        return Spacing().small
+
+    @property
+    def content_padding_bottom(self) -> int:
+        return Spacing().small
 
     # Header border configuration
     border_width: int = 1
@@ -166,9 +184,24 @@ class HeaderLayout(BaseModel):
         """Border color - shape_colors.medium"""
         return ShapeColors().medium
 
-    # Title and subtitle positioning
-    title_y_offset: int = 10
-    subtitle_y_offset: int = 11
+    @property
+    def frame_padding_left(self) -> int:
+        """Frame left padding - references TwoBoxLayout for alignment"""
+        return TwoBoxLayout().outer_padding_left
+
+    @property
+    def frame_padding_right(self) -> int:
+        """Frame right padding - references TwoBoxLayout for alignment"""
+        return TwoBoxLayout().outer_padding_right
+
+    # Title and subtitle positioning - references Spacing
+    @property
+    def title_y_offset(self) -> int:
+        return Spacing().small
+
+    @property
+    def subtitle_y_offset(self) -> int:
+        return Spacing().small + 1
 
     @property
     def frame_padx(self) -> tuple:
@@ -271,8 +304,10 @@ class SidebarLayout(BaseModel):
 class TwoBoxLayout(BaseModel):
     """Configuration for two-box layout used across tabs"""
 
-    # Box corner radius - more rounded for modern look
-    box_corner_radius: int = 20  # Increased from default medium (10)
+    # Box corner radius - references BorderRadius
+    @property
+    def box_corner_radius(self) -> int:
+        return BorderRadius().rounded
 
     @property
     def box_background_color(self) -> str:
@@ -280,31 +315,81 @@ class TwoBoxLayout(BaseModel):
         return ShapeColors().dark
 
     # Box spacing and padding
-    outer_padding_left: int = 50
-    outer_padding_right: int = 50
-    outer_padding_top: int = 25
-    outer_padding_bottom: int = 25
-    inner_spacing: int = 25  # Space between left and right boxes
+    # SINGLE SOURCE OF TRUTH - all spacing derives from base_spacing
+    base_spacing: int = 25
 
-    # Box content padding (inside the box frame)
-    box_content_padding: int = 20  # Padding inside boxes
+    @property
+    def outer_padding_left(self) -> int:
+        return self.base_spacing
 
-    # Title positioning inside box
-    title_padding_top: int = 20
-    title_padding_bottom: int = 10
+    @property
+    def outer_padding_right(self) -> int:
+        return self.base_spacing
+
+    @property
+    def outer_padding_top(self) -> int:
+        return self.base_spacing
+
+    @property
+    def outer_padding_bottom(self) -> int:
+        return self.base_spacing
+
+    @property
+    def inner_spacing(self) -> int:
+        return self.base_spacing
+
+    # Box content padding (inside the box frame) - references Spacing
+    @property
+    def box_content_padding(self) -> int:
+        return Spacing().large
+
+    # Inner content padding - used for form fields, list items, titles, and all nested elements
+    inner_content_padx: int = 30  # Horizontal padding for all content inside boxes
+
+    # Inner content vertical padding - references Spacing
+    @property
+    def inner_content_pady_small(self) -> int:
+        return Spacing().tiny
+
+    @property
+    def inner_content_pady_medium(self) -> int:
+        return Spacing().small
+
+    # Title padding - horizontally aligned with inner content
+    @property
+    def title_padx_left(self) -> int:
+        return self.inner_content_padx
+
+    @property
+    def title_padx_right(self) -> int:
+        return self.inner_content_padx
+
+    @property
+    def title_padding_top(self) -> int:
+        return Spacing().large
+
+    @property
+    def title_padding_bottom(self) -> int:
+        return self.inner_content_pady_medium
 
     # Bottom padding for last element to show rounded corners
-    last_element_bottom_padding: int = 20
+    @property
+    def last_element_bottom_padding(self) -> int:
+        return Spacing().large
 
 
 class TileLayout(BaseModel):
     """Configuration for instruction tiles"""
 
-    # Tile corner radius - matches box corner radius for consistency
-    corner_radius: int = 20  # Increased from default medium (10)
+    # Tile corner radius - references TwoBoxLayout for consistency
+    @property
+    def corner_radius(self) -> int:
+        return TwoBoxLayout().box_corner_radius
 
-    # Tile spacing - increased for better visual separation
-    padding_between_tiles: int = 10  # Increased from 5
+    # Tile spacing - references Spacing
+    @property
+    def padding_between_tiles(self) -> int:
+        return Spacing().small
 
     # Tile content styling
     title_font_size: str = "large"  # Increased from medium to large
@@ -326,12 +411,28 @@ class TileLayout(BaseModel):
 
 
 class ListLayout(BaseModel):
-    """Configuration for scrollable list layouts"""
+    """Configuration for scrollable list layouts - applied automatically"""
 
-    # Vertical spacing between list items - greatly reduced as requested
-    item_vertical_spacing: int = Spacing().tiny  # Reduced from 3 to 1 for tighter spacing
+    # Vertical spacing between list items - references Spacing
+    @property
+    def item_vertical_spacing(self) -> int:
+        return Spacing().tiny
 
-    # List container padding
+    # Horizontal padding for list items - references Spacing
+    @property
+    def item_padx(self) -> int:
+        return Spacing().tiny
+
+    @property
+    def item_padx_right(self) -> int:
+        return Spacing().tiny
+
+    # Scrollable frame grid padding - references Spacing
+    @property
+    def scrollbar_right_padding(self) -> int:
+        return Spacing().large
+
+    # List container padding - minimal
     container_padding_x: int = 1
     container_padding_y: int = 1
 
@@ -427,19 +528,20 @@ class Dimensions(BaseModel):
     dialog_height: int = 200
     dialog_content_width: int = 350
     sound_mapping_dialog_width: int = 400
-    sound_mapping_dialog_height: int = 300
+    sound_mapping_dialog_height: int = 400
     dictation_view_dialog_width: int = 600
-    dictation_view_dialog_height: int = 350
+    dictation_view_dialog_height: int = 380
     command_dialog_width: int = 500
-    command_dialog_height: int = 500
+    command_dialog_height: int = 400
 
 
 class LayoutProperties(BaseModel):
     """Layout positioning and spacing properties"""
 
     # Content area positioning
-    content_area_padding_x: int = 10
-    content_area_padding_y: int = 5
+    # NO padding - TwoBoxLayout.outer_padding controls ALL spacing
+    content_area_padding_x: int = 0
+    content_area_padding_y: int = 0  # Let TwoBoxLayout.outer_padding control vertical spacing
 
 
 class Theme(BaseModel):

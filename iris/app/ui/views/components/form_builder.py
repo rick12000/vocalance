@@ -49,7 +49,7 @@ class FormBuilder:
             column=0,
             sticky="w",
             pady=(view_config.theme.spacing.medium, view_config.theme.spacing.tiny),
-            padx=view_config.theme.spacing.medium,
+            padx=view_config.theme.two_box_layout.inner_content_padx,
         )
 
         entry_kwargs = {"placeholder_text": placeholder}
@@ -60,7 +60,11 @@ class FormBuilder:
         if default_value:
             entry.insert(0, default_value)
         entry.grid(
-            row=row + 1, column=0, sticky="ew", pady=(0, view_config.theme.spacing.small), padx=view_config.theme.spacing.medium
+            row=row + 1,
+            column=0,
+            sticky="ew",
+            pady=(0, view_config.theme.spacing.small),
+            padx=view_config.theme.two_box_layout.inner_content_padx,
         )
 
         # Increment row counter by 2 (label + entry)
@@ -69,7 +73,13 @@ class FormBuilder:
         return label, entry
 
     def create_labeled_textbox(
-        self, parent: ctk.CTkFrame, label_text: str, placeholder: str = "", height: Optional[int] = None, row: Optional[int] = None
+        self,
+        parent: ctk.CTkFrame,
+        label_text: str,
+        placeholder: str = "",
+        height: Optional[int] = None,
+        row: Optional[int] = None,
+        **kwargs,
     ) -> Tuple[ThemedLabel, ThemedTextbox]:
         """Create a label and textbox pair with consistent styling"""
         # Use self.row if row not specified
@@ -81,7 +91,13 @@ class FormBuilder:
         self._ensure_row_configured(parent, row + 1)
 
         label = ThemedLabel(parent, text=label_text, bold=True)
-        label.grid(row=row, column=0, sticky="w", pady=(view_config.theme.spacing.tiny, 0), padx=view_config.theme.spacing.medium)
+        label.grid(
+            row=row,
+            column=0,
+            sticky="w",
+            pady=(view_config.theme.spacing.tiny, 0),
+            padx=view_config.theme.two_box_layout.inner_content_padx,
+        )
 
         textbox_height = height or view_config.theme.dimensions.textbox_height_small
         textbox = ThemedTextbox(
@@ -90,13 +106,14 @@ class FormBuilder:
             fg_color=view_config.theme.shape_colors.darkest,
             border_width=view_config.theme.entry_field_styling.border_width,
             border_color=view_config.theme.entry_field_styling.border_color,
+            **kwargs,
         )
         textbox.grid(
             row=row + 1,
             column=0,
             sticky="ew",
             pady=(view_config.theme.spacing.tiny, view_config.theme.spacing.small),
-            padx=view_config.theme.spacing.medium,
+            padx=view_config.theme.two_box_layout.inner_content_padx,
         )
 
         if placeholder:
@@ -124,7 +141,8 @@ class FormBuilder:
         self._ensure_row_configured(parent, row)
 
         pady = extra_pady if extra_pady is not None else view_config.theme.spacing.small
-        padx = extra_padx if extra_padx is not None else view_config.theme.spacing.medium
+        # Use inner_content_padx if not explicitly overridden
+        padx = extra_padx if extra_padx is not None else view_config.theme.two_box_layout.inner_content_padx
 
         button_frame = ctk.CTkFrame(parent, fg_color="transparent")
         button_frame.grid(row=row, column=0, sticky="ew", pady=pady, padx=padx)
@@ -176,7 +194,13 @@ class FormBuilder:
         prefix = "Warning: " if is_error else "Success: "
 
         msg_label = ThemedLabel(parent, text=f"{prefix}{message}", color=color)
-        msg_label.grid(row=row, column=0, sticky="ew", padx=view_config.theme.spacing.medium, pady=view_config.theme.spacing.tiny)
+        msg_label.grid(
+            row=row,
+            column=0,
+            sticky="ew",
+            padx=view_config.theme.two_box_layout.inner_content_padx,
+            pady=view_config.theme.spacing.tiny,
+        )
 
         def remove_message():
             try:
@@ -213,7 +237,7 @@ class FormBuilder:
             column=0,
             sticky="nsew",
             pady=(view_config.theme.spacing.tiny, view_config.theme.spacing.small),
-            padx=view_config.theme.spacing.medium,
+            padx=view_config.theme.two_box_layout.inner_content_padx,
         )
 
         # Insert example text with prefix

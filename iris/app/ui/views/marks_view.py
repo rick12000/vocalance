@@ -3,6 +3,7 @@ from typing import List
 from iris.app.events.mark_events import MarkData
 from iris.app.ui.controls.marks_control import MarksController
 from iris.app.ui.views.components.base_view import ViewHelper
+from iris.app.ui.views.components.list_builder import ListBuilder
 from iris.app.ui.views.components.themed_components import (
     BorderlessFrame,
     BorderlessListItemFrame,
@@ -10,7 +11,6 @@ from iris.app.ui.views.components.themed_components import (
     InstructionTile,
     PrimaryButton,
     ThemedLabel,
-    ThemedScrollableFrame,
     TransparentFrame,
     TwoColumnTabLayout,
 )
@@ -80,9 +80,8 @@ class MarksView(ViewHelper):
         container.grid_rowconfigure(1, weight=0)
         container.grid_columnconfigure(0, weight=1)
 
-        # Scrollable frame for marks list
-        self.marks_scroll_frame = ThemedScrollableFrame(container)
-        self.marks_scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        # Scrollable frame for marks list - uses automatic padding from ListBuilder
+        self.marks_scroll_frame = ListBuilder.create_scrollable_list_container(container, row=0, column=0)
 
         # Button frame with bottom padding for rounded corners
         button_frame = TransparentFrame(container)
@@ -91,7 +90,7 @@ class MarksView(ViewHelper):
             column=0,
             sticky="ew",
             pady=(view_config.theme.spacing.small, view_config.theme.two_box_layout.last_element_bottom_padding),
-            padx=view_config.theme.two_box_layout.box_content_padding,
+            padx=view_config.theme.two_box_layout.inner_content_padx,
         )
         button_frame.grid_columnconfigure(0, weight=1)
         button_frame.grid_columnconfigure(1, weight=1)
@@ -187,8 +186,7 @@ class MarksView(ViewHelper):
 
     def _delete_mark(self, mark_name: str) -> None:
         """Delete a specific mark"""
-        if self.show_delete_confirmation(f"mark '{mark_name}'"):
-            self.controller.delete_mark_by_name(mark_name)
+        self.controller.delete_mark_by_name(mark_name)
 
     def refresh_marks_list(self) -> None:
         """Refresh the marks list"""

@@ -79,6 +79,15 @@ class PrimaryButton(ThemedButton):
     """Primary themed button"""
 
     def __init__(self, parent, text: str = "", command: Optional[Callable] = None, **kwargs):
+        # Set bold font like danger buttons
+        if "font" not in kwargs:
+            size = kwargs.get("size", theme.font_sizes.medium)
+            font_family = theme.font_family.get_primary_font("bold")
+            kwargs["font"] = (font_family, size, "bold")
+
+        kwargs.setdefault("fg_color", theme.shape_colors.accent)
+        kwargs.setdefault("hover_color", theme.shape_colors.accent_minus)
+
         super().__init__(parent, text=text, command=command, **kwargs)
 
 
@@ -293,8 +302,8 @@ class TwoColumnTabLayout(TransparentFrame):
         self.grid_columnconfigure(1, weight=1, minsize=300)  # Right column - exactly 50% width, minimum 300px
 
         # Create content boxes with titles inside
-        # Ensure left/right padding equals inner spacing between boxes
-        half_spacing = theme.two_box_layout.inner_spacing // 2
+        # Split inner_spacing evenly between the two boxes
+        half_inner_spacing = theme.two_box_layout.inner_spacing // 2
 
         self.left_box = BorderlessFrame(
             self, fg_color=theme.shape_colors.dark, corner_radius=theme.two_box_layout.box_corner_radius
@@ -303,7 +312,7 @@ class TwoColumnTabLayout(TransparentFrame):
             row=0,
             column=0,
             sticky="nsew",
-            padx=(theme.two_box_layout.inner_spacing, half_spacing),
+            padx=(theme.two_box_layout.outer_padding_left, half_inner_spacing),
             pady=(theme.two_box_layout.outer_padding_top, theme.two_box_layout.outer_padding_bottom),
         )
 
@@ -314,7 +323,7 @@ class TwoColumnTabLayout(TransparentFrame):
             row=0,
             column=1,
             sticky="nsew",
-            padx=(half_spacing, theme.two_box_layout.inner_spacing),
+            padx=(half_inner_spacing, theme.two_box_layout.outer_padding_right),
             pady=(theme.two_box_layout.outer_padding_top, theme.two_box_layout.outer_padding_bottom),
         )
 
@@ -328,12 +337,13 @@ class TwoColumnTabLayout(TransparentFrame):
         self.right_box.grid_columnconfigure(0, weight=1)
 
         # Create title labels inside boxes with proper padding
+        # Titles must align with content inside (form fields use inner_content_padx)
         left_title_label = BoxTitle(self.left_box, text=left_title)
         left_title_label.grid(
             row=0,
             column=0,
             sticky="w",
-            padx=(theme.two_box_layout.box_content_padding, theme.two_box_layout.box_content_padding),
+            padx=(theme.two_box_layout.title_padx_left, theme.two_box_layout.title_padx_right),
             pady=(theme.two_box_layout.title_padding_top, theme.two_box_layout.title_padding_bottom),
         )
 
@@ -342,18 +352,19 @@ class TwoColumnTabLayout(TransparentFrame):
             row=0,
             column=0,
             sticky="w",
-            padx=(theme.two_box_layout.box_content_padding, theme.two_box_layout.box_content_padding),
+            padx=(theme.two_box_layout.title_padx_left, theme.two_box_layout.title_padx_right),
             pady=(theme.two_box_layout.title_padding_top, theme.two_box_layout.title_padding_bottom),
         )
 
         # Create content containers for user content
+        # No grid padding - content padding comes from FormBuilder fields (inner_content_padx)
         self.left_content = TransparentFrame(self.left_box)
-        self.left_content.grid(row=1, column=0, sticky="nsew")
+        self.left_content.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, theme.two_box_layout.last_element_bottom_padding))
         self.left_content.grid_rowconfigure(0, weight=1)
         self.left_content.grid_columnconfigure(0, weight=1)
 
         self.right_content = TransparentFrame(self.right_box)
-        self.right_content.grid(row=1, column=0, sticky="nsew")
+        self.right_content.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, theme.two_box_layout.last_element_bottom_padding))
         self.right_content.grid_rowconfigure(0, weight=1)
         self.right_content.grid_columnconfigure(0, weight=1)
 
@@ -368,20 +379,19 @@ class InstructionTile(TileFrame):
     def __init__(self, parent, title: str, content: str, **kwargs):
         super().__init__(parent, **kwargs)
 
-        # Configure grid for vertical centering
-        self.grid_rowconfigure(0, weight=1)  # Top spacer
-        self.grid_rowconfigure(1, weight=0)  # Title
-        self.grid_rowconfigure(2, weight=0)  # Content
-        self.grid_rowconfigure(3, weight=1)  # Bottom spacer
+        # Configure grid for vertical centering - no top spacer to remove extra padding
+        self.grid_rowconfigure(0, weight=0)  # Title (no top spacer weight)
+        self.grid_rowconfigure(1, weight=0)  # Content
+        self.grid_rowconfigure(2, weight=1)  # Bottom spacer only
         self.grid_columnconfigure(0, weight=1)
 
-        # Add title - centered vertically
+        # Add title - top padding from tile frame border
         title_label = TileTitle(self, text=title)
-        title_label.grid(row=1, column=0, sticky="ew", padx=theme.spacing.tiny, pady=(0, theme.spacing.tiny))
+        title_label.grid(row=0, column=0, sticky="ew", padx=theme.spacing.tiny, pady=(theme.spacing.small, theme.spacing.tiny))
 
         # Add content - centered vertically with center text alignment
         content_label = TileContent(self, text=content)
-        content_label.grid(row=2, column=0, sticky="ew", padx=theme.spacing.tiny, pady=(0, theme.spacing.tiny))
+        content_label.grid(row=1, column=0, sticky="ew", padx=theme.spacing.tiny, pady=(0, theme.spacing.tiny))
 
 
 class BorderlessListItemFrame(BorderlessFrame):

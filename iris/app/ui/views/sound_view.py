@@ -51,7 +51,11 @@ class SoundView(ViewHelper):
         # Add button - store reference to the button frame
         self.record_button_frame = ctk.CTkFrame(container, fg_color="transparent")
         self.record_button_frame.grid(
-            row=4, column=0, sticky="ew", pady=view_config.theme.spacing.small, padx=view_config.theme.spacing.medium
+            row=4,
+            column=0,
+            sticky="ew",
+            pady=view_config.theme.spacing.small,
+            padx=view_config.theme.two_box_layout.inner_content_padx,
         )
         self.record_button_frame.grid_columnconfigure(0, weight=1)
 
@@ -127,7 +131,11 @@ class SoundView(ViewHelper):
 
         if training_active:
             self.training_status_frame.grid(
-                row=4, column=0, sticky="nsew", padx=view_config.theme.spacing.medium, pady=view_config.theme.spacing.medium
+                row=4,
+                column=0,
+                sticky="nsew",
+                padx=view_config.theme.two_box_layout.inner_content_padx,
+                pady=view_config.theme.spacing.medium,
             )
         else:
             self.training_status_frame.grid_remove()
@@ -209,8 +217,14 @@ class SoundView(ViewHelper):
             pass
 
         # Create main frame with themed background
-        main_frame = ctk.CTkFrame(dialog, fg_color=theme.shape_colors.dark)
-        main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        main_frame = ctk.CTkFrame(dialog, fg_color=theme.shape_colors.dark, border_color=theme.shape_colors.medium, border_width=1)
+        main_frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=theme.two_box_layout.inner_content_padx,
+            pady=theme.two_box_layout.inner_content_padx,
+        )
 
         dialog.grid_columnconfigure(0, weight=1)
         dialog.grid_rowconfigure(0, weight=1)
@@ -223,36 +237,62 @@ class SoundView(ViewHelper):
 
         # Command type dropdown
         type_label = ThemedLabel(main_frame, text="Command Type:", font=label_font_bold)
-        type_label.grid(row=0, column=0, sticky="w", pady=(theme.spacing.medium, theme.spacing.tiny), padx=theme.spacing.medium)
+        type_label.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(theme.spacing.medium, theme.spacing.tiny),
+            padx=theme.two_box_layout.inner_content_padx,
+        )
 
         type_dropdown = ctk.CTkOptionMenu(
             main_frame,
             values=command_types,
             variable=type_var,
             command=self._on_command_type_changed,
-            fg_color=theme.shape_colors.light,
-            button_color=theme.shape_colors.light,
+            fg_color=theme.shape_colors.darkest,
+            button_color=theme.shape_colors.darkest,
+            button_hover_color=theme.shape_colors.medium,
             text_color=theme.text_colors.light,
             font=dropdown_font,
-            dropdown_hover_color=theme.shape_colors.lightest,
+            dropdown_font=dropdown_font,
+            height=32,
+            dropdown_fg_color=theme.shape_colors.darkest,
+            dropdown_hover_color=theme.shape_colors.medium,
+            dropdown_text_color=theme.text_colors.light,
         )
-        type_dropdown.grid(row=1, column=0, sticky="ew", pady=(0, theme.spacing.small), padx=theme.spacing.medium)
+        type_dropdown.grid(
+            row=1, column=0, sticky="ew", pady=(0, theme.spacing.small), padx=theme.two_box_layout.inner_content_padx
+        )
 
         # Command value dropdown
         value_label = ThemedLabel(main_frame, text="Command Value:", font=label_font_bold)
-        value_label.grid(row=2, column=0, sticky="w", pady=(theme.spacing.medium, theme.spacing.tiny), padx=theme.spacing.medium)
+        value_label.grid(
+            row=2,
+            column=0,
+            sticky="w",
+            pady=(theme.spacing.medium, theme.spacing.tiny),
+            padx=theme.two_box_layout.inner_content_padx,
+        )
 
         value_dropdown = ctk.CTkOptionMenu(
             main_frame,
             values=[],
             variable=value_var,
-            fg_color=theme.shape_colors.light,
-            button_color=theme.shape_colors.light,
+            fg_color=theme.shape_colors.darkest,
+            button_color=theme.shape_colors.darkest,
+            button_hover_color=theme.shape_colors.medium,
             text_color=theme.text_colors.light,
             font=dropdown_font,
-            dropdown_hover_color=theme.shape_colors.lightest,
+            dropdown_hover_color=theme.shape_colors.medium,
+            dropdown_font=dropdown_font,
+            height=32,
+            dropdown_fg_color=theme.shape_colors.darkest,
+            dropdown_text_color=theme.text_colors.light,
         )
-        value_dropdown.grid(row=3, column=0, sticky="ew", pady=(0, theme.spacing.small), padx=theme.spacing.medium)
+        value_dropdown.grid(
+            row=3, column=0, sticky="ew", pady=(0, theme.spacing.medium), padx=theme.two_box_layout.inner_content_padx
+        )
 
         # Store references for the callback
         self._temp_dialog_refs = {"type_var": type_var, "value_var": value_var, "value_dropdown": value_dropdown}
@@ -280,20 +320,14 @@ class SoundView(ViewHelper):
                 if hasattr(self, "_temp_dialog_refs"):
                     delattr(self, "_temp_dialog_refs")
 
-        def on_cancel():
-            dialog.destroy()
-            # Clean up temp references
-            if hasattr(self, "_temp_dialog_refs"):
-                delattr(self, "_temp_dialog_refs")
-
-        # Use FormBuilder to create the button row for consistent styling
+        # Use FormBuilder to create the confirm button row at the bottom (after the dropdowns)
         form_builder = FormBuilder()
         form_builder.create_button_row(
             main_frame,
             [
                 {"text": theme.button_text.confirm, "command": on_confirm, "type": "primary"},
-                {"text": theme.button_text.cancel, "command": on_cancel, "type": "danger"},
             ],
+            row=4,  # Place after the dropdowns (rows 0-3)
         )
 
         # Initialize the value dropdown with the default command type
@@ -327,8 +361,7 @@ class SoundView(ViewHelper):
 
     def _delete_sound(self, sound_name: str) -> None:
         """Delete a sound"""
-        if self.show_delete_confirmation(f"sound '{sound_name}'"):
-            self.controller.delete_individual_sound(sound_name)
+        self.controller.delete_individual_sound(sound_name)
 
     def _delete_all_sounds(self) -> None:
         """Delete all sounds"""

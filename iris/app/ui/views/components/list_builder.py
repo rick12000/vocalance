@@ -117,14 +117,15 @@ class ListBuilder:
             parent: Parent container (usually the content area from TwoColumnTabLayout)
             row: Grid row position
             column: Grid column position
-            padx: Horizontal padding (defaults to box_content_padding)
+            padx: Horizontal padding (defaults to asymmetric - 0 left, scrollbar_right_padding right)
             pady: Vertical padding tuple (defaults to standard list padding)
 
         Returns:
             ThemedScrollableFrame configured for list content
         """
         if padx is None:
-            padx = view_config.theme.two_box_layout.box_content_padding
+            # Asymmetric padding: no left padding, right padding for scrollbar clearance
+            padx = (0, view_config.theme.list_layout.scrollbar_right_padding)
 
         if pady is None:
             pady = (0, view_config.theme.spacing.small)
@@ -135,6 +136,45 @@ class ListBuilder:
             column=column,
             sticky="nsew",
             padx=padx,
+            pady=pady,
+        )
+
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
+        return scroll_frame
+
+    @staticmethod
+    def create_scrollable_list_container_with_padx(
+        parent: ctk.CTkFrame,
+        left_padx: int = 0,
+        row: int = 0,
+        column: int = 0,
+        pady: Optional[Tuple[int, int]] = None,
+    ) -> ThemedScrollableFrame:
+        """
+        Create a themed scrollable frame with custom left padding.
+        Used for special views like settings that have different left padding.
+        Always applies scrollbar_right_padding to maintain consistent scrollbar spacing.
+
+        Args:
+            parent: Parent container
+            left_padx: Left padding (default 0)
+            row: Grid row position
+            column: Grid column position
+            pady: Vertical padding tuple
+
+        Returns:
+            ThemedScrollableFrame configured for list content
+        """
+        if pady is None:
+            pady = (0, view_config.theme.spacing.small)
+
+        scroll_frame = ThemedScrollableFrame(parent)
+        scroll_frame.grid(
+            row=row,
+            column=column,
+            sticky="nsew",
+            padx=(left_padx, view_config.theme.list_layout.scrollbar_right_padding),
             pady=pady,
         )
 
@@ -212,14 +252,15 @@ class ListBuilder:
             container: Parent scrollable frame
             row_index: Row index in the list
             columns: List of ListItemColumn configurations
-            padx: Horizontal padding (defaults to tiny)
+            padx: Horizontal padding (defaults to item_padx - small padding for nested items)
             pady: Vertical padding (defaults to item_vertical_spacing)
 
         Returns:
             The created item frame
         """
         if padx is None:
-            padx = view_config.theme.spacing.tiny
+            # Use asymmetric padding: small left, extra right for scrollbar spacing
+            padx = (view_config.theme.list_layout.item_padx, view_config.theme.list_layout.item_padx_right)
 
         if pady is None:
             pady = view_config.theme.list_layout.item_vertical_spacing
@@ -243,6 +284,7 @@ class ListBuilder:
     @staticmethod
     def _create_column_widget(parent_frame: BorderlessFrame, column_config: ListItemColumn, col_idx: int) -> None:
         """Create a widget for a specific column based on configuration"""
+        # Use spacing.tiny for internal column spacing (between columns)
         padx = view_config.theme.spacing.tiny
 
         if column_config.column_type == ColumnType.LABEL:

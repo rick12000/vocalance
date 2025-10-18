@@ -261,7 +261,7 @@ Speech recognition result events:
   - ``mode`` (str): Processing mode ("command")
   - ``confidence`` (float): Recognition confidence (0.0-1.0, default 1.0)
   - Published by: ``SpeechToTextService._publish_recognition_result()``
-  - Consumed by: ``CentralizedCommandParser._handle_command_text_recognized()``, ``DictationCoordinator`` (for trigger detection)
+  - Consumed by: ``CentralizedCommandParser._handle_command_text_recognized()``
   - When dictation is active: Only published if amber stop words are detected
 
 - **DictationTextRecognizedEvent** (Priority: HIGH, extends TextRecognizedEvent)

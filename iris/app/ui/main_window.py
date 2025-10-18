@@ -146,8 +146,6 @@ class AppControlRoom:
     def _setup_main_window(self):
         """Set up main window properties"""
         try:
-            self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-
             set_window_icon_robust(self.root)
 
             self.logger.info("Main window setup completed")
@@ -404,15 +402,6 @@ class AppControlRoom:
         self._view_cache["Dictation"] = self.dictation_view
         self._current_view = self.dictation_view
 
-    def _on_close(self):
-        """Handle window close event"""
-        self.logger.info("Close button pressed")
-        if themed_dialogs.askokcancel("Quit", "Do you want to quit Iris?", parent=self.root):
-            self.logger.info("Confirmed quit")
-            self.root.quit()
-        else:
-            self.logger.info("Quit cancelled")
-
     def cleanup_controllers(self):
         """Clean up all controllers when shutting down"""
         try:
@@ -471,15 +460,15 @@ class AppControlRoom:
 
     def on_validation_error(self, title: str, message: str):
         """Called by settings controller for validation errors"""
-        themed_dialogs.showerror(title, message, parent=self.root)
+        themed_dialogs.showerror(message, parent=self.root)
 
     def on_save_success(self, message: str):
         """Called by settings controller for successful saves"""
-        themed_dialogs.showinfo("Success", message, parent=self.root)
+        themed_dialogs.showinfo(message, parent=self.root)
 
     def on_save_error(self, message: str):
         """Called by settings controller for save errors"""
-        themed_dialogs.showerror("Error", message, parent=self.root)
+        themed_dialogs.showerror(message, parent=self.root)
 
     def on_reset_complete(self):
         """Called by settings controller when reset is complete"""

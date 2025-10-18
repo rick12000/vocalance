@@ -157,7 +157,7 @@ class DictationView(ViewHelper):
     def _edit_prompt(self, prompt_data: Dict[str, Any]) -> None:
         """Edit prompt with simplified dialog"""
         dialog = ctk.CTkToplevel(self.root_window)
-        dialog.title(f"Edit Prompt: {prompt_data.get('name', 'Unnamed')}")
+        dialog.title(f"Edit: {prompt_data.get('name', 'Unnamed')}")
         # Increase height to fit all elements
         dialog.geometry(
             f"{view_config.theme.dimensions.dictation_view_dialog_width}x{view_config.theme.dimensions.dictation_view_dialog_height + 100}"
@@ -176,7 +176,13 @@ class DictationView(ViewHelper):
 
         # Main frame with updated color
         main_frame = ThemedFrame(dialog, fg_color=view_config.theme.shape_colors.dark)
-        main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        main_frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=view_config.theme.two_box_layout.inner_content_padx,
+            pady=view_config.theme.two_box_layout.inner_content_padx,
+        )
 
         dialog.grid_columnconfigure(0, weight=1)
         dialog.grid_rowconfigure(0, weight=1)
@@ -185,10 +191,12 @@ class DictationView(ViewHelper):
         # Form fields (changed "Name:" to "Title:")
         form_builder = FormBuilder()
         title_label, title_entry = form_builder.create_labeled_entry(
-            main_frame, "Title:", default_value=prompt_data.get("name", "")
+            main_frame, "Prompt Title:", default_value=prompt_data.get("name", "")
         )
 
-        prompt_label, prompt_textbox = form_builder.create_labeled_textbox(main_frame, "Prompt:", height=200)
+        prompt_label, prompt_textbox = form_builder.create_labeled_textbox(
+            main_frame, "Prompt Instructions:", height=200, text_color=view_config.theme.text_colors.light
+        )
         prompt_textbox.insert("1.0", prompt_data.get("text", ""))
 
         # Buttons
@@ -198,11 +206,11 @@ class DictationView(ViewHelper):
 
             # Validate inputs
             if not new_name:
-                form_builder.show_temporary_message(main_frame, "Please enter a name for the prompt")
+                form_builder.show_temporary_message(main_frame, "Please enter a title for the prompt")
                 return
 
             if not new_text:
-                form_builder.show_temporary_message(main_frame, "Please enter prompt text")
+                form_builder.show_temporary_message(main_frame, "Please enter instructions for the prompt")
                 return
 
             # Try to save the changes
@@ -220,9 +228,8 @@ class DictationView(ViewHelper):
         )
 
     def _delete_prompt(self, prompt_id: str) -> None:
-        """Delete prompt with confirmation"""
-        if self.show_delete_confirmation("this prompt"):
-            self.controller.delete_prompt(prompt_id)
+        """Delete prompt"""
+        self.controller.delete_prompt(prompt_id)
 
     # Simplified callback methods
     def on_prompts_updated(self, prompts: List[Dict[str, Any]]) -> None:

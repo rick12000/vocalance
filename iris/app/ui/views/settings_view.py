@@ -3,6 +3,7 @@ import customtkinter as ctk
 from iris.app.ui import ui_theme
 from iris.app.ui.controls.settings_control import SettingsController
 from iris.app.ui.views.components import themed_dialogs as messagebox
+from iris.app.ui.views.components.list_builder import ListBuilder
 from iris.app.ui.views.components.themed_components import (
     BorderlessFrame,
     BoxTitle,
@@ -10,7 +11,6 @@ from iris.app.ui.views.components.themed_components import (
     PrimaryButton,
     ThemedEntry,
     ThemedLabel,
-    ThemedScrollableFrame,
     TransparentFrame,
 )
 
@@ -71,7 +71,7 @@ class SettingsView(ctk.CTkFrame):
             row=0,
             column=0,
             columnspan=2,
-            padx=ui_theme.theme.spacing.medium,
+            padx=ui_theme.theme.two_box_layout.inner_content_padx,
             pady=(ui_theme.theme.spacing.medium, ui_theme.theme.spacing.small),
             sticky="w",
         )
@@ -79,17 +79,34 @@ class SettingsView(ctk.CTkFrame):
         entries = []
         for idx, (label_text, variable, description) in enumerate(fields, start=1):
             ThemedLabel(frame, text=label_text, bold=True).grid(
-                row=idx, column=0, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w"
+                row=idx,
+                column=0,
+                padx=ui_theme.theme.two_box_layout.inner_content_padx,
+                pady=ui_theme.theme.spacing.small,
+                sticky="w",
             )
 
             entry = ThemedEntry(frame, textvariable=variable, width=ui_theme.theme.dimensions.entry_width_small)
-            entry.grid(row=idx, column=1, padx=ui_theme.theme.spacing.medium, pady=ui_theme.theme.spacing.small, sticky="w")
+            entry.grid(
+                row=idx,
+                column=1,
+                padx=ui_theme.theme.two_box_layout.inner_content_padx,
+                pady=ui_theme.theme.spacing.small,
+                sticky="w",
+            )
             entries.append(entry)
 
         frame.grid_columnconfigure(1, weight=1)
 
         buttons_frame = TransparentFrame(frame)
-        buttons_frame.grid(row=len(fields) + 1, column=0, columnspan=2, pady=20, padx=20, sticky="ew")
+        buttons_frame.grid(
+            row=len(fields) + 1,
+            column=0,
+            columnspan=2,
+            pady=ui_theme.theme.two_box_layout.inner_content_padx,
+            padx=ui_theme.theme.two_box_layout.inner_content_padx,
+            sticky="ew",
+        )
         buttons_frame.grid_columnconfigure(0, weight=0)
         buttons_frame.grid_columnconfigure(1, weight=0)
 
@@ -105,13 +122,11 @@ class SettingsView(ctk.CTkFrame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        scrollable_frame = ThemedScrollableFrame(self)
-        scrollable_frame.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=(ui_theme.theme.header_layout.frame_padding_left, ui_theme.theme.header_layout.frame_padding_right),
-            pady=ui_theme.theme.spacing.small,
+        # Use TwoBoxLayout outer padding for full consistency with two-box layouts
+        scrollable_frame = ListBuilder.create_scrollable_list_container_with_padx(
+            self,
+            left_padx=ui_theme.theme.two_box_layout.outer_padding_left,
+            pady=(ui_theme.theme.two_box_layout.outer_padding_top, ui_theme.theme.two_box_layout.outer_padding_bottom),
         )
 
         for i in range(4):
@@ -171,20 +186,20 @@ class SettingsView(ctk.CTkFrame):
 
     def on_validation_error(self, title: str, message: str):
         """Handle validation errors from controller"""
-        messagebox.showerror(title, message, parent=self.root_window)
+        messagebox.showerror(message, parent=self.root_window)
 
     def on_save_success(self, message: str):
         """Handle successful save from controller"""
-        messagebox.showinfo("Success", message, parent=self.root_window)
+        messagebox.showinfo(message, parent=self.root_window)
 
     def on_save_error(self, message: str):
         """Handle save errors from controller"""
-        messagebox.showerror("Error", message, parent=self.root_window)
+        messagebox.showerror(message, parent=self.root_window)
 
     def on_reset_complete(self):
         """Handle reset completion from controller"""
         self._load_current_settings()
-        messagebox.showinfo("Reset Complete", "Settings have been reset to defaults", parent=self.root_window)
+        messagebox.showinfo("Settings have been reset to defaults", parent=self.root_window)
 
     def _load_current_settings(self):
         """Load current settings from controller"""
@@ -226,9 +241,7 @@ class SettingsView(ctk.CTkFrame):
 
     def _reset_llm_to_defaults(self):
         """Reset LLM settings to defaults through controller"""
-        if messagebox.askyesno(
-            "Reset LLM Settings", "Are you sure you want to reset LLM settings to defaults?", parent=self.root_window
-        ):
+        if messagebox.askyesno("Are you sure you want to reset LLM settings to defaults?", parent=self.root_window):
             self.controller.reset_llm_to_defaults()
 
     def _save_grid_settings(self):
@@ -237,9 +250,7 @@ class SettingsView(ctk.CTkFrame):
 
     def _reset_grid_to_defaults(self):
         """Reset Grid settings to defaults through controller"""
-        if messagebox.askyesno(
-            "Reset Grid Settings", "Are you sure you want to reset Grid settings to defaults?", parent=self.root_window
-        ):
+        if messagebox.askyesno("Are you sure you want to reset Grid settings to defaults?", parent=self.root_window):
             self.controller.reset_grid_to_defaults()
 
     def _save_markov_settings(self):
@@ -248,9 +259,7 @@ class SettingsView(ctk.CTkFrame):
 
     def _reset_markov_to_defaults(self):
         """Reset Markov settings to defaults through controller"""
-        if messagebox.askyesno(
-            "Reset Markov Settings", "Are you sure you want to reset Markov Chain settings to defaults?", parent=self.root_window
-        ):
+        if messagebox.askyesno("Are you sure you want to reset Markov Chain settings to defaults?", parent=self.root_window):
             self.controller.reset_markov_to_defaults()
 
     def _save_sound_settings(self):
@@ -260,7 +269,6 @@ class SettingsView(ctk.CTkFrame):
     def _reset_sound_to_defaults(self):
         """Reset Sound Recognizer settings to defaults through controller"""
         if messagebox.askyesno(
-            "Reset Sound Settings",
             "Are you sure you want to reset Sound Recognizer settings to defaults?",
             parent=self.root_window,
         ):

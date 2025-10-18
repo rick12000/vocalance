@@ -26,20 +26,15 @@ class ViewHelper(ctk.CTkFrame):
 
     def show_error(self, title: str, message: str) -> None:
         """Show standardized error dialog"""
-        messagebox.showerror(title, message, parent=self.root_window)
+        messagebox.showerror(message, parent=self.root_window)
 
     def show_info(self, title: str, message: str) -> None:
         """Show standardized info dialog"""
-        messagebox.showinfo(title, message, parent=self.root_window)
+        messagebox.showinfo(message, parent=self.root_window)
 
     def show_confirmation(self, title: str, message: str) -> bool:
         """Show standardized confirmation dialog"""
-        return messagebox.askyesno(title, message, parent=self.root_window)
-
-    def show_delete_confirmation(self, item_name: str) -> bool:
-        """Show standardized delete confirmation dialog"""
-        message = view_config.messages.delete_confirmation_template.format(item=item_name)
-        return self.show_confirmation(view_config.messages.confirm_delete_title, message)
+        return messagebox.askyesno(message, parent=self.root_window)
 
     def show_delete_all_confirmation(self, items_name: str) -> bool:
         """Show standardized delete all confirmation dialog"""
