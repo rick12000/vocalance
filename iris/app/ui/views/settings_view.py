@@ -10,6 +10,7 @@ from iris.app.ui.views.components.themed_components import (
     DangerButton,
     PrimaryButton,
     ThemedEntry,
+    ThemedFrame,
     ThemedLabel,
     TransparentFrame,
 )
@@ -38,145 +39,196 @@ class SettingsView(ctk.CTkFrame):
 
         self.controller.set_view_callback(self)
 
-    def _create_settings_section(self, parent, title, row, fields, save_command, reset_command):
+    def _create_settings_section(self, parent, title, section_index, fields, save_command, reset_command, is_last_section=False):
         """
-        Create a reusable settings section with fields and buttons.
+        Create a reusable settings section with 3-column layout and info buttons.
 
         Args:
             parent: Parent frame
             title: Section title
-            row: Grid row position
+            section_index: Index of this section (for grid positioning)
             fields: List of (label, variable, description) tuples
             save_command: Save button command
             reset_command: Reset button command
+            is_last_section: If True, no divider line is drawn below this section
         """
-        frame = BorderlessFrame(
-            parent,
-            fg_color=ui_theme.theme.shape_colors.dark,
-            corner_radius=ui_theme.theme.two_box_layout.box_corner_radius,
-        )
-        frame.grid(
-            row=row,
-            column=0,
-            sticky="ew",
-            padx=(ui_theme.theme.two_box_layout.outer_padding_left, ui_theme.theme.two_box_layout.outer_padding_right),
-            pady=(
-                ui_theme.theme.spacing.small if row > 0 else ui_theme.theme.spacing.medium,
-                ui_theme.theme.spacing.small if row < 3 else ui_theme.theme.spacing.medium,
-            ),
-        )
+        base_row = section_index * 20
 
-        header = BoxTitle(frame, text=title)
+        header = BoxTitle(parent, text=title)
         header.grid(
-            row=0,
+            row=base_row,
             column=0,
-            columnspan=2,
-            padx=ui_theme.theme.two_box_layout.inner_content_padx,
-            pady=(ui_theme.theme.spacing.medium, ui_theme.theme.spacing.small),
+            columnspan=3,
+            padx=ui_theme.theme.two_box_layout.outer_padding_left,
+            pady=(
+                ui_theme.theme.spacing.medium if section_index == 0 else ui_theme.theme.spacing.large,
+                ui_theme.theme.spacing.medium,
+            ),
             sticky="w",
         )
 
-        entries = []
-        for idx, (label_text, variable, description) in enumerate(fields, start=1):
-            ThemedLabel(frame, text=label_text, bold=True).grid(
-                row=idx,
+        for idx, (label_text, variable, description) in enumerate(fields):
+            current_row = base_row + 1 + idx
+
+            label = ThemedLabel(parent, text=label_text, bold=True)
+            label.grid(
+                row=current_row,
                 column=0,
-                padx=ui_theme.theme.two_box_layout.inner_content_padx,
+                padx=(ui_theme.theme.two_box_layout.outer_padding_left, ui_theme.theme.spacing.medium),
                 pady=ui_theme.theme.spacing.small,
                 sticky="w",
             )
 
-            entry = ThemedEntry(frame, textvariable=variable, width=ui_theme.theme.dimensions.entry_width_small)
+            entry = ThemedEntry(parent, textvariable=variable)
             entry.grid(
-                row=idx,
+                row=current_row,
                 column=1,
-                padx=ui_theme.theme.two_box_layout.inner_content_padx,
+                padx=(0, ui_theme.theme.spacing.medium),
                 pady=ui_theme.theme.spacing.small,
-                sticky="w",
+                sticky="ew",
             )
-            entries.append(entry)
 
-        frame.grid_columnconfigure(1, weight=1)
+            info_button = PrimaryButton(
+                parent, text="Info", width=80, command=lambda desc=description: self._show_info_dialog(desc)
+            )
+            info_button.grid(
+                row=current_row,
+                column=2,
+                padx=(0, ui_theme.theme.two_box_layout.outer_padding_right),
+                pady=ui_theme.theme.spacing.small,
+                sticky="e",
+            )
 
-        buttons_frame = TransparentFrame(frame)
+        buttons_row = base_row + len(fields) + 1
+        buttons_frame = TransparentFrame(parent)
         buttons_frame.grid(
-            row=len(fields) + 1,
+            row=buttons_row,
             column=0,
-            columnspan=2,
-            pady=ui_theme.theme.two_box_layout.inner_content_padx,
-            padx=ui_theme.theme.two_box_layout.inner_content_padx,
-            sticky="ew",
+            columnspan=3,
+            pady=(ui_theme.theme.spacing.medium, ui_theme.theme.spacing.medium),
+            sticky="w",
         )
+
         buttons_frame.grid_columnconfigure(0, weight=0)
         buttons_frame.grid_columnconfigure(1, weight=0)
 
         PrimaryButton(buttons_frame, text="Save", command=save_command).grid(
-            row=0, column=0, padx=(0, ui_theme.theme.spacing.small), sticky="w"
+            row=0, column=0, padx=(ui_theme.theme.two_box_layout.outer_padding_left, ui_theme.theme.spacing.small)
         )
-        DangerButton(buttons_frame, text="Reset", command=reset_command).grid(row=0, column=1, sticky="w")
+        DangerButton(buttons_frame, text="Reset", command=reset_command).grid(row=0, column=1)
 
-        return entries
+        if not is_last_section:
+            divider_row = buttons_row + 1
+            divider = ThemedFrame(parent, height=1, fg_color=ui_theme.theme.shape_colors.lightest)
+            divider.grid(
+                row=divider_row,
+                column=0,
+                columnspan=3,
+                padx=(ui_theme.theme.two_box_layout.outer_padding_left, ui_theme.theme.two_box_layout.outer_padding_right),
+                pady=(ui_theme.theme.spacing.medium, 0),
+                sticky="ew",
+            )
+
+    def _show_info_dialog(self, description: str):
+        """Show info dialog with setting description"""
+        messagebox.showinfo(description, parent=self.root_window)
 
     def _build_tab_ui(self):
-        """Build the settings tab UI with LLM settings only"""
+        """Build the settings tab UI with 3-column layout"""
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Use TwoBoxLayout outer padding for full consistency with two-box layouts
-        scrollable_frame = ListBuilder.create_scrollable_list_container_with_padx(
+        container_frame = BorderlessFrame(
             self,
-            left_padx=ui_theme.theme.two_box_layout.outer_padding_left,
+            fg_color=ui_theme.theme.shape_colors.dark,
+            corner_radius=ui_theme.theme.two_box_layout.box_corner_radius,
+        )
+        container_frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(ui_theme.theme.two_box_layout.outer_padding_left, ui_theme.theme.two_box_layout.outer_padding_right),
             pady=(ui_theme.theme.two_box_layout.outer_padding_top, ui_theme.theme.two_box_layout.outer_padding_bottom),
         )
 
-        for i in range(4):
-            scrollable_frame.grid_rowconfigure(i, weight=0)
-        scrollable_frame.grid_columnconfigure(0, weight=1)
+        container_frame.grid_rowconfigure(0, weight=1)
+        container_frame.grid_columnconfigure(0, weight=1)
 
-        # LLM Settings Section
+        scrollable_frame = ListBuilder.create_scrollable_list_container(container_frame)
+
+        scrollable_frame.grid_columnconfigure(0, weight=0)
+        scrollable_frame.grid_columnconfigure(1, weight=1)
+        scrollable_frame.grid_columnconfigure(2, weight=0)
+
         self._create_settings_section(
             scrollable_frame,
             "LLM Model Settings",
             0,
             [
-                ("Context Length:", self.llm_context_length_var, "(128-32768, higher = more context)"),
-                ("Max Tokens:", self.llm_max_tokens_var, "(1-1024, higher = longer responses)"),
+                (
+                    "Context Length:",
+                    self.llm_context_length_var,
+                    "Maximum words the LLM can ingest + output (1 unit ≈ 1 word). Increase if dictating >1,000 words per dictation.",
+                ),
+                (
+                    "Max Tokens:",
+                    self.llm_max_tokens_var,
+                    "Maximum LLM output tokens. Increase if you want outputs longer than 1,024 words.",
+                ),
             ],
             self._save_llm_settings,
             self._reset_llm_to_defaults,
         )
 
-        # Grid Settings Section
         self._create_settings_section(
             scrollable_frame,
             "Grid Settings",
             1,
-            [("Default Cell Count:", self.grid_default_cells_var, "(100-10000, cells shown when saying 'golf')")],
+            [
+                (
+                    "Default Cell Count:",
+                    self.grid_default_cells_var,
+                    "The number of rectangles that will be displayed in the grid UI overlay.",
+                )
+            ],
             self._save_grid_settings,
             self._reset_grid_to_defaults,
         )
 
-        # Markov Chain Settings Section
         self._create_settings_section(
             scrollable_frame,
             "Markov Chain Settings",
             2,
-            [("Prediction Confidence:", self.markov_confidence_var, "(0.0-1.0, threshold for using Markov vs speech model)")],
+            [
+                (
+                    "Prediction Confidence:",
+                    self.markov_confidence_var,
+                    "Threshold for Markov model to execute predicted commands. At 0.95: 95% correct. At 1.0: almost never wrong, but rarely triggers.",
+                )
+            ],
             self._save_markov_settings,
             self._reset_markov_to_defaults,
         )
 
-        # Sound Recognizer Settings Section
         self._create_settings_section(
             scrollable_frame,
             "Sound Recognizer Settings",
             3,
             [
-                ("Confidence Threshold:", self.sound_confidence_var, "(0.0-1.0, minimum similarity for recognition)"),
-                ("Vote Threshold:", self.sound_vote_var, "(0.0-1.0, minimum vote alignment percentage)"),
+                (
+                    "Confidence Threshold:",
+                    self.sound_confidence_var,
+                    "Minimum cosine similarity required for sound recognition. Increase if sounds get misrecognized. Decrease if sounds aren't detected.",
+                ),
+                (
+                    "Vote Threshold:",
+                    self.sound_vote_var,
+                    "Agreement level among nearest neighbor sound labels. Increase if sounds get misrecognized. Decrease if sounds aren't detected.",
+                ),
             ],
             self._save_sound_settings,
             self._reset_sound_to_defaults,
+            is_last_section=True,
         )
 
     def on_settings_updated(self):
