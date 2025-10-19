@@ -5,7 +5,6 @@ Pre-configured CustomTkinter widgets with design attributes
 
 import logging
 import tkinter.font as tkFont
-from math import floor
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -26,7 +25,7 @@ class ThemedButton(ctk.CTkButton):
         command: Optional[Callable] = None,
         size: int = None,  # Direct font size value from theme
         compact: bool = False,  # If True, button wraps around text with padding
-        padding_x: int = 0,  # Horizontal padding when compact=True
+        padding_x: int = theme.spacing.tiny,  # Horizontal padding when compact=True
         padding_y: int = 0,  # Vertical padding when compact=True
         **kwargs,
     ):
@@ -61,8 +60,17 @@ class ThemedButton(ctk.CTkButton):
             text_width = temp_font.measure(text)
             text_height = temp_font.metrics("linespace")
 
-            default_kwargs["width"] = floor(text_width / 2) + padding_x
-            default_kwargs["height"] = floor(text_height / 2) + padding_y
+            # Button dimensions in pixels (no division - text metrics are already in pixels)
+            # Add padding on both sides for proper spacing around text
+            button_width = text_width + (padding_x * 2)
+            button_height = text_height + (padding_y * 2)
+
+            default_kwargs["width"] = button_width
+            default_kwargs["height"] = button_height
+
+            # For truly pill-shaped buttons, corner radius should be half the button height
+            # This ensures consistent rounded appearance regardless of DPI scaling
+            default_kwargs["corner_radius"] = int(button_height / 2)
         else:
             default_kwargs["height"] = theme.dimensions.button_height
 
