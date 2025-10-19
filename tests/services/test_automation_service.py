@@ -121,38 +121,6 @@ async def test_click_execution(mock_click, automation_service):
 
 
 @pytest.mark.asyncio
-@patch("pyautogui.scroll")
-async def test_scroll_execution(mock_scroll, automation_service, app_config):
-    """Test execution of scroll command."""
-    service = automation_service
-    event_bus = service._event_bus
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(CommandExecutedStatusEvent, capture_event)
-
-    command = ExactMatchCommand(
-        command_key="scroll up",
-        action_type="scroll",
-        action_value="scroll_up",
-        is_custom=False,
-        short_description="Scroll Up",
-        long_description="Scroll page upward",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    mock_scroll.assert_called_once_with(app_config.scroll_amount_vertical)
-    assert len(captured_events) == 1
-    assert captured_events[0].success is True
-
-
-@pytest.mark.asyncio
 @patch("pyautogui.hotkey")
 async def test_parameterized_command_execution(mock_hotkey, automation_service):
     """Test execution of parameterized command with count."""

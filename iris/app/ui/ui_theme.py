@@ -109,7 +109,7 @@ class ButtonText(BaseModel):
     add: str = "Add"
     edit: str = "Edit"
     delete: str = "Delete"
-    change: str = "Change"
+    change: str = "Info"
     confirm: str = "Confirm"
 
     # Specific actions

@@ -304,7 +304,7 @@ class MarkovPredictorConfig(BaseModel):
 
     enabled: bool = Field(default=False, description="Enable Markov chain command prediction")
 
-    confidence_threshold: float = Field(default=0.95, description="Minimum probability threshold for prediction (0.0-1.0)")
+    confidence_threshold: float = Field(default=1.0, description="Minimum probability threshold for prediction (0.0-1.0)")
 
     training_window_commands: Dict[int, int] = Field(
         default_factory=lambda: {2: 500, 3: 1000, 4: 1500},
@@ -505,7 +505,6 @@ class GlobalAppConfig(BaseModel):
     command_parser: CommandParserConfig = CommandParserConfig()
     automation_service: AutomationServiceConfig = AutomationServiceConfig()
     protected_terms_validator: ProtectedTermsValidatorConfig = ProtectedTermsValidatorConfig()
-    scroll_amount_vertical: int = Field(default=120, description="The amount to scroll vertically for 'sky' and 'earth' commands.")
     automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
 
     def __init__(self, **data):

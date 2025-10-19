@@ -101,9 +101,6 @@ class ProtectedTermsValidator:
 
         normalized = term.lower().strip()
 
-        if " " in normalized:
-            return False, "Term must be a single word"
-
         if exclude_term and normalized == exclude_term.lower().strip():
             return True, None
 

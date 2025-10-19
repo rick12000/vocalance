@@ -64,6 +64,10 @@ class AutomationCommand(BaseCommand):
     is_custom: bool = Field(default=False, description="Whether this is a custom user-defined command")
     short_description: str = Field(default="", description="Short description for UI")
     long_description: str = Field(default="", description="Detailed description")
+    functional_group: str = Field(
+        default="Other",
+        description="Functional grouping: Basic, Window Navigation, Editing, Cursor IDE, VSCode IDE, Other, Custom",
+    )
 
     @property
     def display_description(self) -> str:

@@ -1,5 +1,6 @@
 import logging
-from typing import List
+from collections import defaultdict
+from typing import Dict, List
 
 from iris.app.config.command_types import AutomationCommand
 from iris.app.ui.views.command_dialog_view import CommandEditDialog
@@ -12,6 +13,8 @@ from iris.app.ui.views.components.view_config import view_config
 
 class CommandsView(ViewHelper):
     """Simplified commands view using base components and form builder"""
+
+    GROUP_ORDER = ["Basic", "Window Navigation", "Editing", "Cursor IDE", "VSCode IDE", "Other", "Custom"]
 
     def __init__(self, parent, controller, root_window, logger: logging.Logger):
         super().__init__(parent, controller, root_window)
@@ -76,16 +79,58 @@ class CommandsView(ViewHelper):
         self.clear_form_fields(self.command_phrase_entry, self.hotkey_entry)
 
     def display_commands(self, commands: List[AutomationCommand]) -> None:
-        """Display commands in a scrollable list"""
+        """Display commands in a scrollable list grouped by functional_group"""
         self.logger.info(f"CommandsView: display_commands called with {len(commands)} commands")
 
-        ListBuilder.display_items(
-            container=self.command_list_container,
-            items=commands,
-            create_item_callback=self._create_command_item,
-        )
+        for widget in self.command_list_container.winfo_children():
+            widget.destroy()
 
-        self.logger.info(f"CommandsView: Finished displaying {len(commands)} commands")
+        self.command_list_container.grid_columnconfigure(0, weight=1)
+
+        grouped_commands = self._group_commands_by_functional_group(commands)
+        sorted_groups = self._sort_groups(grouped_commands)
+
+        row_idx = 0
+        for group_idx, (group_name, group_commands) in enumerate(sorted_groups):
+            ListBuilder.create_group_header(
+                container=self.command_list_container,
+                row_index=row_idx,
+                group_name=group_name,
+            )
+            row_idx += 1
+
+            ListBuilder.create_divider(container=self.command_list_container, row_index=row_idx)
+            row_idx += 1
+
+            sorted_commands = sorted(group_commands, key=lambda cmd: cmd.command_key.lower())
+
+            for command in sorted_commands:
+                self._create_command_item(command, row_idx)
+                row_idx += 1
+
+        self.logger.info(f"CommandsView: Finished displaying {len(commands)} commands in {len(sorted_groups)} groups")
+
+    def _group_commands_by_functional_group(self, commands: List[AutomationCommand]) -> Dict[str, List[AutomationCommand]]:
+        """Group commands by their functional_group attribute"""
+        grouped = defaultdict(list)
+        for command in commands:
+            group = getattr(command, "functional_group", "Other")
+            grouped[group].append(command)
+        return dict(grouped)
+
+    def _sort_groups(self, grouped_commands: Dict[str, List[AutomationCommand]]) -> List[tuple]:
+        """Sort groups according to GROUP_ORDER"""
+        sorted_groups = []
+
+        for group_name in self.GROUP_ORDER:
+            if group_name in grouped_commands:
+                sorted_groups.append((group_name, grouped_commands[group_name]))
+
+        for group_name in sorted(grouped_commands.keys()):
+            if group_name not in self.GROUP_ORDER:
+                sorted_groups.append((group_name, grouped_commands[group_name]))
+
+        return sorted_groups
 
     def _create_command_item(self, command: AutomationCommand, row_idx: int) -> None:
         """Create a streamlined command list item with only trigger word and change button"""

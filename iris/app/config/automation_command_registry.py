@@ -20,18 +20,20 @@ class AutomationCommandRegistry:
     DEFAULT_COMMANDS = [
         # Tab/Window Management
         ExactMatchCommand(
-            command_key="tango new",
+            command_key="web new",
             action_type="hotkey",
             action_value="ctrl+t",
             short_description="New Tab",
             long_description="Open a new tab in the current application",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
-            command_key="tango close",
+            command_key="web close",
             action_type="hotkey",
             action_value="ctrl+w",
             short_description="Close Tab",
             long_description="Close the current tab",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
             command_key="close",
@@ -39,6 +41,7 @@ class AutomationCommandRegistry:
             action_value="alt+f4",
             short_description="Close Window",
             long_description="Close the currently active window",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
             command_key="minimize",
@@ -46,27 +49,31 @@ class AutomationCommandRegistry:
             action_value="alt+space, n",
             short_description="Minimize Window",
             long_description="Minimize the currently active window to the taskbar",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
-            command_key="tango reopen",
+            command_key="web reopen",
             action_type="hotkey",
             action_value="ctrl+shift+t",
             short_description="Reopen Tab",
             long_description="Reopen the last closed tab",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
-            command_key="tango right",
+            command_key="web right",
             action_type="hotkey",
             action_value="ctrl+tab",
             short_description="Next Tab",
             long_description="Switch to the next tab",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
-            command_key="tango left",
+            command_key="web left",
             action_type="hotkey",
             action_value="ctrl+shift+tab",
             short_description="Previous Tab",
             long_description="Switch to the previous tab",
+            functional_group="Window Navigation",
         ),
         # File Operations
         ExactMatchCommand(
@@ -75,13 +82,15 @@ class AutomationCommandRegistry:
             action_value="ctrl+s",
             short_description="Save",
             long_description="Save the current file",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
-            command_key="save all code",
+            command_key="save all",
             action_type="hotkey",
             action_value="ctrl+alt+s",
             short_description="Save All",
             long_description="Save all open files",
+            functional_group="General IDE",
         ),
         # Edit Operations
         ExactMatchCommand(
@@ -90,6 +99,7 @@ class AutomationCommandRegistry:
             action_value="ctrl+c",
             short_description="Copy",
             long_description="Copy selected text or content to clipboard",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
             command_key="paste",
@@ -97,6 +107,7 @@ class AutomationCommandRegistry:
             action_value="ctrl+v",
             short_description="Paste",
             long_description="Paste content from clipboard",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
             command_key="select all",
@@ -104,13 +115,15 @@ class AutomationCommandRegistry:
             action_value="ctrl+a",
             short_description="Select All",
             long_description="Select all content in the current context",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
-            command_key="undo",
+            command_key="wipe",
             action_type="hotkey",
             action_value="ctrl+z",
             short_description="Undo",
             long_description="Undo the last action",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
             command_key="redo",
@@ -118,6 +131,7 @@ class AutomationCommandRegistry:
             action_value="ctrl+y",
             short_description="Redo",
             long_description="Redo the last undone action",
+            functional_group="Editing",
         ),
         # View Operations
         ExactMatchCommand(
@@ -126,6 +140,7 @@ class AutomationCommandRegistry:
             action_value="ctrl++",
             short_description="Zoom In",
             long_description="Increase zoom level",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="zoom out",
@@ -133,6 +148,7 @@ class AutomationCommandRegistry:
             action_value="ctrl+-",
             short_description="Zoom Out",
             long_description="Decrease zoom level",
+            functional_group="Basic",
         ),
         # Click Operations
         ExactMatchCommand(
@@ -141,13 +157,7 @@ class AutomationCommandRegistry:
             action_value="click",
             short_description="Click",
             long_description="Perform a left mouse click at current cursor position",
-        ),
-        ExactMatchCommand(
-            command_key="left click",
-            action_type="click",
-            action_value="left_click",
-            short_description="Left Click",
-            long_description="Perform a left mouse click",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="right click",
@@ -155,6 +165,7 @@ class AutomationCommandRegistry:
             action_value="right_click",
             short_description="Right Click",
             long_description="Perform a right mouse click to open context menu",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="double click",
@@ -162,6 +173,7 @@ class AutomationCommandRegistry:
             action_value="double_click",
             short_description="Double Click",
             long_description="Perform a double left mouse click",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="triple click",
@@ -169,6 +181,7 @@ class AutomationCommandRegistry:
             action_value="triple_click",
             short_description="Triple Click",
             long_description="Perform a triple left mouse click to select line",
+            functional_group="Basic",
         ),
         # Navigation Keys
         ExactMatchCommand(
@@ -177,6 +190,7 @@ class AutomationCommandRegistry:
             action_value="up",
             short_description="Up Arrow",
             long_description="Press the up arrow key",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="down",
@@ -184,6 +198,7 @@ class AutomationCommandRegistry:
             action_value="down",
             short_description="Down Arrow",
             long_description="Press the down arrow key",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="left",
@@ -191,6 +206,7 @@ class AutomationCommandRegistry:
             action_value="left",
             short_description="Left Arrow",
             long_description="Press the left arrow key",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="right",
@@ -198,6 +214,7 @@ class AutomationCommandRegistry:
             action_value="right",
             short_description="Right Arrow",
             long_description="Press the right arrow key",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="wind",
@@ -205,6 +222,7 @@ class AutomationCommandRegistry:
             action_value="pageup",
             short_description="Page Up",
             long_description="Press the page up key to scroll up",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="ground",
@@ -212,6 +230,7 @@ class AutomationCommandRegistry:
             action_value="pagedown",
             short_description="Page Down",
             long_description="Press the page down key to scroll down",
+            functional_group="Basic",
         ),
         # Special Keys
         ExactMatchCommand(
@@ -220,6 +239,7 @@ class AutomationCommandRegistry:
             action_value="enter",
             short_description="Enter",
             long_description="Press the enter key to confirm or create new line",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
             command_key="delete",
@@ -227,6 +247,7 @@ class AutomationCommandRegistry:
             action_value="delete",
             short_description="Delete",
             long_description="Press the delete key to remove character after cursor",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
             command_key="escape",
@@ -234,6 +255,7 @@ class AutomationCommandRegistry:
             action_value="escape",
             short_description="Escape",
             long_description="Press the escape key to cancel or exit",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="tab",
@@ -241,6 +263,7 @@ class AutomationCommandRegistry:
             action_value="tab",
             short_description="Tab",
             long_description="Press the tab key for indentation or navigation",
+            functional_group="Editing",
         ),
         ExactMatchCommand(
             command_key="space",
@@ -248,42 +271,96 @@ class AutomationCommandRegistry:
             action_value="space",
             short_description="Space",
             long_description="Press the space bar",
+            functional_group="Editing",
         ),
         # Application Commands
         ExactMatchCommand(
-            command_key="next",
+            command_key="square next",
             action_type="hotkey",
             action_value="alt+f5",
             short_description="Next",
             long_description="Navigate to next item or execute next command",
+            functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
-            command_key="previous",
+            command_key="square previous",
             action_type="hotkey",
             action_value="shift+alt+f5",
             short_description="Previous",
             long_description="Navigate to previous item or execute previous command",
+            functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
-            command_key="context",
+            command_key="blue context",
             action_type="hotkey",
             action_value="ctrl+/",
             short_description="Context Menu",
             long_description="Open context-sensitive help or menu",
+            functional_group="VSCode IDE",
         ),
         ExactMatchCommand(
-            command_key="talk",
+            command_key="blue talk",
             action_type="hotkey",
             action_value="alt+n",
             short_description="Talk",
             long_description="Activate talk or communication feature",
+            functional_group="VSCode IDE",
         ),
         ExactMatchCommand(
-            command_key="models",
+            command_key="blue models",
             action_type="hotkey",
             action_value="ctrl+alt+.",
             short_description="Models",
             long_description="Access AI models or model selection",
+            functional_group="VSCode IDE",
+        ),
+        ExactMatchCommand(
+            command_key="square mode",
+            action_type="hotkey",
+            action_value="ctrl+alt+.",
+            short_description="AI Modes",
+            long_description="Cycle through Cursor AI modes",
+            functional_group="Cursor IDE",
+        ),
+        ExactMatchCommand(
+            command_key="square models",
+            action_type="hotkey",
+            action_value="ctrl+/",
+            short_description="AI Models",
+            long_description="Select Cursor AI model",
+            functional_group="Cursor IDE",
+        ),
+        ExactMatchCommand(
+            command_key="square context",
+            action_type="hotkey",
+            action_value="ctrl+alt+p",
+            short_description="AI Context",
+            long_description="Add context to Cursor AI chat",
+            functional_group="Cursor IDE",
+        ),
+        ExactMatchCommand(
+            command_key="square new",
+            action_type="hotkey",
+            action_value="ctrl+t",
+            short_description="AI New Chat",
+            long_description="Open a new AI chat in Cursor",
+            functional_group="Cursor IDE",
+        ),
+        ExactMatchCommand(
+            command_key="search",
+            action_type="hotkey",
+            action_value="ctrl+f",
+            short_description="Text Search",
+            long_description="Search for text in the current file",
+            functional_group="Basic",
+        ),
+        ExactMatchCommand(
+            command_key="back space",
+            action_type="hotkey",
+            action_value="backspace",
+            short_description="Backspace",
+            long_description="Delete the character before the cursor",
+            functional_group="Basic",
         ),
         ExactMatchCommand(
             command_key="references",
@@ -291,21 +368,7 @@ class AutomationCommandRegistry:
             action_value="shift+alt+f12",
             short_description="References",
             long_description="Show references or related information",
-        ),
-        # Scroll Operations
-        ExactMatchCommand(
-            command_key="sky",
-            action_type="scroll",
-            action_value="scroll_up",
-            short_description="Scroll Up",
-            long_description="Scroll the page or content upward",
-        ),
-        ExactMatchCommand(
-            command_key="earth",
-            action_type="scroll",
-            action_value="scroll_down",
-            short_description="Scroll Down",
-            long_description="Scroll the page or content downward",
+            functional_group="General IDE",
         ),
         # Code:
         ExactMatchCommand(
@@ -314,6 +377,7 @@ class AutomationCommandRegistry:
             action_value="f2",
             short_description="Rename",
             long_description="Rename the current cursor position variable in VSCode",
+            functional_group="General IDE",
         ),
         ExactMatchCommand(
             command_key="definition",
@@ -321,6 +385,7 @@ class AutomationCommandRegistry:
             action_value="f12",
             short_description="Definition",
             long_description="Go to the definition of the current cursor position variable in VSCode",
+            functional_group="General IDE",
         ),
         ExactMatchCommand(
             command_key="code search",
@@ -328,6 +393,7 @@ class AutomationCommandRegistry:
             action_value="ctrl+shift+f",
             short_description="Code Search",
             long_description="Open cross file search in VSCode",
+            functional_group="General IDE",
         ),
         ExactMatchCommand(
             command_key="back",
@@ -335,34 +401,39 @@ class AutomationCommandRegistry:
             action_value="alt+left",
             short_description="Code Back",
             long_description="Go back to the previous cursor position in VSCode",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
-            command_key="forward",
+            command_key="jet",
             action_type="hotkey",
             action_value="alt+right",
             short_description="Code Forward",
             long_description="Go forward to the next cursor position in VSCode",
+            functional_group="Window Navigation",
         ),
         ExactMatchCommand(
-            command_key="ask",
+            command_key="square ask",
             action_type="hotkey",
             action_value="ctrl+k",
             short_description="Ask AI",
             long_description="Toggle in line AI in Cursor",
+            functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
-            command_key="bat",
+            command_key="old",
             action_type="hotkey",
             action_value="ctrl+pageup",
             short_description="Next open tab",
             long_description="Go to the next open tab in Cursor",
+            functional_group="General IDE",
         ),
         ExactMatchCommand(
-            command_key="fox",
+            command_key="new",
             action_type="hotkey",
             action_value="ctrl+pagedown",
             short_description="Previous open tab",
             long_description="Go to the previous open tab in Cursor",
+            functional_group="General IDE",
         ),
         ExactMatchCommand(
             command_key="explore",
@@ -370,6 +441,7 @@ class AutomationCommandRegistry:
             action_value="ctrl+shift+e",
             short_description="Files",
             long_description="Open the files panel in Cursor",
+            functional_group="General IDE",
         ),
     ]
 

@@ -56,6 +56,7 @@ class CommandsController(BaseController):
             is_custom=True,
             short_description="Custom Command",
             long_description=f"Custom hotkey command: {hotkey_value}",
+            functional_group="Custom",
         )
 
         event = AddCustomCommandEvent(command=command)

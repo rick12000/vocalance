@@ -96,7 +96,10 @@ class CommandManagementService:
             commands_data = await self._storage.read(model_type=CommandsData)
 
             # Add custom commands (already AutomationCommand objects)
-            mappings.extend(commands_data.custom_commands.values())
+            for custom_command in commands_data.custom_commands.values():
+                if custom_command.is_custom and custom_command.functional_group == "Other":
+                    custom_command.functional_group = "Custom"
+                mappings.append(custom_command)
 
             # Add default commands with overrides
             default_commands = AutomationCommandRegistry.get_default_commands()
@@ -112,6 +115,7 @@ class CommandManagementService:
                         short_description=command_data.short_description,
                         long_description=command_data.long_description,
                         is_custom=command_data.is_custom,
+                        functional_group=command_data.functional_group,
                     )
 
                 mappings.append(command_data)

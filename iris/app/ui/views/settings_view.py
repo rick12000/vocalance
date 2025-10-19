@@ -62,7 +62,7 @@ class SettingsView(ctk.CTkFrame):
             padx=ui_theme.theme.two_box_layout.outer_padding_left,
             pady=(
                 ui_theme.theme.spacing.medium if section_index == 0 else ui_theme.theme.spacing.large,
-                ui_theme.theme.spacing.medium,
+                ui_theme.theme.spacing.small,
             ),
             sticky="w",
         )
@@ -267,7 +267,7 @@ class SettingsView(ctk.CTkFrame):
                 self.grid_default_cells_var.set(str(grid_settings.get("default_rect_count", 500)))
 
                 markov_settings = settings.get("markov_predictor", {})
-                self.markov_confidence_var.set(str(markov_settings.get("confidence_threshold", 0.95)))
+                self.markov_confidence_var.set(str(markov_settings.get("confidence_threshold", 1.0)))
 
                 sound_settings = settings.get("sound_recognizer", {})
                 self.sound_confidence_var.set(str(sound_settings.get("confidence_threshold", 0.15)))

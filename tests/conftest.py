@@ -351,13 +351,6 @@ def mock_command_storage_adapter():
                 short_description="Paste text",
                 long_description="Paste clipboard contents",
             ),
-            "scroll up": Mock(
-                action_type="scroll",
-                action_value="scroll_up",
-                is_custom=False,
-                short_description="Scroll up",
-                long_description="Scroll page upward",
-            ),
         }
     )
     adapter.get_custom_commands = AsyncMock(return_value={})

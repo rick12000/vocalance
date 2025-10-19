@@ -135,13 +135,6 @@ class AutomationService:
             }
             return click_actions.get(action_value)
 
-        elif action_type == "scroll":
-            scroll_amount = self._app_config.scroll_amount_vertical
-            if action_value == "scroll_up":
-                return lambda: pyautogui.scroll(scroll_amount)
-            elif action_value == "scroll_down":
-                return lambda: pyautogui.scroll(-scroll_amount)
-
         return None
 
     def _execute_key_sequence(self, key_list: list[str]) -> None:

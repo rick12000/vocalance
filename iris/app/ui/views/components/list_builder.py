@@ -322,3 +322,86 @@ class ListBuilder:
                 column=col_idx,
                 padx=padx,
             )
+
+    @staticmethod
+    def create_group_header(
+        container: ThemedScrollableFrame,
+        row_index: int,
+        group_name: str,
+    ) -> BorderlessFrame:
+        """
+        Create a group header with a title.
+
+        Args:
+            container: Parent scrollable frame
+            row_index: Row index in the list
+            group_name: Name of the group
+
+        Returns:
+            The created header frame
+        """
+        header_frame = BorderlessFrame(container)
+        header_frame.grid(
+            row=row_index,
+            column=0,
+            sticky="ew",
+            padx=(view_config.theme.list_layout.item_padx, view_config.theme.list_layout.item_padx_right),
+            pady=(view_config.theme.spacing.medium, view_config.theme.spacing.tiny),
+        )
+
+        header_frame.grid_columnconfigure(0, weight=1)
+
+        ThemedLabel(
+            header_frame,
+            text=group_name,
+            anchor="w",
+            color=view_config.theme.text_colors.lightest,
+            size=view_config.theme.font_sizes.medium,
+            bold=True,
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=0,
+        )
+
+        return header_frame
+
+    @staticmethod
+    def create_divider(
+        container: ThemedScrollableFrame,
+        row_index: int,
+    ) -> ctk.CTkFrame:
+        """
+        Create a horizontal divider line.
+
+        Args:
+            container: Parent scrollable frame
+            row_index: Row index in the list
+
+        Returns:
+            The created divider frame
+        """
+        divider_frame = BorderlessFrame(container)
+        divider_frame.grid(
+            row=row_index,
+            column=0,
+            sticky="ew",
+            padx=(view_config.theme.list_layout.item_padx, view_config.theme.list_layout.item_padx_right),
+            pady=(view_config.theme.spacing.tiny, view_config.theme.spacing.tiny),
+        )
+
+        divider_frame.grid_columnconfigure(0, weight=1)
+
+        divider_line = ctk.CTkFrame(
+            divider_frame,
+            height=1,
+            fg_color=view_config.theme.shape_colors.medium,
+        )
+        divider_line.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+        )
+
+        return divider_frame

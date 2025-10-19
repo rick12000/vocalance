@@ -282,6 +282,8 @@ class TileContent(ThemedLabel):
     def __init__(self, parent, text: str = "", **kwargs):
         # Set default justify to center for text alignment
         kwargs.setdefault("justify", theme.tile_layout.content_text_alignment)
+        # Enable text wrapping with center anchor for vertical and horizontal centering
+        kwargs.setdefault("anchor", "center")
         # Get the actual font size value from the theme's tile layout configuration
         content_size = getattr(theme.font_sizes, theme.tile_layout.content_font_size)
         super().__init__(parent, text=text, size=content_size, color=theme.text_colors.dark, **kwargs)
@@ -379,19 +381,18 @@ class InstructionTile(TileFrame):
     def __init__(self, parent, title: str, content: str, **kwargs):
         super().__init__(parent, **kwargs)
 
-        # Configure grid for vertical centering - no top spacer to remove extra padding
-        self.grid_rowconfigure(0, weight=0)  # Title (no top spacer weight)
-        self.grid_rowconfigure(1, weight=0)  # Content
-        self.grid_rowconfigure(2, weight=1)  # Bottom spacer only
+        # Configure grid for vertical centering - content expands to fill available space
+        self.grid_rowconfigure(0, weight=0)  # Title (fixed height)
+        self.grid_rowconfigure(1, weight=1)  # Content (expands to fill available space)
         self.grid_columnconfigure(0, weight=1)
 
         # Add title - top padding from tile frame border
         title_label = TileTitle(self, text=title)
         title_label.grid(row=0, column=0, sticky="ew", padx=theme.spacing.tiny, pady=(theme.spacing.small, theme.spacing.tiny))
 
-        # Add content - centered vertically with center text alignment
+        # Add content - centered both horizontally and vertically, expands to fill available space
         content_label = TileContent(self, text=content)
-        content_label.grid(row=1, column=0, sticky="ew", padx=theme.spacing.tiny, pady=(0, theme.spacing.tiny))
+        content_label.grid(row=1, column=0, sticky="nsew", padx=theme.spacing.tiny, pady=(0, theme.spacing.tiny))
 
 
 class BorderlessListItemFrame(BorderlessFrame):
