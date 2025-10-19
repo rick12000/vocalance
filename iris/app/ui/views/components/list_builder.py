@@ -373,7 +373,7 @@ class ListBuilder:
         row_index: int,
     ) -> ctk.CTkFrame:
         """
-        Create a horizontal divider line.
+        Create a horizontal divider line using canvas for reliable pixel-perfect rendering.
 
         Args:
             container: Parent scrollable frame
@@ -382,6 +382,8 @@ class ListBuilder:
         Returns:
             The created divider frame
         """
+        import tkinter as tk
+
         divider_frame = BorderlessFrame(container)
         divider_frame.grid(
             row=row_index,
@@ -392,16 +394,31 @@ class ListBuilder:
         )
 
         divider_frame.grid_columnconfigure(0, weight=1)
+        divider_frame.grid_rowconfigure(0, weight=0, minsize=1)
 
-        divider_line = ctk.CTkFrame(
+        # Use Canvas instead of CTkFrame for reliable 1px line rendering across all DPI settings
+        divider_canvas = tk.Canvas(
             divider_frame,
             height=1,
-            fg_color=view_config.theme.shape_colors.medium,
+            bg=view_config.theme.shape_colors.medium,
+            highlightthickness=0,
+            bd=0,
         )
-        divider_line.grid(
-            row=0,
-            column=0,
-            sticky="ew",
-        )
+        divider_canvas.grid(row=0, column=0, sticky="ew")
+
+        # Draw the line on canvas - this ensures pixel-perfect rendering
+        def draw_divider(event=None):
+            divider_canvas.delete("divider_line")
+            canvas_width = divider_canvas.winfo_width()
+            if canvas_width > 1:
+                divider_canvas.create_line(
+                    0, 0, canvas_width, 0, fill=view_config.theme.shape_colors.medium, width=1, tags="divider_line"
+                )
+
+        # Bind to configure event to redraw when resized
+        divider_canvas.bind("<Configure>", draw_divider)
+
+        # Initial draw after canvas is rendered
+        divider_canvas.after(10, draw_divider)
 
         return divider_frame

@@ -421,9 +421,11 @@ class BorderlessListItemFrame(BorderlessFrame):
 
 
 class CustomSidebarFrame(ctk.CTkFrame):
-    """Custom sidebar frame with right-only border"""
+    """Custom sidebar frame with right-only border using Tkinter Frame for reliable rendering"""
 
     def __init__(self, parent, **kwargs):
+        pass
+
         # Remove border from kwargs if present since we'll handle it custom
         border_kwargs = {}
         if "border_width" in kwargs:
@@ -431,21 +433,55 @@ class CustomSidebarFrame(ctk.CTkFrame):
         if "border_color" in kwargs:
             border_kwargs["border_color"] = kwargs.pop("border_color")
 
-        # Initialize frame without border
-        super().__init__(parent, border_width=0, **kwargs)
+        # Explicitly set border_width to 0 to ensure no borders from parent
+        # Set border_color to match fg_color so any residual border is invisible
+        kwargs["border_width"] = 0
+        if "fg_color" in kwargs:
+            kwargs["border_color"] = kwargs["fg_color"]
 
-        # Create the border frame - a thin frame positioned on the right edge
-        if border_kwargs.get("border_width", 0) > 0:
-            self.border_frame = ctk.CTkFrame(
-                self,
-                width=border_kwargs.get("border_width", 1),
-                fg_color=border_kwargs.get("border_color", theme.sidebar_layout.border_color),
-                corner_radius=0,
-            )
-            # Position the border frame on the right edge
-            self.border_frame.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
-            # Ensure it stays on top by lifting it after any child widgets are added
-            self.after_idle(lambda: self.border_frame.lift())
+        # Initialize frame without any borders
+        super().__init__(parent, **kwargs)
+
+        # Store border configuration for later use
+        self._border_width = border_kwargs.get("border_width", 0)
+        self._border_color = border_kwargs.get("border_color", theme.sidebar_layout.border_color)
+        self.border_line = None
+
+        # Create border line - use standard Tkinter Frame for reliable pixel-perfect rendering
+        if self._border_width > 0:
+            self._create_border_line()
+
+    def _create_border_line(self):
+        """Create and configure the border line using a standard Tkinter Frame"""
+        import tkinter as tk
+
+        # Use standard tk.Frame (not CTkFrame) for the border line
+        # Standard tk widgets handle pixel-perfect rendering better
+        self.border_line = tk.Frame(
+            self,
+            width=self._border_width,
+            bg=self._border_color,
+            highlightthickness=0,
+            bd=0,
+        )
+        # Place it at the right edge, spanning full height
+        self.border_line.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
+
+        # Bind to window map event to ensure it stays on top after widgets are added
+        self.bind("<Map>", lambda e: self._ensure_border_on_top())
+
+        # Initial raise
+        self.after(100, self._ensure_border_on_top)
+
+    def _ensure_border_on_top(self):
+        """Ensure the border line stays on top of all widgets"""
+        if self.border_line and self.border_line.winfo_exists():
+            # Use standard tkinter raise which works properly on tk.Frame
+            self.border_line.tkraise()
+
+    def raise_border(self):
+        """Public method to raise the border line - call after adding children"""
+        self._ensure_border_on_top()
 
 
 class SidebarIconButton(ctk.CTkFrame):

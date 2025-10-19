@@ -21,7 +21,6 @@ from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from iris.app.ui.views.commands_view import CommandsView
 from iris.app.ui.views.components import themed_dialogs
 from iris.app.ui.views.components.themed_components import (
-    CustomSidebarFrame,
     SidebarButtonManager,
     SidebarIconButton,
     ThemedFrame,
@@ -173,9 +172,11 @@ class AppControlRoom:
         self.bg_frame.grid_columnconfigure(
             0, weight=0, minsize=ui_theme.theme.sidebar_layout.grid_column_minsize
         )  # Sidebar column matches sidebar width
-        self.bg_frame.grid_columnconfigure(1, weight=1, minsize=300)  # Content column keeps minimum
+        self.bg_frame.grid_columnconfigure(1, weight=0, minsize=1)  # Separator column - 1px wide
+        self.bg_frame.grid_columnconfigure(2, weight=1, minsize=300)  # Content column keeps minimum
 
         self.create_sidebar()
+        self.create_sidebar_separator()
         self.create_header()
         self.create_content_area()
 
@@ -185,13 +186,12 @@ class AppControlRoom:
     def create_sidebar(self):
         """Create the sidebar with navigation buttons"""
         sidebar_config = ui_theme.theme.sidebar_layout
-        self.sidebar = CustomSidebarFrame(
+        self.sidebar = ThemedFrame(
             self.bg_frame,
             width=sidebar_config.width,
             corner_radius=0,
             fg_color=ui_theme.theme.shape_colors.darkest,
-            border_width=sidebar_config.border_width,
-            border_color=sidebar_config.border_color,
+            border_width=0,
         )
         self.sidebar.grid(
             row=0,
@@ -214,6 +214,25 @@ class AppControlRoom:
 
         # Create logo
         self._create_sidebar_logo()
+
+    def create_sidebar_separator(self):
+        """Create a separator line between sidebar and main content"""
+        import tkinter as tk
+
+        sidebar_config = ui_theme.theme.sidebar_layout
+        self.sidebar_separator = tk.Frame(
+            self.bg_frame,
+            width=sidebar_config.border_width,
+            bg=sidebar_config.border_color,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.sidebar_separator.grid(
+            row=0,
+            column=1,
+            rowspan=2,
+            sticky="ns",
+        )
 
     def _create_sidebar_buttons(self):
         """Create sidebar navigation buttons"""
@@ -274,7 +293,7 @@ class AppControlRoom:
             border_width=header_config.border_width,
             border_color=header_config.border_color,
         )
-        self.header.grid(row=0, column=1, sticky="ew", padx=header_config.frame_padx, pady=header_config.frame_pady)
+        self.header.grid(row=0, column=2, sticky="ew", padx=header_config.frame_padx, pady=header_config.frame_pady)
         self.header.grid_propagate(False)
 
         # Configure header grid
@@ -296,7 +315,7 @@ class AppControlRoom:
         self.content_frame = TransparentFrame(self.bg_frame)
         self.content_frame.grid(
             row=1,
-            column=1,
+            column=2,
             sticky="nsew",
             padx=ui_theme.theme.layout.content_area_padding_x,
             pady=ui_theme.theme.layout.content_area_padding_y,
