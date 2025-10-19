@@ -46,44 +46,31 @@ class CommandEditDialog:
                 dialog = ctk.CTk()
 
             dialog.title(f"Edit Command: {self.command.command_key}")
-            dialog.geometry(f"{ui_theme.theme.dimensions.command_dialog_width}x{ui_theme.theme.dimensions.command_dialog_height}")
+            dialog.minsize(ui_theme.theme.dimensions.command_dialog_width, ui_theme.theme.dimensions.command_dialog_min_height)
 
             if self.parent:
                 dialog.transient(self.parent)
                 dialog.grab_set()
 
-            # Set icon on dialog
+            dialog.configure(fg_color=ui_theme.theme.shape_colors.darkest)
+
             try:
                 set_window_icon_robust(dialog)
             except Exception:
-                pass  # Silently fail if icon can't be set
-
-            # Center the dialog
-            dialog.update_idletasks()
-            if self.parent:
-                x = self.parent.winfo_x() + (self.parent.winfo_width() // 2) - (dialog.winfo_width() // 2)
-                y = self.parent.winfo_y() + (self.parent.winfo_height() // 2) - (dialog.winfo_height() // 2)
-            else:
-                x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-                y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-            dialog.geometry(f"+{x}+{y}")
-
-            # Set dialog background color
-            dialog.configure(fg_color=ui_theme.theme.shape_colors.darkest)
+                pass
 
             # Main frame - transparent to match dialog background
             main_frame = TransparentFrame(dialog)
             main_frame.grid(
                 row=0,
                 column=0,
-                sticky="nsew",
+                sticky="ew",
                 padx=ui_theme.theme.two_box_layout.base_spacing,
                 pady=ui_theme.theme.two_box_layout.base_spacing,
             )
 
             # Configure dialog grid
             dialog.grid_columnconfigure(0, weight=1)
-            dialog.grid_rowconfigure(0, weight=1)
 
             # Configure main frame grid
             main_frame.grid_columnconfigure(0, weight=1)

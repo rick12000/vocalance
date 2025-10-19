@@ -25,25 +25,16 @@ def _get_button_class(button_text: str):
 
 def _setup_dialog_window(dialog: ctk.CTkToplevel, parent=None) -> None:
     """Helper function to set up common dialog window properties including icon."""
-    dialog.geometry(f"{ui_theme.theme.dimensions.dialog_width}x{ui_theme.theme.dimensions.dialog_height}")
-    dialog.resizable(False, False)
+    dialog.minsize(ui_theme.theme.dimensions.dialog_width, ui_theme.theme.dimensions.dialog_min_height)
     dialog.configure(fg_color=ui_theme.theme.shape_colors.darkest)
 
-    # Set icon on dialog
     try:
         set_window_icon_robust(dialog)
     except Exception:
-        pass  # Silently fail if icon can't be set
+        pass
 
-    # Center the dialog
     dialog.transient(parent)
     dialog.grab_set()
-
-    # Center on parent
-    dialog.update_idletasks()
-    x = (dialog.winfo_screenwidth() // 2) - (200)
-    y = (dialog.winfo_screenheight() // 2) - (100)
-    dialog.geometry(f"{ui_theme.theme.dimensions.dialog_width}x{ui_theme.theme.dimensions.dialog_height}+{x}+{y}")
 
 
 def _create_dialog_base(
@@ -67,13 +58,12 @@ def _create_dialog_base(
     dialog = ctk.CTkToplevel(parent)
     _setup_dialog_window(dialog, parent)
 
-    dialog.grid_rowconfigure(0, weight=1)
     dialog.grid_columnconfigure(0, weight=1)
 
     main_frame = ctk.CTkFrame(
         dialog, fg_color=ui_theme.theme.shape_colors.darkest, corner_radius=ui_theme.theme.border_radius.small
     )
-    main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+    main_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=20)
 
     main_frame.grid_columnconfigure(0, weight=1)
     main_frame.grid_rowconfigure(0, weight=0)

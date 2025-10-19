@@ -525,14 +525,14 @@ class Dimensions(BaseModel):
 
     # Dialog dimensions
     dialog_width: int = 400
-    dialog_height: int = 200
+    dialog_min_height: int = 200
     dialog_content_width: int = 350
     sound_mapping_dialog_width: int = 400
-    sound_mapping_dialog_height: int = 400
+    sound_mapping_dialog_min_height: int = 250
     dictation_view_dialog_width: int = 600
-    dictation_view_dialog_height: int = 380
+    dictation_view_dialog_min_height: int = 350
     command_dialog_width: int = 500
-    command_dialog_height: int = 400
+    command_dialog_min_height: int = 300
 
 
 class LayoutProperties(BaseModel):

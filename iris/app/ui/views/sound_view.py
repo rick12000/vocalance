@@ -206,10 +206,10 @@ class SoundView(ViewHelper):
 
         dialog = ctk.CTkToplevel(self.root_window)
         dialog.title(f"Map Sound: {sound_name}")
-        dialog.geometry(f"{theme.dimensions.sound_mapping_dialog_width}x{theme.dimensions.sound_mapping_dialog_height}")
         dialog.transient(self.root_window)
         dialog.grab_set()
         dialog.configure(fg_color=theme.shape_colors.darkest)
+        dialog.minsize(theme.dimensions.sound_mapping_dialog_width, theme.dimensions.sound_mapping_dialog_min_height)
 
         try:
             set_window_icon_robust(dialog)
@@ -221,13 +221,12 @@ class SoundView(ViewHelper):
         main_frame.grid(
             row=0,
             column=0,
-            sticky="nsew",
+            sticky="ew",
             padx=theme.two_box_layout.inner_content_padx,
             pady=theme.two_box_layout.inner_content_padx,
         )
 
         dialog.grid_columnconfigure(0, weight=1)
-        dialog.grid_rowconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)
 
         # Get available command types and initialize variables

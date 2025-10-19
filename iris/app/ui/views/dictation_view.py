@@ -158,17 +158,13 @@ class DictationView(ViewHelper):
         """Edit prompt with simplified dialog"""
         dialog = ctk.CTkToplevel(self.root_window)
         dialog.title(f"Edit: {prompt_data.get('name', 'Unnamed')}")
-        # Increase height to fit all elements
-        dialog.geometry(
-            f"{view_config.theme.dimensions.dictation_view_dialog_width}x{view_config.theme.dimensions.dictation_view_dialog_height + 100}"
-        )
         dialog.transient(self.root_window)
         dialog.grab_set()
-
-        # Set dialog background color
         dialog.configure(fg_color=view_config.theme.shape_colors.darkest)
+        dialog.minsize(
+            view_config.theme.dimensions.dictation_view_dialog_width, view_config.theme.dimensions.dictation_view_dialog_min_height
+        )
 
-        # Set icon
         try:
             set_window_icon_robust(dialog)
         except Exception:
@@ -179,13 +175,12 @@ class DictationView(ViewHelper):
         main_frame.grid(
             row=0,
             column=0,
-            sticky="nsew",
+            sticky="ew",
             padx=view_config.theme.two_box_layout.inner_content_padx,
             pady=view_config.theme.two_box_layout.inner_content_padx,
         )
 
         dialog.grid_columnconfigure(0, weight=1)
-        dialog.grid_rowconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)
 
         # Form fields (changed "Name:" to "Title:")
