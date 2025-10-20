@@ -407,6 +407,7 @@ async def main():
         # Configure window
         app_tk_root.geometry(f"{ui_theme.theme.dimensions.main_window_width}x" f"{ui_theme.theme.dimensions.main_window_height}")
         app_tk_root.minsize(ui_theme.theme.dimensions.main_window_min_width, ui_theme.theme.dimensions.main_window_min_height)
+        app_tk_root.resizable(False, False)
 
         # Setup icons and UI scheduler
         set_window_icon_robust(window=app_tk_root)

@@ -47,7 +47,14 @@ class CommandsView(ViewHelper):
         # Add button
         form_builder.create_button_row(
             container,
-            [{"text": view_config.theme.button_text.add_command, "command": self._on_add_command_clicked, "type": "primary"}],
+            [
+                {
+                    "text": view_config.theme.button_text.add_command,
+                    "command": self._on_add_command_clicked,
+                    "type": "primary",
+                    "compact": False,
+                }
+            ],
         )
 
     def _setup_commands_list_panel(self) -> None:
@@ -62,7 +69,14 @@ class CommandsView(ViewHelper):
         form_builder = FormBuilder()
         form_builder.create_button_row(
             container,
-            [{"text": view_config.theme.button_text.reset, "command": self._on_reset_to_defaults_clicked, "type": "danger"}],
+            [
+                {
+                    "text": view_config.theme.button_text.reset,
+                    "command": self._on_reset_to_defaults_clicked,
+                    "type": "danger",
+                    "compact": False,
+                }
+            ],
             extra_pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
             extra_padx=view_config.theme.two_box_layout.box_content_padding,
             row=1,

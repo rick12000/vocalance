@@ -5,6 +5,7 @@ import customtkinter as ctk
 
 from iris.app.ui.controls.dictation_control import DictationController
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from iris.app.ui.utils.window_positioning import center_window_on_parent
 from iris.app.ui.views.components.base_view import ViewHelper
 from iris.app.ui.views.components.form_builder import FormBuilder
 from iris.app.ui.views.components.list_builder import ButtonType, ListBuilder, ListItemColumn
@@ -15,8 +16,8 @@ from iris.app.ui.views.components.view_config import view_config
 class DictationView(ViewHelper):
     """Simplified dictation view using base components and form builder"""
 
-    def __init__(self, parent, controller: DictationController):
-        super().__init__(parent, controller)
+    def __init__(self, parent, controller: DictationController, root_window=None):
+        super().__init__(parent, controller, root_window)
         self.selected_prompt_var = tk.StringVar()
         self._setup_ui()
         self.controller.refresh_prompts()
@@ -59,7 +60,8 @@ class DictationView(ViewHelper):
 
         # Add button
         form_builder.create_button_row(
-            container, [{"text": view_config.theme.button_text.add_prompt, "command": self._add_prompt, "type": "primary"}]
+            container,
+            [{"text": view_config.theme.button_text.add_prompt, "command": self._add_prompt, "type": "primary", "compact": False}],
         )
 
     def _setup_manage_prompts_panel(self) -> None:
@@ -217,10 +219,12 @@ class DictationView(ViewHelper):
         form_builder.create_button_row(
             main_frame,
             [
-                {"text": view_config.theme.button_text.save_changes, "command": save_changes, "type": "primary"},
-                {"text": view_config.theme.button_text.cancel, "command": dialog.destroy, "type": "danger"},
+                {"text": view_config.theme.button_text.save_changes, "command": save_changes, "type": "primary", "compact": False},
+                {"text": view_config.theme.button_text.cancel, "command": dialog.destroy, "type": "danger", "compact": False},
             ],
         )
+
+        center_window_on_parent(dialog, self.root_window)
 
     def _delete_prompt(self, prompt_id: str) -> None:
         """Delete prompt"""

@@ -5,6 +5,7 @@ import customtkinter as ctk
 
 from iris.app.ui.controls.sound_control import SoundController
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from iris.app.ui.utils.window_positioning import center_window_on_parent
 from iris.app.ui.views.components.base_view import ViewHelper
 from iris.app.ui.views.components.form_builder import FormBuilder
 from iris.app.ui.views.components.list_builder import ButtonType, ListBuilder, ListItemColumn
@@ -60,7 +61,7 @@ class SoundView(ViewHelper):
         self.record_button_frame.grid_columnconfigure(0, weight=1)
 
         self.record_button = PrimaryButton(
-            self.record_button_frame, text=view_config.theme.button_text.record, command=self._start_training
+            self.record_button_frame, text=view_config.theme.button_text.record, command=self._start_training, compact=False
         )
         self.record_button.grid(row=0, column=0, sticky="ew")
 
@@ -324,13 +325,16 @@ class SoundView(ViewHelper):
         form_builder.create_button_row(
             main_frame,
             [
-                {"text": theme.button_text.confirm, "command": on_confirm, "type": "primary"},
+                {"text": theme.button_text.confirm, "command": on_confirm, "type": "primary", "compact": False},
             ],
             row=4,  # Place after the dropdowns (rows 0-3)
         )
 
         # Initialize the value dropdown with the default command type
         self._on_command_type_changed(type_var.get())
+
+        # Center the dialog
+        center_window_on_parent(dialog, self.root_window)
 
     def _on_command_type_changed(self, selected_type: str) -> None:
         """Handle command type dropdown change to update available values"""

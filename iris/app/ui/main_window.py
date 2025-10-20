@@ -395,7 +395,7 @@ class AppControlRoom:
 
     def create_marks_tab(self):
         """Create the marks tab and cache it"""
-        self.marks_view = MarksView(self.content_frame, self.marks_controller)
+        self.marks_view = MarksView(self.content_frame, self.marks_controller, self.root)
         self.marks_view.grid(row=0, column=0, sticky="nsew")
         self._view_cache["Marks"] = self.marks_view
         self._current_view = self.marks_view
@@ -416,7 +416,7 @@ class AppControlRoom:
 
     def create_dictation_tab(self):
         """Create the dictation tab and cache it"""
-        self.dictation_view = DictationView(self.content_frame, self.dictation_controller)
+        self.dictation_view = DictationView(self.content_frame, self.dictation_controller, self.root)
         self.dictation_view.grid(row=0, column=0, sticky="nsew")
         self._view_cache["Dictation"] = self.dictation_view
         self._current_view = self.dictation_view

@@ -16,71 +16,48 @@ from iris.app.ui.utils.icon_transform_utils import transform_monochrome_icon
 
 
 class ThemedButton(ctk.CTkButton):
-    """Base themed button with pre-configured design attributes and compact logic"""
+    """Base themed button with fixed height and optional compact width mode"""
 
     def __init__(
         self,
         parent,
         text: str = "",
         command: Optional[Callable] = None,
-        size: int = None,  # Direct font size value from theme
-        compact: bool = False,  # If True, button wraps around text with padding
-        padding_x: int = theme.spacing.tiny,  # Horizontal padding when compact=True
-        padding_y: int = 0,  # Vertical padding when compact=True
+        size: int = None,
+        compact: bool = False,
         **kwargs,
     ):
-        # Use theme default if not provided
         if size is None:
             size = theme.font_sizes.medium
 
-        # Get standardized button font configuration with bold weight for non-danger buttons
         font_tuple = theme.font_family.get_button_font(size)
-        # Make text bold by changing the weight from "normal" to "bold"
         font_tuple = (font_tuple[0], font_tuple[1], "bold")
 
-        # Get default colors using shape colors directly
-        fg_color = theme.shape_colors.accent  # Use shape_colors.darkest for normal buttons
+        fg_color = theme.shape_colors.accent
         text_color = theme.shape_colors.dark
         hover_color = theme.shape_colors.lightest
 
-        # Set default attributes
+        button_height = theme.dimensions.button_height
+        corner_radius = int(button_height / 2)
+
         default_kwargs = {
             "font": font_tuple,
             "fg_color": fg_color,
             "text_color": text_color,
             "hover_color": hover_color,
-            "corner_radius": theme.border_radius.rounded,
+            "corner_radius": corner_radius,
             "border_width": 0,
+            "height": button_height,
         }
 
-        # Handle compact sizing
-        if compact:
-            # Calculate text dimensions for compact sizing
+        if compact and "width" not in kwargs:
             temp_font = tkFont.Font(family=font_tuple[0], size=font_tuple[1], weight=font_tuple[2])
-            text_width = temp_font.measure(text)
-            text_height = temp_font.metrics("linespace")
+            text_width = temp_font.measure(text) if text else button_height
+            default_kwargs["width"] = text_width + (theme.dimensions.button_text_padding * 2)
 
-            # Button dimensions in pixels (no division - text metrics are already in pixels)
-            # Add padding on both sides for proper spacing around text
-            button_width = text_width + (padding_x * 2)
-            button_height = text_height + (padding_y * 2)
-
-            default_kwargs["width"] = button_width
-            default_kwargs["height"] = button_height
-
-            # For truly pill-shaped buttons, corner radius should be half the button height
-            # This ensures consistent rounded appearance regardless of DPI scaling
-            default_kwargs["corner_radius"] = int(button_height / 2)
-        else:
-            default_kwargs["height"] = theme.dimensions.button_height
-
-        # Override with any custom kwargs
         default_kwargs.update(kwargs)
 
         super().__init__(parent, text=text, command=command, **default_kwargs)
-
-        # Initialize _font attribute to prevent destruction errors
-        self._font = default_kwargs["font"]
 
 
 class PrimaryButton(ThemedButton):
@@ -420,7 +397,7 @@ class BorderlessListItemFrame(BorderlessFrame):
         text_label = ThemedLabel(self, text=item_text, color=theme.text_colors.light)
         text_label.grid(row=0, column=0, sticky="w", padx=(theme.spacing.medium, theme.spacing.small), pady=0)
 
-        # Add action button - use standardized vertical spacing
+        # Add action button - use standardized vertical spacing with compact mode
         if button_variant == "primary":
             action_button = PrimaryButton(self, text=button_text, command=button_command, compact=True)
         else:  # danger or default

@@ -150,9 +150,10 @@ class FormBuilder:
         created_buttons = []
         for i, btn_config in enumerate(buttons):
             btn_type = btn_config.get("type", "primary")
+            btn_compact = btn_config.get("compact", False)
             ButtonClass = PrimaryButton if btn_type == "primary" else DangerButton
 
-            button = ButtonClass(button_frame, text=btn_config["text"], command=btn_config["command"])
+            button = ButtonClass(button_frame, text=btn_config["text"], command=btn_config["command"], compact=btn_compact)
             button.grid(
                 row=0,
                 column=i,

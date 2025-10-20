@@ -493,7 +493,8 @@ class Dimensions(BaseModel):
     header_height: int = 80
 
     # Component dimensions
-    button_height: int = 35
+    button_height: int = 30
+    button_text_padding: int = 2
     entry_height: int = 35
     entry_height_standard: int = 35
     logo_size: int = 15

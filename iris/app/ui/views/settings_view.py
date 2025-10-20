@@ -88,9 +88,7 @@ class SettingsView(ctk.CTkFrame):
                 sticky="ew",
             )
 
-            info_button = PrimaryButton(
-                parent, text="Info", width=80, command=lambda desc=description: self._show_info_dialog(desc)
-            )
+            info_button = PrimaryButton(parent, text="Info", command=lambda desc=description: self._show_info_dialog(desc))
             info_button.grid(
                 row=current_row,
                 column=2,

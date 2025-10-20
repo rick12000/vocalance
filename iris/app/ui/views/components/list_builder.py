@@ -44,8 +44,8 @@ class ListItemColumn:
         color: Optional[str] = None,
         anchor: str = "w",
         command: Optional[Callable] = None,
-        compact: bool = True,
         button_type: ButtonType = ButtonType.PRIMARY,
+        compact: bool = True,
         widget_factory: Optional[Callable[[ctk.CTkFrame], ctk.CTkBaseClass]] = None,
     ):
         self.column_type = column_type
@@ -54,8 +54,8 @@ class ListItemColumn:
         self.color = color or view_config.theme.text_colors.light
         self.anchor = anchor
         self.command = command
-        self.compact = compact
         self.button_type = button_type
+        self.compact = compact
         self.widget_factory = widget_factory
 
     @staticmethod
@@ -306,8 +306,8 @@ class ListBuilder:
             widget = button_class(
                 parent_frame,
                 text=column_config.text,
-                compact=column_config.compact,
                 command=column_config.command,
+                compact=column_config.compact,
             )
             widget.grid(
                 row=0,

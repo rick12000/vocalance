@@ -9,6 +9,7 @@ import customtkinter as ctk
 
 from iris.app.ui import ui_theme
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from iris.app.ui.utils.window_positioning import center_window_on_parent
 from iris.app.ui.views.components.themed_components import DangerButton, PrimaryButton
 
 
@@ -87,6 +88,7 @@ def _create_dialog_base(
                 main_frame,
                 text=btn_text,
                 command=lambda: [result.__setitem__(0, btn_callback()), dialog.destroy()][1],
+                compact=False,
             )
             btn.grid(row=1, column=0, pady=(0, 20))
             dialog.bind("<Return>", lambda e: [result.__setitem__(0, btn_callback()), dialog.destroy()])
@@ -103,6 +105,7 @@ def _create_dialog_base(
                     button_frame,
                     text=btn_text,
                     command=lambda cb=btn_callback: [result.__setitem__(0, cb()), dialog.destroy()][1],
+                    compact=False,
                 )
                 btn.grid(row=0, column=i, padx=5, sticky="ew")
 
@@ -113,6 +116,7 @@ def _create_dialog_base(
                 dialog.bind("<Return>", lambda e: [result.__setitem__(0, first_callback()), dialog.destroy()])
                 dialog.bind("<Escape>", lambda e: [result.__setitem__(0, second_callback()), dialog.destroy()])
 
+    center_window_on_parent(dialog, parent)
     dialog.focus_force()
     dialog.wait_window()
 

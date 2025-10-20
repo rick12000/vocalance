@@ -12,6 +12,7 @@ import customtkinter as ctk
 from iris.app.config.command_types import AutomationCommand
 from iris.app.ui import ui_theme
 from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from iris.app.ui.utils.window_positioning import center_window_on_parent
 from iris.app.ui.views.components.themed_components import (
     DangerButton,
     PrimaryButton,
@@ -79,12 +80,53 @@ class CommandEditDialog:
             main_frame.grid_rowconfigure(2, weight=0)  # Delete tile
             main_frame.grid_rowconfigure(3, weight=1)  # Spacer
 
-            # Command description
-            description_text = self._get_command_description()
-            description_label = ThemedLabel(
-                main_frame, text=f"Description: {description_text}", color=ui_theme.theme.text_colors.light, justify="center"
+            # Command description - wrapped in themed frame
+            description_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
+            description_tile.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.medium))
+            description_tile.grid_columnconfigure(0, weight=1)
+            description_tile.grid_rowconfigure(0, weight=0)  # Title
+            description_tile.grid_rowconfigure(1, weight=0)  # Content
+
+            # Description title
+            description_title = ThemedLabel(
+                description_tile, text="Description", bold=True, color=ui_theme.theme.text_colors.light
             )
-            description_label.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.medium))
+            description_title.grid(
+                row=0,
+                column=0,
+                sticky="w",
+                padx=ui_theme.theme.two_box_layout.title_padx_left,
+                pady=(ui_theme.theme.spacing.small, ui_theme.theme.spacing.tiny),
+            )
+
+            # Description text with wrapping
+            description_text = self._get_command_description()
+            # Calculate wraplength: dialog width - base spacing on both sides - inner padding on both sides
+            wrap_length = (
+                ui_theme.theme.dimensions.command_dialog_width
+                - (ui_theme.theme.two_box_layout.base_spacing * 2)
+                - (ui_theme.theme.two_box_layout.title_padx_left * 2)
+            )
+            description_label = ThemedLabel(
+                description_tile,
+                text=description_text,
+                color=ui_theme.theme.text_colors.light,
+                justify="left",
+                wraplength=wrap_length,
+            )
+            description_label.grid(
+                row=1,
+                column=0,
+                sticky="w",
+                padx=ui_theme.theme.two_box_layout.title_padx_left,
+                pady=(0, ui_theme.theme.spacing.small),
+            )
+
+            # Update main frame row configuration to account for description tile
+            main_frame.grid_rowconfigure(0, weight=0)  # Description tile
+            main_frame.grid_rowconfigure(1, weight=0)  # Edit tile
+            main_frame.grid_rowconfigure(2, weight=0)  # Delete tile
+            main_frame.grid_rowconfigure(3, weight=1)  # Spacer
 
             # Edit tile
             edit_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
@@ -129,7 +171,10 @@ class CommandEditDialog:
 
             # Save button
             save_btn = PrimaryButton(
-                edit_button_frame, text=ui_theme.theme.button_text.save_changes, command=lambda: self._on_save(dialog)
+                edit_button_frame,
+                text=ui_theme.theme.button_text.save_changes,
+                command=lambda: self._on_save(dialog),
+                compact=False,
             )
             save_btn.grid(row=0, column=0, sticky="ew")
 
@@ -175,7 +220,10 @@ class CommandEditDialog:
 
                 # Delete button
                 delete_btn = DangerButton(
-                    delete_button_frame, text=ui_theme.theme.button_text.delete_command, command=lambda: self._on_delete(dialog)
+                    delete_button_frame,
+                    text=ui_theme.theme.button_text.delete_command,
+                    command=lambda: self._on_delete(dialog),
+                    compact=False,
                 )
                 delete_btn.grid(row=0, column=0, sticky="ew")
             else:
@@ -196,6 +244,10 @@ class CommandEditDialog:
 
             # Bind Enter key to save
             dialog.bind("<Return>", lambda e: self._on_save(dialog))
+
+            # Center the dialog
+            if self.parent:
+                center_window_on_parent(dialog, self.parent)
 
             # Wait for dialog to close
             dialog.wait_window()

@@ -64,7 +64,7 @@ class StartupWindow:
 
             # Create window
             self.window = ctk.CTkToplevel(self.main_root)
-            self.window.title("Iris - Starting Up")
+            self.window.title("Iris")
             self.window.geometry(f"{ui_theme.theme.dimensions.startup_width}x{ui_theme.theme.dimensions.startup_height}")
             self.window.resizable(False, False)
             self.window.configure(fg_color=ui_theme.theme.shape_colors.darkest)

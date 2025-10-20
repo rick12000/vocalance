@@ -20,8 +20,8 @@ from iris.app.ui.views.components.view_config import view_config
 class MarksView(ViewHelper):
     """Simplified marks view using base components"""
 
-    def __init__(self, parent, controller: MarksController):
-        super().__init__(parent, controller)
+    def __init__(self, parent, controller: MarksController, root_window=None):
+        super().__init__(parent, controller, root_window)
         self._setup_ui()
         self.controller.refresh_marks()
 
@@ -96,14 +96,14 @@ class MarksView(ViewHelper):
         button_frame.grid_columnconfigure(1, weight=1)
 
         # Show overlay button
-        PrimaryButton(button_frame, text=view_config.theme.button_text.show_marks, command=self._show_overlay).grid(
+        PrimaryButton(button_frame, text=view_config.theme.button_text.show_marks, command=self._show_overlay, compact=False).grid(
             row=0, column=0, padx=(0, view_config.theme.spacing.small), sticky="ew"
         )
 
         # Delete all marks button
-        DangerButton(button_frame, text=view_config.theme.button_text.delete_all_marks, command=self._delete_all_marks).grid(
-            row=0, column=1, sticky="ew"
-        )
+        DangerButton(
+            button_frame, text=view_config.theme.button_text.delete_all_marks, command=self._delete_all_marks, compact=False
+        ).grid(row=0, column=1, sticky="ew")
 
     def _show_overlay(self) -> None:
         """Show marks overlay"""
