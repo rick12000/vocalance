@@ -15,7 +15,6 @@ from iris.app.config.app_config import AssetPathsConfig
 from iris.app.ui import ui_theme
 from iris.app.ui.utils.logo_service import LogoService
 from iris.app.ui.utils.ui_assets import AssetCache
-from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 
 class StartupWindow:
@@ -29,9 +28,16 @@ class StartupWindow:
     - Monospace spinner font prevents character width jitter
     """
 
-    def __init__(self, logger: logging.Logger, main_root: Union[tk.Tk, ctk.CTk], asset_paths_config: AssetPathsConfig):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        main_root: Union[tk.Tk, ctk.CTk],
+        asset_paths_config: AssetPathsConfig,
+        shutdown_coordinator=None,
+    ):
         self.logger = logger
         self.main_root = main_root
+        self.shutdown_coordinator = shutdown_coordinator
         self.window: Optional[ctk.CTkToplevel] = None
         self.progress_bar: Optional[ctk.CTkProgressBar] = None
         self.text_label: Optional[ctk.CTkLabel] = None
@@ -71,19 +77,23 @@ class StartupWindow:
 
             # Window configuration
             self._center_window()
-            self.window.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing during startup
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
             self.window.attributes("-toolwindow", False)
             self.window.attributes("-disabled", False)
 
             # Build UI
             self._create_ui()
 
-            # Display window first
+            # Set icon BEFORE displaying window (better inheritance from parent)
+            self._set_icon_with_retry()
+
+            # Display window
             self.window.update_idletasks()
             self.window.lift()
 
-            # Set icon after window is displayed with delayed calls to ensure persistence
-            self._set_icon_with_retry()
+            # Reinforce icon after display
+            self.window.after(50, self._reinforce_icon)
+            self.window.after(200, self._reinforce_icon)
 
             self._start_queue_checker()
             self.logger.info("Startup window displayed")
@@ -185,7 +195,8 @@ class StartupWindow:
                     if progress == "CLOSE":
                         self._close_impl()
                         return
-                    self._update_progress_impl(progress, status, animate)
+                    else:
+                        self._update_progress_impl(progress, status, animate)
 
             # Schedule next check
             if not self.is_closed:
@@ -197,17 +208,38 @@ class StartupWindow:
         except Exception as e:
             self.logger.error(f"Error checking queue: {e}")
 
+    def process_queue_now(self) -> None:
+        """Manually process queue immediately - for use during initialization polling."""
+        if not self.window or self.is_closed:
+            return
+
+        try:
+            while not self._update_queue.empty():
+                item = self._update_queue.get_nowait()
+                if isinstance(item, tuple) and len(item) == 3:
+                    progress, status, animate = item
+                    if progress == "CLOSE":
+                        self._close_impl()
+                        return
+                    else:
+                        self._update_progress_impl(progress, status, animate)
+        except queue.Empty:
+            pass
+        except Exception as e:
+            self.logger.error(f"Error processing queue: {e}")
+
     def update_progress(self, progress: float, status: str, animate: bool = False) -> None:
         """
-        Thread-safe progress update.
+        Update progress - must be called from main thread.
 
-        From main thread: Execute immediately.
-        From background thread: Queue for later execution.
+        In the simplified architecture, all initialization runs in main thread
+        with async/await, so no thread-safety complexity needed.
         """
-        if threading.current_thread() == threading.main_thread():
-            self._update_progress_impl(progress, status, animate)
-        else:
+        if threading.current_thread() != threading.main_thread():
+            self.logger.warning("update_progress called from non-main thread - queuing for safety")
             self._update_queue.put((progress, status, animate))
+        else:
+            self._update_progress_impl(progress, status, animate)
 
     def _update_progress_impl(self, progress: float, status: str, animate: bool) -> None:
         """Update progress bar and status text."""
@@ -278,7 +310,13 @@ class StartupWindow:
             self.animation_after_id = None
 
     def _close_impl(self) -> None:
-        """Close window (must run in main thread)."""
+        """
+        Close window (must run in main thread).
+
+        If a shutdown coordinator is available, triggers application shutdown.
+        This ensures that clicking the X button during startup initiates
+        proper cleanup sequence.
+        """
         with self._lock:
             if self.is_closed or not self.window:
                 return
@@ -298,6 +336,10 @@ class StartupWindow:
                 self.window = None
                 self.logger.info("Startup window closed")
 
+                # Trigger application shutdown via coordinator
+                if self.shutdown_coordinator:
+                    self.shutdown_coordinator.request_shutdown(reason="User closed startup window", source="startup_window")
+
             except Exception as e:
                 self.logger.error(f"Error closing window: {e}")
 
@@ -314,16 +356,19 @@ class StartupWindow:
             return self.window is not None and not self.is_closed
 
     def _set_icon_with_retry(self) -> None:
-        """Set icon with retries to ensure it persists and doesn't revert to CustomTkinter default."""
+        """Set icon with parent inheritance for best results."""
         if not self.window or self.is_closed:
             return
 
         try:
-            set_window_icon_robust(self.window)
+            # Method 1: Use parent inheritance helper
+            from iris.app.ui.utils.ui_icon_utils import set_window_icon_with_parent_inheritance
 
-            # Schedule additional attempts to prevent CustomTkinter from overriding it
-            self.window.after(100, self._reinforce_icon)
-            self.window.after(300, self._reinforce_icon)
+            set_window_icon_with_parent_inheritance(window=self.window, parent=self.main_root)
+
+            # Method 2: Force update to ensure icon is rendered
+            self.window.update_idletasks()
+            self.window.update()
 
         except Exception as e:
             self.logger.warning(f"Error setting startup window icon: {e}")
@@ -334,7 +379,11 @@ class StartupWindow:
             return
 
         try:
-            set_window_icon_robust(self.window)
+            # Use both parent inheritance and direct setting for maximum reliability
+            from iris.app.ui.utils.ui_icon_utils import set_window_icon_with_parent_inheritance
+
+            set_window_icon_with_parent_inheritance(window=self.window, parent=self.main_root)
+            self.window.update_idletasks()
         except Exception as e:
             self.logger.debug(f"Error reinforcing icon: {e}")
 

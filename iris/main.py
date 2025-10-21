@@ -30,6 +30,7 @@ from iris.app.services.grid.click_tracker_service import ClickTrackerService
 from iris.app.services.grid.grid_service import GridService
 from iris.app.services.mark_service import MarkService
 from iris.app.services.markov_command_predictor import MarkovCommandService
+from iris.app.services.shutdown_coordinator import ShutdownCoordinator
 from iris.app.services.storage.settings_service import SettingsService
 from iris.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
 from iris.app.services.storage.storage_service import StorageService
@@ -43,61 +44,55 @@ from iris.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from iris.app.ui.utils.ui_thread_utils import initialize_ui_scheduler
 
 
-async def initialize_services_in_background(initializer, progress_tracker, root_window):
+async def initialize_services_with_ui_integration(initializer, progress_tracker, root_window, startup_window=None):
     """
-    Initialize services in background thread to avoid blocking Tkinter main loop.
+    Initialize services while keeping Tkinter responsive.
 
-    Key Design:
-    - Service initialization runs in a separate thread pool
-    - Progress updates are thread-safe via startup window
-    - Tkinter main loop stays responsive
-    - No blocking of async event loop
+    Design:
+    - Runs in main thread's async event loop
+    - Heavy I/O operations (Whisper/LLM downloads) run in daemon threads
+    - Tkinter events processed via periodic update() calls
+    - Simple, single-threaded initialization with async/await
     """
-    import asyncio
-    import concurrent.futures
+    # Create a task to run initialization
+    init_task = asyncio.create_task(initializer.initialize_all(progress_tracker))
 
-    def run_sync_init():
-        """Run synchronous service initialization in thread pool"""
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Process Tkinter events while initialization runs
+    while not init_task.done():
         try:
-            # Run the initialization
-            result = loop.run_until_complete(initializer.initialize_all(progress_tracker))
-            return result
-        finally:
-            loop.close()
+            root_window.update_idletasks()
+            root_window.update()
 
-    # Run initialization in thread pool executor
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        # Submit the initialization task
-        future = executor.submit(run_sync_init)
+            # Process startup window queue to flush pending messages
+            if startup_window:
+                startup_window.process_queue_now()
+        except Exception as e:
+            logging.debug(f"GUI update failed: {e}")
 
-        # Poll for completion without blocking
-        while not future.done():
-            # Process Tkinter events to keep GUI responsive
-            try:
-                root_window.update_idletasks()
-                root_window.update()
-            except Exception as e:
-                logging.debug(f"GUI update failed during initialization (window may be destroyed): {e}")
+        # Small yield to let initialization progress
+        await asyncio.sleep(0.01)
 
-            # Small sleep to avoid busy loop
-            await asyncio.sleep(0.05)
-
-        # Get the result
-        return future.result()
+    # Return result (or raise exception if initialization failed)
+    return await init_task
 
 
 class FastServiceInitializer:
     """Streamlined service initialization for maximum startup speed"""
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, gui_loop: asyncio.AbstractEventLoop, root: tk.Tk):
+    def __init__(
+        self,
+        event_bus: EventBus,
+        config: GlobalAppConfig,
+        gui_loop: asyncio.AbstractEventLoop,
+        root: tk.Tk,
+        shutdown_coordinator=None,
+    ):
         self.event_bus = event_bus
         self.config = config
         self.gui_loop = gui_loop
         self.root = root
         self.services = {}
+        self.shutdown_coordinator = shutdown_coordinator
 
     async def initialize_all(self, progress_tracker: StartupProgressTracker) -> Dict[str, Any]:
         """Fast parallel initialization of all services (non-UI only)"""
@@ -108,11 +103,15 @@ class FastServiceInitializer:
         await self._init_core_services()
         progress_tracker.complete_step()
 
+        self._check_cancellation()
+
         # Step 2: Storage and data services (parallel)
         progress_tracker.start_step("Initializing storage...")
         progress_tracker.update_sub_step("Setting up unified storage...")
         await self._init_storage_services(progress_tracker)
         progress_tracker.complete_step()
+
+        self._check_cancellation()
 
         # Step 3: Audio and command services (parallel)
         progress_tracker.start_step("Starting audio processing...")
@@ -121,6 +120,12 @@ class FastServiceInitializer:
         progress_tracker.complete_step()
 
         return self.services
+
+    def _check_cancellation(self):
+        """Check if shutdown was requested and raise CancelledError if so."""
+        if self.shutdown_coordinator and self.shutdown_coordinator.is_shutdown_requested():
+            logging.info("Shutdown detected during initialization - cancelling")
+            raise asyncio.CancelledError("Initialization cancelled due to shutdown request")
 
     async def initialize_ui_components(self, progress_tracker: StartupProgressTracker) -> None:
         """Initialize UI components - MUST run in main thread"""
@@ -219,7 +224,6 @@ class FastServiceInitializer:
 
     async def _init_audio_services(self, progress_tracker=None):
         """Initialize audio services in parallel"""
-        tasks = []
 
         async def init_audio():
             if progress_tracker:
@@ -240,10 +244,26 @@ class FastServiceInitializer:
 
         async def init_stt():
             if progress_tracker:
-                progress_tracker.update_status_animated("Initializing speech-to-text (slow on first run)")
-            self.services["stt"] = SpeechToTextService(event_bus=self.event_bus, config=self.config)
-            self.services["stt"].initialize_engines()
-            self.services["stt"].setup_subscriptions()
+                whisper_models_dir = os.path.join(self.config.storage.user_data_root, "whisper_models")
+                whisper_model_name = self.config.stt.whisper_model
+                model_exists = (
+                    os.path.exists(whisper_models_dir) and any(whisper_model_name in f for f in os.listdir(whisper_models_dir))
+                    if os.path.exists(whisper_models_dir)
+                    else False
+                )
+
+                if not model_exists:
+                    progress_tracker.update_status_animated("Fetching STT model. This may take up to 5 minutes on first use.")
+                else:
+                    progress_tracker.update_status_animated("Initializing speech-to-text")
+
+            try:
+                self.services["stt"] = SpeechToTextService(event_bus=self.event_bus, config=self.config)
+                await self.services["stt"].initialize_engines(shutdown_coordinator=self.shutdown_coordinator)
+                self.services["stt"].setup_subscriptions()
+            except Exception as e:
+                logging.error(f"Failed to initialize STT service: {e}", exc_info=True)
+                raise RuntimeError("Critical asset download failed: Whisper model")
 
         async def init_command_parser():
             if progress_tracker:
@@ -267,17 +287,30 @@ class FastServiceInitializer:
         async def init_dictation():
             if progress_tracker:
                 progress_tracker.update_status_animated("Preparing dictation system")
+
             self.services["dictation"] = DictationCoordinator(
                 event_bus=self.event_bus, config=self.config, storage=self.services["storage"], gui_event_loop=self.gui_loop
             )
             self.services["dictation"].setup_subscriptions()
 
-            # Initialize LLM based on startup mode
             llm_mode = getattr(self.config.llm, "startup_mode", "startup")
             if llm_mode == "startup":
+                llm_filename = self.config.llm.get_model_filename()
+                llm_models_dir = os.path.join(self.config.storage.user_data_root, "llm_models")
+                llm_model_path = os.path.join(llm_models_dir, llm_filename)
+                llm_exists = os.path.exists(llm_model_path) and os.path.getsize(llm_model_path) > 0
+
                 if progress_tracker:
-                    progress_tracker.update_sub_step("Setting up LLM resources (slow on first run)")
-                await self.services["dictation"].initialize()
+                    if not llm_exists:
+                        progress_tracker.update_sub_step("Fetching LLM model. This may take up to 15 minutes on first use.")
+                    else:
+                        progress_tracker.update_sub_step("Setting up LLM resources")
+
+                initialization_success = await self.services["dictation"].initialize()
+
+                if not initialization_success:
+                    logging.error("Failed to initialize dictation service")
+                    raise RuntimeError("Critical asset download failed: LLM model")
             elif llm_mode == "background":
                 asyncio.create_task(self._background_llm_init())
 
@@ -290,8 +323,24 @@ class FastServiceInitializer:
             self.services["markov_predictor"].setup_subscriptions()
             await self.services["markov_predictor"].initialize()
 
-        tasks.extend([init_audio(), init_sound(), init_stt(), init_command_parser(), init_dictation(), init_markov_predictor()])
-        await asyncio.gather(*tasks)
+        # Run sequentially for clear progress tracking (heavy I/O still offloaded to executors)
+        # Check for cancellation between each step
+        await init_audio()
+        self._check_cancellation()
+
+        await init_sound()
+        self._check_cancellation()
+
+        await init_stt()  # Whisper download happens here (in executor, non-blocking)
+        self._check_cancellation()
+
+        await init_command_parser()
+        self._check_cancellation()
+
+        await init_dictation()  # LLM download happens here (in executor, non-blocking)
+        self._check_cancellation()
+
+        await init_markov_predictor()
 
         # Register services with coordinator for real-time updates (after initialization)
         coordinator = self.services.get("settings_coordinator")
@@ -342,24 +391,8 @@ async def main():
     """Main application entry point"""
     logging.getLogger("numba").setLevel(logging.WARNING)
 
-    # Global shutdown handling
-    shutdown_requested = False
-
-    def signal_handler(signum, frame):
-        nonlocal shutdown_requested
-        logging.info(f"Received signal {signum}. Requesting shutdown...")
-        shutdown_requested = True
-
-        def force_exit():
-            time.sleep(5)
-            logging.error("Force exiting due to shutdown timeout")
-            os._exit(1)
-
-        threading.Thread(target=force_exit, daemon=True).start()
-
-    signal.signal(signal.SIGINT, signal_handler)
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, signal_handler)
+    # Shutdown coordinator will be initialized after root window is created
+    shutdown_coordinator = None
 
     try:
         # Load configuration
@@ -409,15 +442,43 @@ async def main():
         app_tk_root.minsize(ui_theme.theme.dimensions.main_window_min_width, ui_theme.theme.dimensions.main_window_min_height)
         app_tk_root.resizable(False, False)
 
-        # Setup icons and UI scheduler
+        # Setup icons FIRST and force render before creating child windows
         set_window_icon_robust(window=app_tk_root)
+        app_tk_root.update_idletasks()
+        app_tk_root.update()
+
+        # Setup UI scheduler
         initialize_ui_scheduler(root_window=app_tk_root)
 
-        # Create startup window
+        # Create shutdown coordinator for centralized shutdown management
+        shutdown_coordinator = ShutdownCoordinator(
+            event_bus=event_bus, root_window=app_tk_root, logger=logging.getLogger("ShutdownCoordinator")
+        )
+
+        # Setup signal handlers to use shutdown coordinator
+        def signal_handler(signum, frame):
+            logging.info(f"Received signal {signum}")
+            shutdown_coordinator.request_shutdown(reason=f"Received system signal {signum}", source="signal_handler")
+
+            def force_exit():
+                time.sleep(5)
+                logging.error("Force exiting due to shutdown timeout")
+                os._exit(1)
+
+            threading.Thread(target=force_exit, daemon=True).start()
+
+        signal.signal(signal.SIGINT, signal_handler)
+        if hasattr(signal, "SIGTERM"):
+            signal.signal(signal.SIGTERM, signal_handler)
+
+        # Create startup window (will inherit icon from parent)
         from iris.app.ui.startup_window import StartupProgressTracker, StartupWindow
 
         startup_window = StartupWindow(
-            logger=logging.getLogger("StartupWindow"), main_root=app_tk_root, asset_paths_config=app_config.asset_paths
+            logger=logging.getLogger("StartupWindow"),
+            main_root=app_tk_root,
+            asset_paths_config=app_config.asset_paths,
+            shutdown_coordinator=shutdown_coordinator,
         )
         startup_window.show()
 
@@ -429,15 +490,54 @@ async def main():
         # Total steps: 3 background (core, storage, audio) + 1 main thread (UI)
         progress_tracker = StartupProgressTracker(startup_window, total_steps=4)
         service_initializer = FastServiceInitializer(
-            event_bus=event_bus, config=app_config, gui_loop=gui_event_loop, root=app_tk_root
+            event_bus=event_bus,
+            config=app_config,
+            gui_loop=gui_event_loop,
+            root=app_tk_root,
+            shutdown_coordinator=shutdown_coordinator,
         )
 
-        # Initialize services in background to avoid blocking Tkinter main loop
-        # This initializes everything EXCEPT UI components
-        services = await initialize_services_in_background(service_initializer, progress_tracker, app_tk_root)
+        # Create initialization task and register it for cancellation on shutdown
+        async def run_initialization():
+            """Wrapped initialization that can be cleanly cancelled"""
+            services = await initialize_services_with_ui_integration(
+                service_initializer, progress_tracker, app_tk_root, startup_window
+            )
+            await service_initializer.initialize_ui_components(progress_tracker)
+            return services
 
-        # Initialize UI components in main thread (required for Tkinter)
-        await service_initializer.initialize_ui_components(progress_tracker)
+        init_task = asyncio.create_task(run_initialization())
+        shutdown_coordinator.register_initialization_task(task=init_task)
+
+        # Initialize services while keeping UI responsive
+        try:
+            services = await init_task
+            shutdown_coordinator.unregister_initialization_task()
+        except asyncio.CancelledError:
+            logging.info("Initialization cancelled due to shutdown request")
+            startup_window.update_progress(0.0, "Startup cancelled by user", animate=False)
+            await asyncio.sleep(1)
+
+            # Get whatever services were initialized before cancellation
+            partial_services = service_initializer.services
+            partial_services["gui_thread"] = gui_thread
+
+            logging.info(f"Cleaning up {len(partial_services)} partially initialized services")
+            startup_window.close()
+            await _cleanup_services(
+                services=partial_services, event_bus=event_bus, gui_event_loop=gui_event_loop, gui_thread=gui_thread
+            )
+            return
+        except RuntimeError as e:
+            logging.critical(f"Critical initialization error: {e}")
+            logging.critical("Application will shut down")
+            startup_window.update_progress(
+                0.0, "Initialization failed. Please check your internet connection and try again.", animate=False
+            )
+            await asyncio.sleep(3)
+            startup_window.close()
+            await _cleanup_services(services={}, event_bus=event_bus, gui_event_loop=gui_event_loop, gui_thread=gui_thread)
+            return
 
         # Store GUI thread reference for cleanup
         services["gui_thread"] = gui_thread
@@ -447,16 +547,16 @@ async def main():
         app_tk_root.deiconify()
         app_tk_root.lift()
         app_tk_root.focus_force()
-        progress_tracker.finish()
 
-        # Brief delay for startup window to close
-        await asyncio.sleep(0.3)
+        # Close startup window from main thread
+        startup_window.update_progress(1.0, "Ready!", animate=False)
+        await asyncio.sleep(0.5)
+        startup_window.close()
 
-        # Shutdown check mechanism
+        # Shutdown check mechanism using coordinator
         def check_shutdown():
-            if shutdown_requested:
-                logging.info("Shutdown requested")
-                app_tk_root.quit()
+            if shutdown_coordinator.is_shutdown_requested():
+                logging.info("Shutdown detected via coordinator")
                 return
             app_tk_root.after(100, check_shutdown)
 
@@ -622,9 +722,17 @@ async def _cleanup_services(
         else:
             logging.info("All services cleaned up successfully")
 
+        # Force immediate exit to prevent daemon threads from continuing
+        # This is necessary because WhisperModel download creates daemon threads
+        # that continue logging even after cleanup
+        logging.info("Forcing immediate process termination")
+        await asyncio.sleep(0.1)  # Brief pause for final log flush
+        os._exit(0)
+
     except Exception as e:
         logging.error(f"Critical error during cleanup: {e}", exc_info=True)
-        # Continue with cleanup even if there are errors
+        # Force exit even on error
+        os._exit(1)
 
 
 if __name__ == "__main__":

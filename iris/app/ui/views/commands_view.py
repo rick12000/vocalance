@@ -14,7 +14,7 @@ from iris.app.ui.views.components.view_config import view_config
 class CommandsView(ViewHelper):
     """Simplified commands view using base components and form builder"""
 
-    GROUP_ORDER = ["Basic", "Window Navigation", "Editing", "Cursor IDE", "VSCode IDE", "Other", "Custom"]
+    GROUP_ORDER = ["Basic", "Window Navigation", "Editing", "General IDE", "Cursor IDE", "VSCode IDE", "Other", "Custom"]
 
     def __init__(self, parent, controller, root_window, logger: logging.Logger):
         super().__init__(parent, controller, root_window)

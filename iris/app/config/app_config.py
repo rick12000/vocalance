@@ -29,6 +29,8 @@ class STTConfig(BaseModel):
     # Engine configuration
     whisper_model: Literal["tiny", "base", "small", "medium"] = "base"
     whisper_device: Literal["cpu", "cuda"] = "cpu"
+    whisper_max_retries: int = Field(default=3, description="Maximum retry attempts for Whisper model loading")
+    whisper_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Whisper retry attempts")
 
     # Common configuration
     sample_rate: int = 16000

@@ -45,13 +45,15 @@ class LLMService:
         logger.info(f"LLMService initialized: {self.model_filename}")
 
     async def initialize(self) -> bool:
-        """Initialize LLM model"""
+        """Initialize LLM model with atomic download and retry logic"""
         try:
             if not self.model_downloader.model_exists(self.model_filename):
                 logger.info(f"Downloading model: {self.model_filename}")
-                model_path = await self.model_downloader.download_model(self.model_info["repo_id"], self.model_info["filename"])
+                model_path = await self.model_downloader.download_model(
+                    repo_id=self.model_info["repo_id"], filename=self.model_info["filename"]
+                )
                 if not model_path:
-                    logger.error("Model download failed")
+                    logger.error("Model download failed after all retry attempts")
                     return False
 
             self.model_path = self.model_downloader.get_model_path(self.model_filename)
@@ -62,15 +64,12 @@ class LLMService:
 
             logger.info(f"Loading model: {os.path.basename(self.model_path)}")
 
-            # Load model (blocking but only happens once)
             loop = asyncio.get_event_loop()
             self.llm = await loop.run_in_executor(None, self._load_model, self.model_path)
 
             if self.llm:
                 self._model_loaded = True
                 logger.info("Model loaded successfully, warming up...")
-
-                # Warm up model immediately during initialization
                 await self._warmup_model()
                 self._warmed_up = True
                 logger.info("Model initialization and warmup complete")

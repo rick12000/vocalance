@@ -1,6 +1,7 @@
 import asyncio
 import gc
 import logging
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -8,47 +9,72 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from faster_whisper import WhisperModel
 
+from iris.app.config.app_config import GlobalAppConfig
+
 logger = logging.getLogger(__name__)
 
 
 class WhisperSpeechToText:
     """Faster-Whisper STT engine optimized for dictation accuracy with normalization."""
 
-    def __init__(self, model_name: str = "base", device: str = "cpu", sample_rate: int = 16000, config=None) -> None:
+    def __init__(self, model_name: str, device: str, sample_rate: int, config: GlobalAppConfig) -> None:
         self._model_name = model_name
-        self._device = "cpu"
+        self._device = device
         self._sample_rate = sample_rate
-        self._model = None
         self._config = config
+        self._model = None
         self._model_lock = asyncio.Lock()
-        self._beam_size = getattr(config, "whisper_beam_size", 5) if config else 5
-        self._temperature = getattr(config, "whisper_temperature", 0.0) if config else 0.0
-        self._no_speech_threshold = getattr(config, "whisper_no_speech_threshold", 0.6) if config else 0.6
+
+        self._beam_size = config.stt.whisper_beam_size if hasattr(config.stt, "whisper_beam_size") else 5
+        self._temperature = config.stt.whisper_temperature if hasattr(config.stt, "whisper_temperature") else 0.0
+        self._no_speech_threshold = (
+            config.stt.whisper_no_speech_threshold if hasattr(config.stt, "whisper_no_speech_threshold") else 0.6
+        )
         self._compute_type = "int8"
-        self._load_model()
+
+        self._max_retries = config.stt.whisper_max_retries
+        self._retry_delay_seconds = config.stt.whisper_retry_delay_seconds
+        self._download_root = os.path.join(config.storage.user_data_root, "whisper_models")
+        os.makedirs(self._download_root, exist_ok=True)
+        logger.info(f"Whisper models directory: {self._download_root}")
+
+        self._load_model_with_retry()
         self._warm_up_model()
 
-        logger.info(f"Initialized faster-whisper: {model_name}, device: {self._device}")
+        logger.info(f"Initialized faster-whisper: {model_name}, device: {device}")
 
-    def _load_model(self) -> None:
-        try:
-            logger.info(f"Loading faster-whisper model: {self._model_name}")
-            self._model = WhisperModel(
-                self._model_name, device=self._device, compute_type=self._compute_type, cpu_threads=4, num_workers=1
-            )
-            logger.info("Faster-whisper model loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load faster-whisper model: {e}", exc_info=True)
-            raise
+    def _load_model_with_retry(self) -> None:
+        """Load Whisper model with retry logic and permanent storage."""
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                logger.info(f"Loading faster-whisper model: {self._model_name} (attempt {attempt}/{self._max_retries})")
+                self._model = WhisperModel(
+                    self._model_name,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                    cpu_threads=4,
+                    num_workers=1,
+                    download_root=self._download_root,
+                )
+                logger.info("Faster-whisper model loaded successfully")
+                return
+
+            except Exception as e:
+                logger.error(f"Failed to load model (attempt {attempt}/{self._max_retries}): {e}", exc_info=True)
+
+                if attempt < self._max_retries:
+                    logger.info(f"Retrying in {self._retry_delay_seconds} seconds...")
+                    time.sleep(self._retry_delay_seconds)
+                else:
+                    logger.error(f"Failed to load Whisper model after {self._max_retries} attempts")
+                    raise RuntimeError(f"Failed to load Whisper model after {self._max_retries} attempts")
 
     def _warm_up_model(self) -> None:
         try:
             logger.info("Warming up faster-whisper model...")
             dummy_audio = np.zeros(16000, dtype=np.float32)
-
             segments, _ = self._model.transcribe(dummy_audio, beam_size=1, vad_filter=False)
             list(segments)
-
             logger.info("Faster-whisper model warmed up successfully")
         except Exception as e:
             logger.warning(f"Failed to warm up model: {e}")
@@ -64,7 +90,6 @@ class WhisperSpeechToText:
             "vad_filter": False,
         }
 
-        # Adjust beam size for shorter segments
         if audio_duration < 5.0:
             options["beam_size"] = max(1, self._beam_size - 1)
 
@@ -87,7 +112,6 @@ class WhisperSpeechToText:
             segment_count += 1
             all_text_parts.append(segment_text)
 
-            # Calculate confidence from avg_logprob
             if hasattr(segment, "avg_logprob") and segment.avg_logprob is not None:
                 confidence = min(1.0, max(0.0, (segment.avg_logprob + 1.0) / 1.0))
                 total_confidence += confidence
@@ -126,7 +150,7 @@ class WhisperSpeechToText:
 
         if recognized_text:
             logger.info(
-                f"Whisper recognized: '{recognized_text}' " f"(confidence: {avg_confidence:.3f}, time: {recognition_time:.3f}s)"
+                f"Whisper recognized: '{recognized_text}' (confidence: {avg_confidence:.3f}, time: {recognition_time:.3f}s)"
             )
 
         return recognized_text
@@ -143,17 +167,12 @@ class WhisperSpeechToText:
         if not text:
             return ""
 
-        # Remove excessive whitespace
         text = re.sub(r"\s+", " ", text)
-
-        # Remove common artifacts at boundaries
         text = re.sub(r"^(um|uh|like|so)\s+", "", text, flags=re.IGNORECASE)
         text = re.sub(r"\s+(um|uh|like|so)$", "", text, flags=re.IGNORECASE)
 
-        # Handle simple repetitions
         words = text.split()
         if len(words) > 1:
-            # Remove consecutive duplicates
             result = [words[0]]
             for word in words[1:]:
                 if word.lower() != result[-1].lower():

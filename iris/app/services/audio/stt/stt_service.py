@@ -1,6 +1,7 @@
 import asyncio
 import gc
 import logging
+import threading
 import time
 from enum import Enum
 from typing import Optional
@@ -51,7 +52,13 @@ class SpeechToTextService:
 
         logger.info(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
 
-    def initialize_engines(self) -> None:
+    async def initialize_engines(self, shutdown_coordinator=None) -> None:
+        """
+        Initialize Vosk and Whisper engines.
+
+        Args:
+            shutdown_coordinator: Optional coordinator to check for cancellation
+        """
         if self._engines_initialized:
             return
 
@@ -65,13 +72,41 @@ class SpeechToTextService:
         )
 
         logger.info("Loading Whisper STT engine...")
-        self.whisper_engine = WhisperSpeechToText(
-            model_name=self.stt_config.whisper_model,
-            device=self.stt_config.whisper_device,
-            sample_rate=self.stt_config.sample_rate,
-            config=self.stt_config,
-        )
 
+        # Start whisper download in daemon thread
+        whisper_result = [None]  # Mutable container for thread result
+        whisper_error = [None]
+
+        def load_whisper():
+            try:
+                whisper_result[0] = WhisperSpeechToText(
+                    model_name=self.stt_config.whisper_model,
+                    device=self.stt_config.whisper_device,
+                    sample_rate=self.stt_config.sample_rate,
+                    config=self.config,
+                )
+            except Exception as e:
+                whisper_error[0] = e
+
+        load_thread = threading.Thread(target=load_whisper, daemon=True, name="WhisperDownload")
+        load_thread.start()
+
+        # Poll for completion or cancellation
+        while load_thread.is_alive():
+            if shutdown_coordinator and shutdown_coordinator.is_shutdown_requested():
+                logger.info("Whisper download cancelled - abandoning thread")
+                raise asyncio.CancelledError("Whisper download cancelled")
+
+            await asyncio.sleep(0.1)  # Check every 100ms
+
+        # Check result
+        if whisper_error[0]:
+            raise whisper_error[0]
+
+        if whisper_result[0] is None:
+            raise RuntimeError("Whisper initialization failed")
+
+        self.whisper_engine = whisper_result[0]
         self._engines_initialized = True
         logger.info("All STT engines initialized successfully")
 

@@ -161,3 +161,18 @@ class GetMainWindowHandleResponse(BaseEvent):
     hwnd: Optional[int] = None
     error_message: Optional[str] = None
     priority: EventPriority = EventPriority.CRITICAL
+
+
+class ApplicationShutdownRequestedEvent(BaseEvent):
+    """
+    Event published when application shutdown is requested.
+    This can be triggered by:
+    - User closing startup window during initialization
+    - User closing main application window
+    - System signals (SIGINT, SIGTERM)
+    - Critical errors requiring shutdown
+    """
+
+    reason: str = Field(description="Reason for shutdown request")
+    source: str = Field(description="Source of shutdown request (e.g., 'startup_window', 'main_window', 'signal')")
+    priority: EventPriority = EventPriority.CRITICAL

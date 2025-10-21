@@ -24,7 +24,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+t",
             short_description="New Tab",
-            long_description="Open a new tab in the current application",
+            long_description="Open a new browser tab (also works in VSCode or other tabbed applications)",
             functional_group="Window Navigation",
         ),
         ExactMatchCommand(
@@ -32,7 +32,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+w",
             short_description="Close Tab",
-            long_description="Close the current tab",
+            long_description="Close the current browser tab (also works in VSCode or other tabbed applications)",
             functional_group="Window Navigation",
         ),
         ExactMatchCommand(
@@ -56,7 +56,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+shift+t",
             short_description="Reopen Tab",
-            long_description="Reopen the last closed tab",
+            long_description="Reopen the last closed browser tab",
             functional_group="Window Navigation",
         ),
         ExactMatchCommand(
@@ -64,7 +64,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+tab",
             short_description="Next Tab",
-            long_description="Switch to the next tab",
+            long_description="Open the browser tab to the right of the current browser tab (also works in VSCode or other tabbed applications)",
             functional_group="Window Navigation",
         ),
         ExactMatchCommand(
@@ -72,7 +72,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+shift+tab",
             short_description="Previous Tab",
-            long_description="Switch to the previous tab",
+            long_description="Open the browser tab to the left of the current browser tab (also works in VSCode or other tabbed applications)",
             functional_group="Window Navigation",
         ),
         # File Operations
@@ -156,7 +156,7 @@ class AutomationCommandRegistry:
             action_type="click",
             action_value="click",
             short_description="Click",
-            long_description="Perform a left mouse click at current cursor position",
+            long_description="Perform a left mouse click at current mouse cursor position",
             functional_group="Basic",
         ),
         ExactMatchCommand(
@@ -164,7 +164,7 @@ class AutomationCommandRegistry:
             action_type="click",
             action_value="right_click",
             short_description="Right Click",
-            long_description="Perform a right mouse click to open context menu",
+            long_description="Perform a right mouse click at current mouse cursor position",
             functional_group="Basic",
         ),
         ExactMatchCommand(
@@ -172,7 +172,7 @@ class AutomationCommandRegistry:
             action_type="click",
             action_value="double_click",
             short_description="Double Click",
-            long_description="Perform a double left mouse click",
+            long_description="Perform a double left mouse click at current mouse cursor position",
             functional_group="Basic",
         ),
         ExactMatchCommand(
@@ -180,7 +180,7 @@ class AutomationCommandRegistry:
             action_type="click",
             action_value="triple_click",
             short_description="Triple Click",
-            long_description="Perform a triple left mouse click to select line",
+            long_description="Perform a triple left mouse click at current mouse cursor position",
             functional_group="Basic",
         ),
         # Navigation Keys
@@ -221,7 +221,7 @@ class AutomationCommandRegistry:
             action_type="key",
             action_value="pageup",
             short_description="Page Up",
-            long_description="Press the page up key to scroll up",
+            long_description="Press the page up key (use to scroll up)",
             functional_group="Basic",
         ),
         ExactMatchCommand(
@@ -229,7 +229,7 @@ class AutomationCommandRegistry:
             action_type="key",
             action_value="pagedown",
             short_description="Page Down",
-            long_description="Press the page down key to scroll down",
+            long_description="Press the page down key (use to scroll down)",
             functional_group="Basic",
         ),
         # Special Keys
@@ -238,7 +238,7 @@ class AutomationCommandRegistry:
             action_type="key",
             action_value="enter",
             short_description="Enter",
-            long_description="Press the enter key to confirm or create new line",
+            long_description="Press the enter key",
             functional_group="Editing",
         ),
         ExactMatchCommand(
@@ -246,7 +246,7 @@ class AutomationCommandRegistry:
             action_type="key",
             action_value="delete",
             short_description="Delete",
-            long_description="Press the delete key to remove character after cursor",
+            long_description="Press the delete key",
             functional_group="Editing",
         ),
         ExactMatchCommand(
@@ -254,7 +254,7 @@ class AutomationCommandRegistry:
             action_type="key",
             action_value="escape",
             short_description="Escape",
-            long_description="Press the escape key to cancel or exit",
+            long_description="Press the escape key",
             functional_group="Basic",
         ),
         ExactMatchCommand(
@@ -262,7 +262,7 @@ class AutomationCommandRegistry:
             action_type="key",
             action_value="tab",
             short_description="Tab",
-            long_description="Press the tab key for indentation or navigation",
+            long_description="Press the tab key",
             functional_group="Editing",
         ),
         ExactMatchCommand(
@@ -279,7 +279,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="alt+f5",
             short_description="Next",
-            long_description="Navigate to next item or execute next command",
+            long_description="Move to next AI changed section in Cursor",
             functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
@@ -287,7 +287,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="shift+alt+f5",
             short_description="Previous",
-            long_description="Navigate to previous item or execute previous command",
+            long_description="Move to previous AI changed section in Cursor",
             functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
@@ -295,7 +295,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+/",
             short_description="Context Menu",
-            long_description="Open context-sensitive help or menu",
+            long_description="Open context drop down in Copilot Chat (only trigger if you're in the context of a chat)",
             functional_group="VSCode IDE",
         ),
         ExactMatchCommand(
@@ -303,7 +303,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="alt+n",
             short_description="Talk",
-            long_description="Activate talk or communication feature",
+            long_description="Activate microphone in Copilot Chat (only trigger if you're in the context of a chat)",
             functional_group="VSCode IDE",
         ),
         ExactMatchCommand(
@@ -311,7 +311,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+alt+.",
             short_description="Models",
-            long_description="Access AI models or model selection",
+            long_description="Open AI model selection menu in Copilot Chat (only trigger if you're in the context of a chat)",
             functional_group="VSCode IDE",
         ),
         ExactMatchCommand(
@@ -319,7 +319,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+alt+.",
             short_description="AI Modes",
-            long_description="Cycle through Cursor AI modes",
+            long_description="Cycle through Cursor Chat AI modes [Agent, Plan, Ask] (only trigger if you're in the context of a chat)",
             functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
@@ -327,7 +327,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+/",
             short_description="AI Models",
-            long_description="Select Cursor AI model",
+            long_description="Open AI model selection menu in Cursor Chat (only trigger if you're in the context of a chat)",
             functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
@@ -335,7 +335,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+alt+p",
             short_description="AI Context",
-            long_description="Add context to Cursor AI chat",
+            long_description="Open context drop down in Cursor Chat (only trigger if you're in the context of a chat)",
             functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
@@ -359,7 +359,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="backspace",
             short_description="Backspace",
-            long_description="Delete the character before the cursor",
+            long_description="Press the backspace key",
             functional_group="Basic",
         ),
         ExactMatchCommand(
@@ -367,7 +367,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="shift+alt+f12",
             short_description="References",
-            long_description="Show references or related information",
+            long_description="Shows code references for the selected variable (trigger if your cursor is on a variable)",
             functional_group="General IDE",
         ),
         # Code:
@@ -376,7 +376,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="f2",
             short_description="Rename",
-            long_description="Rename the current cursor position variable in VSCode",
+            long_description="Rename the selected variable (trigger if your cursor is on a variable)",
             functional_group="General IDE",
         ),
         ExactMatchCommand(
@@ -384,7 +384,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="f12",
             short_description="Definition",
-            long_description="Go to the definition of the current cursor position variable in VSCode",
+            long_description="Shows where the selected variable is defined (trigger if your cursor is on a variable)",
             functional_group="General IDE",
         ),
         ExactMatchCommand(
@@ -392,7 +392,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+shift+f",
             short_description="Code Search",
-            long_description="Open cross file search in VSCode",
+            long_description="Opens file search in IDE (if you trigger this when your cursor is highlighting some text, it will automatically search for that text across files)",
             functional_group="General IDE",
         ),
         ExactMatchCommand(
@@ -400,7 +400,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="alt+left",
             short_description="Code Back",
-            long_description="Go back to the previous cursor position in VSCode",
+            long_description="If triggered on a browser, goes back to the previous page. If triggered in a coding IDE, goes back to the previous cursor position.",
             functional_group="Window Navigation",
         ),
         ExactMatchCommand(
@@ -408,7 +408,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="alt+right",
             short_description="Code Forward",
-            long_description="Go forward to the next cursor position in VSCode",
+            long_description="If triggered on a browser, goes forward to the next page. If triggered in a coding IDE, goes forward to the next cursor position.",
             functional_group="Window Navigation",
         ),
         ExactMatchCommand(
@@ -416,7 +416,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+k",
             short_description="Ask AI",
-            long_description="Toggle in line AI in Cursor",
+            long_description="Toggle in line AI Chat in Cursor",
             functional_group="Cursor IDE",
         ),
         ExactMatchCommand(
@@ -424,7 +424,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+pageup",
             short_description="Next open tab",
-            long_description="Go to the next open tab in Cursor",
+            long_description="If triggered on a browser, goes to tab to the left of the current tab. If triggered in a coding IDE, goes to the file tab to the left of the current file.",
             functional_group="General IDE",
         ),
         ExactMatchCommand(
@@ -432,7 +432,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+pagedown",
             short_description="Previous open tab",
-            long_description="Go to the previous open tab in Cursor",
+            long_description="If triggered on a browser, goes to tab to the right of the current tab. If triggered in a coding IDE, goes to the file tab to the right of the current file.",
             functional_group="General IDE",
         ),
         ExactMatchCommand(
@@ -440,7 +440,7 @@ class AutomationCommandRegistry:
             action_type="hotkey",
             action_value="ctrl+shift+e",
             short_description="Files",
-            long_description="Open the files panel in Cursor",
+            long_description="Open the files panel in coding IDEs",
             functional_group="General IDE",
         ),
     ]
