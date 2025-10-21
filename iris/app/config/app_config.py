@@ -42,7 +42,7 @@ class STTConfig(BaseModel):
     command_duplicate_text_interval: float = Field(
         default=0.2, description="Very short duplicate suppression for commands (200ms)."
     )
-    command_max_segment_duration_sec: float = Field(default=1.5, description="Short max duration for fast command execution.")
+    command_max_segment_duration_sec: float = Field(default=3, description="Short max duration for fast command execution.")
 
     # Enhanced dictation mode settings (optimized for accuracy and continuity)
     dictation_debounce_interval: float = Field(default=0.1, description="Reduced debounce for better dictation responsiveness.")
@@ -50,7 +50,7 @@ class STTConfig(BaseModel):
         default=4.0, description="Extended duplicate suppression to catch phrase repetitions - increased from 3.0s."
     )
     dictation_max_segment_duration_sec: float = Field(
-        default=20.0, description="Extended max duration for longer dictation segments - increased from 15.0s."
+        default=30.0, description="Extended max duration for longer dictation segments - increased from 15.0s."
     )
 
 
@@ -157,7 +157,7 @@ class DictationConfig(BaseModel):
     typing_delay: float = 0.01
 
     # Type dictation specific settings
-    type_dictation_silence_timeout: float = 1.0
+    type_dictation_silence_timeout: float = 0.1
 
     # Text input timing settings
     pyautogui_pause: float = Field(default=0.01, description="Global pause interval between pyautogui operations (seconds)")
@@ -254,7 +254,7 @@ class VADConfig(BaseModel):
     # Dictation mode specific settings
     dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
     dictation_silent_chunks_for_end: int = Field(
-        default=60,
+        default=40,
         description="Number of consecutive silent chunks to end recording in dictation mode (40 chunks = 800ms at 20ms/chunk).",
     )
     dictation_max_recording_duration: float = Field(default=8.0, description="Maximum recording duration for dictation mode.")
