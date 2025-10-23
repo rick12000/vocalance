@@ -69,7 +69,7 @@ class MarksView(ViewHelper):
                 row=i,
                 column=0,
                 sticky="nsew",
-                padx=view_config.theme.tile_layout.padding_between_tiles,
+                padx=view_config.theme.spacing.medium,
                 pady=view_config.theme.tile_layout.padding_between_tiles,
             )
 

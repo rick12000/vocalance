@@ -127,8 +127,6 @@ class GridService:
             "font_name",
             "show_labels",
             "default_rect_count",
-            "trigger_keyword",
-            "cancel_phrases",
         ]
 
         updated_fields = {}
@@ -153,8 +151,6 @@ class GridService:
                 font_name=self._config.grid.font_name,
                 show_labels=self._config.grid.show_labels,
                 default_rect_count=self._config.grid.default_rect_count,
-                trigger_keyword=self._config.grid.trigger_keyword,
-                cancel_phrases=list(self._config.grid.cancel_phrases),
                 message=f"Updated: {list(updated_fields.keys())}",
             )
             self.event_publisher.publish(config_event)

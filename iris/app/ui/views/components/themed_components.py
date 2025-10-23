@@ -292,8 +292,11 @@ class TwoColumnTabLayout(TransparentFrame):
         # Split inner_spacing evenly between the two boxes
         half_inner_spacing = theme.two_box_layout.inner_spacing // 2
 
-        self.left_box = BorderlessFrame(
-            self, fg_color=theme.shape_colors.dark, corner_radius=theme.two_box_layout.box_corner_radius
+        self.left_box = ctk.CTkFrame(
+            self,
+            fg_color=theme.shape_colors.dark,
+            corner_radius=theme.two_box_layout.box_corner_radius,
+            border_width=0,
         )
         self.left_box.grid(
             row=0,
@@ -303,8 +306,11 @@ class TwoColumnTabLayout(TransparentFrame):
             pady=(theme.two_box_layout.outer_padding_top, theme.two_box_layout.outer_padding_bottom),
         )
 
-        self.right_box = BorderlessFrame(
-            self, fg_color=theme.shape_colors.dark, corner_radius=theme.two_box_layout.box_corner_radius
+        self.right_box = ctk.CTkFrame(
+            self,
+            fg_color=theme.shape_colors.dark,
+            corner_radius=theme.two_box_layout.box_corner_radius,
+            border_width=0,
         )
         self.right_box.grid(
             row=0,
@@ -371,13 +377,15 @@ class InstructionTile(TileFrame):
         self.grid_rowconfigure(1, weight=1)  # Content (expands to fill available space)
         self.grid_columnconfigure(0, weight=1)
 
-        # Add title - top padding from tile frame border
+        # Add title - centered horizontally and vertically, with padding matching box content
         title_label = TileTitle(self, text=title)
-        title_label.grid(row=0, column=0, sticky="ew", padx=theme.spacing.tiny, pady=(theme.spacing.small, theme.spacing.tiny))
+        title_label.grid(row=0, column=0, sticky="ew", padx=theme.spacing.small, pady=(theme.spacing.small, theme.spacing.none))
 
-        # Add content - centered both horizontally and vertically, expands to fill available space
+        # Add content - centered both horizontally and vertically, reduced spacing from title
         content_label = TileContent(self, text=content)
-        content_label.grid(row=1, column=0, sticky="nsew", padx=theme.spacing.tiny, pady=(0, theme.spacing.tiny))
+        content_label.grid(
+            row=1, column=0, sticky="nsew", padx=theme.spacing.small, pady=(theme.spacing.none, theme.spacing.small)
+        )
 
 
 class BorderlessListItemFrame(BorderlessFrame):

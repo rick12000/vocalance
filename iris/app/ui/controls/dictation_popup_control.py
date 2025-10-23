@@ -8,6 +8,7 @@ from iris.app.events.dictation_events import (
     LLMProcessingReadyEvent,
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
+    SmartDictationRemoveCharactersEvent,
     SmartDictationStartedEvent,
     SmartDictationStoppedEvent,
     SmartDictationTextDisplayEvent,
@@ -43,6 +44,7 @@ class DictationPopupController(BaseController):
                 (LLMProcessingFailedEvent, self._handle_llm_processing_failed),
                 (LLMTokenGeneratedEvent, self._handle_llm_token_generated),
                 (SmartDictationTextDisplayEvent, self._handle_smart_dictation_text_display),
+                (SmartDictationRemoveCharactersEvent, self._handle_smart_dictation_remove_characters),
             ]
         )
 
@@ -115,6 +117,12 @@ class DictationPopupController(BaseController):
         text = getattr(event_data, "text", "")
         if text and self.view_callback:
             schedule_ui_update(self.view_callback.append_dictation_text, text)
+
+    async def _handle_smart_dictation_remove_characters(self, event_data) -> None:
+        """Remove characters from dictation text - marshalled to UI thread"""
+        count = getattr(event_data, "count", 0)
+        if count > 0 and self.view_callback:
+            schedule_ui_update(self.view_callback.remove_dictation_characters, count)
 
     def cleanup(self) -> None:
         """Clean up resources"""

@@ -165,6 +165,11 @@ class DictationConfig(BaseModel):
     clipboard_paste_delay_post: float = Field(default=0.1, description="Delay after clipboard paste operation (seconds)")
     type_text_post_delay: float = Field(default=0.1, description="Delay after typing text (seconds)")
 
+    # Formatting settings
+    enable_dictation_formatting: bool = Field(
+        default=True, description="Enable automatic formatting (punctuation, capitalization) in dictation output"
+    )
+
 
 class LLMConfig(BaseModel):
     """Configuration for LLM service"""

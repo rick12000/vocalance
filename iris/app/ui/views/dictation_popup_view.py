@@ -132,6 +132,19 @@ class DictationPopupView:
             self.dictation_box.see("end")
             self.dictation_box.update_idletasks()
 
+    def remove_dictation_characters(self, count: int) -> None:
+        """Remove characters from end of dictation text"""
+        if self.dictation_box and self.dictation_box.winfo_exists():
+            current_text = self.dictation_box.get("1.0", "end-1c")
+            if len(current_text) >= count:
+                # Remove 'count' characters from the end
+                # NOTE: In Tkinter text widget, "end" refers to the position after all content
+                # We use "end-1c" to get actual content (excludes automatic newline)
+                # So to remove N chars, we delete from "end-(N+1)c" to "end-1c"
+                self.dictation_box.delete(f"end-{count+1}c", "end-1c")
+                self.dictation_box.see("end")
+                self.dictation_box.update_idletasks()
+
     def append_llm_token(self, token: str) -> None:
         """Append LLM token with smart batching for smooth 60fps updates"""
         logging.debug(f"VIEW: append_llm_token called with: '{token}'")

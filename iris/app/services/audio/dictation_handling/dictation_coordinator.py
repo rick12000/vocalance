@@ -36,13 +36,22 @@ from iris.app.events.dictation_events import (
     LLMProcessingReadyEvent,
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
+    SmartDictationRemoveCharactersEvent,
     SmartDictationStartedEvent,
     SmartDictationStoppedEvent,
     SmartDictationTextDisplayEvent,
 )
 from iris.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from iris.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
-from iris.app.services.audio.dictation_handling.text_input_service import TextInputService
+from iris.app.services.audio.dictation_handling.text_input_service import (
+    TextInputService,
+    clean_dictation_text,
+    get_trailing_whitespace_count,
+    lowercase_first_letter,
+    remove_formatting,
+    should_lowercase_current_start,
+    should_remove_previous_period,
+)
 from iris.app.services.storage.storage_service import StorageService
 from iris.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
 
@@ -83,6 +92,7 @@ class DictationSession:
     start_time: float
     accumulated_text: str = ""
     last_text_time: Optional[float] = None
+    is_first_segment: bool = True
 
 
 @dataclass
@@ -130,6 +140,9 @@ class DictationCoordinator:
         self.llm_service = LLMService(event_bus=event_bus, config=config)
         self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
 
+        # Track last text for smart dictation window concatenation logic
+        self._last_smart_dictation_text: Optional[str] = None
+
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
 
@@ -142,6 +155,15 @@ class DictationCoordinator:
 
     def is_active(self) -> bool:
         return self.active_mode != DictationMode.INACTIVE
+
+    def _should_apply_formatting(self, mode: DictationMode) -> bool:
+        """
+        Determine if formatting should be applied based on mode and config.
+        TYPE mode always disables formatting regardless of config.
+        """
+        if mode == DictationMode.TYPE:
+            return False
+        return self.config.dictation.enable_dictation_formatting
 
     def _get_state(self) -> DictationState:
         """Thread-safe state getter"""
@@ -225,6 +247,11 @@ class DictationCoordinator:
             if not cleaned_text:
                 return
 
+            # Apply formatting filter based on mode and config
+            # TYPE mode always disables formatting
+            if not self._should_apply_formatting(mode=session.mode):
+                cleaned_text = remove_formatting(text=cleaned_text, is_first_word_of_session=session.is_first_segment)
+
             # Update session with NEW data
             updated_session = DictationSession(
                 session_id=session.session_id,
@@ -232,6 +259,7 @@ class DictationCoordinator:
                 start_time=session.start_time,
                 accumulated_text=self._append_text(session.accumulated_text, cleaned_text),
                 last_text_time=time.time() if session.mode == DictationMode.TYPE else None,
+                is_first_segment=False,
             )
 
             # Replace session under lock
@@ -244,9 +272,44 @@ class DictationCoordinator:
 
             # Publish events outside lock
             if updated_session.mode == DictationMode.SMART:
-                await self._publish_event(SmartDictationTextDisplayEvent(text=cleaned_text))
+                # Step 1: Clean the text (remove "...", add trailing space)
+                display_text = clean_dictation_text(text=cleaned_text, add_trailing_space=True)
+
+                # Step 2: Apply period concatenation logic for proper sentence joining
+                # This mirrors TextInputService.input_text() behavior:
+                # - Regular mode uses backspace to remove period + trailing spaces from app
+                # - Smart mode sends removal event to delete from dictation window
+                # Both prepend a space to current segment for proper word separation
+                if self._last_smart_dictation_text and should_remove_previous_period(
+                    self._last_smart_dictation_text, display_text
+                ):
+                    # Calculate removal count: period (1) + any trailing spaces
+                    trailing_whitespace_count = get_trailing_whitespace_count(self._last_smart_dictation_text)
+                    chars_to_remove = 1 + trailing_whitespace_count
+
+                    # Remove the period and trailing spaces from UI
+                    await self._publish_event(SmartDictationRemoveCharactersEvent(count=chars_to_remove))
+
+                    # Add leading space to maintain word separation
+                    display_text = " " + display_text
+
+                # Step 3: Apply capitalization rule for mid-sentence joining
+                # If current text starts with capital but previous doesn't end with period,
+                # lowercase the current text's first letter for proper mid-sentence case
+                if self._last_smart_dictation_text and should_lowercase_current_start(
+                    self._last_smart_dictation_text, display_text
+                ):
+                    display_text = lowercase_first_letter(display_text)
+
+                # Step 4: Track current text for next segment's concatenation check
+                self._last_smart_dictation_text = display_text
+
+                # Step 5: Display the processed text in smart dictation window
+                await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
             else:
-                await self.text_service.input_text(cleaned_text)
+                # TYPE mode should not add trailing space for clean output
+                add_trailing_space = updated_session.mode != DictationMode.TYPE
+                await self.text_service.input_text(text=cleaned_text, add_trailing_space=add_trailing_space)
 
         except Exception as e:
             logger.error(f"Dictation text error: {e}", exc_info=True)
@@ -257,6 +320,7 @@ class DictationCoordinator:
             self._current_session = None
             self._pending_llm_session = None
             self._llm_processing_task = None
+            self._last_smart_dictation_text = None
             self._set_state(DictationState.IDLE)
         await self._end_smart_session()
 
@@ -265,7 +329,14 @@ class DictationCoordinator:
         try:
             logger.info(f"LLM COMPLETION EVENT RECEIVED: '{event.processed_text[:100]}...'")
             logger.info("Inputting text via text service...")
-            success = await self.text_service.input_text(event.processed_text)
+
+            processed_text = event.processed_text
+
+            # Apply formatting filter if enabled is False
+            if not self.config.dictation.enable_dictation_formatting:
+                processed_text = remove_formatting(text=processed_text, is_first_word_of_session=True)
+
+            success = await self.text_service.input_text(processed_text)
             logger.info(f"Text input result: {success}")
 
             await self._cleanup_llm_session()
@@ -378,6 +449,10 @@ class DictationCoordinator:
                     logger.warning(f"Cannot start session - coordinator not in IDLE state (current: {self._current_state.value})")
                     return
 
+                # Reset smart dictation text tracker for new session
+                if mode == DictationMode.SMART:
+                    self._last_smart_dictation_text = None
+
                 # Create new session - immutable snapshot
                 self._current_session = DictationSession(
                     session_id=session_id,
@@ -385,6 +460,7 @@ class DictationCoordinator:
                     start_time=time.time(),
                     accumulated_text="",
                     last_text_time=None,
+                    is_first_segment=True,
                 )
                 self._set_state(DictationState.RECORDING)
 

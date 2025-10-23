@@ -5,7 +5,6 @@ from iris.app.ui.controls.settings_control import SettingsController
 from iris.app.ui.views.components import themed_dialogs as messagebox
 from iris.app.ui.views.components.list_builder import ListBuilder
 from iris.app.ui.views.components.themed_components import (
-    BorderlessFrame,
     BoxTitle,
     DangerButton,
     PrimaryButton,
@@ -136,10 +135,11 @@ class SettingsView(ctk.CTkFrame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        container_frame = BorderlessFrame(
+        container_frame = ctk.CTkFrame(
             self,
             fg_color=ui_theme.theme.shape_colors.dark,
             corner_radius=ui_theme.theme.two_box_layout.box_corner_radius,
+            border_width=0,
         )
         container_frame.grid(
             row=0,

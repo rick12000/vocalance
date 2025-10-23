@@ -92,6 +92,14 @@ class AutomationCommandRegistry:
             long_description="Save all open files",
             functional_group="General IDE",
         ),
+        ExactMatchCommand(
+            command_key="close all",
+            action_type="hotkey",
+            action_value="ctrl+m+w",
+            short_description="Close All",
+            long_description="Close all open files",
+            functional_group="General IDE",
+        ),
         # Edit Operations
         ExactMatchCommand(
             command_key="copy",

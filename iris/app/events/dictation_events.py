@@ -85,6 +85,13 @@ class SmartDictationTextDisplayEvent(BaseEvent):
     priority: EventPriority = EventPriority.HIGH
 
 
+class SmartDictationRemoveCharactersEvent(BaseEvent):
+    """Event fired when characters should be removed from smart dictation UI (for period removal)"""
+
+    count: int = Field(description="Number of characters to remove from end of dictation text")
+    priority: EventPriority = EventPriority.HIGH
+
+
 class LLMProcessingReadyEvent(BaseEvent):
     """Event fired when UI is ready to receive LLM tokens"""
 

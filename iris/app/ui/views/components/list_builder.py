@@ -124,8 +124,9 @@ class ListBuilder:
             ThemedScrollableFrame configured for list content
         """
         if padx is None:
-            # Asymmetric padding: no left padding, right padding for scrollbar clearance
-            padx = (0, view_config.theme.list_layout.scrollbar_right_padding)
+            # Symmetric padding: provide equal space on both sides for corner rendering
+            # Right padding accounts for scrollbar clearance
+            padx = (view_config.theme.list_layout.scrollbar_right_padding, view_config.theme.list_layout.scrollbar_right_padding)
 
         if pady is None:
             pady = (0, view_config.theme.spacing.small)

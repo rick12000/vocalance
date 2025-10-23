@@ -52,6 +52,7 @@ class GridConfigUpdatedEventData(BaseEvent):
     font_size: int
     font_name: str
     show_labels: bool
+    default_rect_count: int
     message: str = "Grid configuration updated."
     priority: EventPriority = EventPriority.LOW
 

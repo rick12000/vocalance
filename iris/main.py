@@ -138,11 +138,9 @@ class FastServiceInitializer:
         """Initialize lightweight core services"""
         # Grid service
         self.services["grid"] = GridService(event_bus=self.event_bus, config=self.config)
-        self.services["grid"].setup_subscriptions()
 
         # Automation service
         self.services["automation"] = AutomationService(event_bus=self.event_bus, app_config=self.config)
-        self.services["automation"].setup_subscriptions()
 
     async def _init_storage_services(self, progress_tracker=None):
         """Initialize storage services in parallel"""
@@ -160,6 +158,7 @@ class FastServiceInitializer:
 
             # Initialize settings update coordinator
             self.services["settings_coordinator"] = SettingsUpdateCoordinator(event_bus=self.event_bus, config=self.config)
+            # CRITICAL: Must subscribe BEFORE settings are applied
             self.services["settings_coordinator"].setup_subscriptions()
 
             # Initialize settings service
@@ -169,8 +168,8 @@ class FastServiceInitializer:
                 storage=self.services["storage"],
                 coordinator=self.services["settings_coordinator"],
             )
-            self.services["settings"].setup_subscriptions()
             await self.services["settings"].initialize()
+            self.services["settings"].setup_subscriptions()
 
             # Apply user settings at startup (via coordinator for consistency)
             await self.services["settings"].apply_startup_settings_to_config()
@@ -205,7 +204,6 @@ class FastServiceInitializer:
             self.services["click_tracker"] = ClickTrackerService(
                 event_bus=self.event_bus, config=self.config, storage=self.services["storage"]
             )
-            self.services["click_tracker"].setup_subscriptions()
 
         async def init_marks():
             if progress_tracker:
@@ -217,7 +215,6 @@ class FastServiceInitializer:
                 storage=self.services["storage"],
                 protected_terms_validator=self.services["protected_terms_validator"],
             )
-            self.services["mark"].setup_subscriptions()
 
         tasks.extend([init_settings(), init_commands(), init_click_tracker(), init_marks()])
         await asyncio.gather(*tasks)
@@ -231,8 +228,6 @@ class FastServiceInitializer:
             self.services["audio"] = SimpleAudioService(
                 event_bus=self.event_bus, config=self.config, main_event_loop=self.gui_loop
             )
-            self.services["audio"].setup_subscriptions()
-            self.services["audio"].start_processing()
 
         async def init_sound():
             if progress_tracker:
@@ -253,14 +248,13 @@ class FastServiceInitializer:
                 )
 
                 if not model_exists:
-                    progress_tracker.update_status_animated("Fetching STT model. This may take up to 5 minutes on first use.")
+                    progress_tracker.update_status_animated("Fetching STT model. This should take 1-5 minutes on first use.")
                 else:
                     progress_tracker.update_status_animated("Initializing speech-to-text")
 
             try:
                 self.services["stt"] = SpeechToTextService(event_bus=self.event_bus, config=self.config)
                 await self.services["stt"].initialize_engines(shutdown_coordinator=self.shutdown_coordinator)
-                self.services["stt"].setup_subscriptions()
             except Exception as e:
                 logging.error(f"Failed to initialize STT service: {e}", exc_info=True)
                 raise RuntimeError("Critical asset download failed: Whisper model")
@@ -282,7 +276,6 @@ class FastServiceInitializer:
                 history_manager=self.services["history_manager"],
             )
             await self.services["centralized_parser"].initialize()
-            self.services["centralized_parser"].setup_subscriptions()
 
         async def init_dictation():
             if progress_tracker:
@@ -291,7 +284,6 @@ class FastServiceInitializer:
             self.services["dictation"] = DictationCoordinator(
                 event_bus=self.event_bus, config=self.config, storage=self.services["storage"], gui_event_loop=self.gui_loop
             )
-            self.services["dictation"].setup_subscriptions()
 
             llm_mode = getattr(self.config.llm, "startup_mode", "startup")
             if llm_mode == "startup":
@@ -302,7 +294,7 @@ class FastServiceInitializer:
 
                 if progress_tracker:
                     if not llm_exists:
-                        progress_tracker.update_sub_step("Fetching LLM model. This may take up to 15 minutes on first use.")
+                        progress_tracker.update_sub_step("Fetching LLM model. This should take 5-15 minutes on first use.")
                     else:
                         progress_tracker.update_sub_step("Setting up LLM resources")
 
@@ -320,7 +312,6 @@ class FastServiceInitializer:
             self.services["markov_predictor"] = MarkovCommandService(
                 event_bus=self.event_bus, config=self.config, storage=self.services["storage"]
             )
-            self.services["markov_predictor"].setup_subscriptions()
             await self.services["markov_predictor"].initialize()
 
         # Run sequentially for clear progress tracking (heavy I/O still offloaded to executors)
@@ -352,6 +343,57 @@ class FastServiceInitializer:
             if "grid" in self.services:
                 coordinator.register_service(service_name="grid", service_instance=self.services["grid"])
             logging.info("Services registered with settings coordinator for real-time updates")
+
+    async def activate_all_services(self) -> None:
+        """Activate all services by setting up their event subscriptions and starting audio processing.
+
+        This method should be called AFTER all services are initialized and AFTER the startup window
+        closes to ensure services don't become operational until the app is fully ready.
+        """
+        logging.info("Activating all services - setting up event subscriptions and starting audio processing")
+
+        # Activate services in the order they depend on each other
+        # Core services first
+        if "grid" in self.services and hasattr(self.services["grid"], "setup_subscriptions"):
+            self.services["grid"].setup_subscriptions()
+
+        if "automation" in self.services and hasattr(self.services["automation"], "setup_subscriptions"):
+            self.services["automation"].setup_subscriptions()
+
+        # Storage and settings services
+        # NOTE: settings_coordinator and settings are already activated during init
+        # They must be ready before settings are applied
+
+        if "click_tracker" in self.services and hasattr(self.services["click_tracker"], "setup_subscriptions"):
+            self.services["click_tracker"].setup_subscriptions()
+
+        if "mark" in self.services and hasattr(self.services["mark"], "setup_subscriptions"):
+            self.services["mark"].setup_subscriptions()
+
+        # Audio services - these are critical and must be activated in the right order
+        if "sound_service" in self.services and hasattr(self.services["sound_service"], "setup_subscriptions"):
+            self.services["sound_service"].setup_subscriptions()
+
+        if "stt" in self.services and hasattr(self.services["stt"], "setup_subscriptions"):
+            self.services["stt"].setup_subscriptions()
+
+        if "centralized_parser" in self.services and hasattr(self.services["centralized_parser"], "setup_subscriptions"):
+            self.services["centralized_parser"].setup_subscriptions()
+
+        if "dictation" in self.services and hasattr(self.services["dictation"], "setup_subscriptions"):
+            self.services["dictation"].setup_subscriptions()
+
+        if "markov_predictor" in self.services and hasattr(self.services["markov_predictor"], "setup_subscriptions"):
+            self.services["markov_predictor"].setup_subscriptions()
+
+        # Audio service must be set up and started LAST to ensure all handlers are ready
+        if "audio" in self.services:
+            if hasattr(self.services["audio"], "setup_subscriptions"):
+                self.services["audio"].setup_subscriptions()
+            if hasattr(self.services["audio"], "start_processing"):
+                self.services["audio"].start_processing()
+
+        logging.info("All services activated successfully")
 
     async def _background_llm_init(self):
         """Initialize LLM in background after startup"""
@@ -542,16 +584,21 @@ async def main():
         # Store GUI thread reference for cleanup
         services["gui_thread"] = gui_thread
 
-        # Show main window
+        # Close startup window BEFORE activating services
         progress_tracker.update_status_static("Ready!")
-        app_tk_root.deiconify()
-        app_tk_root.lift()
-        app_tk_root.focus_force()
-
-        # Close startup window from main thread
         startup_window.update_progress(1.0, "Ready!", animate=False)
         await asyncio.sleep(0.5)
         startup_window.close()
+
+        # Activate all services AFTER startup window closes
+        # This ensures services are not operational until fully ready
+        logging.info("Activating services now that initialization is complete")
+        await service_initializer.activate_all_services()
+
+        # Show main window AFTER services are activated
+        app_tk_root.deiconify()
+        app_tk_root.lift()
+        app_tk_root.focus_force()
 
         # Shutdown check mechanism using coordinator
         def check_shutdown():
