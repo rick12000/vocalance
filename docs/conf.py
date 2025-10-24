@@ -100,7 +100,7 @@ html_context = {
     "conf_py_path": "/docs/",
 }
 
-html_logo = "../iris/app/assets/logo/iris_logo_full_size.png"
+html_logo = "../iris/app/assets/logo/logo_full_text_full_size.png"
 html_favicon = None
 
 root_doc = "index"

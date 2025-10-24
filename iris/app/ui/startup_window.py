@@ -116,7 +116,6 @@ class StartupWindow:
 
     def _create_ui(self) -> None:
         """Build UI components."""
-        self.window.grid_rowconfigure(0, weight=1)
         self.window.grid_columnconfigure(0, weight=1)
 
         # Main container
@@ -129,9 +128,13 @@ class StartupWindow:
 
         # Logo
         self.logo_label = self.logo_service.create_logo_widget(
-            main_frame, max_size=ui_theme.theme.dimensions.startup_logo_size, context="startup", text_fallback="IRIS"
+            main_frame,
+            max_size=ui_theme.theme.dimensions.startup_logo_size,
+            context="startup",
+            text_fallback="IRIS",
+            logo_type="full",
         )
-        self.logo_label.grid(row=0, column=0, pady=(10, 20), sticky="ew")
+        self.logo_label.grid(row=0, column=0, pady=(20, 20), sticky="ew")
 
         # Progress bar
         self.progress_bar = ctk.CTkProgressBar(
@@ -146,7 +149,7 @@ class StartupWindow:
 
         # Status container (centered text + spinner)
         status_frame = ctk.CTkFrame(main_frame, fg_color="transparent", corner_radius=0)
-        status_frame.grid(row=2, column=0, pady=(2, 0), padx=10, sticky="ew")
+        status_frame.grid(row=2, column=0, pady=(2, 20), padx=10, sticky="ew")
         status_frame.grid_columnconfigure(0, weight=1)  # Left expand
         status_frame.grid_columnconfigure(1, weight=0)  # Text (fixed)
         status_frame.grid_columnconfigure(2, weight=0)  # Spinner (fixed)

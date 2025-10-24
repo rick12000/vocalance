@@ -27,12 +27,12 @@ class GridViewConfig(BaseModel):
     text_font_size_divisor: int = Field(default=25, description="Divisor for calculating font size from cell height")
     text_font_max_size: int = Field(default=48, description="Maximum font size for grid cell text")
     text_font_min_size: int = Field(default=8, description="Minimum font size for grid cell text")
-    window_alpha: float = Field(default=0.65, description="Window transparency level")
+    window_alpha: float = Field(default=0.75, description="Window transparency level")
 
     # Transparency controls for grid elements
-    rect_fill_alpha: float = Field(default=0.1, description="Alpha transparency for rectangle fill - 0.0 for transparent cells")
-    rect_outline_alpha: float = Field(default=0.3, description="Alpha transparency for rectangle outline (0.0-1.0)")
-    text_alpha: float = Field(default=0.8, description="Alpha transparency for text labels (0.0-1.0)")
+    rect_fill_alpha: float = Field(default=0, description="Alpha transparency for rectangle fill - 0.0 for transparent cells")
+    rect_outline_alpha: float = Field(default=0.2, description="Alpha transparency for rectangle outline (0.0-1.0)")
+    text_alpha: float = Field(default=0.7, description="Alpha transparency for text labels (0.0-1.0)")
 
     @property
     def text_font_family(self) -> str:

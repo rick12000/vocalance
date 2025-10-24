@@ -449,8 +449,16 @@ class AssetPathsConfig(BaseModel):
     def logo_image_path(self) -> Optional[str]:
         """Main logo image path"""
         if self.logo_dir:
-            logo_path: Path = Path(self.logo_dir) / "iris_logo_full_size.png"
+            logo_path: Path = Path(self.logo_dir) / "logo_full_text_full_size.png"
             return str(logo_path)
+        return None
+
+    @property
+    def icon_logo_image_path(self) -> Optional[str]:
+        """Icon logo image path"""
+        if self.logo_dir:
+            icon_path: Path = Path(self.logo_dir) / "grey_icon_full_size.png"
+            return str(icon_path)
         return None
 
     @property

@@ -275,7 +275,7 @@ class AppControlRoom:
         sidebar_config = ui_theme.theme.sidebar_layout
 
         self.sidebar_logo = self.logo_service.create_logo_widget(
-            self.sidebar, max_size=sidebar_config.logo_max_size, context="sidebar", text_fallback="Iris"
+            self.sidebar, max_size=sidebar_config.logo_max_size, context="sidebar", text_fallback="Iris", logo_type="icon"
         )
 
         self.sidebar_logo.grid(row=2, column=0, pady=(sidebar_config.logo_padding_top, sidebar_config.logo_padding_bottom))

@@ -260,7 +260,7 @@ class SidebarLayout(BaseModel):
     container_padding_bottom: int = 0
 
     # Logo configuration
-    logo_max_size: int = 70  # Reduced from 100 to 50 for smaller sidebar logo
+    logo_max_size: int = 50  # Further reduced for even smaller sidebar logo
     logo_padding_left: int = 0
     logo_padding_right: int = 0
     logo_padding_top: int = 0
@@ -440,7 +440,12 @@ class ListLayout(BaseModel):
 class LogoProperties(BaseModel):
     """Logo styling properties"""
 
-    filename: str = "iris_logo_full_size.png"
+    full_logo_filename: str = "grey_icon_full_size.png"
+    icon_logo_filename: str = "grey_icon_full_size.png"
+
+    # Monochrome conversion toggles
+    full_logo_apply_monochrome: bool = False
+    icon_logo_apply_monochrome: bool = False
 
     @property
     def color(self) -> str:
@@ -497,8 +502,8 @@ class Dimensions(BaseModel):
     button_text_padding: int = 2
     entry_height: int = 35
     entry_height_standard: int = 35
-    logo_size: int = 15
-    sidebar_logo_size: int = 15
+    logo_size: int = 13
+    sidebar_logo_size: int = 13
 
     # Entry field dimensions
     entry_width_small: int = 150
@@ -520,7 +525,7 @@ class Dimensions(BaseModel):
     # Startup window dimensions
     startup_width: int = 500
     startup_height: int = 250
-    startup_logo_size: int = 150
+    startup_logo_size: int = 110
     progress_bar_width: int = 300
     progress_bar_height: int = 5
 

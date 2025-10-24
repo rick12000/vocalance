@@ -11,7 +11,7 @@ def pad_to_square(im, fill_color=(255, 255, 255, 0)):  # Use white with full tra
     return new_im
 
 
-INPUT_FILE = "iris_icon_full_size.png"
+INPUT_FILE = "color_icon_full_size.png"
 OUTPUT_FILE = "icon.ico"
 RESAMPLE_FILTER = Image.Resampling.LANCZOS
 ICON_SIZES = [256, 128, 64, 48, 32, 16]
