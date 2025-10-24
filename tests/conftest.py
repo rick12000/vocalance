@@ -6,7 +6,7 @@ and audio flow integration without dependencies on external storage or persisten
 """
 import os
 
-# Add iris to path for imports
+# Add vocalance to path for imports
 import sys
 import tempfile
 from pathlib import Path
@@ -17,11 +17,11 @@ import pytest
 import pytest_asyncio
 import soundfile as sf
 
-from iris.app.config.app_config import GlobalAppConfig
-from iris.app.event_bus import EventBus
-from iris.app.services.audio.stt.stt_service import SpeechToTextService
-from iris.app.services.audio.stt.vosk_stt import EnhancedVoskSTT
-from iris.app.services.audio.stt.whisper_stt import WhisperSpeechToText
+from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.event_bus import EventBus
+from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
+from vocalance.app.services.audio.stt.vosk_stt import EnhancedVoskSTT
+from vocalance.app.services.audio.stt.whisper_stt import WhisperSpeechToText
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -206,10 +206,10 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     import sys
 
     monkeypatch.setitem(sys.modules, "tensorflow", tf_mock)
-    monkeypatch.setattr("iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer.tf", tf_mock)
+    monkeypatch.setattr("vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer.tf", tf_mock)
 
     # Import after mocking
-    from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
+    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
 
     recognizer = StreamlinedSoundRecognizer(mock_config, mock_storage_factory)
     recognizer.yamnet_model = mock_yamnet_model
@@ -220,7 +220,7 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
 @pytest.fixture
 def vosk_model_path():
     """Get the path to the Vosk model."""
-    return "iris/app/assets/vosk-model-small-en-us-0.15"
+    return "vocalance/app/assets/vosk-model-small-en-us-0.15"
 
 
 @pytest.fixture
@@ -361,7 +361,7 @@ def mock_command_storage_adapter():
 @pytest.fixture
 def mock_storage_service():
     """Mock unified storage service for testing."""
-    from iris.app.services.storage.storage_models import CommandHistoryData, CommandsData, MarksData
+    from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandsData, MarksData
 
     storage = Mock()
 
@@ -434,11 +434,11 @@ def mock_duplicate_filter():
 @pytest.fixture
 def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, mock_duplicate_filter, stt_config):
     """Create Vosk STT instance with mocked dependencies."""
-    with patch("iris.app.services.audio.vosk_stt.vosk.Model", return_value=mock_vosk_model), patch(
-        "iris.app.services.audio.vosk_stt.vosk.KaldiRecognizer", return_value=mock_vosk_recognizer
-    ), patch("iris.app.services.audio.vosk_stt.DuplicateTextFilter", return_value=mock_duplicate_filter):
+    with patch("vocalance.app.services.audio.vosk_stt.vosk.Model", return_value=mock_vosk_model), patch(
+        "vocalance.app.services.audio.vosk_stt.vosk.KaldiRecognizer", return_value=mock_vosk_recognizer
+    ), patch("vocalance.app.services.audio.vosk_stt.DuplicateTextFilter", return_value=mock_duplicate_filter):
 
-        from iris.app.services.audio.vosk_stt import EnhancedVoskSTT
+        from vocalance.app.services.audio.vosk_stt import EnhancedVoskSTT
 
         instance = EnhancedVoskSTT(model_path="fake_model_path", sample_rate=16000, config=stt_config)
         instance._recognizer = mock_vosk_recognizer
@@ -464,11 +464,11 @@ def mock_whisper_model():
 @pytest.fixture
 def whisper_stt_instance(mock_whisper_model, mock_duplicate_filter, stt_config):
     """Create Whisper STT instance with mocked dependencies."""
-    with patch("iris.app.services.audio.whisper_stt.WhisperModel", return_value=mock_whisper_model), patch(
-        "iris.app.services.audio.whisper_stt.DuplicateTextFilter", return_value=mock_duplicate_filter
+    with patch("vocalance.app.services.audio.whisper_stt.WhisperModel", return_value=mock_whisper_model), patch(
+        "vocalance.app.services.audio.whisper_stt.DuplicateTextFilter", return_value=mock_duplicate_filter
     ):
 
-        from iris.app.services.audio.whisper_stt import WhisperSpeechToText
+        from vocalance.app.services.audio.whisper_stt import WhisperSpeechToText
 
         instance = WhisperSpeechToText(model_name="base", device="cpu", sample_rate=16000, config=stt_config)
         instance._model = mock_whisper_model
@@ -508,7 +508,7 @@ def mock_recognizer():
 @pytest.fixture
 def preprocessor():
     """Create a standard AudioPreprocessor instance."""
-    from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
+    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
 
     return AudioPreprocessor(target_sr=16000, silence_threshold=0.005, min_sound_duration=0.1, max_sound_duration=2.0)
 

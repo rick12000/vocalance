@@ -1,7 +1,7 @@
 """
 Aligned Sample Recorder
 
-Records audio using the same AudioRecorder class and configurations used in the main Iris application.
+Records audio using the same AudioRecorder class and configurations used in the main Vocalance application.
 This generates realistic audio byte segments that match the exact format passed to stt_service.py,
 making it ideal for unit testing downstream audio processing components.
 
@@ -25,8 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from iris.app.config.app_config import GlobalAppConfig
-from iris.app.services.audio.recorder import AudioRecorder
+from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.services.audio.recorder import AudioRecorder
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -58,7 +58,7 @@ class AlignedSampleRecorder:
         self.segment_count += 1
 
     def start(self):
-        self.logger.info(f"Starting {self.mode} mode recorder using Iris AudioRecorder")
+        self.logger.info(f"Starting {self.mode} mode recorder using Vocalance AudioRecorder")
         self.logger.info(f"Output directory: {self.output_dir}")
         self.logger.info("Press Ctrl+C to stop recording")
 
@@ -103,7 +103,7 @@ class AlignedSampleRecorder:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Record audio using Iris AudioRecorder configurations")
+    parser = argparse.ArgumentParser(description="Record audio using Vocalance AudioRecorder configurations")
     parser.add_argument(
         "--mode",
         choices=["command", "dictation"],

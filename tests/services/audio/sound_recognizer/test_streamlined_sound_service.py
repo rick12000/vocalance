@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from iris.app.events.core_events import CustomSoundRecognizedEvent, ProcessAudioChunkForSoundRecognitionEvent
-from iris.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
+from vocalance.app.events.core_events import CustomSoundRecognizedEvent, ProcessAudioChunkForSoundRecognitionEvent
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
 
 
 class TestStreamlinedSoundService:
@@ -19,7 +19,7 @@ class TestStreamlinedSoundService:
     def service(self, mock_event_bus, mock_config, mock_storage_factory, mock_recognizer):
         """Create a service instance with mocked dependencies."""
         with patch(
-            "iris.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer",
+            "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer",
             return_value=mock_recognizer,
         ):
             service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
@@ -28,7 +28,7 @@ class TestStreamlinedSoundService:
     def test_init(self, mock_event_bus, mock_config, mock_storage_factory):
         """Test service initialization."""
         with patch(
-            "iris.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer"
+            "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer"
         ) as mock_recognizer_class:
             service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
 

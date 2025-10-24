@@ -1,17 +1,17 @@
 API Reference
 =============
 
-This section provides detailed documentation for Iris's main classes and modules.
+This section provides detailed documentation for Vocalance's main classes and modules.
 
 Core Services
 =============
 
-.. currentmodule:: iris.app.services
+.. currentmodule:: vocalance.app.services
 
 Speech Recognition
 ------------------
 
-.. currentmodule:: iris.app.services.audio.stt_service
+.. currentmodule:: vocalance.app.services.audio.stt_service
 
 SpeechToTextService
 ~~~~~~~~~~~~~~~~~~~
@@ -20,7 +20,7 @@ SpeechToTextService
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.app.services.audio.simple_audio_service
+.. currentmodule:: vocalance.app.services.audio.simple_audio_service
 
 SimpleAudioService
 ~~~~~~~~~~~~~~~~~~
@@ -32,7 +32,7 @@ SimpleAudioService
 Command Processing
 ------------------
 
-.. currentmodule:: iris.app.services.centralized_command_parser
+.. currentmodule:: vocalance.app.services.centralized_command_parser
 
 CentralizedCommandParser
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -41,7 +41,7 @@ CentralizedCommandParser
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.app.services.automation_service
+.. currentmodule:: vocalance.app.services.automation_service
 
 AutomationService
 ~~~~~~~~~~~~~~~~~
@@ -53,7 +53,7 @@ AutomationService
 Grid and Screen Interaction
 ---------------------------
 
-.. currentmodule:: iris.app.services.grid.grid_service
+.. currentmodule:: vocalance.app.services.grid.grid_service
 
 GridService
 ~~~~~~~~~~~
@@ -62,7 +62,7 @@ GridService
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.app.services.mark_service
+.. currentmodule:: vocalance.app.services.mark_service
 
 MarkService
 ~~~~~~~~~~~
@@ -74,7 +74,7 @@ MarkService
 Dictation and AI
 -----------------
 
-.. currentmodule:: iris.app.services.audio.dictation_handling.dictation_coordinator
+.. currentmodule:: vocalance.app.services.audio.dictation_handling.dictation_coordinator
 
 DictationCoordinator
 ~~~~~~~~~~~~~~~~~~~~
@@ -86,7 +86,7 @@ DictationCoordinator
 Storage and Configuration
 -------------------------
 
-.. currentmodule:: iris.app.services.storage.storage_service
+.. currentmodule:: vocalance.app.services.storage.storage_service
 
 StorageService
 ~~~~~~~~~~~~~~
@@ -95,7 +95,7 @@ StorageService
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.app.services.storage.settings_service
+.. currentmodule:: vocalance.app.services.storage.settings_service
 
 SettingsService
 ~~~~~~~~~~~~~~~
@@ -104,7 +104,7 @@ SettingsService
    :exclude-members: __init__
    :noindex:
 
-.. currentmodule:: iris.app.services.storage.settings_update_coordinator
+.. currentmodule:: vocalance.app.services.storage.settings_update_coordinator
 
 SettingsUpdateCoordinator
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -116,7 +116,7 @@ SettingsUpdateCoordinator
 Sound Recognition
 -----------------
 
-.. currentmodule:: iris.app.services.audio.sound_recognizer.streamlined_sound_service
+.. currentmodule:: vocalance.app.services.audio.sound_recognizer.streamlined_sound_service
 
 StreamlinedSoundService
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -128,12 +128,12 @@ StreamlinedSoundService
 User Interface
 ==============
 
-.. currentmodule:: iris.app.ui
+.. currentmodule:: vocalance.app.ui
 
 Main Application Window
 -----------------------
 
-.. currentmodule:: iris.app.ui.main_window
+.. currentmodule:: vocalance.app.ui.main_window
 
 AppControlRoom
 ~~~~~~~~~~~~~~
@@ -145,7 +145,7 @@ AppControlRoom
 Startup and Initialization
 ---------------------------
 
-.. currentmodule:: iris.app.ui.startup_window
+.. currentmodule:: vocalance.app.ui.startup_window
 
 StartupWindow
 ~~~~~~~~~~~~~
@@ -164,12 +164,12 @@ StartupProgressTracker
 Configuration and Events
 ========================
 
-.. currentmodule:: iris.app.config
+.. currentmodule:: vocalance.app.config
 
 Application Configuration
 -------------------------
 
-.. currentmodule:: iris.app.config.app_config
+.. currentmodule:: vocalance.app.config.app_config
 
 GlobalAppConfig
 ~~~~~~~~~~~~~~~
@@ -188,7 +188,7 @@ AppInfoConfig
 Event System
 ------------
 
-.. currentmodule:: iris.app.event_bus
+.. currentmodule:: vocalance.app.event_bus
 
 EventBus
 ~~~~~~~~
@@ -200,33 +200,33 @@ EventBus
 Utility Functions
 =================
 
-.. currentmodule:: iris.app.ui.utils
+.. currentmodule:: vocalance.app.ui.utils
 
 UI Thread Management
 --------------------
 
-.. currentmodule:: iris.app.ui.utils.ui_thread_utils
+.. currentmodule:: vocalance.app.ui.utils.ui_thread_utils
 
 .. autofunction:: initialize_ui_scheduler
 
 Icon Management
 ---------------
 
-.. currentmodule:: iris.app.ui.utils.ui_icon_utils
+.. currentmodule:: vocalance.app.ui.utils.ui_icon_utils
 
 .. autofunction:: set_window_icon_robust
 
 Configuration Loading
 ---------------------
 
-.. currentmodule:: iris.app.config.app_config
+.. currentmodule:: vocalance.app.config.app_config
 
 .. autofunction:: load_app_config
 
 Logging Configuration
 ---------------------
 
-.. currentmodule:: iris.app.config.logging_config
+.. currentmodule:: vocalance.app.config.logging_config
 
 .. autofunction:: setup_logging
 
@@ -236,7 +236,7 @@ Data Models and Enums
 STT Modes
 ---------
 
-.. currentmodule:: iris.app.services.audio.stt_service
+.. currentmodule:: vocalance.app.services.audio.stt_service
 
 .. autoclass:: STTMode
    :members:
@@ -245,7 +245,7 @@ STT Modes
 Storage Data Models
 --------------------
 
-.. currentmodule:: iris.app.services.storage.storage_models
+.. currentmodule:: vocalance.app.services.storage.storage_models
 
 .. autoclass:: StorageData
    :members:

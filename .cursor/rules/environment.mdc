@@ -5,6 +5,6 @@ alwaysApply: true
 ---
 
 When executing code in the terminal, ALWAYS use:
-conda activate iris_env
+conda activate vocalance_env
 pip install .
 Then execute the program

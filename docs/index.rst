@@ -1,7 +1,7 @@
-Iris Documentation
+Vocalance Documentation
 ==================
 
-Iris is a voice command assistant designed for accessibility, featuring on-device processing and minimal system permissions. Built for users with limited mobility, Iris provides powerful voice control capabilities while maintaining privacy through local processing.
+Vocalance is a voice command assistant designed for accessibility, featuring on-device processing and minimal system permissions. Built for users with limited mobility, Vocalance provides powerful voice control capabilities while maintaining privacy through local processing.
 
 .. toctree::
    :maxdepth: 1

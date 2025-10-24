@@ -6,7 +6,7 @@ import asyncio
 import pytest
 import pytest_asyncio
 
-from iris.app.config.command_types import (
+from vocalance.app.config.command_types import (
     DictationStartCommand,
     DictationStopCommand,
     ExactMatchCommand,
@@ -18,17 +18,17 @@ from iris.app.config.command_types import (
     MarkExecuteCommand,
     ParameterizedCommand,
 )
-from iris.app.events.command_events import (
+from vocalance.app.events.command_events import (
     AutomationCommandParsedEvent,
     CommandNoMatchEvent,
     DictationCommandParsedEvent,
     GridCommandParsedEvent,
     MarkCommandParsedEvent,
 )
-from iris.app.events.core_events import CommandTextRecognizedEvent, CustomSoundRecognizedEvent
-from iris.app.events.dictation_events import DictationStatusChangedEvent
-from iris.app.events.sound_events import SoundToCommandMappingUpdatedEvent
-from iris.app.services.centralized_command_parser import CentralizedCommandParser
+from vocalance.app.events.core_events import CommandTextRecognizedEvent, CustomSoundRecognizedEvent
+from vocalance.app.events.dictation_events import DictationStatusChangedEvent
+from vocalance.app.events.sound_events import SoundToCommandMappingUpdatedEvent
+from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
 
 
 @pytest_asyncio.fixture
@@ -148,7 +148,7 @@ async def test_parse_grid_show_command(command_parser):
 
     event_bus.subscribe(GridCommandParsedEvent, capture_event)
 
-    event = CommandTextRecognizedEvent(text="golf", engine="vosk")
+    event = CommandTextRecognizedEvent(text="go", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
@@ -169,7 +169,7 @@ async def test_parse_grid_show_with_number(command_parser):
 
     event_bus.subscribe(GridCommandParsedEvent, capture_event)
 
-    event = CommandTextRecognizedEvent(text="golf 9", engine="vosk")
+    event = CommandTextRecognizedEvent(text="go 9", engine="vosk")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 

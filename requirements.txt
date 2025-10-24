@@ -1,4 +1,4 @@
-# Core Runtime Dependencies for Iris Voice Assistant
+# Core Runtime Dependencies for Vocalance Voice Assistant
 
 # Audio Processing
 vosk>=0.3.42

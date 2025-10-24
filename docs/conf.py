@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(".."))
 
-project = "Iris"
+project = "Vocalance"
 copyright = "2025, Riccardo Doyle"
 author = "Riccardo Doyle"
 release = "0.1.0"
@@ -95,12 +95,12 @@ html_js_files = ["layout-manager.js"]
 html_context = {
     "display_github": True,
     "github_user": "rick12000",
-    "github_repo": "iris",
+    "github_repo": "vocalance",
     "github_version": "main",
     "conf_py_path": "/docs/",
 }
 
-html_logo = "../iris/app/assets/logo/logo_full_text_full_size.png"
+html_logo = "../vocalance/app/assets/logo/logo_full_text_full_size.png"
 html_favicon = None
 
 root_doc = "index"
@@ -119,18 +119,18 @@ latex_elements = {
 }
 
 latex_documents = [
-    (root_doc, "iris.tex", "Iris Documentation", author, "manual"),
+    (root_doc, "vocalance.tex", "Vocalance Documentation", author, "manual"),
 ]
 
-man_pages = [(root_doc, "iris", "Iris Documentation", [author], 1)]
+man_pages = [(root_doc, "vocalance", "Vocalance Documentation", [author], 1)]
 
 texinfo_documents = [
     (
         root_doc,
-        "iris",
-        "Iris Documentation",
+        "vocalance",
+        "Vocalance Documentation",
         author,
-        "iris",
+        "vocalance",
         "Voice Command Assistant for Accessibility.",
         "Miscellaneous",
     ),

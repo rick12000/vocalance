@@ -3,8 +3,8 @@ include LICENSE
 include README.md
 include pyproject.toml
 
-# Include UI assets (now in iris/app/assets/)
-recursive-include iris/app/assets *
+# Include UI assets (now in vocalance/app/assets/)
+recursive-include vocalance/app/assets *
 
 # Exclude build artifacts and cache
 prune build
@@ -18,6 +18,6 @@ prune .cursor
 prune .vscode
 prune .conda
 
-# Exclude large model files from root level only (not in iris/app/assets/)
+# Exclude large model files from root level only (not in vocalance/app/assets/)
 global-exclude *.gguf
-# Note: vosk models in iris/app/assets/ will be included via recursive-include above
+# Note: vosk models in vocalance/app/assets/ will be included via recursive-include above

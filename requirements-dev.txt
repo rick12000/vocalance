@@ -1,4 +1,4 @@
-# Development Dependencies for Iris Voice Assistant
+# Development Dependencies for Vocalance Voice Assistant
 # Install with: pip install -r requirements-dev.txt
 
 # Include all runtime dependencies

@@ -1,5 +1,5 @@
 <div style="width:100%; display:flex; justify-content:center;">
-  <img src="assets/repo/banner_github.png" alt="Iris Logo" style="width:100%; max-width:1000px; height:auto;"/>
+  <img src="assets/repo/banner_github.png" alt="Vocalance Logo" style="width:100%; max-width:1000px; height:auto;"/>
 </div>
 
 ## ✨ Core Features
@@ -24,19 +24,19 @@
 
 ## 📚 Documentation
 
-### **[Getting Started Guide](https://iris.readthedocs.io/en/latest/getting_started.html)**
+### **[Getting Started Guide](https://vocalance.readthedocs.io/en/latest/getting_started.html)**
 Complete setup walkthrough and first-time user tutorial.
 
-### **[User Guide](https://iris.readthedocs.io/en/latest/basic_usage.html)**
-- **[Voice Commands](https://iris.readthedocs.io/en/latest/basic_usage.html#speech-recognition-modes)**: Master command and dictation modes
-- **[Grid Navigation](https://iris.readthedocs.io/en/latest/basic_usage.html#grid-navigation-system)**: Precise screen targeting without mouse
-- **[Custom Commands](https://iris.readthedocs.io/en/latest/basic_usage.html#custom-command-creation)**: Create personalized voice commands
-- **[AI Dictation](https://iris.readthedocs.io/en/latest/basic_usage.html#ai-powered-dictation)**: Intelligent text processing and formatting
+### **[User Guide](https://vocalance.readthedocs.io/en/latest/basic_usage.html)**
+- **[Voice Commands](https://vocalance.readthedocs.io/en/latest/basic_usage.html#speech-recognition-modes)**: Master command and dictation modes
+- **[Grid Navigation](https://vocalance.readthedocs.io/en/latest/basic_usage.html#grid-navigation-system)**: Precise screen targeting without mouse
+- **[Custom Commands](https://vocalance.readthedocs.io/en/latest/basic_usage.html#custom-command-creation)**: Create personalized voice commands
+- **[AI Dictation](https://vocalance.readthedocs.io/en/latest/basic_usage.html#ai-powered-dictation)**: Intelligent text processing and formatting
 
-### **[API Reference](https://iris.readthedocs.io/en/latest/api_reference.html)**
+### **[API Reference](https://vocalance.readthedocs.io/en/latest/api_reference.html)**
 Complete technical documentation for developers and advanced users.
 
-### **[Architecture Overview](https://iris.readthedocs.io/en/latest/architecture.html)**
+### **[Architecture Overview](https://vocalance.readthedocs.io/en/latest/architecture.html)**
 System design, component interactions, and extensibility guide.
 
 ## 🔧 System Requirements
@@ -49,7 +49,7 @@ System design, component interactions, and extensibility guide.
 
 **Local Processing**: All speech recognition and AI processing happens on your device. No data is transmitted to external servers.
 
-**Minimal Permissions**: Iris requires only essential system permissions:
+**Minimal Permissions**: Vocalance requires only essential system permissions:
 - Microphone access for speech recognition
 - Keyboard/mouse automation for command execution
 - File system access for configuration and settings/artifact storage
@@ -69,20 +69,20 @@ We welcome contributions from the community! Please see our [Contributing Guidel
 ### Q1 2026
 - Multi-language support
 
-See our complete [Roadmap](https://iris.readthedocs.io/en/latest/roadmap.html) for detailed feature plans. If you have feature ideas please reach out!
+See our complete [Roadmap](https://vocalance.readthedocs.io/en/latest/roadmap.html) for detailed feature plans. If you have feature ideas please reach out!
 
 ## 💬 Support
 
-- **Documentation**: [iris.readthedocs.io](https://iris.readthedocs.io/)
-- **Issues**: [GitHub Issues](https://github.com/rick12000/iris/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/rick12000/iris/discussions)
+- **Documentation**: [vocalance.readthedocs.io](https://vocalance.readthedocs.io/)
+- **Issues**: [GitHub Issues](https://github.com/rick12000/vocalance/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/rick12000/vocalance/discussions)
 - **Email**: riccardo.doyle.edu@gmail.com
 
 ---
 
 <div align="center">
   <strong>Ready to transform your computing experience with voice control?</strong><br>
-  <a href="https://iris.readthedocs.io/en/latest/getting_started.html">Get Started</a> |
-  <a href="https://iris.readthedocs.io/en/latest/basic_usage.html">User Guide</a> |
-  <a href="https://iris.readthedocs.io/en/latest/api_reference.html">API Docs</a>
+  <a href="https://vocalance.readthedocs.io/en/latest/getting_started.html">Get Started</a> |
+  <a href="https://vocalance.readthedocs.io/en/latest/basic_usage.html">User Guide</a> |
+  <a href="https://vocalance.readthedocs.io/en/latest/api_reference.html">API Docs</a>
 </div>

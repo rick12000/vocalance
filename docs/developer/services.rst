@@ -1,7 +1,7 @@
 Services Architecture
 =====================
 
-This document provides a comprehensive guide to the services architecture of Iris, detailing module dependencies, event flows, and optimization strategies.
+This document provides a comprehensive guide to the services architecture of Vocalance, detailing module dependencies, event flows, and optimization strategies.
 
 Module Dependency Graph
 -----------------------
@@ -710,7 +710,7 @@ Click tracking events:
 Helper Services Architecture
 ----------------------------
 
-The Iris architecture includes lightweight helper services that provide shared functionality to multiple components, promoting code reuse and separation of concerns.
+The Vocalance architecture includes lightweight helper services that provide shared functionality to multiple components, promoting code reuse and separation of concerns.
 
 ProtectedTermsValidator
 ~~~~~~~~~~~~~~~~~~~~~~~

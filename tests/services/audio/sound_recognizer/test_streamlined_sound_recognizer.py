@@ -10,7 +10,10 @@ import numpy as np
 import pytest
 from sklearn.metrics.pairwise import cosine_similarity
 
-from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor, StreamlinedSoundRecognizer
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import (
+    AudioPreprocessor,
+    StreamlinedSoundRecognizer,
+)
 
 
 class TestAudioPreprocessor:

@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 import numpy as np
 import pytest
 
-from iris.app.events.core_events import CommandAudioSegmentReadyEvent, CommandTextRecognizedEvent
+from vocalance.app.events.core_events import CommandAudioSegmentReadyEvent, CommandTextRecognizedEvent
 
 
 class RecognitionCapture:

@@ -6,11 +6,11 @@ import asyncio
 import pytest
 import pytest_asyncio
 
-from iris.app.config.command_types import GridCancelCommand, GridSelectCommand, GridShowCommand
-from iris.app.events.command_events import GridCommandParsedEvent
-from iris.app.events.core_events import CommandExecutedStatusEvent
-from iris.app.events.grid_events import GridVisibilityChangedEventData
-from iris.app.services.grid.grid_service import GridService
+from vocalance.app.config.command_types import GridCancelCommand, GridSelectCommand, GridShowCommand
+from vocalance.app.events.command_events import GridCommandParsedEvent
+from vocalance.app.events.core_events import CommandExecutedStatusEvent
+from vocalance.app.events.grid_events import GridVisibilityChangedEventData
+from vocalance.app.services.grid.grid_service import GridService
 
 
 @pytest_asyncio.fixture
@@ -138,7 +138,7 @@ async def test_grid_select_cell(grid_service):
 
     event_bus.subscribe(CommandExecutedStatusEvent, capture_event)
 
-    from iris.app.events.grid_events import ClickGridCellRequestEventData
+    from vocalance.app.events.grid_events import ClickGridCellRequestEventData
 
     event_bus.subscribe(ClickGridCellRequestEventData, capture_event)
 

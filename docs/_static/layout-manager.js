@@ -1,5 +1,5 @@
 /**
- * Iris Documentation - Simplified Layout Manager
+ * Vocalance Documentation - Simplified Layout Manager
  * Minimal JavaScript for enhanced UX without breaking RTD functionality
  */
 
@@ -285,7 +285,7 @@
       addLoadingStates();
       setupMermaidInteractive();
     } catch (error) {
-      console.warn('Iris Layout Manager: Some enhancements failed to initialize:', error);
+      console.warn('Vocalance Layout Manager: Some enhancements failed to initialize:', error);
     }
   }
 
@@ -301,7 +301,7 @@
 
   // Export for debugging (optional)
   if (typeof window !== 'undefined') {
-    window.IrisLayoutManager = {
+    window.VocalanceLayoutManager = {
       init,
       enhanceSearchInput,
       enhanceNavigation,

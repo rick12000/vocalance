@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from sklearn.metrics.pairwise import cosine_similarity
 
-from iris.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
 
 
 class TestSoundRecognitionIntegration:

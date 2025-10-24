@@ -7,10 +7,10 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 
-from iris.app.config.command_types import MarkCreateCommand
-from iris.app.events.command_events import MarkCommandParsedEvent
-from iris.app.events.mark_events import MarkCreatedEventData
-from iris.app.services.mark_service import MarkService
+from vocalance.app.config.command_types import MarkCreateCommand
+from vocalance.app.events.command_events import MarkCommandParsedEvent
+from vocalance.app.events.mark_events import MarkCreatedEventData
+from vocalance.app.services.mark_service import MarkService
 
 
 @pytest_asyncio.fixture

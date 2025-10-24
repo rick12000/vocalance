@@ -9,8 +9,8 @@ from pathlib import Path
 import psutil
 import pytest
 
-from iris.app.config.app_config import GlobalAppConfig
-from iris.app.event_bus import EventBus
+from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.event_bus import EventBus
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -25,7 +25,7 @@ def app_config():
 @pytest.mark.slow
 async def test_process_exit_releases_memory(app_config):
     """Test that memory is fully released when the application process exits."""
-    main_script_path = Path(__file__).parent.parent.parent / "iris" / "main.py"
+    main_script_path = Path(__file__).parent.parent.parent / "vocalance" / "main.py"
 
     test_process = psutil.Process(os.getpid())
     baseline_uss = test_process.memory_full_info().uss / (1024 * 1024)
@@ -62,12 +62,12 @@ async def test_process_exit_releases_memory(app_config):
 @pytest.mark.slow
 async def test_repeated_initialization_memory(app_config):
     """Test that repeated initialization cycles don't accumulate memory."""
-    from iris.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
-    from iris.app.services.audio.stt.stt_service import SpeechToTextService
-    from iris.app.services.automation_service import AutomationService
-    from iris.app.services.grid.grid_service import GridService
-    from iris.app.services.storage.storage_service import StorageService
-    from iris.main import _cleanup_services
+    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
+    from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
+    from vocalance.app.services.automation_service import AutomationService
+    from vocalance.app.services.grid.grid_service import GridService
+    from vocalance.app.services.storage.storage_service import StorageService
+    from vocalance.main import _cleanup_services
 
     test_process = psutil.Process(os.getpid())
     memory_snapshots = []

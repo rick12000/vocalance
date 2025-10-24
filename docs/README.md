@@ -1,6 +1,6 @@
-# Iris Documentation
+# Vocalance Documentation
 
-This directory contains the Sphinx documentation for the Iris voice command assistant.
+This directory contains the Sphinx documentation for the Vocalance voice command assistant.
 
 ## Building the Documentation
 
