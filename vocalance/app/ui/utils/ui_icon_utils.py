@@ -1,161 +1,82 @@
 """
 UI Icon Utilities
 
-Focused utilities for setting window icons with robust cross-platform support.
-Single responsibility: Icon management for windows.
+Simple icon management for CustomTkinter windows.
 """
 
+import ctypes
 import logging
 import sys
 import tkinter as tk
+from pathlib import Path
 from typing import Optional, Union
 
-from PIL import Image, ImageTk
-
 from vocalance.app.config.app_config import AssetPathsConfig
-from vocalance.app.ui.utils.ui_assets import AssetCache
 
 logger = logging.getLogger("IconUtils")
 
+_ICON_PATH: Optional[str] = None
+_APP_ID_SET: bool = False
 
-def set_window_icon_robust(window: Union[tk.Tk, tk.Toplevel]) -> bool:
+
+def _get_icon_path() -> Optional[str]:
+    """Get icon path, cached at module level."""
+    global _ICON_PATH
+    if _ICON_PATH is None:
+        try:
+            asset_paths = AssetPathsConfig()
+            icon_path_str = asset_paths.icon_path
+            if icon_path_str:
+                icon_path = Path(icon_path_str)
+                if icon_path.exists():
+                    _ICON_PATH = str(icon_path.absolute())
+                    logger.info(f"Icon path loaded: {_ICON_PATH}")
+        except Exception as e:
+            logger.error(f"Failed to load icon path: {e}")
+    return _ICON_PATH
+
+
+def initialize_windows_taskbar_icon():
     """
-    Set icon for any window using a robust approach with multiple fallback methods.
-
-    Args:
-        window: The window to set the icon for
-
-    Returns:
-        True if at least one method succeeded, False otherwise
+    Set Windows App User Model ID to show custom taskbar icon immediately.
+    Prevents Python's default icon from appearing on taskbar.
     """
+    global _APP_ID_SET
+    if _APP_ID_SET or sys.platform != "win32":
+        return
+
     try:
-        icon_path = AssetCache(asset_paths_config=AssetPathsConfig()).get_icon_path()
-        if not icon_path:
-            logger.warning("No icon file available")
-            return False
-
-        icon_str = str(icon_path.absolute())
-        logger.debug(f"Setting window icon from path: {icon_str}")
-
-        success_methods = []
-
-        # Method 1: Standard iconbitmap (most reliable)
-        try:
-            window.iconbitmap(icon_str)
-            success_methods.append("iconbitmap")
-            logger.debug("Set window icon using iconbitmap")
-        except Exception as e:
-            logger.debug(f"iconbitmap method failed: {e}")
-
-        # Method 2: Force window update then try again
-        try:
-            window.update_idletasks()
-            window.update()
-            window.iconbitmap(icon_str)
-            success_methods.append("post-update iconbitmap")
-            logger.debug("Set window icon after forced update")
-        except Exception as e:
-            logger.debug(f"Post-update iconbitmap failed: {e}")
-
-        # Method 3: wm_iconbitmap for better compatibility
-        try:
-            window.wm_iconbitmap(icon_str)
-            success_methods.append("wm_iconbitmap")
-            logger.debug("Set window icon using wm_iconbitmap")
-        except Exception as e:
-            logger.debug(f"wm_iconbitmap failed: {e}")
-
-        # Method 4: Direct tk call for CustomTkinter compatibility
-        try:
-            if hasattr(window, "tk") and hasattr(window, "_w"):
-                window.tk.call("wm", "iconbitmap", window._w, icon_str)
-                success_methods.append("tk.call")
-                logger.debug("Set window icon using tk.call")
-        except Exception as e:
-            logger.debug(f"tk.call method failed: {e}")
-
-        # Method 5: Windows-specific approach
-        try:
-            if sys.platform == "win32":
-                window.wm_iconbitmap(default=icon_str)
-                success_methods.append("windows default")
-                logger.debug("Set icon using Windows default method")
-        except Exception as e:
-            logger.debug(f"Windows default icon method failed: {e}")
-
-        # Method 6: Force title bar refresh to ensure icon visibility
-        try:
-            current_title = window.title()
-            window.title(current_title + " ")  # Slight change
-            window.update()
-            window.title(current_title)  # Restore original
-            window.update()
-            logger.debug("Forced title bar refresh to ensure icon visibility")
-        except Exception as e:
-            logger.debug(f"Title bar refresh failed: {e}")
-
-        # Method 7: Use iconphoto for high-DPI environments
-        try:
-            pil_img = Image.open(icon_path)
-            tk_img = ImageTk.PhotoImage(pil_img)
-            window.iconphoto(False, tk_img)
-            # Keep reference to prevent garbage collection
-            setattr(window, "_iconphoto_image", tk_img)
-            success_methods.append("iconphoto")
-            logger.debug("Set window icon using iconphoto")
-        except Exception as e:
-            logger.debug(f"iconphoto method failed: {e}")
-
-        if success_methods:
-            logger.info(f"Successfully set window icon using methods: {success_methods}")
-            return True
-        else:
-            logger.warning("All icon setting methods failed for window")
-            return False
-
+        app_id = "Vocalance.VoiceControl.1.0"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        logger.info(f"Windows App ID set: {app_id}")
+        _APP_ID_SET = True
     except Exception as e:
-        logger.error(f"Could not set window icon: {e}", exc_info=True)
+        logger.debug(f"Could not set App User Model ID: {e}")
+
+
+def set_window_icon_robust(window: Union[tk.Tk, tk.Toplevel], is_toplevel: bool = None) -> bool:
+    """
+    Set window icon for CustomTkinter windows.
+
+    CustomTkinter overrides icons at various timing intervals, so we set
+    the icon immediately and then reinforce multiple times to ensure it sticks.
+    """
+    icon_path = _get_icon_path()
+    if not icon_path:
         return False
 
+    def set_icon_now():
+        try:
+            window.iconbitmap(icon_path)
+        except Exception as e:
+            logger.debug(f"Icon set failed: {e}")
 
-def ensure_parent_has_icon(parent_window: tk.Tk) -> None:
-    """
-    Ensure parent window has icon set for proper inheritance.
-
-    Args:
-        parent_window: The parent window to ensure has an icon
-    """
     try:
-        icon_path = AssetCache(asset_paths_config=AssetPathsConfig()).get_icon_path()
-        if not icon_path:
-            return
-
-        icon_str = str(icon_path.absolute())
-
-        # Force parent window update to ensure it's established
-        parent_window.update_idletasks()
-        parent_window.iconbitmap(icon_str)
-        parent_window.update()
-        logger.debug("Ensured parent window has icon and is updated")
-
+        set_icon_now()
+        window.after_idle(set_icon_now)
+        for delay in [10, 50, 100, 200]:
+            window.after(delay, set_icon_now)
+        return True
     except Exception as e:
-        logger.debug(f"Parent icon setting failed: {e}")
-
-
-def set_window_icon_with_parent_inheritance(window: Union[tk.Tk, tk.Toplevel], parent: Optional[tk.Tk] = None) -> bool:
-    """
-    Set window icon with proper parent inheritance for better compatibility.
-
-    Args:
-        window: The window to set the icon for
-        parent: Optional parent window to ensure has icon first
-
-    Returns:
-        True if successful, False otherwise
-    """
-    # First ensure parent has icon if provided
-    if parent and window != parent:
-        ensure_parent_has_icon(parent)
-
-    # Then set icon on the target window
-    return set_window_icon_robust(window)
+        logger.error(f"Failed to set icon: {e}")
+        return False

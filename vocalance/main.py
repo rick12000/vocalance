@@ -471,6 +471,11 @@ async def main():
         # Start event bus worker
         gui_event_loop.call_soon_threadsafe(lambda: gui_event_loop.create_task(event_bus.start_worker()))
 
+        # Set Windows App ID for immediate taskbar icon (prevents Python icon flash)
+        from vocalance.app.ui.utils.ui_icon_utils import initialize_windows_taskbar_icon
+
+        initialize_windows_taskbar_icon()
+
         # Initialize UI
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -484,10 +489,8 @@ async def main():
         app_tk_root.minsize(ui_theme.theme.dimensions.main_window_min_width, ui_theme.theme.dimensions.main_window_min_height)
         app_tk_root.resizable(False, False)
 
-        # Setup icons FIRST and force render before creating child windows
+        # Set window icon
         set_window_icon_robust(window=app_tk_root)
-        app_tk_root.update_idletasks()
-        app_tk_root.update()
 
         # Setup UI scheduler
         initialize_ui_scheduler(root_window=app_tk_root)

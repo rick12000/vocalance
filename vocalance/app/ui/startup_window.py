@@ -380,15 +380,10 @@ class StartupWindow:
             return
 
         try:
-            # Method 1: Use parent inheritance helper
-            from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_with_parent_inheritance
+            from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
-            set_window_icon_with_parent_inheritance(window=self.window, parent=self.main_root)
-
-            # Method 2: Force update to ensure icon is rendered
+            set_window_icon_robust(window=self.window)
             self.window.update_idletasks()
-            self.window.update()
-
         except Exception as e:
             self.logger.warning(f"Error setting startup window icon: {e}")
 
@@ -398,10 +393,9 @@ class StartupWindow:
             return
 
         try:
-            # Use both parent inheritance and direct setting for maximum reliability
-            from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_with_parent_inheritance
+            from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
-            set_window_icon_with_parent_inheritance(window=self.window, parent=self.main_root)
+            set_window_icon_robust(window=self.window)
             self.window.update_idletasks()
         except Exception as e:
             self.logger.debug(f"Error reinforcing icon: {e}")
