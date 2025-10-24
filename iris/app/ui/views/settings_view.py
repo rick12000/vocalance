@@ -164,14 +164,14 @@ class SettingsView(ctk.CTkFrame):
             0,
             [
                 (
-                    "Context Length:",
+                    "Max Context Tokens:",
                     self.llm_context_length_var,
-                    "Maximum words the LLM can ingest + output (1 unit ≈ 1 word). Increase if dictating >1,000 words per dictation.",
+                    "Maximum words (1 token ≈ 1 word) the LLM can retain in memory at any given time. Increase if you plan to dictate longer texts.",
                 ),
                 (
-                    "Max Tokens:",
+                    "Max Output Tokens:",
                     self.llm_max_tokens_var,
-                    "Maximum LLM output tokens. Increase if you want outputs longer than 1,024 words.",
+                    "Maximum words the LLM can output (1 token ≈ 1 word). Increase if you want the model to be able to output more words.",
                 ),
             ],
             self._save_llm_settings,

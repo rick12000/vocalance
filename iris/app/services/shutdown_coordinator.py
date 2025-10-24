@@ -26,15 +26,26 @@ class ShutdownCoordinator:
     - Testable: Clear interface with minimal dependencies
     """
 
-    def __init__(self, event_bus: EventBus, root_window, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        event_bus: EventBus,
+        root_window,
+        logger: Optional[logging.Logger] = None,
+        gui_event_loop: Optional[asyncio.AbstractEventLoop] = None,
+    ):
         self.event_bus = event_bus
         self.root_window = root_window
         self.logger = logger or logging.getLogger(__name__)
+        self.gui_event_loop = gui_event_loop
 
         self._shutdown_requested = False
         self._shutdown_lock = threading.Lock()
         self._shutdown_event = threading.Event()
         self._initialization_task: Optional[asyncio.Task] = None
+
+    def set_gui_event_loop(self, gui_event_loop: asyncio.AbstractEventLoop) -> None:
+        """Set the GUI event loop reference after initialization."""
+        self.gui_event_loop = gui_event_loop
 
     def request_shutdown(self, reason: str, source: str) -> bool:
         """
@@ -59,12 +70,15 @@ class ShutdownCoordinator:
             self._initialization_task.cancel()
 
         # Publish shutdown event for observers
-        try:
-            asyncio.run_coroutine_threadsafe(
-                self.event_bus.publish(ApplicationShutdownRequestedEvent(reason=reason, source=source)), asyncio.get_event_loop()
-            )
-        except RuntimeError:
-            self.logger.debug("Could not publish shutdown event (event loop not available)")
+        if self.gui_event_loop and not self.gui_event_loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self.event_bus.publish(ApplicationShutdownRequestedEvent(reason=reason, source=source)), self.gui_event_loop
+                )
+            except Exception as e:
+                self.logger.debug(f"Could not publish shutdown event: {e}")
+        else:
+            self.logger.warning("GUI event loop not available for shutdown event publication")
 
         # Trigger Tkinter mainloop exit
         try:

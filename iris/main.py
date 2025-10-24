@@ -494,7 +494,10 @@ async def main():
 
         # Create shutdown coordinator for centralized shutdown management
         shutdown_coordinator = ShutdownCoordinator(
-            event_bus=event_bus, root_window=app_tk_root, logger=logging.getLogger("ShutdownCoordinator")
+            event_bus=event_bus,
+            root_window=app_tk_root,
+            logger=logging.getLogger("ShutdownCoordinator"),
+            gui_event_loop=gui_event_loop,
         )
 
         # Setup signal handlers to use shutdown coordinator
@@ -588,7 +591,7 @@ async def main():
         progress_tracker.update_status_static("Ready!")
         startup_window.update_progress(1.0, "Ready!", animate=False)
         await asyncio.sleep(0.5)
-        startup_window.close()
+        startup_window.close_after_initialization()  # Use programmatic close (doesn't trigger shutdown)
 
         # Activate all services AFTER startup window closes
         # This ensures services are not operational until fully ready

@@ -44,6 +44,7 @@ class StartupWindow:
         self.spinner_label: Optional[ctk.CTkLabel] = None
         self.is_closed = False
         self._lock = threading.Lock()
+        self._programmatic_close = False  # Track if close was programmatic vs user-initiated
 
         # Animation state
         self.is_animating = False
@@ -313,9 +314,11 @@ class StartupWindow:
         """
         Close window (must run in main thread).
 
-        If a shutdown coordinator is available, triggers application shutdown.
-        This ensures that clicking the X button during startup initiates
-        proper cleanup sequence.
+        Only triggers shutdown if:
+        1. User manually closed the window (not programmatic close after initialization)
+        2. Shutdown hasn't already been requested
+
+        This prevents normal startup window closure from triggering shutdown.
         """
         with self._lock:
             if self.is_closed or not self.window:
@@ -336,19 +339,32 @@ class StartupWindow:
                 self.window = None
                 self.logger.info("Startup window closed")
 
-                # Trigger application shutdown via coordinator
-                if self.shutdown_coordinator:
+                # Only trigger shutdown if this was a USER-INITIATED close (not programmatic)
+                # and shutdown hasn't already started
+                if (
+                    not self._programmatic_close
+                    and self.shutdown_coordinator
+                    and not self.shutdown_coordinator.is_shutdown_requested()
+                ):
                     self.shutdown_coordinator.request_shutdown(reason="User closed startup window", source="startup_window")
 
             except Exception as e:
                 self.logger.error(f"Error closing window: {e}")
 
     def close(self) -> None:
-        """Close window - thread-safe."""
+        """Close window - thread-safe. Used when user manually closes window."""
         if threading.current_thread() == threading.main_thread():
             self._close_impl()
         else:
             self._update_queue.put(("CLOSE", None, None))
+
+    def close_after_initialization(self) -> None:
+        """Close window programmatically after successful initialization.
+
+        This does NOT trigger shutdown - it's the normal close after initialization completes.
+        """
+        self._programmatic_close = True
+        self.close()
 
     def is_visible(self) -> bool:
         """Check if window is visible."""
