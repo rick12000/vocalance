@@ -3,9 +3,15 @@ UI Asset Management Utility
 
 Handles loading, caching, and management of UI assets like images and icons.
 Single responsibility: Asset loading and caching.
+
+Thread Safety:
+- All cache access protected by _cache_lock
+- Safe to call from any thread
+- Images cached after first load for performance
 """
 
 import logging
+import threading
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -20,12 +26,19 @@ logger = logging.getLogger("UIAssets")
 
 
 class AssetCache:
-    """Simple asset cache for images and icons."""
+    """
+    Thread-safe asset cache for images and icons.
+
+    Thread Safety:
+    - _cache_lock protects all cache operations
+    - Safe to load assets from multiple threads
+    """
 
     def __init__(self, asset_paths_config: AssetPathsConfig):
         self._image_cache: Dict[str, ctk.CTkImage] = {}
         self._assets_path: Optional[Path] = None
         self._asset_paths_config = asset_paths_config
+        self._cache_lock = threading.RLock()
         self._setup_assets_path()
 
     def _setup_assets_path(self) -> None:
@@ -38,7 +51,7 @@ class AssetCache:
 
     def load_image(self, filename: str, size: Optional[Tuple[int, int]] = None) -> Optional[ctk.CTkImage]:
         """
-        Load and cache an image for use in CustomTkinter components.
+        Load and cache an image for use in CustomTkinter components. Thread-safe.
 
         Args:
             filename: Image filename in assets directory
@@ -49,8 +62,9 @@ class AssetCache:
         """
         cache_key = f"{filename}_{size}"
 
-        if cache_key in self._image_cache:
-            return self._image_cache[cache_key]
+        with self._cache_lock:
+            if cache_key in self._image_cache:
+                return self._image_cache[cache_key]
 
         if not self._assets_path:
             logger.error("Assets path not available")
@@ -72,8 +86,9 @@ class AssetCache:
             # Create CTkImage
             ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=size or pil_image.size)
 
-            # Cache the result
-            self._image_cache[cache_key] = ctk_image
+            # Cache the result under lock
+            with self._cache_lock:
+                self._image_cache[cache_key] = ctk_image
             logger.info(f"Loaded and cached image: {filename}")
             return ctk_image
 
@@ -92,7 +107,7 @@ class AssetCache:
         self, filename: str, color: str, size: Optional[Tuple[int, int]] = None
     ) -> Optional[ctk.CTkImage]:
         """
-        Load and cache a monochrome image, recolor it using the provided color, and return a CTkImage.
+        Load and cache a monochrome image, recolor it using the provided color, and return a CTkImage. Thread-safe.
 
         Args:
             filename: Image filename in assets directory
@@ -103,8 +118,9 @@ class AssetCache:
             CTkImage object or None if loading fails
         """
         cache_key = f"{filename}_{color}_{size}"
-        if cache_key in self._image_cache:
-            return self._image_cache[cache_key]
+        with self._cache_lock:
+            if cache_key in self._image_cache:
+                return self._image_cache[cache_key]
         if not self._assets_path:
             logger.error("Assets path not available")
             return None
@@ -118,7 +134,8 @@ class AssetCache:
                 logger.error(f"Failed to recolor image {filename}")
                 return None
             ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=size or pil_image.size)
-            self._image_cache[cache_key] = ctk_image
+            with self._cache_lock:
+                self._image_cache[cache_key] = ctk_image
             logger.info(f"Loaded and cached colored image: {filename} with color {color}")
             return ctk_image
         except Exception as e:

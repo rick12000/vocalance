@@ -7,13 +7,20 @@ from vocalance.app.ui.controls.base_control import BaseController
 
 
 class SettingsController(BaseController):
-    """Simplified settings controller that works directly with SettingsService."""
+    """
+    Simplified settings controller that works directly with SettingsService.
+
+    Thread Safety:
+    - _cached_settings protected by inherited _state_lock
+    - Event handlers run in GUI event loop thread
+    - UI updates marshalled to main thread via schedule_ui_update
+    """
 
     def __init__(self, event_bus, event_loop, logger, config: GlobalAppConfig, settings_service=None):
         super().__init__(event_bus, event_loop, logger, "SettingsController")
         self.config = config
         self.settings_service = settings_service
-        self._cached_settings = None
+        self._cached_settings = None  # Protected by _state_lock
 
         self.subscribe_to_events(
             [
@@ -35,10 +42,12 @@ class SettingsController(BaseController):
             asyncio.run_coroutine_threadsafe(self._get_settings_async(), self.event_loop)
 
     async def _get_settings_async(self):
-        """Async method to get settings and cache them"""
+        """Async method to get settings and cache them. Thread-safe."""
         try:
             if self.settings_service:
-                self._cached_settings = await self.settings_service.get_effective_settings()
+                settings = await self.settings_service.get_effective_settings()
+                with self._state_lock:
+                    self._cached_settings = settings
                 # Notify view of update
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_settings_updated)
@@ -46,15 +55,17 @@ class SettingsController(BaseController):
             self.logger.error(f"Error getting settings: {e}")
 
     def _handle_settings_response(self, event):
-        """Handle settings response from the service"""
-        self._cached_settings = event.settings
+        """Handle settings response from the service. Thread-safe."""
+        with self._state_lock:
+            self._cached_settings = event.settings
         if self.view_callback:
             self.schedule_ui_update(self.view_callback.on_settings_updated)
 
     def load_current_settings(self) -> Dict[str, Any]:
-        """Load current effective settings from cache or return defaults"""
-        if self._cached_settings:
-            return self._cached_settings
+        """Load current effective settings from cache or return defaults. Thread-safe."""
+        with self._state_lock:
+            if self._cached_settings:
+                return self._cached_settings
 
         if not self.settings_service:
             # Return default config values when service is not available
@@ -136,13 +147,15 @@ class SettingsController(BaseController):
             return False
 
     async def _save_settings_simple_async(self, settings_updates: Dict[str, Any]):
-        """Async method to save settings"""
+        """Async method to save settings. Thread-safe."""
         try:
             success = await self.settings_service.update_multiple_settings(settings_updates)
 
             if success:
-                # Update cache
-                self._cached_settings = await self.settings_service.get_effective_settings()
+                # Update cache under lock
+                settings = await self.settings_service.get_effective_settings()
+                with self._state_lock:
+                    self._cached_settings = settings
 
                 if self.view_callback:
                     self.schedule_ui_update(
@@ -187,13 +200,15 @@ class SettingsController(BaseController):
             return False
 
     async def _save_grid_settings_async(self, settings_updates: Dict[str, Any]):
-        """Async method to save grid settings"""
+        """Async method to save grid settings. Thread-safe."""
         try:
             success = await self.settings_service.update_multiple_settings(settings_updates)
 
             if success:
-                # Update cache
-                self._cached_settings = await self.settings_service.get_effective_settings()
+                # Update cache under lock
+                settings = await self.settings_service.get_effective_settings()
+                with self._state_lock:
+                    self._cached_settings = settings
 
                 if self.view_callback:
                     self.schedule_ui_update(
@@ -228,7 +243,7 @@ class SettingsController(BaseController):
             return False
 
     async def _reset_llm_settings_async(self):
-        """Async method to reset settings"""
+        """Async method to reset settings. Thread-safe."""
         try:
             # Reset LLM settings through the service
             llm_settings = ["llm.context_length", "llm.max_tokens"]
@@ -240,8 +255,10 @@ class SettingsController(BaseController):
                     break
 
             if success:
-                # Update cache
-                self._cached_settings = await self.settings_service.get_effective_settings()
+                # Update cache under lock
+                settings = await self.settings_service.get_effective_settings()
+                with self._state_lock:
+                    self._cached_settings = settings
 
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_reset_complete)
@@ -274,13 +291,15 @@ class SettingsController(BaseController):
             return False
 
     async def _reset_grid_settings_async(self):
-        """Async method to reset grid settings"""
+        """Async method to reset grid settings. Thread-safe."""
         try:
             success = await self.settings_service.reset_setting("grid.default_rect_count")
 
             if success:
-                # Update cache
-                self._cached_settings = await self.settings_service.get_effective_settings()
+                # Update cache under lock
+                settings = await self.settings_service.get_effective_settings()
+                with self._state_lock:
+                    self._cached_settings = settings
 
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_reset_complete)
@@ -342,12 +361,14 @@ class SettingsController(BaseController):
             return False
 
     async def _save_settings_async(self, settings_updates: Dict[str, Any], success_msg: str, category: str):
-        """Unified async save method"""
+        """Unified async save method. Thread-safe."""
         try:
             success = await self.settings_service.update_multiple_settings(settings_updates)
 
             if success:
-                self._cached_settings = await self.settings_service.get_effective_settings()
+                settings = await self.settings_service.get_effective_settings()
+                with self._state_lock:
+                    self._cached_settings = settings
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_save_success, success_msg)
             else:
@@ -408,7 +429,7 @@ class SettingsController(BaseController):
             return False
 
     async def _reset_settings_async(self, settings_list: List[str], category: str):
-        """Unified async reset method"""
+        """Unified async reset method. Thread-safe."""
         try:
             success = True
             for setting in settings_list:
@@ -417,7 +438,9 @@ class SettingsController(BaseController):
                     break
 
             if success:
-                self._cached_settings = await self.settings_service.get_effective_settings()
+                settings = await self.settings_service.get_effective_settings()
+                with self._state_lock:
+                    self._cached_settings = settings
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_reset_complete)
             else:

@@ -1,6 +1,11 @@
 """
 Themed dialog components that match the application's dark theme.
 Provides CustomTkinter-based replacements for standard tkinter messageboxes.
+
+Thread Safety:
+- All dialog operations must run in main tkinter thread
+- Dialogs are modal and block until closed
+- Safe to call from event handlers (already in event loop thread)
 """
 
 from typing import Callable, List, Optional, Tuple
@@ -45,6 +50,11 @@ def _create_dialog_base(
 ) -> Optional[bool]:
     """
     Base function for creating themed dialogs with configurable buttons.
+
+    Thread Safety:
+    - Must be called from main tkinter thread
+    - Dialog is modal (blocks until closed)
+    - Called from controllers via schedule_ui_update
 
     Args:
         message: Dialog message

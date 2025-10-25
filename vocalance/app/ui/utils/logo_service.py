@@ -2,9 +2,14 @@
 Centralized Logo Service for Vocalance Application
 
 Provides elegant, streamlined logo loading with automatic fallbacks.
+
+Thread Safety:
+- All logo cache access protected by _cache_lock
+- Safe to call from any thread
 """
 
 import logging
+import threading
 from typing import Optional
 
 import customtkinter as ctk
@@ -16,16 +21,23 @@ logger = logging.getLogger(__name__)
 
 
 class LogoService:
-    """Centralized service for loading and managing application logos"""
+    """
+    Thread-safe centralized service for loading and managing application logos.
+
+    Thread Safety:
+    - _cache_lock protects logo cache operations
+    - Safe to create logo widgets from any thread
+    """
 
     def __init__(self, asset_cache: AssetCache):
         """Initialize LogoService with an asset cache instance."""
         self.asset_cache = asset_cache
         self._logo_cache = {}
+        self._cache_lock = threading.RLock()
 
     def get_logo_image(self, max_size: int, context: str = "default", logo_type: str = "full") -> Optional[ctk.CTkImage]:
         """
-        Get a logo image with specified maximum size
+        Get a logo image with specified maximum size. Thread-safe.
 
         Args:
             max_size: Maximum dimension (width or height) for the logo
@@ -37,15 +49,17 @@ class LogoService:
         """
         cache_key = f"{max_size}_{context}_{logo_type}"
 
-        if cache_key in self._logo_cache:
-            return self._logo_cache[cache_key]
+        with self._cache_lock:
+            if cache_key in self._logo_cache:
+                return self._logo_cache[cache_key]
 
         try:
             pil_logo = self.asset_cache.load_logo_image_from_config(size=None, max_dimension=max_size, logo_type=logo_type)
 
             if pil_logo:
                 logo_image = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=pil_logo.size)
-                self._logo_cache[cache_key] = logo_image
+                with self._cache_lock:
+                    self._logo_cache[cache_key] = logo_image
                 logger.info(f"Logo loaded successfully for {context} (size: {pil_logo.size})")
                 return logo_image
             else:

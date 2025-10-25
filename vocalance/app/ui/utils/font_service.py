@@ -2,10 +2,16 @@
 Font service for loading and managing custom fonts in the application.
 This service loads TTF fonts from the assets directory and makes them available
 to Tkinter without requiring system-wide font installation.
+
+Thread Safety:
+- All font loading and cache access protected by _font_lock
+- Safe to call from any thread
+- Fonts loaded once on first access
 """
 
 import ctypes
 import logging
+import threading
 import tkinter.font as tkFont
 from pathlib import Path
 from typing import Dict, Tuple
@@ -16,21 +22,30 @@ logger = logging.getLogger(__name__)
 
 
 class FontService:
-    """Service for loading and managing custom fonts"""
+    """
+    Thread-safe service for loading and managing custom fonts.
+
+    Thread Safety:
+    - _font_lock protects all font loading and cache operations
+    - Safe to load fonts from multiple threads
+    - Fonts are loaded once and cached
+    """
 
     def __init__(self, asset_paths_config: AssetPathsConfig):
         self._loaded_fonts: Dict[str, str] = {}
         self._font_cache: Dict[Tuple[str, int, str], tkFont.Font] = {}
         self._fonts_loaded = False
         self._asset_paths_config = asset_paths_config
+        self._font_lock = threading.RLock()
 
     def load_fonts(self) -> bool:
         """
-        Load all Manrope fonts from the assets directory.
+        Load all Manrope fonts from the assets directory. Thread-safe.
         Returns True if fonts were successfully loaded, False otherwise.
         """
-        if self._fonts_loaded:
-            return True
+        with self._font_lock:
+            if self._fonts_loaded:
+                return True
 
         try:
             # Get the path to the fonts directory
@@ -61,8 +76,10 @@ class FontService:
                         self._load_font_file(str(font_path), font_name)
                         logger.debug(f"Loaded font: {font_name}")
 
-            self._fonts_loaded = True
-            logger.info(f"Successfully loaded {len(self._loaded_fonts)} Manrope fonts")
+            with self._font_lock:
+                self._fonts_loaded = True
+                font_count = len(self._loaded_fonts)
+            logger.info(f"Successfully loaded {font_count} Manrope fonts")
             return True
 
         except Exception as e:
@@ -71,7 +88,7 @@ class FontService:
 
     def _load_font_file(self, font_path: str, font_name: str) -> bool:
         """
-        Load a single font file using Windows GDI font loading.
+        Load a single font file using Windows GDI font loading. Thread-safe.
         """
         try:
             # Load the font using Windows GDI
@@ -85,7 +102,8 @@ class FontService:
                 # For TTF fonts, we need to extract the actual font family name
                 # We'll use a simplified approach and assume the font name matches the file
                 actual_name = self._extract_font_family_name(font_path, font_name)
-                self._loaded_fonts[font_name] = actual_name
+                with self._font_lock:
+                    self._loaded_fonts[font_name] = actual_name
                 logger.debug(f"Successfully loaded font {font_name} -> {actual_name}")
                 return True
             else:
@@ -131,7 +149,7 @@ class FontService:
 
     def get_font_family(self, weight: str = "regular") -> str:
         """
-        Get the appropriate Manrope font family name for the given weight.
+        Get the appropriate Manrope font family name for the given weight. Thread-safe.
         Falls back to system fonts if Manrope is not available.
 
         Args:
@@ -140,8 +158,11 @@ class FontService:
         Returns:
             Font family name that can be used in Tkinter font tuples
         """
-        if not self._fonts_loaded:
-            self.load_fonts()
+        with self._font_lock:
+            if not self._fonts_loaded:
+                self._font_lock.release()
+                self.load_fonts()
+                self._font_lock.acquire()
 
         # Map weight to font name
         weight_mapping = {
@@ -156,13 +177,14 @@ class FontService:
 
         requested_font = weight_mapping.get(weight.lower(), "Manrope")
 
-        # Check if the requested font is loaded
-        if requested_font in self._loaded_fonts:
-            return self._loaded_fonts[requested_font]
+        with self._font_lock:
+            # Check if the requested font is loaded
+            if requested_font in self._loaded_fonts:
+                return self._loaded_fonts[requested_font]
 
-        # Fall back to base Manrope if available
-        if "Manrope" in self._loaded_fonts:
-            return self._loaded_fonts["Manrope"]
+            # Fall back to base Manrope if available
+            if "Manrope" in self._loaded_fonts:
+                return self._loaded_fonts["Manrope"]
 
         # Final fallback to system fonts
         logger.warning("Manrope font not available, falling back to system font")
@@ -170,7 +192,7 @@ class FontService:
 
     def create_font(self, family: str = None, size: int = 12, weight: str = "normal") -> tkFont.Font:
         """
-        Create a Font object with the specified parameters.
+        Create a Font object with the specified parameters. Thread-safe.
         Uses caching to avoid creating duplicate font objects.
 
         Args:
@@ -197,23 +219,32 @@ class FontService:
         cache_key = (family, size, tk_weight)
 
         # Return cached font if available
-        if cache_key in self._font_cache:
-            return self._font_cache[cache_key]
+        with self._font_lock:
+            if cache_key in self._font_cache:
+                return self._font_cache[cache_key]
 
         # Create new font
         font = tkFont.Font(family=family, size=size, weight=tk_weight)
-        self._font_cache[cache_key] = font
+
+        with self._font_lock:
+            self._font_cache[cache_key] = font
 
         return font
 
     def get_available_fonts(self) -> Dict[str, str]:
-        """Get a dictionary of loaded fonts (display name -> actual name)"""
-        if not self._fonts_loaded:
-            self.load_fonts()
-        return self._loaded_fonts.copy()
+        """Get a dictionary of loaded fonts (display name -> actual name). Thread-safe."""
+        with self._font_lock:
+            if not self._fonts_loaded:
+                self._font_lock.release()
+                self.load_fonts()
+                self._font_lock.acquire()
+            return self._loaded_fonts.copy()
 
     def is_manrope_available(self) -> bool:
-        """Check if Manrope fonts are available"""
-        if not self._fonts_loaded:
-            self.load_fonts()
-        return "Manrope" in self._loaded_fonts
+        """Check if Manrope fonts are available. Thread-safe."""
+        with self._font_lock:
+            if not self._fonts_loaded:
+                self._font_lock.release()
+                self.load_fonts()
+                self._font_lock.acquire()
+            return "Manrope" in self._loaded_fonts
