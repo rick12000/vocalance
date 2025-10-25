@@ -22,7 +22,14 @@ from vocalance.app.ui.controls.base_control import BaseController
 
 
 class MarksController(BaseController):
-    """Controller for marks functionality - orchestrates between service and view."""
+    """
+    Controller for marks functionality - orchestrates between service and view.
+
+    Thread Safety:
+    - _visualization_active protected by inherited _state_lock
+    - Event handlers run in GUI event loop thread
+    - UI updates marshalled to main thread via schedule_ui_update
+    """
 
     def __init__(self, event_bus, event_loop, logger, config: GlobalAppConfig):
         super().__init__(event_bus, event_loop, logger, "MarksController")
@@ -31,7 +38,7 @@ class MarksController(BaseController):
         # Mark view reference (will be set by main window)
         self.mark_view = None
 
-        # Mark visualization state tracking
+        # Mark visualization state tracking (protected by _state_lock)
         self._visualization_active = False
 
         self.subscribe_to_events(
@@ -117,20 +124,23 @@ class MarksController(BaseController):
     # --- Mark View Callback Methods ---
 
     def on_mark_visualization_shown(self) -> None:
-        """Handle successful mark visualization show from view."""
-        self._visualization_active = True
+        """Handle successful mark visualization show from view. Thread-safe."""
+        with self._state_lock:
+            self._visualization_active = True
         state_event = MarkVisualizationStateChangedEventData(is_visible=True)
         self.publish_event(state_event)
 
     def on_mark_visualization_hidden(self) -> None:
-        """Handle mark visualization hide from view."""
-        self._visualization_active = False
+        """Handle mark visualization hide from view. Thread-safe."""
+        with self._state_lock:
+            self._visualization_active = False
         state_event = MarkVisualizationStateChangedEventData(is_visible=False)
         self.publish_event(state_event)
 
     def on_mark_visualization_failed(self, error_message: str) -> None:
-        """Handle failed mark visualization from view."""
-        self._visualization_active = False
+        """Handle failed mark visualization from view. Thread-safe."""
+        with self._state_lock:
+            self._visualization_active = False
         self.notify_status(f"Mark visualization failed: {error_message}", True)
 
     # --- Event Handlers ---

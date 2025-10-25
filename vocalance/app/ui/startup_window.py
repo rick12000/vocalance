@@ -23,9 +23,15 @@ class StartupWindow:
 
     Design:
     - All GUI operations run in the main Tkinter thread
-    - Background threads queue updates via thread-safe queue
+    - Initialization runs in GUI event loop thread (not main thread!)
+    - Cross-thread updates queued via thread-safe queue
     - Animation runs via Tkinter's after() mechanism
     - Monospace spinner font prevents character width jitter
+
+    Thread Safety:
+    - update_progress() can be called from any thread (uses queue for cross-thread calls)
+    - Animation and UI updates always execute in main tkinter thread
+    - _programmatic_close flag prevents accidental shutdown triggers
     """
 
     def __init__(
@@ -56,6 +62,9 @@ class StartupWindow:
         # Thread-safe update queue and checker
         self._update_queue = queue.Queue()
         self._check_queue_id = None
+
+        # Track icon reinforcement callbacks for cancellation
+        self._icon_after_ids = []
 
         # Asset services
         self.asset_cache = AssetCache(asset_paths_config=asset_paths_config)
@@ -92,9 +101,9 @@ class StartupWindow:
             self.window.update_idletasks()
             self.window.lift()
 
-            # Reinforce icon after display
-            self.window.after(50, self._reinforce_icon)
-            self.window.after(200, self._reinforce_icon)
+            # Reinforce icon after display - track callbacks for cancellation
+            self._icon_after_ids.append(self.window.after(50, self._reinforce_icon))
+            self._icon_after_ids.append(self.window.after(200, self._reinforce_icon))
 
             self._start_queue_checker()
             self.logger.info("Startup window displayed")
@@ -234,16 +243,21 @@ class StartupWindow:
 
     def update_progress(self, progress: float, status: str, animate: bool = False) -> None:
         """
-        Update progress - must be called from main thread.
+        Update progress - thread-safe.
 
-        In the simplified architecture, all initialization runs in main thread
-        with async/await, so no thread-safety complexity needed.
+        Can be called from any thread. Initialization runs in GUI event loop thread,
+        but UI updates must happen in main tkinter thread, so we always use the queue
+        for cross-thread safety.
+
+        Note: In this architecture, main_thread() is tkinter thread, not GUI event loop thread.
         """
-        if threading.current_thread() != threading.main_thread():
-            self.logger.warning("update_progress called from non-main thread - queuing for safety")
-            self._update_queue.put((progress, status, animate))
-        else:
+        # Always queue updates for thread safety, except when already in main tkinter thread
+        if threading.current_thread() == threading.main_thread():
+            # We're in main tkinter thread - execute directly
             self._update_progress_impl(progress, status, animate)
+        else:
+            # We're in another thread (likely GUI event loop) - queue the update
+            self._update_queue.put((progress, status, animate))
 
     def _update_progress_impl(self, progress: float, status: str, animate: bool) -> None:
         """Update progress bar and status text."""
@@ -330,6 +344,7 @@ class StartupWindow:
             try:
                 self._stop_animation_impl()
 
+                # Cancel queue checker
                 if self._check_queue_id and self.window:
                     try:
                         self.window.after_cancel(self._check_queue_id)
@@ -337,9 +352,22 @@ class StartupWindow:
                         pass
                     self._check_queue_id = None
 
+                # Mark as closed FIRST to prevent callbacks from executing
                 self.is_closed = True
-                self.window.destroy()
-                self.window = None
+
+                # Cancel all icon reinforcement callbacks
+                for after_id in self._icon_after_ids:
+                    if self.window:
+                        try:
+                            self.window.after_cancel(after_id)
+                        except Exception:
+                            pass
+                self._icon_after_ids.clear()
+
+                # Now safely destroy the window
+                if self.window:
+                    self.window.destroy()
+                    self.window = None
                 self.logger.info("Startup window closed")
 
                 # Only trigger shutdown if this was a USER-INITIATED close (not programmatic)
@@ -376,27 +404,33 @@ class StartupWindow:
 
     def _set_icon_with_retry(self) -> None:
         """Set icon with parent inheritance for best results."""
-        if not self.window or self.is_closed:
-            return
+        # Check under lock to avoid race conditions with close
+        with self._lock:
+            if not self.window or self.is_closed:
+                return
+            window_ref = self.window
 
         try:
             from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
-            set_window_icon_robust(window=self.window)
-            self.window.update_idletasks()
+            set_window_icon_robust(window=window_ref)
+            window_ref.update_idletasks()
         except Exception as e:
             self.logger.warning(f"Error setting startup window icon: {e}")
 
     def _reinforce_icon(self) -> None:
         """Reinforce the icon setting to prevent CustomTkinter override."""
-        if not self.window or self.is_closed:
-            return
+        # Check under lock to avoid race conditions with close
+        with self._lock:
+            if not self.window or self.is_closed:
+                return
+            window_ref = self.window
 
         try:
             from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
-            set_window_icon_robust(window=self.window)
-            self.window.update_idletasks()
+            set_window_icon_robust(window=window_ref)
+            window_ref.update_idletasks()
         except Exception as e:
             self.logger.debug(f"Error reinforcing icon: {e}")
 

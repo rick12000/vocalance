@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import math
+import threading
 import time
 import tkinter as tk
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -18,7 +19,15 @@ from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafe
 
 
 class GridView:
-    """Thread-safe grid overlay view with simplified event handling."""
+    """
+    Thread-safe grid overlay view with simplified event handling.
+
+    Thread Safety:
+    - UI operations (show/hide/draw) run in main tkinter thread
+    - Event handlers run in GUI event loop thread
+    - Shared state protected by _state_lock (RLock for reentrancy)
+    - Click cache operations are atomic with lock protection
+    """
 
     # Constants
     DEFAULT_NUM_RECTS = 500
@@ -36,26 +45,29 @@ class GridView:
         self.root = root
         self.event_bus = event_bus
         self.event_loop = event_loop or asyncio.get_event_loop()
-        self._event_loop = None
-        self._is_active = False
         self._storage = storage
 
         self.default_num_rects = default_num_rects or self.DEFAULT_NUM_RECTS
 
-        # Initialize UI components
-        self.overlay_window: Optional[tk.Toplevel] = None
-        self.canvas: Optional[tk.Canvas] = None
+        # Thread safety: RLock protects all shared state
+        # RLock (not Lock) allows reentrant access from same thread
+        self._state_lock = threading.RLock()
+
+        # Protected state variables (all access must be under lock)
+        self._is_active = False
         self.current_num_rects_displayed: Optional[int] = None
         self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
+        self._cached_clicks: List[Dict[str, Any]] = []
+        self._click_cache_timestamp: float = 0.0
+        self._cache_loaded = False
+
+        # Initialize UI components (main thread only)
+        self.overlay_window: Optional[tk.Toplevel] = None
+        self.canvas: Optional[tk.Canvas] = None
 
         # Event handling - use provided event_loop if available
         self.event_publisher = ThreadSafeEventPublisher(event_bus, self.event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus, "GridView")
-
-        # Click data cache for instant grid display
-        self._cached_clicks: List[Dict[str, Any]] = []
-        self._click_cache_timestamp: float = 0.0
-        self._cache_loaded = False
 
         # Screen dimensions
         self._update_screen_dimensions()
@@ -73,40 +85,34 @@ class GridView:
         self.controller_callback = callback
 
     async def initialize_click_cache(self) -> None:
-        """Load historical click data from storage into cache."""
-        if self._cache_loaded or not self._storage:
+        """Load historical click data from storage into cache. Thread-safe."""
+        # Check both conditions under lock atomically
+        with self._state_lock:
+            if self._cache_loaded:
+                return
+
+        if not self._storage:
             return
 
         try:
             self.logger.info("[GridView] Loading historical click data from storage...")
             clicks_data = await self._storage.read(model_type=GridClicksData)
 
-            if clicks_data.clicks:
-                # Convert GridClickEvent objects to dictionaries for compatibility
-                self._cached_clicks = [click.model_dump() for click in clicks_data.clicks]
-                self._click_cache_timestamp = time.time()
-                self._cache_loaded = True
-                self.logger.info(f"[GridView] Loaded {len(clicks_data.clicks)} historical clicks into cache")
-            else:
-                self.logger.info("[GridView] No historical click data found, starting fresh")
-                self._cache_loaded = True
+            with self._state_lock:
+                if clicks_data.clicks:
+                    # Convert GridClickEvent objects to dictionaries for compatibility
+                    self._cached_clicks = [click.model_dump() for click in clicks_data.clicks]
+                    self._click_cache_timestamp = time.time()
+                    self._cache_loaded = True
+                    self.logger.info(f"[GridView] Loaded {len(clicks_data.clicks)} historical clicks into cache")
+                else:
+                    self.logger.info("[GridView] No historical click data found, starting fresh")
+                    self._cache_loaded = True
 
         except Exception as e:
             self.logger.error(f"[GridView] Failed to load historical clicks: {e}", exc_info=True)
-            self._cache_loaded = True
-
-    def _get_event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
-        """Get the current event loop or find running loop."""
-        if self._event_loop and not self._event_loop.is_closed():
-            return self._event_loop
-
-        try:
-            loop = asyncio.get_running_loop()
-            self._event_loop = loop
-            return loop
-        except RuntimeError:
-            self.logger.warning("No running event loop found")
-            return None
+            with self._state_lock:
+                self._cache_loaded = True
 
     def _schedule_in_tk_thread(self, callback: Callable, *args) -> None:
         """Schedule a callback to run in the Tkinter main thread."""
@@ -130,40 +136,52 @@ class GridView:
         self.subscription_manager.subscribe(PerformMouseClickEventData, self._handle_click_logged_for_cache)
 
     def cleanup(self) -> None:
-        """Clean up resources when grid view is destroyed."""
+        """Clean up resources when grid view is destroyed. Thread-safe."""
         self.hide()
         self.subscription_manager.unsubscribe_all()
-        self._cached_clicks.clear()
+
+        with self._state_lock:
+            self._cached_clicks.clear()
+            self.ui_to_rect_data_map.clear()
+            self._is_active = False
+
         if self.overlay_window:
             try:
                 self.overlay_window.destroy()
             except tk.TclError:
                 pass
         self.overlay_window = None
-        self._is_active = False
 
     async def _handle_click_logged_for_cache(self, event_data: PerformMouseClickEventData) -> None:
-        """Cache click data for instant grid display."""
+        """Cache click data for instant grid display. Thread-safe."""
         click_data = {"x": event_data.x, "y": event_data.y, "timestamp": time.time(), "source": event_data.source}
-        self._cached_clicks.append(click_data)
-        self._click_cache_timestamp = time.time()
 
-        max_cache_size = 10000
-        if len(self._cached_clicks) > max_cache_size:
-            self._cached_clicks = self._cached_clicks[-max_cache_size:]
+        with self._state_lock:
+            self._cached_clicks.append(click_data)
+            self._click_cache_timestamp = time.time()
 
-        self.logger.debug(f"[GridView] Cached click at ({event_data.x}, {event_data.y}), total cached: {len(self._cached_clicks)}")
+            max_cache_size = 10000
+            if len(self._cached_clicks) > max_cache_size:
+                self._cached_clicks = self._cached_clicks[-max_cache_size:]
+
+            cache_size = len(self._cached_clicks)
+
+        self.logger.debug(f"[GridView] Cached click at ({event_data.x}, {event_data.y}), total cached: {cache_size}")
 
     def _calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Calculate click counts synchronously using cached data for instant display."""
+        """Calculate click counts synchronously using cached data for instant display. Thread-safe."""
         processed_rects = []
+
+        # Take snapshot of clicks under lock to avoid race conditions
+        with self._state_lock:
+            cached_clicks_snapshot = list(self._cached_clicks)
 
         for rect_def in rect_definitions:
             try:
                 rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
                 rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
 
-                count = sum(1 for click in self._cached_clicks if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h))
+                count = sum(1 for click in cached_clicks_snapshot if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h))
 
                 processed_rects.append({"data": rect_def, "clicks": count})
 
@@ -181,12 +199,15 @@ class GridView:
             return False
 
     def _draw_grid_elements(self, weighted_rects: List[Dict[str, Any]], cell_w: float, cell_h: float) -> None:
+        """Draw grid elements. Must be called from main thread. Thread-safe state access."""
         self.logger.info(f"[GridView] Drawing {len(weighted_rects)} grid elements with cell_w={cell_w}, cell_h={cell_h}")
         if not self._validate_ui_state():
             self.logger.error("[GridView] UI state invalid for drawing")
             return
 
-        self.ui_to_rect_data_map.clear()
+        with self._state_lock:
+            self.ui_to_rect_data_map.clear()
+
         self.canvas.delete("all")
 
         font_tuple = view_config.grid.get_font_tuple(cell_h)
@@ -200,7 +221,9 @@ class GridView:
         # Draw all grid elements while window is hidden
         for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
             rect_data = weighted_rect_info["data"]
-            self.ui_to_rect_data_map[ui_number] = rect_data
+
+            with self._state_lock:
+                self.ui_to_rect_data_map[ui_number] = rect_data
 
             x0, y0 = rect_data["x"], rect_data["y"]
             x1, y1 = x0 + rect_data["w"], y0 + rect_data["h"]
@@ -219,8 +242,12 @@ class GridView:
 
         # Now show window with all content ready - instant display
         self._show_window_with_content()
-        self._is_active = True
-        self.logger.info(f"[GridView] Grid displayed instantly with {len(self.ui_to_rect_data_map)} rectangles")
+
+        with self._state_lock:
+            self._is_active = True
+            rect_count = len(self.ui_to_rect_data_map)
+
+        self.logger.info(f"[GridView] Grid displayed instantly with {rect_count} rectangles")
 
     def _validate_ui_state(self) -> bool:
         """Validate that UI components are ready for drawing."""
@@ -326,6 +353,7 @@ class GridView:
         self._schedule_in_tk_thread(self._show_tkinter_elements, num_rects)
 
     def _show_tkinter_elements(self, num_rects: Optional[int] = None) -> None:
+        """Show grid elements in tkinter. Must be called from main thread. Thread-safe state access."""
         self.logger.info(f"[GridView] _show_tkinter_elements called with num_rects={num_rects}")
         if not self.root:
             self.logger.error("[GridView] Tk root not available in _show_tkinter_elements")
@@ -336,7 +364,9 @@ class GridView:
 
         num_rects_to_display = num_rects if num_rects and num_rects > 0 else self.default_num_rects
         self.logger.info(f"[GridView] Calculating grid layout for {num_rects_to_display} rectangles")
-        self.current_num_rects_displayed = num_rects_to_display
+
+        with self._state_lock:
+            self.current_num_rects_displayed = num_rects_to_display
 
         # Calculate layout
         rect_definitions, cell_w, cell_h = self._calculate_grid_layout(num_rects_to_display)
@@ -345,7 +375,9 @@ class GridView:
             return
 
         # Calculate click counts synchronously using cached data for instant display
-        self.logger.debug(f"[GridView] Calculating click counts synchronously with {len(self._cached_clicks)} cached clicks")
+        with self._state_lock:
+            cache_size = len(self._cached_clicks)
+        self.logger.debug(f"[GridView] Calculating click counts synchronously with {cache_size} cached clicks")
         processed_rects = self._calculate_click_counts_sync(rect_definitions)
         weighted_rects = prioritize_grid_rects(processed_rects)
 
@@ -405,38 +437,51 @@ class GridView:
         self._schedule_in_tk_thread(self._hide_tkinter_elements)
 
     def _hide_tkinter_elements(self) -> None:
-        """Hide grid elements in the Tkinter thread."""
+        """Hide grid elements in the Tkinter thread. Thread-safe state access."""
         if self.overlay_window:
             self.overlay_window.withdraw()
             if self.canvas:
                 self.canvas.delete("all")
 
-        self.current_num_rects_displayed = None
-        self._is_active = False
+        with self._state_lock:
+            self.current_num_rects_displayed = None
+            self._is_active = False
+
         self.logger.info("Grid overlay hidden")
 
     def refresh_display(self) -> None:
-        """Refresh the grid display with current number of rectangles."""
-        if self.current_num_rects_displayed is not None:
-            self.show(self.current_num_rects_displayed)
+        """Refresh the grid display with current number of rectangles. Thread-safe."""
+        with self._state_lock:
+            num_rects = self.current_num_rects_displayed
+
+        if num_rects is not None:
+            self.show(num_rects)
         else:
             self.logger.warning("Cannot refresh: no previous rectangle count")
 
     def is_active(self) -> bool:
-        """Check if grid overlay is currently active and visible."""
+        """Check if grid overlay is currently active and visible. Thread-safe."""
         try:
-            return self.overlay_window is not None and self.overlay_window.winfo_exists() and self.overlay_window.winfo_viewable()
+            is_window_visible = (
+                self.overlay_window is not None and self.overlay_window.winfo_exists() and self.overlay_window.winfo_viewable()
+            )
+            return is_window_visible
         except tk.TclError:
             # Window may have been destroyed
             self.overlay_window = None
-            self._is_active = False
+            with self._state_lock:
+                self._is_active = False
             return False
 
     def handle_selection(self, selection_key: str) -> bool:
-        """Handle grid cell selection."""
+        """Handle grid cell selection. Thread-safe."""
         self.logger.info(f"[GridView] handle_selection called with selection_key='{selection_key}'")
         self.logger.debug(f"[GridView] Grid active: {self.is_active()}, Root available: {self.root is not None}")
-        self.logger.debug(f"[GridView] Available rectangles: {list(self.ui_to_rect_data_map.keys())}")
+
+        with self._state_lock:
+            available_keys = list(self.ui_to_rect_data_map.keys())
+
+        self.logger.debug(f"[GridView] Available rectangles: {available_keys}")
 
         if not self.is_active() or not self.root:
             self.logger.warning(f"[GridView] Grid not active or root not available for selection '{selection_key}'")
@@ -449,13 +494,15 @@ class GridView:
             self.logger.warning(f"[GridView] Invalid selection key: '{selection_key}'")
             return False
 
-        if selected_number not in self.ui_to_rect_data_map:
-            self.logger.warning(
-                f"[GridView] Selection '{selected_number}' not in available rectangles: {list(self.ui_to_rect_data_map.keys())}"
-            )
-            return False
+        with self._state_lock:
+            if selected_number not in self.ui_to_rect_data_map:
+                self.logger.warning(
+                    f"[GridView] Selection '{selected_number}' not in available rectangles: {list(self.ui_to_rect_data_map.keys())}"
+                )
+                return False
 
-        rect_data = self.ui_to_rect_data_map[selected_number]
+            rect_data = self.ui_to_rect_data_map[selected_number]
+
         center_x, center_y = rect_data["center_x"], rect_data["center_y"]
         self.logger.info(f"[GridView] Found rectangle data for cell {selected_number}: center=({center_x}, {center_y})")
 

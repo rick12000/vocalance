@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 from typing import Any, Callable, Optional
 
 from vocalance.app.event_bus import EventBus
@@ -10,13 +11,25 @@ from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafe
 
 
 class BaseController:
-    """Base controller with common functionality for all UI controls."""
+    """
+    Base controller with common functionality for all UI controls.
+
+    Thread Safety:
+    - Event handlers run in GUI event loop thread (async context)
+    - UI callbacks run in main tkinter thread
+    - State variables should be protected by _state_lock
+    - Use schedule_ui_update() for all UI modifications
+    """
 
     def __init__(self, event_bus: EventBus, event_loop: asyncio.AbstractEventLoop, logger: logging.Logger, controller_name: str):
         self.event_bus = event_bus
         self.event_loop = event_loop
         self.logger = logger
         self.controller_name = controller_name
+
+        # Thread safety: Lock for protecting controller state
+        # Subclasses should use this lock for their state variables
+        self._state_lock = threading.RLock()
 
         # Thread-safe event handling
         self.event_publisher = ThreadSafeEventPublisher(event_bus, event_loop)

@@ -26,14 +26,25 @@ WINDOW_MARGIN_Y_BOTTOM = 80
 
 
 class DictationPopupView:
-    """Simplified dictation popup that never steals focus"""
+    """
+    Simplified dictation popup that never steals focus.
+
+    Thread Safety:
+    - UI operations run in main tkinter thread
+    - Token buffering is thread-safe with lock protection
+    - _pending_flush atomic check-and-set prevents duplicate flushes
+    - Controller calls append_llm_token from GUI event loop thread
+    """
 
     def __init__(self, parent_root: tk.Tk, controller: DictationPopupController):
         self.parent_root = parent_root
         self.controller = controller
         self.controller.set_view_callback(self)
 
+        # Thread safety: Lock protects all shared state
         self._ui_lock = threading.RLock()
+
+        # UI components (main thread only)
         self.popup_window = self._create_popup_window()
         self.simple_frame = self._create_simple_content()
         self.smart_frame = self._create_smart_content()
@@ -42,13 +53,13 @@ class DictationPopupView:
         self.is_visible = False
         self.current_mode = DictationPopupMode.HIDDEN
 
-        # Token batching for smooth UI updates
+        # Token batching for smooth UI updates (protected by lock)
         self._token_buffer = deque()
         self._last_flush_time = 0
         self._flush_interval_ms = 16  # ~60 FPS
         self._pending_flush = False
 
-        # Streaming token highlighting
+        # Streaming token highlighting (UI state, accessed only from main thread)
         self._last_token_start_index = None
         self._last_token_end_index = None
 
@@ -146,71 +157,87 @@ class DictationPopupView:
                 self.dictation_box.update_idletasks()
 
     def append_llm_token(self, token: str) -> None:
-        """Append LLM token with smart batching for smooth 60fps updates"""
+        """Append LLM token with smart batching for smooth 60fps updates. Thread-safe."""
         logging.debug(f"VIEW: append_llm_token called with: '{token}'")
         if not self.llm_box or not self.llm_box.winfo_exists():
             logging.warning("VIEW: llm_box not available!")
             return
 
-        # Add to buffer
-        self._token_buffer.append(token)
+        with self._ui_lock:
+            # Add to buffer
+            self._token_buffer.append(token)
 
-        # Check if we should flush
-        current_time = time.time() * 1000  # ms
-        time_since_last_flush = current_time - self._last_flush_time
+            # Check if we should flush
+            current_time = time.time() * 1000  # ms
+            time_since_last_flush = current_time - self._last_flush_time
 
-        # Flush if: buffer has tokens AND (interval passed OR buffer is large)
-        should_flush = len(self._token_buffer) > 0 and (
-            time_since_last_flush >= self._flush_interval_ms or len(self._token_buffer) >= 3
-        )
+            # Flush if: buffer has tokens AND (interval passed OR buffer is large)
+            should_flush = len(self._token_buffer) > 0 and (
+                time_since_last_flush >= self._flush_interval_ms or len(self._token_buffer) >= 3
+            )
 
-        if should_flush and not self._pending_flush:
-            self._pending_flush = True
-            # Schedule flush on next UI cycle
+            # Atomic check-and-set to prevent duplicate flush scheduling
+            if should_flush and not self._pending_flush:
+                self._pending_flush = True
+                # Schedule flush on next UI cycle (outside lock to avoid deadlock)
+                schedule_needed = True
+            else:
+                schedule_needed = False
+
+        if schedule_needed:
             self.parent_root.after(1, self._flush_token_buffer)
 
     def _flush_token_buffer(self) -> None:
-        """Flush buffered tokens to UI with streaming token highlighting"""
+        """Flush buffered tokens to UI with streaming token highlighting. Thread-safe."""
         if not self.llm_box or not self.llm_box.winfo_exists():
-            self._token_buffer.clear()
-            self._pending_flush = False
+            with self._ui_lock:
+                self._token_buffer.clear()
+                self._pending_flush = False
             return
 
-        if self._token_buffer:
-            # Reset previous token to default color
-            if self._last_token_start_index is not None and self._last_token_end_index is not None:
-                try:
-                    self.llm_box.tag_remove("streaming", self._last_token_start_index, self._last_token_end_index)
-                except Exception:
-                    pass
+        # Take snapshot of buffer under lock
+        with self._ui_lock:
+            if not self._token_buffer:
+                self._pending_flush = False
+                return
 
-            # Get current position before insert
-            start_index = self.llm_box.index("end-1c")
-
-            # Batch all tokens into single insert
             batched = "".join(self._token_buffer)
-            self.llm_box.insert("end", batched)
-
-            # Get position after insert
-            end_index = self.llm_box.index("end-1c")
-
-            # Highlight the newly inserted token(s) with streaming color
-            try:
-                self.llm_box.tag_add("streaming", start_index, end_index)
-                self.llm_box.tag_config("streaming", foreground=ui_theme.theme.text_colors.streaming_token)
-            except Exception as e:
-                logging.debug(f"Error applying streaming tag: {e}")
-
-            # Save indices for next flush
-            self._last_token_start_index = start_index
-            self._last_token_end_index = end_index
-
-            self.llm_box.see("end")
             self._token_buffer.clear()
             self._last_flush_time = time.time() * 1000
-            logging.debug(f"VIEW: Flushed batch: '{batched[:20]}...'")
 
-        self._pending_flush = False
+        # UI operations (run without lock to avoid blocking token additions)
+        # Reset previous token to default color
+        if self._last_token_start_index is not None and self._last_token_end_index is not None:
+            try:
+                self.llm_box.tag_remove("streaming", self._last_token_start_index, self._last_token_end_index)
+            except Exception:
+                pass
+
+        # Get current position before insert
+        start_index = self.llm_box.index("end-1c")
+
+        # Batch all tokens into single insert
+        self.llm_box.insert("end", batched)
+
+        # Get position after insert
+        end_index = self.llm_box.index("end-1c")
+
+        # Highlight the newly inserted token(s) with streaming color
+        try:
+            self.llm_box.tag_add("streaming", start_index, end_index)
+            self.llm_box.tag_config("streaming", foreground=ui_theme.theme.text_colors.streaming_token)
+        except Exception as e:
+            logging.debug(f"Error applying streaming tag: {e}")
+
+        # Save indices for next flush
+        self._last_token_start_index = start_index
+        self._last_token_end_index = end_index
+
+        self.llm_box.see("end")
+        logging.debug(f"VIEW: Flushed batch: '{batched[:20]}...'")
+
+        with self._ui_lock:
+            self._pending_flush = False
 
     def update_llm_status(self, status: str) -> None:
         if self.llm_label and self.llm_label.winfo_exists():
@@ -252,13 +279,15 @@ class DictationPopupView:
         self.smart_frame.pack_forget()
 
     def _clear_smart_content(self):
+        """Clear smart content. Thread-safe buffer clearing."""
         self.dictation_box.delete("1.0", "end")
         self.llm_box.delete("1.0", "end")
         self.llm_label.configure(text="AI Processing")
         # Reset streaming token tracking
         self._last_token_start_index = None
         self._last_token_end_index = None
-        self._token_buffer.clear()
+        with self._ui_lock:
+            self._token_buffer.clear()
 
     def _position_window(self, width: int, height: int):
         self.parent_root.winfo_screenwidth()

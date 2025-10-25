@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 import tkinter as tk
 from typing import Optional
 
@@ -37,6 +38,15 @@ from vocalance.app.ui.views.sound_view import SoundView
 
 
 class AppControlRoom:
+    """
+    Main application control room - manages UI views and controllers.
+
+    Thread Safety:
+    - View cache operations protected by _view_cache_lock
+    - Tab switching is atomic with lock protection
+    - All UI operations run in main tkinter thread
+    """
+
     def __init__(
         self,
         root: tk.Tk,
@@ -63,7 +73,8 @@ class AppControlRoom:
         # Set font service on the global theme
         ui_theme.theme.font_family.set_font_service(self.font_service)
 
-        # View caching for performance
+        # View caching for performance (thread-safe with lock)
+        self._view_cache_lock = threading.RLock()
         self._view_cache = {}
         self._current_view = None
 
@@ -343,7 +354,7 @@ class AppControlRoom:
             self.header_subtitle.configure(text=text)
 
     def show_tab(self, tab_name):
-        """Show the specified tab with view caching for performance"""
+        """Show the specified tab with view caching for performance. Thread-safe."""
         self.current_tab = tab_name
 
         # Update header
@@ -359,15 +370,20 @@ class AppControlRoom:
         if tab_name in subtitles:
             self._set_header_subtitle(subtitles[tab_name])
 
-        # Hide current view instead of destroying
-        if self._current_view is not None:
-            try:
-                self._current_view.grid_remove()
-            except Exception as e:
-                self.logger.debug(f"Error hiding current view: {e}")
+        # Thread-safe view cache access
+        with self._view_cache_lock:
+            # Hide current view instead of destroying
+            if self._current_view is not None:
+                try:
+                    self._current_view.grid_remove()
+                except Exception as e:
+                    self.logger.debug(f"Error hiding current view: {e}")
+
+            # Check if view exists in cache
+            view_cached = tab_name in self._view_cache
 
         # Get or create the requested view
-        if tab_name not in self._view_cache:
+        if not view_cached:
             self.logger.debug(f"Creating new view for tab: {tab_name}")
             tab_creators = {
                 "Sounds": self.create_sounds_tab,
@@ -382,58 +398,66 @@ class AppControlRoom:
         else:
             # Reuse cached view
             self.logger.debug(f"Reusing cached view for tab: {tab_name}")
-            cached_view = self._view_cache[tab_name]
+            with self._view_cache_lock:
+                cached_view = self._view_cache[tab_name]
+                self._current_view = cached_view
             cached_view.grid(row=0, column=0, sticky="nsew")
-            self._current_view = cached_view
 
     def create_sounds_tab(self):
-        """Create the sounds tab and cache it"""
+        """Create the sounds tab and cache it. Thread-safe."""
         self.sound_view = SoundView(self.content_frame, self.sound_controller, self.root)
         self.sound_view.grid(row=0, column=0, sticky="nsew")
-        self._view_cache["Sounds"] = self.sound_view
-        self._current_view = self.sound_view
+        with self._view_cache_lock:
+            self._view_cache["Sounds"] = self.sound_view
+            self._current_view = self.sound_view
 
     def create_marks_tab(self):
-        """Create the marks tab and cache it"""
+        """Create the marks tab and cache it. Thread-safe."""
         self.marks_view = MarksView(self.content_frame, self.marks_controller, self.root)
         self.marks_view.grid(row=0, column=0, sticky="nsew")
-        self._view_cache["Marks"] = self.marks_view
-        self._current_view = self.marks_view
+        with self._view_cache_lock:
+            self._view_cache["Marks"] = self.marks_view
+            self._current_view = self.marks_view
 
     def create_settings_tab(self):
-        """Create the settings tab and cache it"""
+        """Create the settings tab and cache it. Thread-safe."""
         self.settings_view = SettingsView(self.content_frame, self.settings_controller, self.root)
         self.settings_view.grid(row=0, column=0, sticky="nsew")
-        self._view_cache["Settings"] = self.settings_view
-        self._current_view = self.settings_view
+        with self._view_cache_lock:
+            self._view_cache["Settings"] = self.settings_view
+            self._current_view = self.settings_view
 
     def create_commands_tab(self):
-        """Create the commands tab and cache it"""
+        """Create the commands tab and cache it. Thread-safe."""
         self.commands_view = CommandsView(self.content_frame, self.commands_controller, self.root, self.logger)
         self.commands_view.grid(row=0, column=0, sticky="nsew")
-        self._view_cache["Commands"] = self.commands_view
-        self._current_view = self.commands_view
+        with self._view_cache_lock:
+            self._view_cache["Commands"] = self.commands_view
+            self._current_view = self.commands_view
 
     def create_dictation_tab(self):
-        """Create the dictation tab and cache it"""
+        """Create the dictation tab and cache it. Thread-safe."""
         self.dictation_view = DictationView(self.content_frame, self.dictation_controller, self.root)
         self.dictation_view.grid(row=0, column=0, sticky="nsew")
-        self._view_cache["Dictation"] = self.dictation_view
-        self._current_view = self.dictation_view
+        with self._view_cache_lock:
+            self._view_cache["Dictation"] = self.dictation_view
+            self._current_view = self.dictation_view
 
     def cleanup_controllers(self):
-        """Clean up all controllers when shutting down"""
+        """Clean up all controllers when shutting down. Thread-safe."""
         try:
-            # Clean up cached views first
-            for view_name, view in self._view_cache.items():
+            # Clean up cached views first (thread-safe)
+            with self._view_cache_lock:
+                view_items = list(self._view_cache.items())
+                self._view_cache.clear()
+                self._current_view = None
+
+            for view_name, view in view_items:
                 try:
                     if hasattr(view, "destroy"):
                         view.destroy()
                 except Exception as e:
                     self.logger.debug(f"Error destroying cached view {view_name}: {e}")
-
-            self._view_cache.clear()
-            self._current_view = None
 
             # Clean up controllers
             controllers = [

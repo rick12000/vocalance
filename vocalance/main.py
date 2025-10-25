@@ -596,6 +596,9 @@ async def main():
         await asyncio.sleep(0.5)
         startup_window.close_after_initialization()  # Use programmatic close (doesn't trigger shutdown)
 
+        # Wait for startup window to fully close before showing main window
+        await asyncio.sleep(0.1)
+
         # Activate all services AFTER startup window closes
         # This ensures services are not operational until fully ready
         logging.info("Activating services now that initialization is complete")
@@ -604,7 +607,15 @@ async def main():
         # Show main window AFTER services are activated
         app_tk_root.deiconify()
         app_tk_root.lift()
-        app_tk_root.focus_force()
+
+        # Use after() with try-except to safely handle focus
+        def safe_focus():
+            try:
+                app_tk_root.focus_force()
+            except Exception as e:
+                logging.debug(f"Focus force failed (expected during startup transition): {e}")
+
+        app_tk_root.after(200, safe_focus)
 
         # Shutdown check mechanism using coordinator
         def check_shutdown():

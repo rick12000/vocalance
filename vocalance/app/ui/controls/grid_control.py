@@ -15,7 +15,14 @@ from vocalance.app.ui.controls.base_control import BaseController
 
 
 class GridController(BaseController):
-    """Controller for grid functionality - orchestrates between service and view."""
+    """
+    Controller for grid functionality - orchestrates between service and view.
+
+    Thread Safety:
+    - _grid_visible protected by inherited _state_lock
+    - Event handlers run in GUI event loop thread
+    - UI updates marshalled to main thread via view callbacks
+    """
 
     def __init__(self, event_bus, event_loop, logger):
         super().__init__(event_bus, event_loop, logger, "GridController")
@@ -23,7 +30,7 @@ class GridController(BaseController):
         # Grid view reference (will be set by main window)
         self.grid_view = None
 
-        # Grid state tracking
+        # Grid state tracking (protected by _state_lock)
         self._grid_visible = False
 
         self.subscribe_to_events(
@@ -105,8 +112,9 @@ class GridController(BaseController):
     # --- Grid View Callback Methods ---
 
     def on_grid_selection_success(self, selected_number: int, center_x: float, center_y: float) -> None:
-        """Handle successful grid selection from view."""
-        self._grid_visible = False
+        """Handle successful grid selection from view. Thread-safe."""
+        with self._state_lock:
+            self._grid_visible = False
 
         # Publish interaction success event
         interaction_event = GridInteractionSuccessEventData(
@@ -155,13 +163,17 @@ class GridController(BaseController):
         self.handle_grid_selection(event_data.cell_label)
 
     async def _handle_click_logged(self, event_data) -> None:
-        """Handle click logged event to refresh grid if visible."""
-        if self._grid_visible and self.is_grid_overlay_active():
+        """Handle click logged event to refresh grid if visible. Thread-safe."""
+        with self._state_lock:
+            grid_visible = self._grid_visible
+
+        if grid_visible and self.is_grid_overlay_active():
             self.refresh_grid_overlay()
 
     async def _handle_grid_visibility_changed(self, event_data) -> None:
-        """Handle grid visibility changed event."""
-        self._grid_visible = event_data.visible
+        """Handle grid visibility changed event. Thread-safe."""
+        with self._state_lock:
+            self._grid_visible = event_data.visible
 
         # Sync view state with service state
         if self.grid_view:
