@@ -58,19 +58,15 @@ class AudioPreprocessor:
         if len(audio) == 0:
             raise ValueError("Audio array is empty")
 
-        # Convert to mono if needed
         if audio.ndim > 1:
             audio = np.mean(audio, axis=-1)
 
-        # Ensure audio is float type for processing
         if audio.dtype != np.float32:
             audio = audio.astype(np.float32)
 
-        # Validate sample rate
         if not isinstance(sr, (int, np.integer)) or sr <= 0:
             raise ValueError(f"Invalid sample rate: {sr}")
 
-        # Resample if needed
         if sr != self.target_sr:
             try:
                 audio = librosa.resample(y=audio, orig_sr=sr, target_sr=self.target_sr)
@@ -78,21 +74,16 @@ class AudioPreprocessor:
                 logger.error(f"Resample failed: sr={sr}, target={self.target_sr}, audio_shape={audio.shape}, error={e}")
                 raise ValueError(f"Failed to resample audio: {e}")
 
-        # Trim silence - CRITICAL for consistent embeddings
         audio = self._trim_silence(audio=audio)
 
-        # Validate and adjust duration
         duration = len(audio) / self.target_sr
         if duration < self.min_sound_duration:
-            # Pad to minimum duration
             target_samples = int(self.min_sound_duration * self.target_sr)
             audio = np.pad(audio, (0, target_samples - len(audio)), mode="constant")
         elif duration > self.max_sound_duration:
-            # Truncate to maximum duration
             target_samples = int(self.max_sound_duration * self.target_sr)
             audio = audio[:target_samples]
 
-        # Simple normalization
         peak = np.max(np.abs(audio))
         if peak > 0:
             audio = audio * (self.normalization_level / peak)
@@ -101,26 +92,21 @@ class AudioPreprocessor:
 
     def _trim_silence(self, audio: np.ndarray) -> np.ndarray:
         """Trim silence using RMS energy analysis."""
-        # Calculate RMS energy per frame
         rms = librosa.feature.rms(y=audio, frame_length=self.frame_length, hop_length=self.hop_length)[0]
 
-        # Adaptive threshold
         sorted_rms = np.sort(rms)
-        noise_floor = np.mean(sorted_rms[: len(sorted_rms) // 4])  # Bottom 25%
+        noise_floor = np.mean(sorted_rms[: len(sorted_rms) // 4])
         threshold = max(self.silence_threshold, noise_floor * 3)
 
-        # Find sound boundaries
         sound_frames = rms > threshold
 
         if not np.any(sound_frames):
-            return audio  # No trimming if no sound detected
+            return audio
 
-        # Get first and last sound frames with padding
         sound_indices = np.where(sound_frames)[0]
-        start_frame = max(0, sound_indices[0] - 2)  # Small padding
+        start_frame = max(0, sound_indices[0] - 2)
         end_frame = min(len(rms) - 1, sound_indices[-1] + 2)
 
-        # Convert to sample indices
         start_sample = start_frame * self.hop_length
         end_sample = min(len(audio), (end_frame + 1) * self.hop_length)
 
@@ -136,37 +122,30 @@ class StreamlinedSoundRecognizer:
         self.config = config.sound_recognizer
         self._storage = storage
 
-        # Get storage paths from storage service
         storage_config = storage.storage_config
         self.model_path = storage_config.sound_model_dir
         self.external_sounds_path = storage_config.external_non_target_sounds_dir
 
-        # Core components
         self.yamnet_model = None
         self.scaler = StandardScaler()
-        self.embeddings: np.ndarray = np.empty((0, 1024))  # YAMNet embedding size
+        self.embeddings: np.ndarray = np.empty((0, 1024))
         self.labels: List[str] = []
         self.mappings: Dict[str, str] = {}
 
-        # Thread-safety for concurrent access
         self._model_lock = RLock()
         self._shutdown_event = asyncio.Event()
 
-        # Configuration
         self.target_sr = self.config.target_sample_rate
         self.confidence_threshold = self.config.confidence_threshold
         self.k_neighbors = self.config.k_neighbors
         self.vote_threshold = self.config.vote_threshold
 
-        # ESC-50 configuration
         self.esc50_categories = self.config.esc50_categories
         self.max_esc50_per_cat = self.config.max_esc50_samples_per_category
         self.max_total_esc50 = self.config.max_total_esc50_samples
 
-        # Audio preprocessing
         self.preprocessor = AudioPreprocessor(config=self.config)
 
-        # Create directories once
         os.makedirs(self.model_path, exist_ok=True)
         os.makedirs(self.external_sounds_path, exist_ok=True)
 
@@ -177,19 +156,15 @@ class StreamlinedSoundRecognizer:
         try:
             logger.info("Initializing StreamlinedSoundRecognizer...")
 
-            # Load YAMNet model
             if tf is None:
                 logger.error("TensorFlow not available")
                 return False
 
-            # Initialize YAMNet model with copy-first strategy
             if not await self._initialize_yamnet_model():
                 return False
 
-            # Load existing data
             await self._load_model_data_async()
 
-            # Copy ESC-50 samples if needed
             await self._copy_esc50_samples()
 
             logger.info(f"StreamlinedSoundRecognizer initialized: {len(self.embeddings)} embeddings")
@@ -209,7 +184,6 @@ class StreamlinedSoundRecognizer:
             labels_path = os.path.join(self.model_path, "labels.joblib")
             scaler_path = os.path.join(self.model_path, "scaler.joblib")
 
-            # Check if all files exist
             all_exist = all(os.path.exists(path) for path in [embeddings_path, labels_path, scaler_path])
 
             if not all_exist:
@@ -224,14 +198,12 @@ class StreamlinedSoundRecognizer:
             unique_sounds = len(set(self.labels))
             logger.info(f"Loaded model data: {len(self.embeddings)} embeddings, {unique_sounds} unique sounds")
 
-            # Load mappings from storage
             await self._load_mappings_from_storage()
 
         except FileNotFoundError as e:
             logger.error(f"Model file not found: {e}")
         except Exception as e:
             logger.error(f"Failed to load model data: {e}", exc_info=True)
-            # Reset to empty state on load failure
             with self._model_lock:
                 self.embeddings = np.empty((0, 1024))
                 self.labels = []

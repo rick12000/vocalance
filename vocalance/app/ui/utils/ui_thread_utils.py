@@ -31,7 +31,7 @@ class UIScheduler:
     def __init__(self, root_window: Union[tk.Tk, ctk.CTk]):
         self.root_window = root_window
         self._main_thread_id = threading.get_ident()
-        logger.info(f"UIScheduler initialized in thread {self._main_thread_id}")
+        logger.debug(f"UIScheduler initialized in thread {self._main_thread_id}")
 
     def is_main_thread(self) -> bool:
         """Check if we're running in the main thread."""
@@ -42,13 +42,12 @@ class UIScheduler:
         if not self.root_window:
             return False
         try:
-            # Try a simple test to see if the main loop is running
             self.root_window.after_idle(lambda: None)
             return True
         except RuntimeError as e:
             if "main thread is not in main loop" in str(e):
                 return False
-            return True  # Other errors might be temporary
+            return True
         except Exception:
             return False
 
@@ -65,17 +64,15 @@ class UIScheduler:
                 logger.error(f"Error in UI update callback: {e}", exc_info=True)
 
         try:
-            # Use after_idle for better responsiveness - processes when Tk is idle
             self.root_window.after_idle(safe_wrapper)
         except RuntimeError as e:
             if "main thread is not in main loop" in str(e) and self.is_main_thread():
-                # Execute immediately if we're in the main thread but loop isn't running
                 try:
                     callback(*args)
                 except Exception:
-                    pass  # Silently ignore errors during shutdown
+                    pass
         except (tk.TclError, Exception):
-            pass  # Silently ignore UI errors during shutdown
+            pass
 
     def schedule_ui_update_immediate(self, callback: Callable, *args) -> None:
         """Execute UI update immediately if in main thread, otherwise schedule."""

@@ -40,7 +40,6 @@ class GridView:
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
         storage: Optional[StorageService] = None,
     ):
-        # Initialize logging and core attributes
         self.logger = logging.getLogger(self.__class__.__name__)
         self.root = root
         self.event_bus = event_bus
@@ -49,11 +48,8 @@ class GridView:
 
         self.default_num_rects = default_num_rects or self.DEFAULT_NUM_RECTS
 
-        # Thread safety: RLock protects all shared state
-        # RLock (not Lock) allows reentrant access from same thread
         self._state_lock = threading.RLock()
 
-        # Protected state variables (all access must be under lock)
         self._is_active = False
         self.current_num_rects_displayed: Optional[int] = None
         self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
@@ -61,21 +57,16 @@ class GridView:
         self._click_cache_timestamp: float = 0.0
         self._cache_loaded = False
 
-        # Initialize UI components (main thread only)
         self.overlay_window: Optional[tk.Toplevel] = None
         self.canvas: Optional[tk.Canvas] = None
 
-        # Event handling - use provided event_loop if available
         self.event_publisher = ThreadSafeEventPublisher(event_bus, self.event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus, "GridView")
 
-        # Screen dimensions
         self._update_screen_dimensions()
 
-        # Setup subscriptions
         self.setup_event_subscriptions()
 
-        # Controller callback reference
         self.controller_callback = None
 
         self.logger.info(f"GridView initialized. Screen: {self.screen_width}x{self.screen_height}")
@@ -86,7 +77,6 @@ class GridView:
 
     async def initialize_click_cache(self) -> None:
         """Load historical click data from storage into cache. Thread-safe."""
-        # Check both conditions under lock atomically
         with self._state_lock:
             if self._cache_loaded:
                 return
@@ -100,7 +90,6 @@ class GridView:
 
             with self._state_lock:
                 if clicks_data.clicks:
-                    # Convert GridClickEvent objects to dictionaries for compatibility
                     self._cached_clicks = [click.model_dump() for click in clicks_data.clicks]
                     self._click_cache_timestamp = time.time()
                     self._cache_loaded = True
@@ -120,7 +109,7 @@ class GridView:
             try:
                 self.root.after(0, callback, *args)
             except (RuntimeError, tk.TclError):
-                pass  # Silently ignore scheduling errors
+                pass
 
     def _update_screen_dimensions(self) -> None:
         """Update screen dimensions from root window."""
@@ -128,7 +117,7 @@ class GridView:
             self.screen_width = self.root.winfo_screenwidth()
             self.screen_height = self.root.winfo_screenheight()
         else:
-            self.screen_width = 1920  # Fallback
+            self.screen_width = 1920
             self.screen_height = 1080
 
     def setup_event_subscriptions(self) -> None:
@@ -213,12 +202,10 @@ class GridView:
         font_tuple = view_config.grid.get_font_tuple(cell_h)
         self.logger.debug(f"[GridView] Using font: {font_tuple}")
 
-        # Get colors with transparency applied
         fill_color = view_config.grid.get_fill_color_with_alpha()
         outline_color = view_config.grid.get_outline_color_with_alpha()
         text_color = view_config.grid.get_text_color_with_alpha()
 
-        # Draw all grid elements while window is hidden
         for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
             rect_data = weighted_rect_info["data"]
 
@@ -237,10 +224,8 @@ class GridView:
                 rect_data["center_x"], rect_data["center_y"], text=str(ui_number), fill=text_color, font=font_tuple
             )
 
-        # Update canvas with all content ready
         self.canvas.update_idletasks()
 
-        # Now show window with all content ready - instant display
         self._show_window_with_content()
 
         with self._state_lock:
@@ -283,32 +268,21 @@ class GridView:
 
         screen_aspect_ratio = self.screen_width / self.screen_height
 
-        # Calculate cell size based on dividing screen area by requested cells
         total_screen_area = self.screen_width * self.screen_height
         target_cell_area = total_screen_area / num_rects_requested
-
-        # Calculate cell dimensions that maintain screen aspect ratio
-        # If cell has same aspect ratio as screen: cell_w / cell_h = screen_aspect_ratio
-        # And cell_w * cell_h = target_cell_area
-        # So: cell_h = sqrt(target_cell_area / screen_aspect_ratio)
-        # And: cell_w = cell_h * screen_aspect_ratio
 
         cell_h = math.sqrt(target_cell_area / screen_aspect_ratio)
         cell_w = cell_h * screen_aspect_ratio
 
-        # Calculate how many cells fit in each dimension
         num_cols = math.floor(self.screen_width / cell_w)
         num_rows = math.floor(self.screen_height / cell_h)
 
-        # Ensure we have at least 1 cell in each dimension
         num_cols = max(1, num_cols)
         num_rows = max(1, num_rows)
 
-        # Recalculate actual cell dimensions to fill the screen exactly
         rect_w = self.screen_width / num_cols
         rect_h = self.screen_height / num_rows
 
-        # Calculate total cells that will be created
         actual_cells_to_create = num_cols * num_rows
 
         rect_definitions = []

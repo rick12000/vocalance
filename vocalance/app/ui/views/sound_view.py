@@ -39,7 +39,6 @@ class SoundView(ViewHelper):
         form_builder = FormBuilder()
         form_builder.setup_form_grid(container)
 
-        # Create form fields
         self.name_label, self.sound_name_entry = form_builder.create_labeled_entry(container, "Sound name:", "Choose a name...")
 
         self.samples_label, self.samples_entry = form_builder.create_labeled_entry(
@@ -49,7 +48,6 @@ class SoundView(ViewHelper):
             default_value=view_config.form_defaults.placeholder_samples,
         )
 
-        # Add button - store reference to the button frame
         self.record_button_frame = ctk.CTkFrame(container, fg_color="transparent")
         self.record_button_frame.grid(
             row=4,
@@ -65,15 +63,12 @@ class SoundView(ViewHelper):
         )
         self.record_button.grid(row=0, column=0, sticky="ew")
 
-        # Status frame (initially hidden)
         self.training_status_frame = TransparentFrame(container)
         self.training_status_frame.grid_columnconfigure(0, weight=1)
 
-        # Single status label for "Recording sample X of Y"
         self.training_status_label = ThemedLabel(self.training_status_frame, text="")
         self.training_status_label.grid(row=0, column=0, pady=view_config.theme.spacing.small, sticky="ew")
 
-        # Progress bar
         self.training_progress_bar = ctk.CTkProgressBar(
             self.training_status_frame,
             fg_color=view_config.theme.shape_colors.lightest,
@@ -145,7 +140,6 @@ class SoundView(ViewHelper):
         """Reset training interface to initial state"""
         self.current_training_sample = 0
         self.total_training_samples = 0
-        # Show progress bar again for next training
         self.safe_widget_operation(lambda: self.training_progress_bar.grid())
         self.safe_widget_operation(lambda: self.training_progress_bar.set(0))
         self.safe_widget_operation(lambda: self.training_status_label.configure(text=""))
@@ -200,7 +194,6 @@ class SoundView(ViewHelper):
 
     def _map_sound_to_command(self, sound_name: str) -> None:
         """Show dialog to map sound to command with proper dropdown filtering and themed UI"""
-        # Get theme
         theme = view_config.theme
         label_font_bold = (theme.font_family.primary, theme.font_sizes.medium, "bold")
         dropdown_font = (theme.font_family.primary, theme.font_sizes.medium)
@@ -217,7 +210,6 @@ class SoundView(ViewHelper):
         except Exception:
             pass
 
-        # Create main frame with themed background
         main_frame = ctk.CTkFrame(dialog, fg_color=theme.shape_colors.dark, border_color=theme.shape_colors.medium, border_width=1)
         main_frame.grid(
             row=0,
@@ -230,12 +222,10 @@ class SoundView(ViewHelper):
         dialog.grid_columnconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)
 
-        # Get available command types and initialize variables
         command_types = self.controller.get_mapping_command_types()
         type_var = tk.StringVar(value=command_types[0] if command_types else "Commands")
         value_var = tk.StringVar()
 
-        # Command type dropdown
         type_label = ThemedLabel(main_frame, text="Command Type:", font=label_font_bold)
         type_label.grid(
             row=0,
@@ -265,7 +255,6 @@ class SoundView(ViewHelper):
             row=1, column=0, sticky="ew", pady=(0, theme.spacing.small), padx=theme.two_box_layout.inner_content_padx
         )
 
-        # Command value dropdown
         value_label = ThemedLabel(main_frame, text="Command Value:", font=label_font_bold)
         value_label.grid(
             row=2,
@@ -289,9 +278,6 @@ class SoundView(ViewHelper):
             height=32,
             dropdown_fg_color=theme.shape_colors.darkest,
             dropdown_text_color=theme.text_colors.light,
-        )
-        value_dropdown.grid(
-            row=3, column=0, sticky="ew", pady=(0, theme.spacing.medium), padx=theme.two_box_layout.inner_content_padx
         )
 
         # Store references for the callback

@@ -48,11 +48,10 @@ class SimpleAudioService:
         self._is_processing = False
         self._initialize_recorders()
 
-        logger.info("SimpleAudioService initialized with dual independent recorders")
+        logger.debug("SimpleAudioService initialized with dual independent recorders")
 
     def _initialize_recorders(self) -> None:
         try:
-            # Command recorder - optimized for speed
             self._command_recorder = AudioRecorder(
                 app_config=self._config,
                 mode="command",
@@ -60,12 +59,11 @@ class SimpleAudioService:
                 on_audio_detected=self._on_audio_detected,
             )
 
-            # Dictation recorder - optimized for accuracy
             self._dictation_recorder = AudioRecorder(
                 app_config=self._config, mode="dictation", on_audio_segment=self._on_dictation_audio_segment
             )
 
-            logger.info("Dual audio recorders initialized")
+            logger.debug("Dual audio recorders initialized")
 
         except Exception as e:
             logger.error(f"Failed to initialize audio recorders: {e}", exc_info=True)
@@ -127,7 +125,6 @@ class SimpleAudioService:
             with self._lock:
                 if event.mode == "dictation":
                     self._is_dictation_mode = True
-                    # Both recorders active: command for amber detection, dictation for text
                     if self._command_recorder:
                         self._command_recorder.set_active(True)
                     if self._dictation_recorder:
@@ -135,7 +132,6 @@ class SimpleAudioService:
                     logger.info("Dictation mode: both recorders active")
                 elif event.mode == "command":
                     self._is_dictation_mode = False
-                    # Only command recorder active
                     if self._command_recorder:
                         self._command_recorder.set_active(True)
                     if self._dictation_recorder:
@@ -151,13 +147,11 @@ class SimpleAudioService:
         try:
             logger.info("Starting audio processing with dual recorders")
 
-            # Start both recorders - they run continuously until shutdown
             if self._command_recorder:
                 self._command_recorder.start()
             if self._dictation_recorder:
                 self._dictation_recorder.start()
 
-            # Set initial active states based on current mode
             with self._lock:
                 if self._is_dictation_mode:
                     if self._command_recorder:

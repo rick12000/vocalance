@@ -38,7 +38,6 @@ class DictationView(ViewHelper):
         form_builder = FormBuilder()
         form_builder.setup_form_grid(container)
 
-        # Create form fields using form builder
         self.title_label, self.title_entry = form_builder.create_labeled_entry(
             container, "Prompt Title:", "e.g. 'Professional Email Cleanup'"
         )
@@ -50,7 +49,6 @@ class DictationView(ViewHelper):
             height=100,
         )
 
-        # Make placeholder disappear on click
         def on_textbox_click(event):
             current_text = self.prompt_textbox.get("1.0", "end-1c")
             if current_text.startswith("e.g. "):
@@ -58,7 +56,6 @@ class DictationView(ViewHelper):
 
         self.prompt_textbox.bind("<Button-1>", on_textbox_click)
 
-        # Add button
         form_builder.create_button_row(
             container,
             [{"text": view_config.theme.button_text.add_prompt, "command": self._add_prompt, "type": "primary", "compact": False}],
@@ -82,11 +79,9 @@ class DictationView(ViewHelper):
         title = self.title_entry.get().strip()
         prompt_text = self.prompt_textbox.get("1.0", "end-1c").strip()
 
-        # Remove example prefix if present
         if prompt_text.startswith("e.g. "):
             prompt_text = ""
 
-        # Validate inputs
         if not title:
             form_builder = FormBuilder()
             form_builder.show_temporary_message(self.layout.left_content, "Please enter a title for the prompt.")
@@ -97,10 +92,8 @@ class DictationView(ViewHelper):
             form_builder.show_temporary_message(self.layout.left_content, "Please enter prompt instructions.")
             return
 
-        # Add prompt and clear form on success
         if self.controller.add_prompt(title, prompt_text):
             self.clear_form_fields(self.title_entry, self.prompt_textbox)
-            # Restore example text
             example_text = "e.g. Convert informal speech to professional writing while preserving all key information and maintaining clarity."
             self.prompt_textbox.insert("1.0", example_text)
 
@@ -172,7 +165,6 @@ class DictationView(ViewHelper):
         except Exception:
             pass
 
-        # Main frame with updated color
         main_frame = ThemedFrame(dialog, fg_color=view_config.theme.shape_colors.dark)
         main_frame.grid(
             row=0,
@@ -185,7 +177,6 @@ class DictationView(ViewHelper):
         dialog.grid_columnconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)
 
-        # Form fields (changed "Name:" to "Title:")
         form_builder = FormBuilder()
         title_label, title_entry = form_builder.create_labeled_entry(
             main_frame, "Prompt Title:", default_value=prompt_data.get("name", "")
@@ -196,12 +187,10 @@ class DictationView(ViewHelper):
         )
         prompt_textbox.insert("1.0", prompt_data.get("text", ""))
 
-        # Buttons
         def save_changes():
             new_name = title_entry.get().strip()
             new_text = prompt_textbox.get("1.0", "end-1c").strip()
 
-            # Validate inputs
             if not new_name:
                 form_builder.show_temporary_message(main_frame, "Please enter a title for the prompt")
                 return
@@ -210,7 +199,6 @@ class DictationView(ViewHelper):
                 form_builder.show_temporary_message(main_frame, "Please enter instructions for the prompt")
                 return
 
-            # Try to save the changes
             if self.controller.edit_prompt(prompt_data["id"], new_name, new_text):
                 dialog.destroy()
             else:

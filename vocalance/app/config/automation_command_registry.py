@@ -1,9 +1,4 @@
-"""
-Automation Command Registry
-
-Centralized registry for automation commands using proper command objects.
-Only handles automation commands - other command types are managed by their respective services.
-"""
+"""Automation command registry providing default commands and helper methods."""
 
 from typing import Dict, List, Set
 
@@ -11,14 +6,12 @@ from vocalance.app.config.command_types import AutomationCommand, ExactMatchComm
 
 
 class AutomationCommandRegistry:
-    """
-    Registry for automation commands using proper command objects.
+    """Registry for automation commands using proper command objects.
+
     Provides default automation commands and helper methods for lookup.
     """
 
-    # Default automation commands as proper command objects
-    DEFAULT_COMMANDS = [
-        # Tab/Window Management
+    DEFAULT_COMMANDS: List[AutomationCommand] = [
         ExactMatchCommand(
             command_key="web new",
             action_type="hotkey",
@@ -75,7 +68,6 @@ class AutomationCommandRegistry:
             long_description="Open the browser tab to the left of the current browser tab (also works in VSCode or other tabbed applications)",
             functional_group="Window Navigation",
         ),
-        # File Operations
         ExactMatchCommand(
             command_key="save",
             action_type="hotkey",
@@ -100,7 +92,6 @@ class AutomationCommandRegistry:
             long_description="Close all open files",
             functional_group="General IDE",
         ),
-        # Edit Operations
         ExactMatchCommand(
             command_key="copy",
             action_type="hotkey",
@@ -141,7 +132,6 @@ class AutomationCommandRegistry:
             long_description="Redo the last undone action",
             functional_group="Editing",
         ),
-        # View Operations
         ExactMatchCommand(
             command_key="zoom",
             action_type="hotkey",
@@ -158,7 +148,6 @@ class AutomationCommandRegistry:
             long_description="Decrease zoom level",
             functional_group="Basic",
         ),
-        # Click Operations
         ExactMatchCommand(
             command_key="click",
             action_type="click",
@@ -191,7 +180,6 @@ class AutomationCommandRegistry:
             long_description="Perform a triple left mouse click at current mouse cursor position",
             functional_group="Basic",
         ),
-        # Navigation Keys
         ExactMatchCommand(
             command_key="up",
             action_type="key",
@@ -240,7 +228,6 @@ class AutomationCommandRegistry:
             long_description="Press the page down key (use to scroll down)",
             functional_group="Basic",
         ),
-        # Special Keys
         ExactMatchCommand(
             command_key="enter",
             action_type="key",
@@ -281,7 +268,6 @@ class AutomationCommandRegistry:
             long_description="Press the space bar",
             functional_group="Editing",
         ),
-        # Application Commands
         ExactMatchCommand(
             command_key="square next",
             action_type="hotkey",
@@ -378,7 +364,6 @@ class AutomationCommandRegistry:
             long_description="Shows code references for the selected variable (trigger if your cursor is on a variable)",
             functional_group="General IDE",
         ),
-        # Code:
         ExactMatchCommand(
             command_key="rename",
             action_type="hotkey",
@@ -455,20 +440,36 @@ class AutomationCommandRegistry:
 
     @classmethod
     def get_default_commands(cls) -> List[AutomationCommand]:
-        """Get all default automation commands"""
+        """Get all default automation commands.
+
+        Returns:
+            List of default automation commands.
+        """
         return cls.DEFAULT_COMMANDS.copy()
 
     @classmethod
     def get_commands_dict(cls) -> Dict[str, AutomationCommand]:
-        """Get automation commands as a dictionary keyed by command phrase"""
+        """Get automation commands as a dictionary keyed by command phrase.
+
+        Returns:
+            Dictionary mapping command phrases to AutomationCommand objects.
+        """
         return {cmd.command_key: cmd for cmd in cls.DEFAULT_COMMANDS}
 
     @classmethod
     def get_command_phrases(cls) -> List[str]:
-        """Get list of all automation command phrases"""
+        """Get list of all automation command phrases.
+
+        Returns:
+            List of command phrase strings.
+        """
         return [cmd.command_key for cmd in cls.DEFAULT_COMMANDS]
 
     @classmethod
     def get_protected_phrases(cls) -> Set[str]:
-        """Get phrases that are protected from being used as custom commands"""
+        """Get phrases that are protected from being used as custom commands.
+
+        Returns:
+            Set of protected command phrases.
+        """
         return {cmd.command_key for cmd in cls.DEFAULT_COMMANDS}

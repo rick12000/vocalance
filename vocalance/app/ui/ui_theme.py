@@ -304,7 +304,6 @@ class SidebarLayout(BaseModel):
 class TwoBoxLayout(BaseModel):
     """Configuration for two-box layout used across tabs"""
 
-    # Box corner radius - references BorderRadius
     @property
     def box_corner_radius(self) -> int:
         return BorderRadius().rounded

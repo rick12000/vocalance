@@ -60,7 +60,7 @@ class LogoService:
                 logo_image = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=pil_logo.size)
                 with self._cache_lock:
                     self._logo_cache[cache_key] = logo_image
-                logger.info(f"Logo loaded successfully for {context} (size: {pil_logo.size})")
+                logger.debug(f"Logo loaded successfully for {context} (size: {pil_logo.size})")
                 return logo_image
             else:
                 logger.debug(f"No logo image available for {context}")

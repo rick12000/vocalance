@@ -65,31 +65,26 @@ class AppControlRoom:
         self._settings_service = None
         self._storage_service = storage_service
 
-        # Initialize asset services with config
         self.asset_cache = AssetCache(asset_paths_config=self.config.asset_paths)
         self.font_service = FontService(self.config.asset_paths)
         self.logo_service = LogoService(self.asset_cache)
 
-        # Set font service on the global theme
         ui_theme.theme.font_family.set_font_service(self.font_service)
 
-        # View caching for performance (thread-safe with lock)
         self._view_cache_lock = threading.RLock()
         self._view_cache = {}
         self._current_view = None
 
-        # Initialize components
         self._initialize_controllers()
         self._initialize_specialized_views()
         self._setup_main_window()
         self._build_ui()
 
-        self.logger.info("Control Room Initialized.")
+        self.logger.debug("Control Room Initialized.")
 
     def set_settings_service(self, settings_service):
         """Set the settings service reference for controllers to use"""
         self._settings_service = settings_service
-        # Update the settings controller with the service
         if hasattr(self, "settings_controller"):
             self.settings_controller.set_settings_service(settings_service)
 
@@ -100,7 +95,6 @@ class AppControlRoom:
             self.sound_controller = SoundController(self.event_bus, self.event_loop, self.logger)
             self.dictation_controller = DictationController(self.event_bus, self.event_loop, self.logger, self.config)
 
-            # Pass settings service to settings controller
             settings_service = getattr(self, "_settings_service", None)
             self.settings_controller = SettingsController(
                 self.event_bus, self.event_loop, self.logger, self.config, settings_service
@@ -111,13 +105,12 @@ class AppControlRoom:
             self.system_controller = SystemController(self.event_bus, self.root, self.event_loop, self.logger)
             self.dictation_popup_controller = DictationPopupController(self.event_bus, self.event_loop, self.logger)
 
-            # Set up controller callbacks
             self.dictation_controller.set_view_callback(self)
             self.settings_controller.set_view_callback(self)
             self.grid_controller.set_view_callback(self)
             self.system_controller.set_view_callback(self)
 
-            self.logger.info("Controllers initialized")
+            self.logger.debug("Controllers initialized")
 
         except Exception as e:
             self.logger.error(f"Error initializing controllers: {e}", exc_info=True)
@@ -126,7 +119,6 @@ class AppControlRoom:
     def _initialize_specialized_views(self):
         """Initialize specialized views that need direct controller connection"""
         try:
-            # Grid view
             self.grid_view = GridView(
                 root=self.root,
                 event_bus=self.event_bus,
@@ -136,18 +128,15 @@ class AppControlRoom:
             )
             self.grid_controller.set_grid_view(self.grid_view)
 
-            # Initialize grid view's click cache asynchronously
             if self._storage_service:
                 asyncio.create_task(self.grid_view.initialize_click_cache())
 
-            # Mark view
             self.mark_view = MarkView(root=self.root)
             self.marks_controller.set_mark_view(self.mark_view)
 
-            # Dictation popup view
             self.dictation_popup_view = DictationPopupView(parent_root=self.root, controller=self.dictation_popup_controller)
 
-            self.logger.info("Specialized views initialized")
+            self.logger.debug("Specialized views initialized")
 
         except Exception as e:
             self.logger.error(f"Error initializing specialized views: {e}", exc_info=True)
@@ -158,7 +147,7 @@ class AppControlRoom:
         try:
             set_window_icon_robust(self.root)
 
-            self.logger.info("Main window setup completed")
+            self.logger.debug("Main window setup completed")
 
         except Exception as e:
             self.logger.error(f"Error setting up main window: {e}", exc_info=True)
@@ -191,7 +180,6 @@ class AppControlRoom:
         self.create_header()
         self.create_content_area()
 
-        # Show initial tab
         self.show_tab("Marks")
 
     def create_sidebar(self):
@@ -214,16 +202,13 @@ class AppControlRoom:
         )
         self.sidebar.grid_propagate(False)
 
-        # Configure sidebar grid
-        self.sidebar.grid_rowconfigure(0, weight=0, minsize=50)  # Top spacer
-        self.sidebar.grid_rowconfigure(1, weight=1)  # Buttons
-        self.sidebar.grid_rowconfigure(2, weight=0)  # Logo
+        self.sidebar.grid_rowconfigure(0, weight=0, minsize=50)
+        self.sidebar.grid_rowconfigure(1, weight=1)
+        self.sidebar.grid_rowconfigure(2, weight=0)
         self.sidebar.grid_columnconfigure(0, weight=1)
 
-        # Create navigation buttons
         self._create_sidebar_buttons()
 
-        # Create logo
         self._create_sidebar_logo()
 
     def create_sidebar_separator(self):
@@ -254,7 +239,6 @@ class AppControlRoom:
         self.sidebar_buttons = {}
         self.sidebar_button_manager = SidebarButtonManager()
 
-        # Tab configuration
         tabs = [
             ("Marks", ui_theme.theme.sidebar_icons.marks),
             ("Sounds", ui_theme.theme.sidebar_icons.sounds),
@@ -276,7 +260,6 @@ class AppControlRoom:
             self.sidebar_buttons[tab_name] = btn
             self.sidebar_button_manager.add_button(btn)
 
-        # Select first button
         if tabs:
             first_button = self.sidebar_buttons[tabs[0][0]]
             self.sidebar_button_manager.select_button(first_button)
@@ -291,7 +274,7 @@ class AppControlRoom:
 
         self.sidebar_logo.grid(row=2, column=0, pady=(sidebar_config.logo_padding_top, sidebar_config.logo_padding_bottom))
 
-        self.logger.info("Sidebar logo created")
+        self.logger.debug("Sidebar logo created")
 
     def create_header(self):
         """Create the header section"""
@@ -307,7 +290,6 @@ class AppControlRoom:
         self.header.grid(row=0, column=2, sticky="ew", padx=header_config.frame_padx, pady=header_config.frame_pady)
         self.header.grid_propagate(False)
 
-        # Configure header grid
         self.header.grid_columnconfigure(0, weight=1)
         self.header.grid_rowconfigure(0, weight=0)
         self.header.grid_rowconfigure(1, weight=1)
@@ -370,19 +352,15 @@ class AppControlRoom:
         if tab_name in subtitles:
             self._set_header_subtitle(subtitles[tab_name])
 
-        # Thread-safe view cache access
         with self._view_cache_lock:
-            # Hide current view instead of destroying
             if self._current_view is not None:
                 try:
                     self._current_view.grid_remove()
                 except Exception as e:
                     self.logger.debug(f"Error hiding current view: {e}")
 
-            # Check if view exists in cache
             view_cached = tab_name in self._view_cache
 
-        # Get or create the requested view
         if not view_cached:
             self.logger.debug(f"Creating new view for tab: {tab_name}")
             tab_creators = {
@@ -396,7 +374,6 @@ class AppControlRoom:
             if tab_name in tab_creators:
                 tab_creators[tab_name]()
         else:
-            # Reuse cached view
             self.logger.debug(f"Reusing cached view for tab: {tab_name}")
             with self._view_cache_lock:
                 cached_view = self._view_cache[tab_name]
@@ -477,14 +454,14 @@ class AppControlRoom:
                     if hasattr(controller, "cleanup"):
                         controller.cleanup()
 
-            self.logger.info("Controllers cleaned up")
+            self.logger.debug("Controllers cleaned up")
         except Exception as e:
             self.logger.error(f"Error cleaning up controllers: {e}", exc_info=True)
 
     # Controller callback methods
     def on_grid_visibility_changed(self, visible: bool, rows: Optional[int], cols: Optional[int], show_numbers: Optional[bool]):
         """Called by grid controller when grid visibility changes"""
-        self.logger.info(f"Grid display updated. Visible: {visible}, Rows: {rows}, Cols: {cols}")
+        self.logger.debug(f"Grid display updated. Visible: {visible}, Rows: {rows}, Cols: {cols}")
 
     def on_prompts_updated(self, prompts):
         """Called by dictation controller when prompts are updated"""

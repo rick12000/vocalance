@@ -75,4 +75,4 @@ class BaseController:
     def cleanup(self) -> None:
         """Clean up resources when controller is destroyed."""
         self.subscription_manager.unsubscribe_all()
-        self.logger.info(f"{self.controller_name} cleaned up")
+        self.logger.debug(f"{self.controller_name} cleaned up")

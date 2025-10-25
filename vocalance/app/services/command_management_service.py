@@ -38,17 +38,17 @@ class CommandManagementService:
         protected_terms_validator: ProtectedTermsValidator,
         action_map_provider: CommandActionMapProvider,
     ) -> None:
-        self._event_bus = event_bus
-        self._app_config = app_config
-        self._storage = storage
-        self._protected_terms_validator = protected_terms_validator
-        self._action_map_provider = action_map_provider
+        self._event_bus: EventBus = event_bus
+        self._app_config: GlobalAppConfig = app_config
+        self._storage: StorageService = storage
+        self._protected_terms_validator: ProtectedTermsValidator = protected_terms_validator
+        self._action_map_provider: CommandActionMapProvider = action_map_provider
 
-        logger.info("CommandManagementService initialized")
+        logger.debug("CommandManagementService initialized")
 
     def setup_subscriptions(self) -> None:
         """Set up event subscriptions for command management."""
-        logger.info("Setting up CommandManagementService event subscriptions...")
+        logger.debug("Setting up CommandManagementService event subscriptions")
 
         self._event_bus.subscribe(event_type=AddCustomCommandEvent, handler=self._handle_add_custom_command)
         self._event_bus.subscribe(event_type=UpdateCommandPhraseEvent, handler=self._handle_update_command_phrase)
@@ -56,17 +56,17 @@ class CommandManagementService:
         self._event_bus.subscribe(event_type=RequestCommandMappingsEvent, handler=self._handle_request_command_mappings)
         self._event_bus.subscribe(event_type=ResetCommandsToDefaultsEvent, handler=self._handle_reset_to_defaults)
 
-        logger.info("CommandManagementService subscriptions set up")
+        logger.debug("CommandManagementService subscriptions set up")
 
     async def _validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
         """Validate command phrase against protected terms and existing commands.
 
         Args:
-            command_phrase: The command phrase to validate
-            exclude_phrase: Phrase to exclude from conflict check (for updates)
+            command_phrase: The command phrase to validate.
+            exclude_phrase: Phrase to exclude from conflict check (for updates).
 
         Returns:
-            Error message string if invalid, None if valid
+            Error message string if invalid, None if valid.
         """
         is_valid, error_msg = await self._protected_terms_validator.validate_term(term=command_phrase, exclude_term=exclude_phrase)
 
@@ -89,19 +89,17 @@ class CommandManagementService:
         """Get all command mappings (custom and default with overrides) for UI.
 
         Returns:
-            List of AutomationCommand objects including custom commands and defaults
+            List of AutomationCommand objects including custom commands and defaults.
         """
         try:
             mappings = []
             commands_data = await self._storage.read(model_type=CommandsData)
 
-            # Add custom commands (already AutomationCommand objects)
             for custom_command in commands_data.custom_commands.values():
                 if custom_command.is_custom and custom_command.functional_group == "Other":
                     custom_command.functional_group = "Custom"
                 mappings.append(custom_command)
 
-            # Add default commands with overrides
             default_commands = AutomationCommandRegistry.get_default_commands()
 
             for command_data in default_commands:
@@ -126,7 +124,11 @@ class CommandManagementService:
             return []
 
     async def _handle_add_custom_command(self, event_data: AddCustomCommandEvent) -> None:
-        """Handle adding a new custom command"""
+        """Handle adding a new custom command.
+
+        Args:
+            event_data: Event containing the custom command to add.
+        """
         command = event_data.command
         command_phrase = command.command_key.lower().strip()
 
@@ -144,18 +146,22 @@ class CommandManagementService:
 
         if success:
             await self._publish_mappings_updated(True, f"Added custom command: {command_phrase}")
-            logger.info(f"Successfully added custom command: {command_phrase}")
+            logger.debug(f"Successfully added custom command: {command_phrase}")
         else:
             await self._publish_validation_error("Failed to store custom command", command_phrase)
 
     async def _handle_update_command_phrase(self, event: UpdateCommandPhraseEvent) -> None:
-        """Handle update command phrase request."""
+        """Handle update command phrase request.
+
+        Args:
+            event: Event containing old and new command phrases.
+        """
         old_phrase = event.old_command_phrase
         new_phrase = event.new_command_phrase
 
         validation_error = await self._validate_command_phrase(new_phrase, exclude_phrase=old_phrase)
         if validation_error:
-            logger.warning(f"Validation failed for command phrase update '{old_phrase}' -> '{new_phrase}': {validation_error}")
+            logger.debug(f"Validation failed for command phrase update '{old_phrase}' -> '{new_phrase}': {validation_error}")
             await self._publish_validation_error(validation_error, new_phrase)
             return
 
@@ -193,12 +199,16 @@ class CommandManagementService:
 
         if success:
             await self._publish_mappings_updated(True, f"Updated command phrase: '{old_phrase}' -> '{new_phrase}'")
-            logger.info(f"Successfully updated command phrase: '{old_phrase}' -> '{new_phrase}'")
+            logger.debug(f"Successfully updated command phrase: '{old_phrase}' -> '{new_phrase}'")
         else:
             await self._publish_validation_error("Failed to update command phrase", new_phrase)
 
     async def _handle_delete_custom_command(self, event: DeleteCustomCommandEvent) -> None:
-        """Handle delete custom command request."""
+        """Handle delete custom command request.
+
+        Args:
+            event: Event containing the command to delete.
+        """
         command_phrase = event.command.command_key.lower().strip()
         commands_data = await self._storage.read(model_type=CommandsData)
         if command_phrase in commands_data.custom_commands:
@@ -209,33 +219,51 @@ class CommandManagementService:
 
         if success:
             await self._publish_mappings_updated(True, f"Deleted custom command: {command_phrase}")
-            logger.info(f"Deleted custom command: {command_phrase}")
+            logger.debug(f"Deleted custom command: {command_phrase}")
         else:
             await self._publish_validation_error("Failed to delete custom command")
 
     async def _handle_request_command_mappings(self, event: RequestCommandMappingsEvent) -> None:
-        """Handle request for command mappings."""
+        """Handle request for command mappings.
+
+        Args:
+            event: Event requesting command mappings.
+        """
         mappings = await self.get_command_mappings()
         await self._event_bus.publish(CommandMappingsResponseEvent(mappings=mappings))
         logger.debug(f"Handled command mappings request - {len(mappings)} mappings")
 
     async def _handle_reset_to_defaults(self, event: ResetCommandsToDefaultsEvent) -> None:
-        """Handle reset to defaults request."""
+        """Handle reset to defaults request.
+
+        Args:
+            event: Event requesting reset to defaults.
+        """
         commands_data = CommandsData()
         success = await self._storage.write(data=commands_data)
 
         if success:
             await self._publish_mappings_updated(True, "Reset commands to defaults")
-            logger.info("Reset commands to defaults")
+            logger.debug("Reset commands to defaults")
         else:
             await self._publish_validation_error("Failed to reset commands to defaults")
 
     async def _publish_validation_error(self, error_message: str, command_phrase: str = "") -> None:
-        """Publish validation error event."""
+        """Publish validation error event.
+
+        Args:
+            error_message: Error message to publish.
+            command_phrase: Command phrase that failed validation.
+        """
         await self._event_bus.publish(CommandValidationErrorEvent(error_message=error_message, command_phrase=command_phrase))
 
     async def _publish_mappings_updated(self, success: bool, message: str) -> None:
-        """Publish mappings updated event with current command mappings."""
+        """Publish mappings updated event with current command mappings.
+
+        Args:
+            success: Whether the operation succeeded.
+            message: Status message describing the update.
+        """
         current_mappings = await self.get_command_mappings()
         await self._event_bus.publish(
             CommandMappingsUpdatedEvent(

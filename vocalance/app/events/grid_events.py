@@ -1,4 +1,3 @@
-# filepath: src/events/grid_events.py
 import uuid
 from typing import Any, Dict, List, Literal, Optional
 
@@ -8,21 +7,29 @@ from vocalance.app.events.base_event import BaseEvent, EventPriority
 
 
 class ShowGridRequestEventData(BaseEvent):
+    """Request to display the grid overlay."""
+
     rows: Optional[int] = None
     cols: Optional[int] = None
     priority: EventPriority = EventPriority.NORMAL
 
 
 class HideGridRequestEventData(BaseEvent):
+    """Request to hide the grid overlay."""
+
     priority: EventPriority = EventPriority.NORMAL
 
 
 class ClickGridCellRequestEventData(BaseEvent):
+    """Request to click a specific grid cell."""
+
     cell_label: str = Field(description="The label of the grid cell to click (e.g., 'A1', 'C5').")
     priority: EventPriority = EventPriority.NORMAL
 
 
 class UpdateGridConfigRequestEventData(BaseEvent):
+    """Request to update grid configuration parameters."""
+
     rows: Optional[int] = None
     cols: Optional[int] = None
     cell_width: Optional[int] = None
@@ -36,6 +43,8 @@ class UpdateGridConfigRequestEventData(BaseEvent):
 
 
 class GridVisibilityChangedEventData(BaseEvent):
+    """Event indicating grid visibility state has changed."""
+
     visible: bool
     rows: Optional[int] = None
     cols: Optional[int] = None
@@ -43,6 +52,8 @@ class GridVisibilityChangedEventData(BaseEvent):
 
 
 class GridConfigUpdatedEventData(BaseEvent):
+    """Event indicating grid configuration has been updated."""
+
     rows: int
     cols: int
     cell_width: int
@@ -58,6 +69,8 @@ class GridConfigUpdatedEventData(BaseEvent):
 
 
 class GridInteractionSuccessEventData(BaseEvent):
+    """Event indicating a grid interaction succeeded."""
+
     operation: Literal["select_cell"]
     details: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
@@ -65,6 +78,8 @@ class GridInteractionSuccessEventData(BaseEvent):
 
 
 class GridInteractionFailedEventData(BaseEvent):
+    """Event indicating a grid interaction failed."""
+
     operation: Literal["select_cell"]
     reason: str
     cell_label: Optional[str] = None
@@ -73,12 +88,16 @@ class GridInteractionFailedEventData(BaseEvent):
 
 
 class RequestClickCountsForGridEventData(BaseEvent):
+    """Request to calculate click counts for grid rectangles."""
+
     rect_definitions: List[Dict[str, Any]]
     request_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     priority: EventPriority = EventPriority.NORMAL
 
 
 class ClickCountsForGridEventData(BaseEvent):
+    """Response event providing click counts for grid rectangles."""
+
     request_id: str
     processed_rects_with_clicks: List[Dict[str, Any]]
     priority: EventPriority = EventPriority.NORMAL

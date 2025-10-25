@@ -50,28 +50,27 @@ class SpeechToTextService:
         self._duplicate_filter = DuplicateTextFilter(cache_size=5, duplicate_threshold_ms=1000)
         self._stop_trigger = config.dictation.stop_trigger
 
-        logger.info(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
+        logger.debug(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
 
     async def initialize_engines(self, shutdown_coordinator=None) -> None:
-        """
-        Initialize Vosk and Whisper engines.
+        """Initialize Vosk and Whisper speech-to-text engines.
 
         Args:
-            shutdown_coordinator: Optional coordinator to check for cancellation
+            shutdown_coordinator: Optional coordinator to check for cancellation.
         """
         if self._engines_initialized:
             return
 
-        logger.info("Initializing STT engines...")
+        logger.debug("Initializing STT engines...")
 
-        logger.info("Loading Vosk STT engine...")
+        logger.debug("Loading Vosk STT engine...")
         self.vosk_engine = EnhancedVoskSTT(
             model_path=self.config.asset_paths.get_vosk_model_path(),
             sample_rate=self.stt_config.sample_rate,
             config=self.config,
         )
 
-        logger.info("Loading Whisper STT engine...")
+        logger.debug("Loading Whisper STT engine...")
 
         # Start whisper download in daemon thread
         whisper_result = [None]  # Mutable container for thread result

@@ -13,28 +13,28 @@ class CommandHistoryManager:
     """Manages command execution history with in-memory accumulation.
 
     Records commands to in-memory buffer during session for fast zero-I/O tracking,
-    then persists full history to storage at shutdown. History used by Markov
-    predictor for training. Thread-safe using async locks.
+    then persists full history to storage at shutdown. Used by Markov predictor for training.
+    Thread-safe using async locks.
     """
 
     def __init__(self, storage: StorageService) -> None:
-        self._storage = storage
+        self._storage: StorageService = storage
         self._session_history: List[CommandHistoryEntry] = []
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock = asyncio.Lock()
 
-        logger.info("CommandHistoryManager initialized")
+        logger.debug("CommandHistoryManager initialized")
 
     async def initialize(self) -> bool:
         """Load existing history from storage into memory.
 
         Returns:
-            True if initialization succeeded, False otherwise
+            True if initialization succeeded, False otherwise.
         """
         try:
             history_data = await self._storage.read(model_type=CommandHistoryData)
             async with self._lock:
                 self._session_history = list(history_data.history)
-            logger.info(f"Loaded {len(self._session_history)} commands from history")
+            logger.debug(f"Loaded {len(self._session_history)} commands from history")
             return True
         except Exception as e:
             logger.warning(f"Could not load history (starting fresh): {e}")
@@ -46,8 +46,8 @@ class CommandHistoryManager:
         """Record command to in-memory history (fast, no I/O).
 
         Args:
-            command: The command text that was executed
-            source: Source of the command ("stt", "sound", "markov")
+            command: The command text that was executed.
+            source: Source of the command (stt, sound, markov).
         """
         entry = CommandHistoryEntry(command=command, timestamp=time.time(), success=None, metadata={"source": source})
 
@@ -60,10 +60,10 @@ class CommandHistoryManager:
         """Get N most recent commands from history.
 
         Args:
-            count: Number of recent commands to retrieve
+            count: Number of recent commands to retrieve.
 
         Returns:
-            List of most recent command history entries
+            List of most recent command history entries.
         """
         async with self._lock:
             return list(self._session_history[-count:])
@@ -72,7 +72,7 @@ class CommandHistoryManager:
         """Get complete command history.
 
         Returns:
-            Full list of command history entries
+            Full list of command history entries.
         """
         async with self._lock:
             return list(self._session_history)
@@ -81,11 +81,11 @@ class CommandHistoryManager:
         """Write accumulated history to storage.
 
         Returns:
-            True if write succeeded, False otherwise
+            True if write succeeded, False otherwise.
         """
         async with self._lock:
             if not self._session_history:
-                logger.info("No commands to write at shutdown")
+                logger.debug("No commands to write at shutdown")
                 return True
 
             history_data = CommandHistoryData(history=self._session_history)
@@ -93,7 +93,7 @@ class CommandHistoryManager:
         success = await self._storage.write(data=history_data)
 
         if success:
-            logger.info(f"Successfully wrote {len(history_data.history)} commands")
+            logger.debug(f"Successfully wrote {len(history_data.history)} commands")
         else:
             logger.error("Failed to write command history")
 

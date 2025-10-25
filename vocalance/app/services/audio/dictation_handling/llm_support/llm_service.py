@@ -42,13 +42,13 @@ class LLMService:
         self.n_threads = config.llm.n_threads if config.llm.n_threads else max(4, min(int(cpu_count * 0.75), 12))
         self.n_threads_batch = config.llm.n_threads_batch if config.llm.n_threads_batch else self.n_threads
 
-        logger.info(f"LLMService initialized: {self.model_filename}")
+        logger.debug(f"LLMService initialized: {self.model_filename}")
 
     async def initialize(self) -> bool:
         """Initialize LLM model with atomic download and retry logic"""
         try:
             if not self.model_downloader.model_exists(self.model_filename):
-                logger.info(f"Downloading model: {self.model_filename}")
+                logger.debug(f"Downloading model: {self.model_filename}")
                 model_path = await self.model_downloader.download_model(
                     repo_id=self.model_info["repo_id"], filename=self.model_info["filename"]
                 )
@@ -62,17 +62,17 @@ class LLMService:
                 logger.error(f"Model not found: {self.model_path}")
                 return False
 
-            logger.info(f"Loading model: {os.path.basename(self.model_path)}")
+            logger.debug(f"Loading model: {os.path.basename(self.model_path)}")
 
             loop = asyncio.get_event_loop()
             self.llm = await loop.run_in_executor(None, self._load_model, self.model_path)
 
             if self.llm:
                 self._model_loaded = True
-                logger.info("Model loaded successfully, warming up...")
+                logger.debug("Model loaded successfully, warming up...")
                 await self._warmup_model()
                 self._warmed_up = True
-                logger.info("Model initialization and warmup complete")
+                logger.debug("Model initialization and warmup complete")
                 return True
 
             logger.error("Model loading failed")

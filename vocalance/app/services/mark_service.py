@@ -59,10 +59,11 @@ class MarkService:
         self._is_viz_active: bool = False
         self._viz_lock = asyncio.Lock()
 
-        logger.info("MarkService initialized with protected terms validation")
+        logger.debug("MarkService initialized with protected terms validation")
 
     def setup_subscriptions(self) -> None:
-        logger.info("Setting up MarkServiceV2 event subscriptions...")
+        """Setup event subscriptions for mark commands and requests."""
+        logger.debug("Setting up MarkService event subscriptions...")
 
         # Subscribe to visualization state changes
         self._event_bus.subscribe(
@@ -81,7 +82,7 @@ class MarkService:
         # Centralized command events
         self._event_bus.subscribe(event_type=MarkCommandParsedEvent, handler=self._handle_mark_command_parsed)
 
-        logger.info("MarkServiceV2 subscriptions set up")
+        logger.debug("MarkServiceV2 subscriptions set up")
 
     async def _handle_mark_command_parsed(self, event_data: MarkCommandParsedEvent) -> None:
         """Handle parsed mark commands"""
@@ -278,14 +279,12 @@ class MarkService:
         self, raw_phrase: str, command_name: str, success: bool, message: str, details: Optional[Dict[str, Any]] = None
     ) -> None:
         """Publish command execution status."""
-        # Implementation would publish to appropriate event channel
         logger.debug(f"Command status - {command_name}: {'SUCCESS' if success else 'FAILED'} - {message}")
 
     async def _publish_marks_changed_event(self) -> None:
         """Publish marks changed event for UI updates."""
         all_marks = await self.get_all_marks()
 
-        # Publish MarksChangedEvent for UI updates
         await self._event_bus.publish(MarksChangedEventData(marks=all_marks))
 
         logger.debug(f"Published marks changed event - {len(all_marks)} marks")

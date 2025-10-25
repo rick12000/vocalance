@@ -79,11 +79,11 @@ class CentralizedCommandParser:
         action_map_provider: CommandActionMapProvider,
         history_manager: CommandHistoryManager,
     ) -> None:
-        self._event_bus = event_bus
-        self._app_config = app_config
-        self._storage = storage
-        self._action_map_provider = action_map_provider
-        self._history_manager = history_manager
+        self._event_bus: EventBus = event_bus
+        self._app_config: GlobalAppConfig = app_config
+        self._storage: StorageService = storage
+        self._action_map_provider: CommandActionMapProvider = action_map_provider
+        self._history_manager: CommandHistoryManager = history_manager
         self._sound_to_command_mapping: Dict[str, str] = {}
         self._cache_config_data()
         self._last_text: Optional[str] = None
@@ -92,9 +92,10 @@ class CentralizedCommandParser:
         self._recent_predictions: Dict[float, Tuple[str, float]] = {}
         self._prediction_window: float = app_config.command_parser.prediction_deduplication_window
 
-        logger.info("CentralizedCommandParser initialized")
+        logger.debug("CentralizedCommandParser initialized")
 
     def _cache_config_data(self) -> None:
+        """Cache frequently accessed configuration values."""
         self._grid_show_phrase = self._app_config.grid.show_grid_phrase.lower()
         self._grid_cancel_phrase = self._app_config.grid.cancel_grid_phrase.lower()
         self._mark_create_prefix = self._app_config.mark.triggers.create_mark.lower()
@@ -124,13 +125,10 @@ class CentralizedCommandParser:
         logger.info("CentralizedCommandParser subscriptions set up")
 
     async def initialize(self) -> bool:
-        """Initialize parser by loading sound mappings and command history.
-
-        Requests current sound-to-command mappings from sound service and loads
-        existing command history from storage for Markov training.
+        """Initialize command parser by loading action map and setting up subscriptions.
 
         Returns:
-            True if initialization succeeded, False otherwise
+            True if initialization succeeded, False otherwise.
         """
         try:
             await self._event_bus.publish(RequestSoundMappingsEvent())
@@ -266,7 +264,6 @@ class CentralizedCommandParser:
         if not words:
             return NoMatchResult()
 
-        # Mark create command ("mark <label>")
         if words[0] == self._mark_create_prefix and len(words) == 2:
             label = words[1]
             if label:
@@ -275,7 +272,6 @@ class CentralizedCommandParser:
             else:
                 return ErrorResult(error_message="Mark label cannot be empty")
 
-        # Mark delete command ("mark delete <label>")
         if normalized_text.startswith(f"{self._mark_delete_prefix} "):
             label_part = normalized_text[len(self._mark_delete_prefix) :].strip()
             if label_part and len(label_part.split()) == 1:
@@ -283,15 +279,12 @@ class CentralizedCommandParser:
             else:
                 return ErrorResult(error_message="Mark delete requires a single word label")
 
-        # Mark visualize commands
         if normalized_text in self._mark_visualize_phrases:
             return MarkVisualizeCommand()
 
-        # Mark reset commands
         if normalized_text in self._mark_reset_phrases:
             return MarkResetCommand()
 
-        # Mark visualization cancel commands
         if normalized_text in self._mark_cancel_visualize_phrases:
             return MarkVisualizeCancelCommand()
 
@@ -304,13 +297,10 @@ class CentralizedCommandParser:
         if not words:
             return NoMatchResult()
 
-        # Check for grid trigger phrase
         if normalized_text.startswith(self._grid_show_phrase):
-            # Grid show command with optional number
             if normalized_text == self._grid_show_phrase:
                 return GridShowCommand(num_rects=None)
 
-            # Extract number after trigger phrase
             after_trigger = normalized_text[len(self._grid_show_phrase) :].strip()
             if after_trigger:
                 parsed_num = parse_number(text=after_trigger)
@@ -319,14 +309,11 @@ class CentralizedCommandParser:
                 else:
                     return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
 
-        # Grid cancel command
         if normalized_text == self._grid_cancel_phrase:
             return GridCancelCommand()
 
-        # Grid select command (numbers)
         action_map = await self._action_map_provider.get_action_map()
 
-        # Check if first word or any prefix is a known automation command
         is_automation_prefix = False
         for i in range(1, len(words) + 1):
             potential_prefix = " ".join(words[:i])
@@ -335,7 +322,6 @@ class CentralizedCommandParser:
                 break
 
         if not is_automation_prefix:
-            # Try to parse as a number
             parsed_num = parse_number(text=normalized_text)
             if parsed_num is not None and parsed_num > 0:
                 return GridSelectCommand(selected_number=parsed_num)

@@ -19,27 +19,32 @@ from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer 
 class TestAudioPreprocessor:
     """Test the AudioPreprocessor component in isolation."""
 
-    def test_init_with_defaults(self):
+    def test_init_with_defaults(self, mock_config):
         """Test AudioPreprocessor initialization with default parameters."""
-        preprocessor = AudioPreprocessor()
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
-        assert preprocessor.target_sr == 16000
-        assert preprocessor.silence_threshold == 0.005
-        assert preprocessor.min_sound_duration == 0.1
-        assert preprocessor.max_sound_duration == 2.0
+        assert preprocessor.target_sr == mock_config.sound_recognizer.target_sample_rate
+        assert preprocessor.silence_threshold == mock_config.sound_recognizer.silence_threshold
+        assert preprocessor.min_sound_duration == mock_config.sound_recognizer.min_sound_duration
+        assert preprocessor.max_sound_duration == mock_config.sound_recognizer.max_sound_duration
 
-    def test_init_with_custom_params(self):
+    def test_init_with_custom_params(self, mock_config):
         """Test AudioPreprocessor initialization with custom parameters."""
-        preprocessor = AudioPreprocessor(target_sr=22050, silence_threshold=0.01, min_sound_duration=0.2, max_sound_duration=3.0)
+        mock_config.sound_recognizer.target_sample_rate = 22050
+        mock_config.sound_recognizer.silence_threshold = 0.01
+        mock_config.sound_recognizer.min_sound_duration = 0.2
+        mock_config.sound_recognizer.max_sound_duration = 3.0
+
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
         assert preprocessor.target_sr == 22050
         assert preprocessor.silence_threshold == 0.01
         assert preprocessor.min_sound_duration == 0.2
         assert preprocessor.max_sound_duration == 3.0
 
-    def test_preprocess_mono_audio(self, sample_rate):
+    def test_preprocess_mono_audio(self, sample_rate, mock_config):
         """Test preprocessing of mono audio."""
-        preprocessor = AudioPreprocessor(target_sr=sample_rate)
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
         # Create test audio: 0.5 seconds of sine wave
         duration = 0.5
@@ -53,9 +58,9 @@ class TestAudioPreprocessor:
         assert len(processed) > 0
         assert np.max(np.abs(processed)) <= 1.0  # Normalized
 
-    def test_preprocess_stereo_to_mono(self, sample_rate):
+    def test_preprocess_stereo_to_mono(self, sample_rate, mock_config):
         """Test conversion of stereo audio to mono."""
-        preprocessor = AudioPreprocessor(target_sr=sample_rate)
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
         # Create stereo test audio
         duration = 0.5
@@ -67,9 +72,9 @@ class TestAudioPreprocessor:
         assert processed.ndim == 1
         assert len(processed) > 0
 
-    def test_resample_audio(self):
+    def test_resample_audio(self, mock_config):
         """Test audio resampling functionality."""
-        preprocessor = AudioPreprocessor(target_sr=16000)
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
         # Create audio at different sample rate
         original_sr = 44100
@@ -83,9 +88,10 @@ class TestAudioPreprocessor:
         expected_length = int(duration * 16000)
         assert abs(len(processed) - expected_length) < 100  # Allow small tolerance
 
-    def test_silence_trimming(self, sample_rate):
+    def test_silence_trimming(self, sample_rate, mock_config):
         """Test silence trimming functionality."""
-        preprocessor = AudioPreprocessor(target_sr=sample_rate, silence_threshold=0.01)
+        mock_config.sound_recognizer.silence_threshold = 0.01
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
         # Create audio with silence padding
         signal_duration = 0.3
@@ -105,9 +111,10 @@ class TestAudioPreprocessor:
         assert len(processed) < len(audio_with_silence)
         assert len(processed) > len(signal) * 0.8  # Allow some tolerance
 
-    def test_duration_padding(self, sample_rate):
+    def test_duration_padding(self, sample_rate, mock_config):
         """Test padding of short audio to minimum duration."""
-        preprocessor = AudioPreprocessor(target_sr=sample_rate, min_sound_duration=0.2)
+        mock_config.sound_recognizer.min_sound_duration = 0.2
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
         # Create very short audio
         short_audio = np.sin(2 * np.pi * 440 * np.linspace(0, 0.05, int(0.05 * sample_rate))) * 0.5
@@ -118,9 +125,10 @@ class TestAudioPreprocessor:
         min_samples = int(0.2 * sample_rate)
         assert len(processed) >= min_samples
 
-    def test_duration_truncation(self, sample_rate):
+    def test_duration_truncation(self, sample_rate, mock_config):
         """Test truncation of long audio to maximum duration."""
-        preprocessor = AudioPreprocessor(target_sr=sample_rate, max_sound_duration=1.0)
+        mock_config.sound_recognizer.max_sound_duration = 1.0
+        preprocessor = AudioPreprocessor(config=mock_config.sound_recognizer)
 
         # Create long audio
         long_duration = 2.0
@@ -137,12 +145,12 @@ class TestAudioPreprocessor:
 class TestStreamlinedSoundRecognizer:
     """Test the StreamlinedSoundRecognizer class."""
 
-    def test_init(self, mock_config, mock_storage_factory):
+    def test_init(self, mock_config, mock_storage_service):
         """Test recognizer initialization."""
-        recognizer = StreamlinedSoundRecognizer(mock_config, mock_storage_factory)
+        recognizer = StreamlinedSoundRecognizer(config=mock_config, storage=mock_storage_service)
 
         assert recognizer.config == mock_config.sound_recognizer
-        assert recognizer.storage_adapter == mock_storage_factory.create_sound_recognizer_adapter.return_value
+        assert recognizer._storage == mock_storage_service
         assert isinstance(recognizer.preprocessor, AudioPreprocessor)
         assert recognizer.embeddings.shape == (0, 1024)
         assert recognizer.labels == []

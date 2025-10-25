@@ -24,7 +24,7 @@ class EnhancedVoskSTT:
         self._recognizer = vosk.KaldiRecognizer(self._model, sample_rate)
         self._recognizer_lock = asyncio.Lock()
 
-        self.logger.info(f"VoskSTT initialized: model={model_path}, sample_rate={sample_rate}")
+        self.logger.debug(f"VoskSTT initialized: model={model_path}, sample_rate={sample_rate}")
 
     def recognize_sync(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
         if not audio_bytes:
@@ -43,18 +43,18 @@ class EnhancedVoskSTT:
             return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
 
     async def shutdown(self) -> None:
-        logger.info("Shutting down EnhancedVoskSTT")
+        logger.debug("Shutting down EnhancedVoskSTT")
 
         async with self._recognizer_lock:
             if hasattr(self, "_recognizer") and self._recognizer is not None:
                 del self._recognizer
                 self._recognizer = None
-                logger.info("Vosk recognizer deleted")
+                logger.debug("Vosk recognizer deleted")
 
             if hasattr(self, "_model") and self._model is not None:
                 del self._model
                 self._model = None
-                logger.info("Vosk model deleted")
+                logger.debug("Vosk model deleted")
 
         gc.collect()
-        logger.info("EnhancedVoskSTT shutdown complete")
+        logger.debug("EnhancedVoskSTT shutdown complete")

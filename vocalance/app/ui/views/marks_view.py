@@ -51,12 +51,10 @@ class MarksView(ViewHelper):
             pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
         )
 
-        # Configure grid for 3 rows, 1 column
         for i in range(3):
             tiles_container.grid_rowconfigure(i, weight=1)
         tiles_container.grid_columnconfigure(0, weight=1)
 
-        # Create instruction tiles
         instructions = [
             ("Create Mark", "Say 'Mark [name]' to create a mark\nat the current cursor position"),
             ("Navigate", "Say the mark's [name] to automatically click\nat that position"),
@@ -80,10 +78,8 @@ class MarksView(ViewHelper):
         container.grid_rowconfigure(1, weight=0)
         container.grid_columnconfigure(0, weight=1)
 
-        # Scrollable frame for marks list - uses automatic padding from ListBuilder
         self.marks_scroll_frame = ListBuilder.create_scrollable_list_container(container, row=0, column=0)
 
-        # Button frame with bottom padding for rounded corners
         button_frame = TransparentFrame(container)
         button_frame.grid(
             row=1,
@@ -95,12 +91,10 @@ class MarksView(ViewHelper):
         button_frame.grid_columnconfigure(0, weight=1)
         button_frame.grid_columnconfigure(1, weight=1)
 
-        # Show overlay button
         PrimaryButton(button_frame, text=view_config.theme.button_text.show_marks, command=self._show_overlay, compact=False).grid(
             row=0, column=0, padx=(0, view_config.theme.spacing.small), sticky="ew"
         )
 
-        # Delete all marks button
         DangerButton(
             button_frame, text=view_config.theme.button_text.delete_all_marks, command=self._delete_all_marks, compact=False
         ).grid(row=0, column=1, sticky="ew")
@@ -118,23 +112,18 @@ class MarksView(ViewHelper):
         """Display marks in the scrollable list"""
         self.logger.debug(f"MarksView: Received {len(marks)} marks to display.")
 
-        # Clear existing marks safely
         if not self.safe_widget_operation(lambda: self.marks_scroll_frame.winfo_exists()):
             self.logger.warning("MarksView: marks_scroll_frame is not available for clearing.")
             return
 
-        # Clear existing widgets
         for widget in self.marks_scroll_frame.winfo_children():
             self.safe_widget_operation(lambda w=widget: w.destroy())
 
-        # Force update to ensure widgets are destroyed
         self.safe_widget_operation(lambda: self.marks_scroll_frame.update_idletasks())
 
-        # Configure scroll frame grid
         self.marks_scroll_frame.grid_columnconfigure(0, weight=1)
 
         if not marks:
-            # Show empty state message
             empty_frame = BorderlessFrame(self.marks_scroll_frame)
             empty_frame.grid(
                 row=0,
@@ -154,18 +143,15 @@ class MarksView(ViewHelper):
                 size=view_config.theme.font_sizes.medium,
             ).grid(row=0, column=0, sticky="ew", padx=view_config.theme.spacing.medium, pady=view_config.theme.spacing.large)
         else:
-            # Add each mark
             for row_idx, mark in enumerate(marks):
                 try:
                     if not self.safe_widget_operation(lambda: self.marks_scroll_frame.winfo_exists()):
                         break
 
-                    # Create mark info text
                     mark_info = mark.name
                     if mark.description:
                         mark_info += f" - {mark.description}"
 
-                    # Create list item frame
                     mark_frame = BorderlessListItemFrame(
                         self.marks_scroll_frame,
                         item_text=mark_info,

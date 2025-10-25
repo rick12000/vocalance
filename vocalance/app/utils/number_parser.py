@@ -1,10 +1,11 @@
+"""Number parsing utilities for converting text numbers to integers."""
+
 import logging
+from typing import Dict, Optional, Set
 
 logger = logging.getLogger(__name__)
 
-# Centralized number word definitions - single source of truth
-NUMBER_WORDS = {
-    # Basic digits
+NUMBER_WORDS: Dict[str, int] = {
     "zero": 0,
     "one": 1,
     "two": 2,
@@ -16,7 +17,6 @@ NUMBER_WORDS = {
     "eight": 8,
     "nine": 9,
     "ten": 10,
-    # Teens
     "eleven": 11,
     "twelve": 12,
     "thirteen": 13,
@@ -26,7 +26,6 @@ NUMBER_WORDS = {
     "seventeen": 17,
     "eighteen": 18,
     "nineteen": 19,
-    # Tens
     "twenty": 20,
     "thirty": 30,
     "forty": 40,
@@ -37,15 +36,31 @@ NUMBER_WORDS = {
     "ninety": 90,
 }
 
-SCALE_WORDS = {"hundred", "thousand", "million", "billion", "trillion"}
-SINGLE_DIGIT_WORDS = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"}
+SCALE_WORDS: Set[str] = {"hundred", "thousand", "million", "billion", "trillion"}
+SINGLE_DIGIT_WORDS: Set[str] = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"}
 
-# Homophones that should be normalized to standard number words
-HOMOPHONES = {"won": "one", "to": "two", "too": "two", "free": "three", "for": "four", "fore": "four", "ate": "eight"}
+HOMOPHONES: Dict[str, str] = {
+    "won": "one",
+    "to": "two",
+    "too": "two",
+    "free": "three",
+    "for": "four",
+    "fore": "four",
+    "ate": "eight",
+}
 
 
-def is_number(text):
-    """Check if text represents a numeric value (handles commas and decimals)."""
+def is_number(text: str) -> bool:
+    """Check if text represents a numeric value.
+
+    Handles commas and decimals in numeric strings.
+
+    Args:
+        text: Text to check.
+
+    Returns:
+        True if text is numeric, False otherwise.
+    """
     if isinstance(text, str):
         text = text.replace(",", "")
     try:
@@ -55,13 +70,16 @@ def is_number(text):
     return True
 
 
-def normalize_homophones(text):
-    """
-    Replace homophones with standard number words.
+def normalize_homophones(text: str) -> str:
+    """Replace homophones with standard number words.
 
-    Examples:
-        'won hundred' -> 'one hundred'
-        'to fifty' -> 'two fifty'
+    Examples: 'won hundred' -> 'one hundred', 'to fifty' -> 'two fifty'
+
+    Args:
+        text: Text to normalize.
+
+    Returns:
+        Normalized text with homophones replaced.
     """
     if not isinstance(text, str):
         return text
@@ -71,13 +89,16 @@ def normalize_homophones(text):
     return " ".join(normalized_words)
 
 
-def remove_number_conjunctions(text):
-    """
-    Remove 'and' when it appears between number words.
+def remove_number_conjunctions(text: str) -> str:
+    """Remove 'and' when it appears between number words.
 
-    Examples:
-        'four hundred and nine' -> 'four hundred nine'
-        'twenty and thirty' -> 'twenty thirty' (if both are number words)
+    Examples: 'four hundred and nine' -> 'four hundred nine'
+
+    Args:
+        text: Text to clean.
+
+    Returns:
+        Text with number conjunctions removed.
     """
     if not isinstance(text, str):
         return text
@@ -88,7 +109,6 @@ def remove_number_conjunctions(text):
     filtered_words = []
     for i, word in enumerate(words):
         if word == "and":
-            # Skip 'and' if it's between number words
             prev_is_number = i > 0 and words[i - 1] in all_number_words
             next_is_number = i < len(words) - 1 and words[i + 1] in all_number_words
             if prev_is_number and next_is_number:
@@ -98,44 +118,43 @@ def remove_number_conjunctions(text):
     return " ".join(filtered_words)
 
 
-def detect_digit_sequence(text):
-    """
-    Detect if text represents a sequence of individual digits.
+def detect_digit_sequence(text: str) -> Optional[str]:
+    """Detect if text represents a sequence of individual digits.
 
-    This handles cases where users say individual digits that should be
+    Handles cases where users say individual digits that should be
     concatenated rather than added (e.g., phone numbers, codes).
 
-    Examples:
-        'four zero nine' -> '409'
-        'one two three' -> '123'
-        'four hundred nine' -> None (not a digit sequence)
+    Examples: 'four zero nine' -> '409', 'four hundred nine' -> None
+
+    Args:
+        text: Text to check.
 
     Returns:
-        String representation of digits if detected, None otherwise
+        String representation of digits if detected, None otherwise.
     """
     if not isinstance(text, str):
         return None
 
     words = text.lower().split()
 
-    # Must be all single digit words and no scale words
     if len(words) > 1 and all(word in SINGLE_DIGIT_WORDS for word in words) and not any(word in SCALE_WORDS for word in words):
-
         digit_map = {word: str(NUMBER_WORDS[word]) for word in SINGLE_DIGIT_WORDS}
         return "".join(digit_map[word] for word in words)
 
     return None
 
 
-def text2int(textnum, numwords=None):
-    """
-    Convert text number to integer using word-based parsing.
+def text2int(textnum: str, numwords: Optional[Dict] = None) -> Optional[int]:
+    """Convert text number to integer using word-based parsing.
 
-    This is the core text-to-number conversion function that handles
-    complex number phrases like 'four hundred twenty three'.
+    Handles complex number phrases like 'four hundred twenty three'.
 
-    Note: This function has some edge cases with compound numbers
-    but works correctly for the main use cases.
+    Args:
+        textnum: Text representation of a number.
+        numwords: Optional precomputed numwords dictionary.
+
+    Returns:
+        Converted integer or None if conversion fails.
     """
     if not textnum:
         return None
@@ -147,39 +166,38 @@ def text2int(textnum, numwords=None):
 
     if numwords is None:
         numwords = {}
-        if not numwords:
-            numwords["and"] = (1, 0)
-            units = [
-                "zero",
-                "one",
-                "two",
-                "three",
-                "four",
-                "five",
-                "six",
-                "seven",
-                "eight",
-                "nine",
-                "ten",
-                "eleven",
-                "twelve",
-                "thirteen",
-                "fourteen",
-                "fifteen",
-                "sixteen",
-                "seventeen",
-                "eighteen",
-                "nineteen",
-            ]
-            tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
-            scales = ["hundred", "thousand", "million", "billion", "trillion"]
-            for idx, word in enumerate(units):
-                numwords[word] = (1, idx)
-            for idx, word in enumerate(tens):
-                if word:
-                    numwords[word] = (1, idx * 10)
-            for idx, word in enumerate(scales):
-                numwords[word] = (10 ** (idx * 3 or 2), 0)
+        numwords["and"] = (1, 0)
+        units = [
+            "zero",
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+            "ten",
+            "eleven",
+            "twelve",
+            "thirteen",
+            "fourteen",
+            "fifteen",
+            "sixteen",
+            "seventeen",
+            "eighteen",
+            "nineteen",
+        ]
+        tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+        scales = ["hundred", "thousand", "million", "billion", "trillion"]
+        for idx, word in enumerate(units):
+            numwords[word] = (1, idx)
+        for idx, word in enumerate(tens):
+            if word:
+                numwords[word] = (1, idx * 10)
+        for idx, word in enumerate(scales):
+            numwords[word] = (10 ** (idx * 3 or 2), 0)
 
     textnum = str(textnum).replace("-", " ")
     current = result = 0
@@ -188,7 +206,7 @@ def text2int(textnum, numwords=None):
     lastunit = False
     lastscale = False
 
-    ordinal_words = {
+    ordinal_words: Dict[str, int] = {
         "first": 1,
         "second": 2,
         "third": 3,
@@ -209,14 +227,14 @@ def text2int(textnum, numwords=None):
     }
     ordinal_endings = [("ieth", "y"), ("th", "")]
 
-    def is_numword(x):
+    def is_numword(x: str) -> bool:
         if is_number(x):
             return True
         if x in numwords:
             return True
         return False
 
-    def from_numword(x):
+    def from_numword(x: str):
         if is_number(x):
             scale = 0
             try:
@@ -294,43 +312,33 @@ def text2int(textnum, numwords=None):
         return None
 
 
-def parse_number(text, min_value=1, max_value=5000):
-    """
-    Parse text to extract a number using a standardized, multi-stage pipeline.
+def parse_number(text: str, min_value: int = 1, max_value: int = 5000) -> Optional[int]:
+    """Parse text to extract a number using a multi-stage pipeline.
 
-    Processing stages:
+    Stages:
     1. Direct numeric conversion (for '123', '1,234', etc.)
-    2. Homophone normalization ('won' -> 'one', 'to' -> 'two')
+    2. Homophone normalization ('won' -> 'one')
     3. Conjunction removal ('four hundred and nine' -> 'four hundred nine')
     4. Digit sequence detection ('four zero nine' -> '409')
     5. Complex number parsing ('four hundred nine' -> 409)
 
     Args:
-        text: Input text to parse
-        min_value: Minimum allowed value (inclusive)
-        max_value: Maximum allowed value (inclusive)
+        text: Input text to parse.
+        min_value: Minimum allowed value (inclusive).
+        max_value: Maximum allowed value (inclusive).
 
     Returns:
-        Integer if successfully parsed and within range, None otherwise
-
-    Examples:
-        parse_number('five hundred') -> 500
-        parse_number('four zero nine') -> 409
-        parse_number('four hundred and nine') -> 409
-        parse_number('won hundred') -> 100
+        Integer if successfully parsed and within range, None otherwise.
     """
-
     if text is None or text == "":
-        logger.debug("[NumberParser] Text is None or empty")
+        logger.debug("Text is None or empty")
         return None
 
-    # Convert to string if needed
     if isinstance(text, (int, float)):
         text = str(text)
     elif not isinstance(text, str):
         return None
 
-    # Stage 1: Direct numeric check
     if is_number(text):
         try:
             num = int(float(text.replace(",", "")))
@@ -339,13 +347,11 @@ def parse_number(text, min_value=1, max_value=5000):
             else:
                 return None
         except ValueError:
-            logger.debug(f"[NumberParser] Stage 1: ValueError parsing '{text}' as direct number")
+            logger.debug(f"ValueError parsing '{text}' as direct number")
 
-    # Stage 2-3: Text preprocessing pipeline
     normalized_text = normalize_homophones(text)
     cleaned_text = remove_number_conjunctions(normalized_text)
 
-    # Stage 4: Digit sequence detection (for cases like "four zero nine")
     digit_sequence = detect_digit_sequence(cleaned_text)
     if digit_sequence:
         try:
@@ -355,9 +361,8 @@ def parse_number(text, min_value=1, max_value=5000):
             else:
                 return None
         except ValueError:
-            logger.debug(f"[NumberParser] Stage 4: ValueError parsing digit sequence '{digit_sequence}'")
+            logger.debug(f"ValueError parsing digit sequence '{digit_sequence}'")
 
-    # Stage 5: Complex number phrase parsing
     try:
         num = text2int(cleaned_text)
         if num is not None:
@@ -366,6 +371,6 @@ def parse_number(text, min_value=1, max_value=5000):
             else:
                 return None
     except Exception as e:
-        logger.error(f"[NumberParser] Stage 5: Error parsing '{text}' with text2int: {e}", exc_info=True)
+        logger.error(f"Error parsing '{text}' with text2int: {e}", exc_info=True)
 
     return None

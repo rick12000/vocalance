@@ -17,8 +17,8 @@ class CommandActionMapProvider:
     """
 
     def __init__(self, storage: StorageService) -> None:
-        self._storage = storage
-        logger.info("CommandActionMapProvider initialized")
+        self._storage: StorageService = storage
+        logger.debug("CommandActionMapProvider initialized")
 
     async def get_action_map(self) -> Dict[str, AutomationCommand]:
         """Build complete action map from custom and default commands.
@@ -27,7 +27,7 @@ class CommandActionMapProvider:
         phrase overrides, and returns normalized map of phrase to command object.
 
         Returns:
-            Dictionary mapping normalized command phrases to AutomationCommand objects
+            Dictionary mapping normalized command phrases to AutomationCommand objects.
         """
         action_map: Dict[str, AutomationCommand] = {}
 

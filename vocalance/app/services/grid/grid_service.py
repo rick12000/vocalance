@@ -37,7 +37,7 @@ class GridService:
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="GridService")
 
-        logger.info("GridService initialized")
+        logger.debug("GridService initialized")
 
     def setup_subscriptions(self) -> None:
         subscriptions = [
@@ -48,7 +48,7 @@ class GridService:
         for event_type, handler in subscriptions:
             self.subscription_manager.subscribe(event_type, handler)
 
-        logger.info("GridService subscriptions set up")
+        logger.debug("GridService subscriptions set up")
 
     def _calculate_grid_dimensions(self, num_rects: int) -> tuple[int, int]:
         cols = math.ceil(math.sqrt(num_rects))
@@ -139,7 +139,6 @@ class GridService:
                 updated_fields[field] = value
 
         if updated_fields:
-            # Create and publish config update event
             config_event = GridConfigUpdatedEventData(
                 rows=self._config.grid.rows,
                 cols=self._config.grid.cols,

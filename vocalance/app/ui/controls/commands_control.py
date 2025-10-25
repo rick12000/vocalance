@@ -48,7 +48,6 @@ class CommandsController(BaseController):
             self.show_error("Error", "Hotkey value cannot be empty")
             return
 
-        # Create the automation command object
         command = ExactMatchCommand(
             command_key=command_phrase,
             action_type="hotkey",
@@ -81,12 +80,10 @@ class CommandsController(BaseController):
     async def _on_command_mappings_updated(self, event):
         """Handle command mappings updated event."""
         if hasattr(event, "updated_mappings") and event.updated_mappings is not None:
-            # Use the mappings provided in the event
             self.available_commands = event.updated_mappings
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.display_commands, self.available_commands)
         else:
-            # Request fresh mappings if not provided in the event
             self._request_command_mappings()
 
     async def _on_command_mappings_response(self, event):

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class MarkovCommandService:
-    """Multi-order Markov predictor with backoff strategy for ultra-fast command prediction.
+    """Multi-order Markov predictor with backoff strategy for command prediction.
 
     Trains 2nd through 4th order Markov chains on command history, uses backoff from
     highest to lowest order for prediction, and provides feedback-based cooldown on
@@ -21,10 +21,10 @@ class MarkovCommandService:
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
-        self._event_bus = event_bus
-        self._config = config
+        self._event_bus: EventBus = event_bus
+        self._config: GlobalAppConfig = config
         self._markov_config = config.markov_predictor
-        self._storage = storage
+        self._storage: StorageService = storage
         self._transition_counts: Dict[int, Dict[tuple, Counter]] = {
             2: defaultdict(Counter),
             3: defaultdict(Counter),
@@ -37,13 +37,13 @@ class MarkovCommandService:
         self._pending_prediction: Optional[Tuple[str, float]] = None
         self._cooldown_remaining: int = 0
 
-        logger.info(f"MarkovCommandPredictor initialized (orders {self._markov_config.min_order}-{self._markov_config.max_order})")
+        logger.debug(f"MarkovCommandService initialized (orders {self._markov_config.min_order}-{self._markov_config.max_order})")
 
     async def initialize(self) -> bool:
         """Initialize predictor by training models on stored command history.
 
         Returns:
-            True if initialization succeeded, False otherwise
+            True if initialization succeeded, False otherwise.
         """
         try:
             await self._train_model()
@@ -53,11 +53,11 @@ class MarkovCommandService:
             return False
 
     def setup_subscriptions(self) -> None:
-        """Setup event subscriptions"""
+        """Setup event subscriptions for audio detection and prediction feedback."""
         self._event_bus.subscribe(event_type=AudioDetectedEvent, handler=self._handle_audio_detected_fast_track)
         self._event_bus.subscribe(event_type=MarkovPredictionFeedbackEvent, handler=self._handle_prediction_feedback)
 
-        logger.info("Markov predictor event subscriptions configured")
+        logger.debug("Markov predictor event subscriptions configured")
 
     async def _train_model(self) -> None:
         """Train all Markov chain orders on filtered historical command data.
@@ -66,11 +66,9 @@ class MarkovCommandService:
         windows for each order, and builds transition count matrices for prediction.
         """
         try:
-            # Clear existing models
             for order in range(self._markov_config.min_order, self._markov_config.max_order + 1):
                 self._transition_counts[order].clear()
 
-            # Train each order separately
             for order in range(self._markov_config.min_order, self._markov_config.max_order + 1):
                 await self._train_order(order)
 
@@ -80,18 +78,20 @@ class MarkovCommandService:
             logger.error(f"Error training model: {e}", exc_info=True)
 
     async def _train_order(self, order: int) -> None:
-        """Train a specific order Markov chain"""
+        """Train a specific order Markov chain.
+
+        Args:
+            order: Order of the Markov chain to train.
+        """
         try:
             history = await self._load_filtered_history(order)
 
             if len(history) < order + 1:
-                logger.info(f"Insufficient history for order-{order} chain (need {order + 1}, have {len(history)})")
+                logger.debug(f"Insufficient history for order-{order} chain (need {order + 1}, have {len(history)})")
                 return
 
-            # Extract command texts
             commands = [cmd.command for cmd in history]
 
-            # Build transitions for this order
             transitions_built = 0
             for i in range(len(commands) - order):
                 context = tuple(commands[i : i + order])
@@ -99,7 +99,7 @@ class MarkovCommandService:
                 self._transition_counts[order][context][next_cmd] += 1
                 transitions_built += 1
 
-            logger.info(
+            logger.debug(
                 f"Order-{order} chain trained: {len(history)} commands, "
                 f"{transitions_built} transitions, "
                 f"{len(self._transition_counts[order])} unique contexts"
@@ -109,7 +109,17 @@ class MarkovCommandService:
             logger.error(f"Error training order-{order} model: {e}", exc_info=True)
 
     async def _load_filtered_history(self, order: int) -> List[CommandHistoryEntry]:
-        """Load and filter command history based on config for specific order"""
+        """Load and filter command history based on config for specific Markov order.
+
+        Applies time window and command count filters configured for the specified order
+        to ensure training data is appropriately scoped.
+
+        Args:
+            order: Markov chain order for which to load filtered history.
+
+        Returns:
+            List of filtered CommandHistoryEntry objects for training.
+        """
         history_data = await self._storage.read(model_type=CommandHistoryData)
         all_history = history_data.history
 

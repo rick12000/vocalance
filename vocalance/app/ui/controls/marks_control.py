@@ -143,12 +143,9 @@ class MarksController(BaseController):
             self._visualization_active = False
         self.notify_status(f"Mark visualization failed: {error_message}", True)
 
-    # --- Event Handlers ---
-
     async def _on_marks_changed(self, event):
         """Handle marks changed event."""
         if hasattr(event, "marks"):
-            # Convert dictionary values to MarkData objects
             marks_list = []
             for mark_dict in event.marks.values():
                 mark_data = MarkData(
@@ -156,7 +153,6 @@ class MarksController(BaseController):
                 )
                 marks_list.append(mark_data)
 
-            # Update both the main view callback and the mark overlay view
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_marks_updated, marks_list)
 
@@ -178,7 +174,6 @@ class MarksController(BaseController):
 
     async def _handle_mark_visualization_state_changed(self, event_data) -> None:
         """Handle mark visualization state changed event from service layer."""
-        # Sync view state with service state
         if self.mark_view:
             if event_data.is_visible and not self.mark_view.is_active():
                 self.show_mark_overlay()

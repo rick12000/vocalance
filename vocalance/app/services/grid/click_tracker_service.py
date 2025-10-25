@@ -46,7 +46,7 @@ class ClickTrackerService:
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="ClickTrackerService")
 
-        logger.info("ClickTrackerService initialized")
+        logger.debug("ClickTrackerService initialized")
 
     def setup_subscriptions(self) -> None:
         subscriptions = [
@@ -57,7 +57,7 @@ class ClickTrackerService:
         for event_type, handler in subscriptions:
             self.subscription_manager.subscribe(event_type, handler)
 
-        logger.info("ClickTrackerService subscriptions set up")
+        logger.debug("ClickTrackerService subscriptions set up")
 
     async def _handle_mouse_click(self, event_data: PerformMouseClickEventData) -> None:
         timestamp = time.time()

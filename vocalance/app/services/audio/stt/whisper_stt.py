@@ -36,18 +36,18 @@ class WhisperSpeechToText:
         self._retry_delay_seconds = config.stt.whisper_retry_delay_seconds
         self._download_root = os.path.join(config.storage.user_data_root, "whisper_models")
         os.makedirs(self._download_root, exist_ok=True)
-        logger.info(f"Whisper models directory: {self._download_root}")
+        logger.debug(f"Whisper models directory: {self._download_root}")
 
         self._load_model_with_retry()
         self._warm_up_model()
 
-        logger.info(f"Initialized faster-whisper: {model_name}, device: {device}")
+        logger.debug(f"Initialized faster-whisper: {model_name}, device: {device}")
 
     def _load_model_with_retry(self) -> None:
         """Load Whisper model with retry logic and permanent storage."""
         for attempt in range(1, self._max_retries + 1):
             try:
-                logger.info(f"Loading faster-whisper model: {self._model_name} (attempt {attempt}/{self._max_retries})")
+                logger.debug(f"Loading faster-whisper model: {self._model_name} (attempt {attempt}/{self._max_retries})")
                 self._model = WhisperModel(
                     self._model_name,
                     device=self._device,
@@ -56,14 +56,14 @@ class WhisperSpeechToText:
                     num_workers=1,
                     download_root=self._download_root,
                 )
-                logger.info("Faster-whisper model loaded successfully")
+                logger.debug("Faster-whisper model loaded successfully")
                 return
 
             except Exception as e:
                 logger.error(f"Failed to load model (attempt {attempt}/{self._max_retries}): {e}", exc_info=True)
 
                 if attempt < self._max_retries:
-                    logger.info(f"Retrying in {self._retry_delay_seconds} seconds...")
+                    logger.debug(f"Retrying in {self._retry_delay_seconds} seconds...")
                     time.sleep(self._retry_delay_seconds)
                 else:
                     logger.error(f"Failed to load Whisper model after {self._max_retries} attempts")
@@ -71,11 +71,11 @@ class WhisperSpeechToText:
 
     def _warm_up_model(self) -> None:
         try:
-            logger.info("Warming up faster-whisper model...")
+            logger.debug("Warming up faster-whisper model...")
             dummy_audio = np.zeros(16000, dtype=np.float32)
             segments, _ = self._model.transcribe(dummy_audio, beam_size=1, vad_filter=False)
             list(segments)
-            logger.info("Faster-whisper model warmed up successfully")
+            logger.debug("Faster-whisper model warmed up successfully")
         except Exception as e:
             logger.warning(f"Failed to warm up model: {e}")
 

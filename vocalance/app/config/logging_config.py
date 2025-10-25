@@ -9,27 +9,19 @@ from pydantic import BaseModel, Field
 
 
 def get_cache_directory() -> str:
-    """
-    Get cache directory for logs and temporary files following best practices.
+    """Get cache directory for logs and temporary files.
 
-    In development: uses repo_root/cache
-    In installed package: uses system-appropriate cache directory:
-    - Windows: %LOCALAPPDATA%\\vocalance_voice_assistant\\cache
-    - Unix: $XDG_CACHE_HOME/vocalance_voice_assistant or ~/.cache/vocalance_voice_assistant
+    Uses repository cache directory in development mode, or platform-appropriate
+    cache directories in installed mode (LOCALAPPDATA on Windows, XDG_CACHE_HOME on Unix).
 
-    Cache directory should be:
-    - Automatically cleaned by OS during cleanup routines
-    - Never backed up or synced
-    - Non-essential temporary data
-    - User understands it can be deleted anytime
+    Returns:
+        Path to cache directory.
     """
-    # Try to find repo root (development mode)
     current_dir = Path(__file__).resolve().parent
     max_iterations = 10
 
     for _ in range(max_iterations):
         if (current_dir / "pyproject.toml").exists():
-            # Development mode - found repo root
             cache_dir = current_dir / "cache"
             cache_dir.mkdir(exist_ok=True)
             return str(cache_dir)
@@ -39,13 +31,10 @@ def get_cache_directory() -> str:
             break
         current_dir = parent
 
-    # Installed package mode - use platform-appropriate cache directory
-    if os.name == "nt":  # Windows
-        # Use %LOCALAPPDATA% for Windows cache (best practice)
+    if os.name == "nt":
         base_cache = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
         cache_dir = os.path.join(base_cache, "vocalance_voice_assistant", "cache")
-    else:  # Unix-like (Linux, macOS)
-        # Use $XDG_CACHE_HOME or ~/.cache/ (best practice for Unix)
+    else:
         base_cache = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
         cache_dir = os.path.join(base_cache, "vocalance_voice_assistant")
 
@@ -58,7 +47,11 @@ LOGS_BASE_DIR = os.path.join(CACHE_DIR, "logs")
 
 
 def get_log_dir_for_run() -> str:
-    """Create timestamped log directory for this run."""
+    """Create timestamped log directory for this run.
+
+    Returns:
+        Path to timestamped log directory.
+    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(LOGS_BASE_DIR, timestamp)
     os.makedirs(run_dir, exist_ok=True)
@@ -69,6 +62,14 @@ LOG_FILE_NAME = "app.log"
 
 
 class LoggingConfigModel(BaseModel):
+    """Logging configuration model.
+
+    Attributes:
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        format: Log message format string.
+        enable_logs: Enable logging to console and cache directory.
+    """
+
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
@@ -80,36 +81,27 @@ class LoggingConfigModel(BaseModel):
 
 
 def setup_logging(config: Any) -> None:
-    """
-    Setup logging with single enable_logs parameter.
+    """Setup logging with enable_logs parameter.
 
-    When enable_logs=True:
-    - Logs printed to console (stdout)
-    - Logs saved to cache directory
-    - Full diagnostic information available
+    When enabled, logs are printed to console and saved to cache directory.
+    When disabled, completely silent with NullHandler (privacy-first).
 
-    When enable_logs=False:
-    - Completely silent (NullHandler)
-    - No console output
-    - Maximum privacy (no logs anywhere)
+    Args:
+        config: Logging configuration object with enable_logs, level, and format attributes.
     """
     enable_logs = getattr(config, "enable_logs", False)
     level = config.level.upper() if hasattr(config, "level") else "INFO"
     log_format = config.format if hasattr(config, "format") else "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     if not enable_logs:
-        logging.basicConfig(
-            level=logging.CRITICAL + 1, handlers=[logging.NullHandler()], force=True  # Higher than CRITICAL to suppress everything
-        )
+        logging.basicConfig(level=logging.CRITICAL + 1, handlers=[logging.NullHandler()], force=True)
         return
 
     handlers = []
 
-    # Console output
     console_handler = logging.StreamHandler(sys.stdout)
     handlers.append(console_handler)
 
-    # File output to cache directory
     log_dir = get_log_dir_for_run()
     log_file_path = os.path.join(log_dir, LOG_FILE_NAME)
     file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
@@ -117,6 +109,5 @@ def setup_logging(config: Any) -> None:
 
     logging.basicConfig(level=level, format=log_format, handlers=handlers, force=True)
 
-    # Log the configuration
     logger_instance = logging.getLogger(__name__)
-    logger_instance.info(f"Logging enabled: level={level}, file={log_file_path}, cache_dir={CACHE_DIR}")
+    logger_instance.debug(f"Logging configured: level={level}, file={log_file_path}")

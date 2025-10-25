@@ -69,12 +69,11 @@ class SettingsService:
         self._user_overrides: Dict[str, Any] = {}
         self._effective_settings: Dict[str, Any] = {}
 
-        logger.info("SettingsService initialized")
+        logger.debug("SettingsService initialized")
 
     def setup_subscriptions(self) -> None:
-        """Set up event subscriptions - simplified"""
-        # No event subscriptions needed for simplified version
-        logger.info("SettingsService subscriptions configured")
+        """Setup event subscriptions for settings updates."""
+        logger.debug("SettingsService subscriptions configured")
 
     async def initialize(self) -> bool:
         """Initialize service and load settings"""

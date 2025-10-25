@@ -70,7 +70,7 @@ class StorageService:
         # Ensure directories exist
         self._ensure_directories()
 
-        logger.info(f"StorageService initialized with base directory: {self._base_dir}")
+        logger.debug(f"StorageService initialized with base directory: {self._base_dir}")
 
     def _ensure_directories(self) -> None:
         for filepath in self._path_map.values():
@@ -187,7 +187,6 @@ class StorageService:
 
             temp_path = path.with_suffix(f".tmp.{uuid.uuid4().hex}")
 
-            # Use model_dump with mode='json' to handle nested Pydantic models
             serializable_data = self._make_serializable(data)
 
             with open(temp_path, "w", encoding="utf-8") as f:

@@ -59,7 +59,7 @@ class StreamlinedSoundService:
         # Shutdown coordination
         self._shutdown_event = asyncio.Event()
 
-        logger.info("StreamlinedSoundService created")
+        logger.debug("StreamlinedSoundService created")
 
     def setup_subscriptions(self) -> None:
         """Set up all event subscriptions."""

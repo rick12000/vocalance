@@ -155,6 +155,12 @@ def mock_config():
     config.sound_recognizer.confidence_threshold = 0.15
     config.sound_recognizer.k_neighbors = 7
     config.sound_recognizer.vote_threshold = 0.35
+    config.sound_recognizer.silence_threshold = 0.005
+    config.sound_recognizer.min_sound_duration = 0.1
+    config.sound_recognizer.max_sound_duration = 2.0
+    config.sound_recognizer.frame_length = 1024
+    config.sound_recognizer.hop_length = 512
+    config.sound_recognizer.normalization_level = 0.7
     config.sound_recognizer.esc50_categories = {
         "breathing": "breathing",
         "coughing": "coughing",
@@ -167,29 +173,32 @@ def mock_config():
 
 @pytest.fixture
 def mock_storage_factory():
-    """Mock storage factory that doesn't persist data."""
-    from unittest.mock import AsyncMock
+    """Mock storage service for sound recognizer tests."""
+    from vocalance.app.services.storage.storage_models import SoundMappingsData
 
-    factory = Mock()
-    adapter = Mock()
+    storage = Mock()
 
     # Create temporary directories for testing
     temp_dir = tempfile.mkdtemp()
-    model_path = os.path.join(temp_dir, "model")
-    external_sounds_path = os.path.join(temp_dir, "external_sounds")
-    os.makedirs(model_path, exist_ok=True)
-    os.makedirs(external_sounds_path, exist_ok=True)
 
-    adapter.get_model_path.return_value = model_path
-    adapter.get_external_sounds_path.return_value = external_sounds_path
+    # Mock storage_config attribute
+    storage.storage_config = Mock()
+    storage.storage_config.sound_model_dir = os.path.join(temp_dir, "model")
+    storage.storage_config.external_non_target_sounds_dir = os.path.join(temp_dir, "external_sounds")
 
-    # Mock async methods properly
-    adapter.load_sound_mappings = AsyncMock(return_value={})
-    adapter.save_sound_mappings = AsyncMock(return_value=True)
+    os.makedirs(storage.storage_config.sound_model_dir, exist_ok=True)
+    os.makedirs(storage.storage_config.external_non_target_sounds_dir, exist_ok=True)
 
-    factory.create_sound_recognizer_adapter.return_value = adapter
+    # Mock async read/write methods
+    async def mock_read(model_type):
+        if model_type == SoundMappingsData:
+            return SoundMappingsData(sound_to_command={})
+        return model_type()
 
-    return factory
+    storage.read = AsyncMock(side_effect=mock_read)
+    storage.write = AsyncMock(return_value=True)
+
+    return storage
 
 
 @pytest.fixture
@@ -211,7 +220,7 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     # Import after mocking
     from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
 
-    recognizer = StreamlinedSoundRecognizer(mock_config, mock_storage_factory)
+    recognizer = StreamlinedSoundRecognizer(config=mock_config, storage=mock_storage_factory)
     recognizer.yamnet_model = mock_yamnet_model
 
     return recognizer
@@ -308,7 +317,7 @@ def event_bus():
 async def stt_service(event_bus, app_config):
     """Create and initialize STT service."""
     service = SpeechToTextService(event_bus, app_config)
-    service.initialize_engines()
+    await service.initialize_engines()
     service.setup_subscriptions()
 
     await event_bus.start_worker()
@@ -328,34 +337,6 @@ def command_audio_bytes():
 def dictation_audio_bytes():
     """Generate sample dictation audio bytes."""
     return np.random.randint(0, 256, size=32000, dtype=np.uint8).tobytes()
-
-
-@pytest.fixture
-def mock_command_storage_adapter():
-    """Mock command storage adapter for testing."""
-
-    adapter = Mock()
-    adapter.get_action_map = AsyncMock(
-        return_value={
-            "copy": Mock(
-                action_type="hotkey",
-                action_value="ctrl+c",
-                is_custom=False,
-                short_description="Copy text",
-                long_description="Copy selected text to clipboard",
-            ),
-            "paste": Mock(
-                action_type="hotkey",
-                action_value="ctrl+v",
-                is_custom=False,
-                short_description="Paste text",
-                long_description="Paste clipboard contents",
-            ),
-        }
-    )
-    adapter.get_custom_commands = AsyncMock(return_value={})
-    adapter.get_phrase_overrides = AsyncMock(return_value={})
-    return adapter
 
 
 @pytest.fixture
@@ -379,28 +360,6 @@ def mock_storage_service():
     storage.write = AsyncMock(return_value=True)
 
     return storage
-
-
-@pytest.fixture
-def mock_storage_adapters(mock_command_storage_adapter):
-    """Mock storage adapter factory for testing."""
-
-    factory = Mock()
-
-    mark_adapter = Mock()
-    mark_adapter.get_marks = AsyncMock(return_value={})
-    mark_adapter.get_all_mark_names = AsyncMock(return_value=[])
-    mark_adapter.set_mark = AsyncMock(return_value=True)
-    mark_adapter.save_mark = AsyncMock(return_value=True)
-    mark_adapter.delete_mark = AsyncMock(return_value=True)
-    mark_adapter.remove_mark = AsyncMock(return_value=True)
-    mark_adapter.delete_all_marks = AsyncMock(return_value=True)
-    mark_adapter.load_marks = AsyncMock(return_value={})
-
-    factory.get_mark_adapter.return_value = mark_adapter
-    factory.get_command_adapter.return_value = mock_command_storage_adapter
-
-    return factory
 
 
 @pytest.fixture
@@ -432,13 +391,12 @@ def mock_duplicate_filter():
 
 
 @pytest.fixture
-def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, mock_duplicate_filter, stt_config):
+def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, stt_config):
     """Create Vosk STT instance with mocked dependencies."""
-    with patch("vocalance.app.services.audio.vosk_stt.vosk.Model", return_value=mock_vosk_model), patch(
-        "vocalance.app.services.audio.vosk_stt.vosk.KaldiRecognizer", return_value=mock_vosk_recognizer
-    ), patch("vocalance.app.services.audio.vosk_stt.DuplicateTextFilter", return_value=mock_duplicate_filter):
-
-        from vocalance.app.services.audio.vosk_stt import EnhancedVoskSTT
+    with patch("vocalance.app.services.audio.stt.vosk_stt.vosk.Model", return_value=mock_vosk_model), patch(
+        "vocalance.app.services.audio.stt.vosk_stt.vosk.KaldiRecognizer", return_value=mock_vosk_recognizer
+    ):
+        from vocalance.app.services.audio.stt.vosk_stt import EnhancedVoskSTT
 
         instance = EnhancedVoskSTT(model_path="fake_model_path", sample_rate=16000, config=stt_config)
         instance._recognizer = mock_vosk_recognizer
@@ -462,17 +420,13 @@ def mock_whisper_model():
 
 
 @pytest.fixture
-def whisper_stt_instance(mock_whisper_model, mock_duplicate_filter, stt_config):
+def whisper_stt_instance(mock_whisper_model, stt_config):
     """Create Whisper STT instance with mocked dependencies."""
-    with patch("vocalance.app.services.audio.whisper_stt.WhisperModel", return_value=mock_whisper_model), patch(
-        "vocalance.app.services.audio.whisper_stt.DuplicateTextFilter", return_value=mock_duplicate_filter
-    ):
-
-        from vocalance.app.services.audio.whisper_stt import WhisperSpeechToText
+    with patch("vocalance.app.services.audio.stt.whisper_stt.WhisperModel", return_value=mock_whisper_model):
+        from vocalance.app.services.audio.stt.whisper_stt import WhisperSpeechToText
 
         instance = WhisperSpeechToText(model_name="base", device="cpu", sample_rate=16000, config=stt_config)
         instance._model = mock_whisper_model
-        instance._duplicate_filter = mock_duplicate_filter
         return instance
 
 
@@ -506,31 +460,11 @@ def mock_recognizer():
 
 
 @pytest.fixture
-def preprocessor():
+def preprocessor(mock_config):
     """Create a standard AudioPreprocessor instance."""
     from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
 
-    return AudioPreprocessor(target_sr=16000, silence_threshold=0.005, min_sound_duration=0.1, max_sound_duration=2.0)
-
-
-@pytest.fixture
-def mock_action_map_provider(mock_command_storage_adapter):
-    """Mock action map provider for testing."""
-    provider = Mock()
-    provider.get_action_map = mock_command_storage_adapter.get_action_map
-    return provider
-
-
-@pytest.fixture
-def mock_command_history_manager():
-    """Mock command history manager for testing."""
-    manager = Mock()
-    manager.initialize = AsyncMock(return_value=True)
-    manager.record_command = AsyncMock()
-    manager.get_recent_history = AsyncMock(return_value=[])
-    manager.get_full_history = AsyncMock(return_value=[])
-    manager.shutdown = AsyncMock(return_value=True)
-    return manager
+    return AudioPreprocessor(config=mock_config.sound_recognizer)
 
 
 @pytest.fixture
@@ -541,3 +475,54 @@ def mock_protected_terms_validator():
     validator.is_term_protected = AsyncMock(return_value=False)
     validator.get_all_protected_terms = AsyncMock(return_value={"start dictation", "stop dictation", "show grid"})
     return validator
+
+
+@pytest.fixture
+def mock_action_map_provider():
+    """Mock CommandActionMapProvider for testing."""
+    from vocalance.app.config.command_types import AutomationCommand
+
+    provider = Mock()
+
+    async def mock_get_action_map():
+        return {
+            "copy": AutomationCommand(
+                command_key="copy",
+                action_type="hotkey",
+                action_value="ctrl+c",
+                is_custom=False,
+                short_description="Copy text",
+                long_description="Copy selected text to clipboard",
+            ),
+            "paste": AutomationCommand(
+                command_key="paste",
+                action_type="hotkey",
+                action_value="ctrl+v",
+                is_custom=False,
+                short_description="Paste text",
+                long_description="Paste clipboard contents",
+            ),
+            "scroll up": AutomationCommand(
+                command_key="scroll up",
+                action_type="scroll",
+                action_value="up",
+                is_custom=False,
+                short_description="Scroll up",
+                long_description="Scroll up",
+            ),
+        }
+
+    provider.get_action_map = AsyncMock(side_effect=mock_get_action_map)
+    return provider
+
+
+@pytest.fixture
+def mock_command_history_manager():
+    """Mock CommandHistoryManager for testing."""
+    manager = Mock()
+    manager.initialize = AsyncMock(return_value=True)
+    manager.record_command = AsyncMock()
+    manager.get_recent_history = AsyncMock(return_value=[])
+    manager.get_full_history = AsyncMock(return_value=[])
+    manager.shutdown = AsyncMock(return_value=True)
+    return manager

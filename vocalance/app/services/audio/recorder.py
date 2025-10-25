@@ -52,7 +52,7 @@ class AudioRecorder:
         self._noise_samples: list[float] = []
         self._max_noise_samples: int = app_config.vad.max_noise_samples
 
-        self.logger.info(
+        self.logger.debug(
             f"AudioRecorder initialized for {mode} mode: chunk_size={self.chunk_size}samples, "
             f"silent_chunks_for_end={self.silent_chunks_for_end}"
         )
@@ -74,7 +74,7 @@ class AudioRecorder:
                     old_threshold = self.energy_threshold
                     self.energy_threshold = adaptive_threshold
                     self.silence_threshold = self.energy_threshold * self.app_config.vad.adaptive_silence_threshold_multiplier
-                    self.logger.info(f"Adapted thresholds: {old_threshold:.6f} -> {self.energy_threshold:.6f}")
+                    self.logger.debug(f"Adapted thresholds: {old_threshold:.6f} -> {self.energy_threshold:.6f}")
 
     def _recording_thread(self) -> None:
         try:
@@ -82,7 +82,7 @@ class AudioRecorder:
                 samplerate=self.sample_rate, blocksize=self.chunk_size, channels=1, dtype="int16", device=self.device
             )
             self._stream.start()
-            self.logger.info(f"{self.mode} recording started")
+            self.logger.debug(f"{self.mode} recording started")
 
             while True:
                 with self._lock:

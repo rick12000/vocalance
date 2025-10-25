@@ -175,7 +175,6 @@ class GridController(BaseController):
         with self._state_lock:
             self._grid_visible = event_data.visible
 
-        # Sync view state with service state
         if self.grid_view:
             if event_data.visible and not self.grid_view.is_active():
                 num_rects = None
@@ -185,7 +184,6 @@ class GridController(BaseController):
             elif not event_data.visible and self.grid_view.is_active():
                 self.hide_grid_overlay()
 
-        # Notify main window callback
         if self.view_callback:
             self.view_callback.on_grid_visibility_changed(
                 event_data.visible, event_data.rows, event_data.cols, getattr(event_data, "show_numbers", None)

@@ -76,20 +76,16 @@ class AssetCache:
                 logger.warning(f"Image file not found: {image_path}")
                 return None
 
-            # Load with PIL
             pil_image = Image.open(image_path)
 
-            # Resize if requested
             if size:
                 pil_image = pil_image.resize(size, Image.Resampling.LANCZOS)
 
-            # Create CTkImage
             ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=size or pil_image.size)
 
-            # Cache the result under lock
             with self._cache_lock:
                 self._image_cache[cache_key] = ctk_image
-            logger.info(f"Loaded and cached image: {filename}")
+            logger.debug(f"Loaded and cached image: {filename}")
             return ctk_image
 
         except Exception as e:
@@ -159,7 +155,6 @@ class AssetCache:
             logger.error("Assets path not available for logo.")
             return None
 
-        # Select the appropriate filename and monochrome setting based on logo_type
         if logo_type == "icon":
             filename = logo_props.icon_logo_filename
             apply_monochrome = logo_props.icon_logo_apply_monochrome
@@ -172,34 +167,26 @@ class AssetCache:
             logger.error(f"Logo file not found: {logo_path}")
             return None
 
-        # Load the PIL image directly
         try:
             pil_image = Image.open(logo_path)
         except Exception as e:
             logger.error(f"Failed to load image {filename}: {e}")
             return None
 
-        # Apply monochrome conversion if enabled
         if apply_monochrome:
             if size is not None:
-                # Use exact size if provided
                 return transform_monochrome_icon(
                     str(logo_path), logo_props.color, size, force_all_pixels=True, preserve_aspect_ratio=True
                 )
             else:
-                # Use max_dimension constraint with aspect ratio preservation
-                # Create a square constraint that will be scaled down by aspect ratio preservation
                 constraint_size = (max_dimension, max_dimension)
                 return transform_monochrome_icon(
                     str(logo_path), logo_props.color, constraint_size, force_all_pixels=True, preserve_aspect_ratio=True
                 )
         else:
-            # Load image as-is, just resize if needed
             if size is not None:
-                # Resize to exact size
                 pil_image = pil_image.resize(size, Image.Resampling.LANCZOS)
             elif max_dimension > 0:
-                # Resize maintaining aspect ratio with max_dimension constraint
                 width, height = pil_image.size
                 if width > height:
                     new_width = min(width, max_dimension)

@@ -146,7 +146,7 @@ class DictationCoordinator:
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
 
-        logger.info("DictationCoordinator initialized with production-ready threading")
+        logger.debug("DictationCoordinator initialized with production-ready threading")
 
     @property
     def active_mode(self) -> DictationMode:
@@ -232,27 +232,21 @@ class DictationCoordinator:
             if not text:
                 return
 
-            # Snapshot session under lock - prevents race conditions
             with self._state_lock:
                 session = self._current_session
                 if not session:
                     return
 
-                # Only process if we're actually recording (not already processing LLM)
                 if self._current_state != DictationState.RECORDING:
                     return
 
-            # Process text outside lock (non-blocking)
             cleaned_text = self._clean_text(text)
             if not cleaned_text:
                 return
 
-            # Apply formatting filter based on mode and config
-            # TYPE mode always disables formatting
             if not self._should_apply_formatting(mode=session.mode):
                 cleaned_text = remove_formatting(text=cleaned_text, is_first_word_of_session=session.is_first_segment)
 
-            # Update session with NEW data
             updated_session = DictationSession(
                 session_id=session.session_id,
                 mode=session.mode,
@@ -262,52 +256,34 @@ class DictationCoordinator:
                 is_first_segment=False,
             )
 
-            # Replace session under lock
             with self._state_lock:
                 if self._current_session and self._current_session.session_id == session.session_id:
                     self._current_session = updated_session
                 else:
-                    # Session changed, ignore this text
                     return
 
-            # Publish events outside lock
             if updated_session.mode == DictationMode.SMART:
-                # Step 1: Clean the text (remove "...", add trailing space)
                 display_text = clean_dictation_text(text=cleaned_text, add_trailing_space=True)
 
-                # Step 2: Apply period concatenation logic for proper sentence joining
-                # This mirrors TextInputService.input_text() behavior:
-                # - Regular mode uses backspace to remove period + trailing spaces from app
-                # - Smart mode sends removal event to delete from dictation window
-                # Both prepend a space to current segment for proper word separation
                 if self._last_smart_dictation_text and should_remove_previous_period(
                     self._last_smart_dictation_text, display_text
                 ):
-                    # Calculate removal count: period (1) + any trailing spaces
                     trailing_whitespace_count = get_trailing_whitespace_count(self._last_smart_dictation_text)
                     chars_to_remove = 1 + trailing_whitespace_count
 
-                    # Remove the period and trailing spaces from UI
                     await self._publish_event(SmartDictationRemoveCharactersEvent(count=chars_to_remove))
 
-                    # Add leading space to maintain word separation
                     display_text = " " + display_text
 
-                # Step 3: Apply capitalization rule for mid-sentence joining
-                # If current text starts with capital but previous doesn't end with period,
-                # lowercase the current text's first letter for proper mid-sentence case
                 if self._last_smart_dictation_text and should_lowercase_current_start(
                     self._last_smart_dictation_text, display_text
                 ):
                     display_text = lowercase_first_letter(display_text)
 
-                # Step 4: Track current text for next segment's concatenation check
                 self._last_smart_dictation_text = display_text
 
-                # Step 5: Display the processed text in smart dictation window
                 await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
             else:
-                # TYPE mode should not add trailing space for clean output
                 add_trailing_space = updated_session.mode != DictationMode.TYPE
                 await self.text_service.input_text(text=cleaned_text, add_trailing_space=add_trailing_space)
 
@@ -370,19 +346,15 @@ class DictationCoordinator:
     async def _handle_llm_processing_ready(self, event: LLMProcessingReadyEvent) -> None:
         """Handle LLM processing ready signal from UI"""
         try:
-            # Get pending session and clear it INSIDE lock to prevent duplicate processing
             with self._state_lock:
                 pending = self._pending_llm_session
                 if not pending or pending.session_id != event.session_id:
                     logger.warning(f"Received ready signal for unknown session {event.session_id}")
                     return
 
-                # CRITICAL: Clear pending session INSIDE lock immediately after validation
-                # This prevents duplicate processing if ready signal arrives twice
                 self._pending_llm_session = None
 
             logger.info(f"UI ready signal received for session {event.session_id}")
-            # Start LLM processing outside lock with cleared state and track the task
             self._llm_processing_task = asyncio.create_task(self._start_llm_processing(pending))
 
         except Exception as e:
@@ -392,11 +364,10 @@ class DictationCoordinator:
         """Monitor silence timeout for TYPE dictation mode with safety limits"""
         try:
             timeout = self.config.dictation.type_dictation_silence_timeout
-            max_runtime = 300  # 5 minutes safety limit
+            max_runtime = 300
             start_time = time.time()
 
             while True:
-                # Safety check: prevent infinite loops
                 if time.time() - start_time > max_runtime:
                     logger.warning(f"Type silence monitoring exceeded max runtime ({max_runtime}s), auto-stopping")
                     break
@@ -437,23 +408,19 @@ class DictationCoordinator:
             session_id = str(uuid.uuid4())
 
             with self._state_lock:
-                # Guard: prevent concurrent session starts
                 if self._current_session is not None:
                     logger.warning(
                         f"Cannot start {mode.value} dictation - session {self._current_session.mode.value} already active"
                     )
                     return
 
-                # State validation: only start from idle state
                 if self._current_state != DictationState.IDLE:
                     logger.warning(f"Cannot start session - coordinator not in IDLE state (current: {self._current_state.value})")
                     return
 
-                # Reset smart dictation text tracker for new session
                 if mode == DictationMode.SMART:
                     self._last_smart_dictation_text = None
 
-                # Create new session - immutable snapshot
                 self._current_session = DictationSession(
                     session_id=session_id,
                     mode=mode,
@@ -464,14 +431,12 @@ class DictationCoordinator:
                 )
                 self._set_state(DictationState.RECORDING)
 
-            # Publish events outside lock
             await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
 
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
 
-            # Start silence monitoring for TYPE mode
             if mode == DictationMode.TYPE:
                 self._type_silence_task = asyncio.create_task(self._monitor_type_silence())
                 logger.info("Started type dictation silence monitoring task")
@@ -481,7 +446,6 @@ class DictationCoordinator:
 
         except Exception as e:
             logger.error(f"Session start error: {e}", exc_info=True)
-            # Reset state on error
             with self._state_lock:
                 self._current_session = None
                 self._set_state(DictationState.IDLE)
@@ -489,27 +453,22 @@ class DictationCoordinator:
     async def _stop_session(self) -> None:
         """Stop dictation session with proper cleanup"""
         try:
-            # Snapshot session and prepare LLM session under lock
             with self._state_lock:
                 session = self._current_session
                 if not session:
                     return
 
-                # CRITICAL: Prevent duplicate stop calls during LLM processing
                 if self._current_state == DictationState.PROCESSING_LLM:
                     logger.warning("Stop session called while already processing LLM - ignoring duplicate call")
                     return
 
-                # Cancel type silence monitoring task if active
                 if session.mode == DictationMode.TYPE:
                     self._cancel_type_silence_task()
 
                 if session.mode == DictationMode.SMART:
                     if session.accumulated_text:
-                        # Transition to LLM processing state
                         self._set_state(DictationState.PROCESSING_LLM)
 
-                        # Create immutable LLM session for UI coordination
                         agentic_prompt = self.agentic_service.get_current_prompt() or "Fix grammar and improve clarity."
                         llm_session_id = str(uuid.uuid4())
                         self._pending_llm_session = LLMSession(
@@ -518,24 +477,19 @@ class DictationCoordinator:
                             agentic_prompt=agentic_prompt,
                         )
                     else:
-                        # No text, clean up and end session
                         self._current_session = None
                         self._set_state(DictationState.IDLE)
                 else:
-                    # Standard/Type: clear session immediately
                     self._current_session = None
                     self._set_state(DictationState.IDLE)
 
-            # Publish events outside lock
             if session and session.mode == DictationMode.SMART and session.accumulated_text:
-                # Publish dictation stop events for smart mode WITH text
                 await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation processing"))
 
                 logger.info(f"Publishing SmartDictationStoppedEvent with text: '{session.accumulated_text[:50]}...'")
                 await self._publish_event(SmartDictationStoppedEvent(raw_text=session.accumulated_text))
                 logger.info("SmartDictationStoppedEvent published successfully")
 
-                # Publish LLM processing started event
                 logger.info(f"Publishing LLMProcessingStartedEvent with session ID: {self._pending_llm_session.session_id}")
                 await self._publish_event(
                     LLMProcessingStartedEvent(
@@ -546,12 +500,10 @@ class DictationCoordinator:
                 )
                 logger.info("LLMProcessingStartedEvent published - waiting for UI ready signal...")
             elif session:
-                # Non-smart session OR smart session with no text - finalize it
                 await self._finalize_session(session)
 
         except Exception as e:
             logger.error(f"Session stop error: {e}", exc_info=True)
-            # Ensure state is reset on error
             with self._state_lock:
                 self._current_session = None
                 self._pending_llm_session = None
@@ -560,11 +512,9 @@ class DictationCoordinator:
     async def _start_llm_processing(self, llm_session: LLMSession) -> None:
         """Actually start the LLM processing after UI is ready"""
         try:
-            # Use streaming if available
             if hasattr(self.llm_service, "process_dictation_streaming"):
                 logger.info("Starting LLM streaming processing...")
 
-                # Start background streaming thread
                 self._start_streaming()
 
                 try:
@@ -572,7 +522,6 @@ class DictationCoordinator:
                         llm_session.raw_text, llm_session.agentic_prompt, token_callback=self._stream_token
                     )
                 finally:
-                    # Stop streaming and flush remaining tokens
                     self._stop_streaming()
 
                 logger.info("LLM streaming processing completed")
@@ -599,21 +548,17 @@ class DictationCoordinator:
         try:
             while not self._streaming_stop_event.is_set():
                 try:
-                    # Wait for token with timeout to allow checking stop event
                     token = self._token_queue.get(timeout=0.1)
 
-                    # Fast path: direct callback if available (bypasses event bus)
                     if self._direct_token_callback:
                         try:
                             self._direct_token_callback(token)
                         except Exception as e:
                             logger.error(f"Direct callback error: {e}", exc_info=True)
 
-                    # Standard path: event bus for other subscribers
                     self.event_publisher.publish(LLMTokenGeneratedEvent(token=token))
 
                 except queue.Empty:
-                    # No token available, continue to check stop event
                     continue
 
                 except Exception as e:

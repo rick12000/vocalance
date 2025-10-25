@@ -51,13 +51,11 @@ class DictationPopupController(BaseController):
     async def _handle_dictation_status_changed(self, event_data) -> None:
         """Handle normal dictation status changes (not smart dictation) - marshalled to UI thread"""
         if event_data.show_ui and event_data.is_active:
-            # Only handle non-smart dictation modes
             if event_data.mode != "smart":
                 self.current_mode = DictationPopupMode.SIMPLE_LISTENING
                 if self.view_callback:
                     schedule_ui_update(self.view_callback.show_simple_listening, event_data.mode, event_data.stop_command)
         else:
-            # Hide popup for non-smart modes and also smart dictation when stopped immediately
             if not event_data.is_active and (
                 self.current_mode == DictationPopupMode.SIMPLE_LISTENING
                 or self.current_mode in [DictationPopupMode.SMART_DICTATION, DictationPopupMode.LLM_PROCESSING]

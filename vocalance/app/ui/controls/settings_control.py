@@ -31,14 +31,12 @@ class SettingsController(BaseController):
     def set_settings_service(self, settings_service):
         """Set the settings service reference"""
         self.settings_service = settings_service
-        # Request initial settings when service is set
         if settings_service:
             self._request_settings_update()
 
     def _request_settings_update(self):
         """Request settings update from the service"""
         if self.settings_service:
-            # Schedule async call on the event loop
             asyncio.run_coroutine_threadsafe(self._get_settings_async(), self.event_loop)
 
     async def _get_settings_async(self):
@@ -48,7 +46,6 @@ class SettingsController(BaseController):
                 settings = await self.settings_service.get_effective_settings()
                 with self._state_lock:
                     self._cached_settings = settings
-                # Notify view of update
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_settings_updated)
         except Exception as e:
@@ -68,16 +65,13 @@ class SettingsController(BaseController):
                 return self._cached_settings
 
         if not self.settings_service:
-            # Return default config values when service is not available
             return {
                 "llm": {"context_length": self.config.llm.context_length, "max_tokens": self.config.llm.max_tokens},
                 "grid": {"default_rect_count": self.config.grid.default_rect_count},
             }
 
-        # If we have a service but no cached settings, request them
         self._request_settings_update()
 
-        # Return defaults for now
         return {
             "llm": {"context_length": self.config.llm.context_length, "max_tokens": self.config.llm.max_tokens},
             "grid": {"default_rect_count": self.config.grid.default_rect_count},
@@ -132,13 +126,11 @@ class SettingsController(BaseController):
             return False
 
         try:
-            # Prepare settings updates in the format expected by the service
             settings_updates = {"llm.context_length": int(context_length), "llm.max_tokens": int(max_tokens)}
 
-            # Schedule async save operation
             asyncio.run_coroutine_threadsafe(self._save_settings_simple_async(settings_updates), self.event_loop)
 
-            return True  # Return immediately, success/failure will be handled in callback
+            return True
 
         except Exception as e:
             self.logger.error(f"Error saving LLM settings: {e}")
@@ -152,7 +144,6 @@ class SettingsController(BaseController):
             success = await self.settings_service.update_multiple_settings(settings_updates)
 
             if success:
-                # Update cache under lock
                 settings = await self.settings_service.get_effective_settings()
                 with self._state_lock:
                     self._cached_settings = settings
@@ -185,13 +176,11 @@ class SettingsController(BaseController):
             return False
 
         try:
-            # Prepare settings updates in the format expected by the service
             settings_updates = {"grid.default_rect_count": int(default_rect_count)}
 
-            # Schedule async save operation
             asyncio.run_coroutine_threadsafe(self._save_grid_settings_async(settings_updates), self.event_loop)
 
-            return True  # Return immediately, success/failure will be handled in callback
+            return True
 
         except Exception as e:
             self.logger.error(f"Error saving Grid settings: {e}")
@@ -205,7 +194,6 @@ class SettingsController(BaseController):
             success = await self.settings_service.update_multiple_settings(settings_updates)
 
             if success:
-                # Update cache under lock
                 settings = await self.settings_service.get_effective_settings()
                 with self._state_lock:
                     self._cached_settings = settings
@@ -231,10 +219,9 @@ class SettingsController(BaseController):
             return False
 
         try:
-            # Schedule async reset operation
             asyncio.run_coroutine_threadsafe(self._reset_llm_settings_async(), self.event_loop)
 
-            return True  # Return immediately, success/failure will be handled in callback
+            return True
 
         except Exception as e:
             self.logger.error(f"Error resetting LLM settings: {e}")
@@ -245,7 +232,6 @@ class SettingsController(BaseController):
     async def _reset_llm_settings_async(self):
         """Async method to reset settings. Thread-safe."""
         try:
-            # Reset LLM settings through the service
             llm_settings = ["llm.context_length", "llm.max_tokens"]
 
             success = True
@@ -255,13 +241,15 @@ class SettingsController(BaseController):
                     break
 
             if success:
-                # Update cache under lock
                 settings = await self.settings_service.get_effective_settings()
                 with self._state_lock:
                     self._cached_settings = settings
 
                 if self.view_callback:
-                    self.schedule_ui_update(self.view_callback.on_reset_complete)
+                    self.schedule_ui_update(
+                        self.view_callback.on_save_success,
+                        "LLM settings reset to defaults successfully!\n\nNote: Restart the application for changes to take effect.",
+                    )
             else:
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_save_error, "Failed to reset LLM settings")

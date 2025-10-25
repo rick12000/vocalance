@@ -121,20 +121,16 @@ class MarkView:
 
             self._draw_marks()
 
-            # Close on Escape key
             self.overlay_window.bind("<Escape>", self._close_window_event)
 
-            # Set up proper window close handling
             self.overlay_window.protocol("WM_DELETE_WINDOW", self._close_window_event)
 
-            # Show the overlay window and give it focus
             self.overlay_window.deiconify()
             self.overlay_window.lift()
             self.overlay_window.focus_force()
 
             self._is_active = True
 
-            # Notify controller of successful show
             if self.controller_callback:
                 self.controller_callback.on_mark_visualization_shown()
 
@@ -153,13 +149,12 @@ class MarkView:
             if self.overlay_window and self.overlay_window.winfo_exists():
                 self.overlay_window.destroy()
         except tk.TclError:
-            pass  # Window may already be destroyed
+            pass
         finally:
             self.overlay_window = None
             self.canvas = None
             self._is_active = False
 
-            # Notify controller of failed show
             if self.controller_callback:
                 self.controller_callback.on_mark_visualization_failed("Failed to create overlay window")
 
@@ -172,10 +167,8 @@ class MarkView:
         self.logger.info("Hiding MarkView overlay.")
         self._is_active = False
 
-        # Clean up references before destroying
         self.canvas = None
 
-        # Destroy the window safely
         try:
             if self.overlay_window.winfo_exists():
                 self.overlay_window.destroy()
@@ -185,7 +178,6 @@ class MarkView:
         finally:
             self.overlay_window = None
 
-        # Notify controller of hide
         if self.controller_callback:
             self.controller_callback.on_mark_visualization_hidden()
 

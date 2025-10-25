@@ -49,10 +49,8 @@ def clean_dictation_text(text: str, add_trailing_space: bool = True) -> str:
     if not text:
         return ""
 
-    # Remove "..." and replace with space (handles pause fillers)
     cleaned = re.sub(r"\.\.\.", " ", text)
 
-    # Conditionally add trailing space for proper concatenation in continuous dictation
     if add_trailing_space and cleaned and not cleaned[-1].isspace():
         cleaned = cleaned + " "
 

@@ -166,7 +166,6 @@ class SoundController(BaseController):
         mapping_command = MapSoundToCommandPhraseCommand(sound_label=sound_label, command_phrase=command_phrase)
         self.publish_event(mapping_command)
 
-        # Schedule a delayed refresh to allow backend processing to complete
         self.event_loop.call_later(0.5, self.refresh_sound_mappings)
 
     def refresh_sound_list(self) -> None:

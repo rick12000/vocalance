@@ -26,16 +26,13 @@ class AudioConfig(BaseModel):
 
 
 class STTConfig(BaseModel):
-    # Engine configuration
     whisper_model: Literal["tiny", "base", "small", "medium"] = "base"
     whisper_device: Literal["cpu", "cuda"] = "cpu"
     whisper_max_retries: int = Field(default=3, description="Maximum retry attempts for Whisper model loading")
     whisper_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Whisper retry attempts")
 
-    # Common configuration
     sample_rate: int = 16000
 
-    # Command mode settings (optimized for ULTRA-LOW LATENCY)
     command_debounce_interval: float = Field(
         default=0.02, description="Ultra-aggressive debounce for command mode (20ms for real-time response)."
     )
@@ -44,7 +41,6 @@ class STTConfig(BaseModel):
     )
     command_max_segment_duration_sec: float = Field(default=3, description="Short max duration for fast command execution.")
 
-    # Enhanced dictation mode settings (optimized for accuracy and continuity)
     dictation_debounce_interval: float = Field(default=0.1, description="Reduced debounce for better dictation responsiveness.")
     dictation_duplicate_text_interval: float = Field(
         default=4.0, description="Extended duplicate suppression to catch phrase repetitions - increased from 3.0s."
@@ -55,9 +51,7 @@ class STTConfig(BaseModel):
 
 
 class SoundRecognizerConfig(BaseModel):
-    """
-    Clean sound recognizer configuration using only ESC-50 for non-target sounds.
-    """
+    """Sound recognizer configuration using ESC-50 for non-target sounds."""
 
     target_sample_rate: int = Field(16000, description="Target sample rate for YAMNet (do not change)")
     energy_threshold: float = Field(0.001, description="Minimum audio energy for processing")
@@ -87,7 +81,6 @@ class SoundRecognizerConfig(BaseModel):
         description="ESC-50 categories used as negative examples",
     )
 
-    # Audio preprocessing configuration
     silence_threshold: float = Field(0.005, description="RMS energy threshold for silence detection")
     min_sound_duration: float = Field(0.1, description="Minimum sound duration in seconds")
     max_sound_duration: float = Field(2.0, description="Maximum sound duration in seconds")
@@ -125,7 +118,6 @@ class GridConfig(BaseModel):
         default=500, description="Default number of rectangles (cells) to show in the grid if not specified by command."
     )
 
-    # Triggers for grid commands
     show_grid_phrase: str = "go"
     select_cell_phrase: str = "select"
     cancel_grid_phrase: str = "cancel"
@@ -134,45 +126,38 @@ class GridConfig(BaseModel):
 class ErrorHandlingConfig(BaseModel):
     """Configuration for error handling service."""
 
-    # Notification settings
     notify_ui_on_error: bool = True
     auto_dismiss_notifications: bool = True
     notification_dismiss_timeout_ms: int = 5000
 
-    # Logging settings
     log_error_details: bool = True
 
 
 class DictationConfig(BaseModel):
-    """Configuration for dictation functionality"""
+    """Configuration for dictation functionality."""
 
-    # Trigger words
     start_trigger: str = "green"
     stop_trigger: str = "amber"
     type_trigger: str = "type"
     smart_start_trigger: str = "smart green"
 
-    # Text input settings (used by text_input_service)
     use_clipboard: bool = True
     typing_delay: float = 0.01
 
-    # Type dictation specific settings
     type_dictation_silence_timeout: float = 0.1
 
-    # Text input timing settings
     pyautogui_pause: float = Field(default=0.01, description="Global pause interval between pyautogui operations (seconds)")
     clipboard_paste_delay_pre: float = Field(default=0.05, description="Delay before clipboard paste operation (seconds)")
     clipboard_paste_delay_post: float = Field(default=0.1, description="Delay after clipboard paste operation (seconds)")
     type_text_post_delay: float = Field(default=0.1, description="Delay after typing text (seconds)")
 
-    # Formatting settings
     enable_dictation_formatting: bool = Field(
         default=True, description="Enable automatic formatting (punctuation, capitalization) in dictation output"
     )
 
 
 class LLMConfig(BaseModel):
-    """Configuration for LLM service"""
+    """Configuration for LLM service."""
 
     model_info: Dict[str, str] = Field(
         default={"repo_id": "Qwen/Qwen2.5-1.5B-Instruct-GGUF", "filename": "qwen2.5-1.5b-instruct-q5_k_m.gguf"},
@@ -233,21 +218,22 @@ class LLMConfig(BaseModel):
     )
 
     def get_model_filename(self) -> str:
-        """Get the model filename"""
+        """Get the model filename.
+
+        Returns:
+            Model filename string.
+        """
         return self.model_info["filename"]
 
 
 class VADConfig(BaseModel):
-    # Base VAD settings
     energy_threshold: float = Field(default=0.006, description="Base energy threshold for speech detection.")
     max_recording_duration: float = Field(default=4.0, description="Maximum recording duration in seconds.")
     pre_roll_buffers: int = Field(default=2, description="Number of audio chunks to buffer before speech detection.")
 
-    # Energy-based detection
     continuation_energy_threshold: float = Field(default=0.002, description="Threshold for detecting speech continuation.")
     noise_floor_estimation: bool = Field(default=True, description="Enable automatic noise floor estimation.")
 
-    # Command mode specific settings
     command_energy_threshold: float = Field(default=0.002, description="Energy threshold for command mode speech detection.")
     command_silent_chunks_for_end: int = Field(
         default=3,
@@ -256,7 +242,6 @@ class VADConfig(BaseModel):
     command_max_recording_duration: float = Field(default=3, description="Maximum recording duration for command mode.")
     command_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for command mode (240ms at 60ms chunks).")
 
-    # Dictation mode specific settings
     dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
     dictation_silent_chunks_for_end: int = Field(
         default=40,
@@ -265,7 +250,6 @@ class VADConfig(BaseModel):
     dictation_max_recording_duration: float = Field(default=8.0, description="Maximum recording duration for dictation mode.")
     dictation_pre_roll_buffers: int = Field(default=8, description="Pre-roll buffers for dictation mode (160ms at 20ms/chunk).")
 
-    # Training mode specific settings
     training_energy_threshold: float = Field(default=0.003, description="Energy threshold for training sample collection.")
     training_silent_chunks_for_end: int = Field(
         default=40, description="Number of consecutive silent chunks to end training recording (40 chunks = 800ms)."
@@ -275,7 +259,6 @@ class VADConfig(BaseModel):
     )
     training_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for training sample collection.")
 
-    # Adaptive threshold configuration
     silence_threshold_multiplier: float = Field(
         default=0.35, description="Multiplier for silence threshold relative to energy threshold"
     )
@@ -292,7 +275,6 @@ class VADConfig(BaseModel):
         default=0.4, description="Adjustment factor for silence threshold after adaptation"
     )
 
-    # Minimum duration thresholds
     command_min_recording_duration: float = Field(
         default=0.05, description="Minimum recording duration for command mode in seconds"
     )
@@ -300,14 +282,13 @@ class VADConfig(BaseModel):
         default=0.1, description="Minimum recording duration for dictation mode in seconds"
     )
 
-    # Noise floor estimation settings
     max_noise_samples: int = Field(default=20, description="Maximum number of samples to collect for noise floor estimation")
     noise_floor_initial_value: float = Field(default=0.002, description="Initial noise floor value before estimation")
     noise_floor_percentile: int = Field(default=75, description="Percentile to use for noise floor calculation")
 
 
 class MarkovPredictorConfig(BaseModel):
-    """Configuration for Markov chain command predictor with backoff"""
+    """Configuration for Markov chain command predictor with backoff."""
 
     enabled: bool = Field(default=False, description="Enable Markov chain command prediction")
 
@@ -341,7 +322,7 @@ class MarkovPredictorConfig(BaseModel):
 
 
 class CommandParserConfig(BaseModel):
-    """Configuration for centralized command parser behavior"""
+    """Configuration for centralized command parser behavior."""
 
     duplicate_detection_interval: float = Field(default=1.0, description="Interval in seconds to detect duplicate text input")
 
@@ -351,7 +332,7 @@ class CommandParserConfig(BaseModel):
 
 
 class AutomationServiceConfig(BaseModel):
-    """Configuration for automation command execution"""
+    """Configuration for automation command execution."""
 
     thread_pool_max_workers: int = Field(default=2, description="Maximum number of worker threads for automation action execution")
 
@@ -361,7 +342,7 @@ class AutomationServiceConfig(BaseModel):
 
 
 class ProtectedTermsValidatorConfig(BaseModel):
-    """Configuration for protected terms validator"""
+    """Configuration for protected terms validator."""
 
     cache_ttl_seconds: float = Field(default=60.0, description="Cache time-to-live in seconds for protected terms")
 
@@ -376,15 +357,20 @@ class AppInfoConfig(BaseModel):
 
 
 class AssetPathsConfig(BaseModel):
-    """Centralized asset path resolution for both dev and PyInstaller bundle modes"""
+    """Centralized asset path resolution for both dev and PyInstaller bundle modes."""
 
-    def __init__(self, **data):
+    def __init__(self, **data: any) -> None:
         super().__init__(**data)
-        self._assets_root = self._get_assets_root()
+        self._assets_root: Optional[Path] = self._get_assets_root()
 
     def _get_assets_root(self) -> Optional[Path]:
-        """Get the assets root directory, works in both dev and PyInstaller bundle modes"""
-        # Check if running as PyInstaller bundle
+        """Get the assets root directory.
+
+        Works in both dev and PyInstaller bundle modes.
+
+        Returns:
+            Path to assets root or None if not found.
+        """
         if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
             bundle_dir: Path = Path(sys._MEIPASS)
             assets_path: Path = bundle_dir / "vocalance" / "app" / "assets"
@@ -403,53 +389,81 @@ class AssetPathsConfig(BaseModel):
                 logging.debug(f"Found assets in dev mode: {assets_path}")
                 return assets_path
 
-    # Property-based access to all asset paths
+        return None
+
     @property
     def logo_dir(self) -> Optional[str]:
-        """Logo directory path"""
+        """Logo directory path.
+
+        Returns:
+            Path to logo directory or None.
+        """
         if self._assets_root:
             return str(self._assets_root / "logo")
         return None
 
     @property
     def icons_dir(self) -> Optional[str]:
-        """Icons directory path"""
+        """Icons directory path.
+
+        Returns:
+            Path to icons directory or None.
+        """
         if self._assets_root:
             return str(self._assets_root / "icons")
         return None
 
     @property
     def fonts_dir(self) -> Optional[str]:
-        """Fonts directory path"""
+        """Fonts directory path.
+
+        Returns:
+            Path to fonts directory or None.
+        """
         if self._assets_root:
             return str(self._assets_root / "fonts" / "Manrope")
         return None
 
     @property
     def vosk_model_path(self) -> Optional[str]:
-        """Vosk model directory path"""
+        """Vosk model directory path.
+
+        Returns:
+            Path to Vosk model directory or None.
+        """
         if self._assets_root:
             return str(self._assets_root / "vosk-model-small-en-us-0.15")
         return None
 
     @property
     def yamnet_model_path(self) -> Optional[str]:
-        """YAMNet model directory path"""
+        """YAMNet model directory path.
+
+        Returns:
+            Path to YAMNet model directory or None.
+        """
         if self._assets_root:
             return str(self._assets_root / "sound_processing" / "yamnet")
         return None
 
     @property
     def esc50_samples_path(self) -> Optional[str]:
-        """ESC-50 samples directory path"""
+        """ESC-50 samples directory path.
+
+        Returns:
+            Path to ESC-50 samples directory or None.
+        """
         if self._assets_root:
             return str(self._assets_root / "sound_processing" / "esc50")
         return None
 
-    # Convenience methods for specific files
     @property
     def logo_image_path(self) -> Optional[str]:
-        """Main logo image path"""
+        """Main logo image path.
+
+        Returns:
+            Path to logo image or None.
+        """
         if self.logo_dir:
             logo_path: Path = Path(self.logo_dir) / "logo_full_text_full_size.png"
             return str(logo_path)
@@ -457,7 +471,11 @@ class AssetPathsConfig(BaseModel):
 
     @property
     def icon_logo_image_path(self) -> Optional[str]:
-        """Icon logo image path"""
+        """Icon logo image path.
+
+        Returns:
+            Path to icon logo image or None.
+        """
         if self.logo_dir:
             icon_path: Path = Path(self.logo_dir) / "grey_icon_full_size.png"
             return str(icon_path)
@@ -465,15 +483,22 @@ class AssetPathsConfig(BaseModel):
 
     @property
     def icon_path(self) -> Optional[str]:
-        """Application icon path"""
+        """Application icon path.
+
+        Returns:
+            Path to application icon or None.
+        """
         if self.logo_dir:
             icon_path: Path = Path(self.logo_dir) / "icon.ico"
             return str(icon_path)
         return None
 
-    # Legacy method for compatibility
     def get_vosk_model_path(self) -> str:
-        """Get the Vosk model path (legacy method)"""
+        """Get the Vosk model path (legacy method).
+
+        Returns:
+            Path to Vosk model.
+        """
         return self.vosk_model_path or "vocalance/app/assets/vosk-model-small-en-us-0.15"
 
 
@@ -489,21 +514,23 @@ class StorageConfig(BaseModel):
     marks_filename: str = "marks.json"
     click_history_filename: str = "click_history.json"
     command_history_filename: str = "command_history.json"
-    sound_model_dir: Optional[str] = None  # Directory to store sound models, set at runtime
-    sound_samples_dir: Optional[str] = None  # Directory to store sound samples, set at runtime
-    external_non_target_sounds_dir: Optional[str] = None  # Directory for external non-target sound samples, set at runtime
-    user_data_root: Optional[str] = None  # Will be set dynamically at runtime
-    settings_dir: Optional[str] = None  # Will be set dynamically at runtime
-    marks_dir: Optional[str] = None  # New: directory for marks
-    llm_models_dir: Optional[str] = None  # Directory for LLM models, set at runtime
-    click_tracker_dir: Optional[str] = None  # New: directory for click tracker
-    command_history_dir: Optional[str] = None  # Directory for command history
+    sound_model_dir: Optional[str] = None
+    sound_samples_dir: Optional[str] = None
+    external_non_target_sounds_dir: Optional[str] = None
+    user_data_root: Optional[str] = None
+    settings_dir: Optional[str] = None
+    marks_dir: Optional[str] = None
+    llm_models_dir: Optional[str] = None
+    click_tracker_dir: Optional[str] = None
+    command_history_dir: Optional[str] = None
     cache_ttl_seconds: float = Field(
         default=300.0, description="Cache time-to-live in seconds for storage service read operations"
     )
 
 
 class GlobalAppConfig(BaseModel):
+    """Main application configuration container."""
+
     logging: LoggingConfigModel = LoggingConfigModel()
     app_info: AppInfoConfig = AppInfoConfig()
     asset_paths: AssetPathsConfig = AssetPathsConfig()
@@ -524,11 +551,12 @@ class GlobalAppConfig(BaseModel):
     protected_terms_validator: ProtectedTermsValidatorConfig = ProtectedTermsValidatorConfig()
     automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
 
-    def __init__(self, **data):
+    def __init__(self, **data: any) -> None:
         super().__init__(**data)
         self._setup_storage_paths()
 
-    def _setup_storage_paths(self):
+    def _setup_storage_paths(self) -> None:
+        """Setup storage directory paths."""
         app_info = self.app_info
         storage = self.storage
         user_data_root = get_default_user_data_root(app_info=app_info)
@@ -540,7 +568,7 @@ class GlobalAppConfig(BaseModel):
         click_tracker_dir = os.path.join(user_data_root, storage.click_tracker_subdir)
         llm_models_dir = os.path.join(user_data_root, storage.llm_models_subdir)
         command_history_dir = os.path.join(user_data_root, storage.command_history_subdir)
-        # Ensure directories exist
+
         for d in [
             sound_model_dir,
             sound_samples_dir,
@@ -552,6 +580,7 @@ class GlobalAppConfig(BaseModel):
             command_history_dir,
         ]:
             os.makedirs(d, exist_ok=True)
+
         storage.sound_model_dir = sound_model_dir
         storage.sound_samples_dir = sound_samples_dir
         storage.external_non_target_sounds_dir = external_non_target_sounds_dir
@@ -563,8 +592,6 @@ class GlobalAppConfig(BaseModel):
         storage.command_history_dir = command_history_dir
 
 
-# --- Config Loader ---
-
 CONFIG_FILE_NAME = "settings.yaml"
 DEFAULT_CONFIG_DIR_NAME = "config"
 
@@ -572,28 +599,50 @@ DEFAULT_CONFIG_DIR_NAME = "config"
 def get_config_path(
     config_dir: Optional[str] = None, config_file: str = CONFIG_FILE_NAME, app_info: Optional[AppInfoConfig] = None
 ) -> str:
+    """Get configuration file path.
+
+    Uses app_info if provided, otherwise falls back to repo config directory.
+
+    Args:
+        config_dir: Optional custom config directory.
+        config_file: Config filename.
+        app_info: Application info for user data root.
+
+    Returns:
+        Path to configuration file.
+    """
     if config_dir:
         return os.path.join(config_dir, config_file)
-    # Use app_info if provided, otherwise fallback to repo config
+
     if app_info is not None:
         user_data_root = get_default_user_data_root(app_info=app_info)
         settings_dir = os.path.join(user_data_root, "settings")
         os.makedirs(settings_dir, exist_ok=True)
         return os.path.join(settings_dir, config_file)
-    # Fallback: look for 'config/settings.yaml' relative to the current working directory
-    project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    )  # vocalance/app/config -> vocalance (package root)
+
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     return os.path.join(project_root, DEFAULT_CONFIG_DIR_NAME, config_file)
 
 
 def load_app_config(config_path: Optional[str] = None, app_info: Optional[AppInfoConfig] = None) -> GlobalAppConfig:
+    """Load application configuration from YAML file.
+
+    Falls back to default config if file not found or invalid.
+
+    Args:
+        config_path: Optional custom config file path.
+        app_info: Application info for user data root.
+
+    Returns:
+        Loaded or default GlobalAppConfig instance.
+    """
     actual_config_path = config_path or get_config_path(app_info=app_info)
-    logger.info(f"Loading application configuration from: {actual_config_path}")
+    logger.debug(f"Loading application configuration from: {actual_config_path}")
+
     try:
         with open(actual_config_path, "r") as f:
             config_data = yaml.safe_load(f)
-        if not config_data or "app" not in config_data:  # Assuming global config is under an 'app' key
+        if not config_data or "app" not in config_data:
             logger.warning(
                 f"Configuration file {actual_config_path} is empty or missing 'app' root. Using default GlobalAppConfig."
             )
@@ -611,7 +660,16 @@ def load_app_config(config_path: Optional[str] = None, app_info: Optional[AppInf
 
 
 def get_default_user_data_root(app_info: AppInfoConfig) -> str:
-    # Use AppData on Windows, otherwise home dir
+    """Get default user data root directory.
+
+    Uses AppData on Windows, home directory on other systems.
+
+    Args:
+        app_info: Application info configuration.
+
+    Returns:
+        Path to user data root directory.
+    """
     if os.name == "nt":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
     else:

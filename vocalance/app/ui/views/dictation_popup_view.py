@@ -148,10 +148,6 @@ class DictationPopupView:
         if self.dictation_box and self.dictation_box.winfo_exists():
             current_text = self.dictation_box.get("1.0", "end-1c")
             if len(current_text) >= count:
-                # Remove 'count' characters from the end
-                # NOTE: In Tkinter text widget, "end" refers to the position after all content
-                # We use "end-1c" to get actual content (excludes automatic newline)
-                # So to remove N chars, we delete from "end-(N+1)c" to "end-1c"
                 self.dictation_box.delete(f"end-{count+1}c", "end-1c")
                 self.dictation_box.see("end")
                 self.dictation_box.update_idletasks()
@@ -164,22 +160,17 @@ class DictationPopupView:
             return
 
         with self._ui_lock:
-            # Add to buffer
             self._token_buffer.append(token)
 
-            # Check if we should flush
-            current_time = time.time() * 1000  # ms
+            current_time = time.time() * 1000
             time_since_last_flush = current_time - self._last_flush_time
 
-            # Flush if: buffer has tokens AND (interval passed OR buffer is large)
             should_flush = len(self._token_buffer) > 0 and (
                 time_since_last_flush >= self._flush_interval_ms or len(self._token_buffer) >= 3
             )
 
-            # Atomic check-and-set to prevent duplicate flush scheduling
             if should_flush and not self._pending_flush:
                 self._pending_flush = True
-                # Schedule flush on next UI cycle (outside lock to avoid deadlock)
                 schedule_needed = True
             else:
                 schedule_needed = False
@@ -195,7 +186,6 @@ class DictationPopupView:
                 self._pending_flush = False
             return
 
-        # Take snapshot of buffer under lock
         with self._ui_lock:
             if not self._token_buffer:
                 self._pending_flush = False
@@ -205,31 +195,24 @@ class DictationPopupView:
             self._token_buffer.clear()
             self._last_flush_time = time.time() * 1000
 
-        # UI operations (run without lock to avoid blocking token additions)
-        # Reset previous token to default color
         if self._last_token_start_index is not None and self._last_token_end_index is not None:
             try:
                 self.llm_box.tag_remove("streaming", self._last_token_start_index, self._last_token_end_index)
             except Exception:
                 pass
 
-        # Get current position before insert
         start_index = self.llm_box.index("end-1c")
 
-        # Batch all tokens into single insert
         self.llm_box.insert("end", batched)
 
-        # Get position after insert
         end_index = self.llm_box.index("end-1c")
 
-        # Highlight the newly inserted token(s) with streaming color
         try:
             self.llm_box.tag_add("streaming", start_index, end_index)
             self.llm_box.tag_config("streaming", foreground=ui_theme.theme.text_colors.streaming_token)
         except Exception as e:
             logging.debug(f"Error applying streaming tag: {e}")
 
-        # Save indices for next flush
         self._last_token_start_index = start_index
         self._last_token_end_index = end_index
 

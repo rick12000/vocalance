@@ -283,13 +283,10 @@ class TwoColumnTabLayout(TransparentFrame):
     def __init__(self, parent, left_title: str, right_title: str):
         super().__init__(parent)
 
-        # Configure main grid for full expansion with consistent weights and minimum sizes
-        self.grid_rowconfigure(0, weight=1)  # Content row - expandable, fills remaining space
-        self.grid_columnconfigure(0, weight=1, minsize=300)  # Left column - exactly 50% width, minimum 300px
-        self.grid_columnconfigure(1, weight=1, minsize=300)  # Right column - exactly 50% width, minimum 300px
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1, minsize=300)
+        self.grid_columnconfigure(1, weight=1, minsize=300)
 
-        # Create content boxes with titles inside
-        # Split inner_spacing evenly between the two boxes
         half_inner_spacing = theme.two_box_layout.inner_spacing // 2
 
         self.left_box = ctk.CTkFrame(
@@ -320,17 +317,14 @@ class TwoColumnTabLayout(TransparentFrame):
             pady=(theme.two_box_layout.outer_padding_top, theme.two_box_layout.outer_padding_bottom),
         )
 
-        # Configure box grids - title at top, content below
-        self.left_box.grid_rowconfigure(0, weight=0)  # Title row - fixed height
-        self.left_box.grid_rowconfigure(1, weight=1)  # Content row - expands
+        self.left_box.grid_rowconfigure(0, weight=0)
+        self.left_box.grid_rowconfigure(1, weight=1)
         self.left_box.grid_columnconfigure(0, weight=1)
 
-        self.right_box.grid_rowconfigure(0, weight=0)  # Title row - fixed height
-        self.right_box.grid_rowconfigure(1, weight=1)  # Content row - expands
+        self.right_box.grid_rowconfigure(0, weight=0)
+        self.right_box.grid_rowconfigure(1, weight=1)
         self.right_box.grid_columnconfigure(0, weight=1)
 
-        # Create title labels inside boxes with proper padding
-        # Titles must align with content inside (form fields use inner_content_padx)
         left_title_label = BoxTitle(self.left_box, text=left_title)
         left_title_label.grid(
             row=0,
@@ -349,8 +343,6 @@ class TwoColumnTabLayout(TransparentFrame):
             pady=(theme.two_box_layout.title_padding_top, theme.two_box_layout.title_padding_bottom),
         )
 
-        # Create content containers for user content
-        # No grid padding - content padding comes from FormBuilder fields (inner_content_padx)
         self.left_content = TransparentFrame(self.left_box)
         self.left_content.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, theme.two_box_layout.last_element_bottom_padding))
         self.left_content.grid_rowconfigure(0, weight=1)
@@ -361,7 +353,6 @@ class TwoColumnTabLayout(TransparentFrame):
         self.right_content.grid_rowconfigure(0, weight=1)
         self.right_content.grid_columnconfigure(0, weight=1)
 
-        # Ensure boxes expand to fill available space consistently
         self.left_box.grid_propagate(False)
         self.right_box.grid_propagate(False)
 
@@ -372,9 +363,8 @@ class InstructionTile(TileFrame):
     def __init__(self, parent, title: str, content: str, **kwargs):
         super().__init__(parent, **kwargs)
 
-        # Configure grid for vertical centering - content expands to fill available space
-        self.grid_rowconfigure(0, weight=0)  # Title (fixed height)
-        self.grid_rowconfigure(1, weight=1)  # Content (expands to fill available space)
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
         # Add title - centered horizontally and vertically, with padding matching box content
@@ -419,28 +409,22 @@ class CustomSidebarFrame(ctk.CTkFrame):
     def __init__(self, parent, **kwargs):
         pass
 
-        # Remove border from kwargs if present since we'll handle it custom
         border_kwargs = {}
         if "border_width" in kwargs:
             border_kwargs["border_width"] = kwargs.pop("border_width")
         if "border_color" in kwargs:
             border_kwargs["border_color"] = kwargs.pop("border_color")
 
-        # Explicitly set border_width to 0 to ensure no borders from parent
-        # Set border_color to match fg_color so any residual border is invisible
         kwargs["border_width"] = 0
         if "fg_color" in kwargs:
             kwargs["border_color"] = kwargs["fg_color"]
 
-        # Initialize frame without any borders
         super().__init__(parent, **kwargs)
 
-        # Store border configuration for later use
         self._border_width = border_kwargs.get("border_width", 0)
         self._border_color = border_kwargs.get("border_color", theme.sidebar_layout.border_color)
         self.border_line = None
 
-        # Create border line - use standard Tkinter Frame for reliable pixel-perfect rendering
         if self._border_width > 0:
             self._create_border_line()
 
@@ -448,8 +432,6 @@ class CustomSidebarFrame(ctk.CTkFrame):
         """Create and configure the border line using a standard Tkinter Frame"""
         import tkinter as tk
 
-        # Use standard tk.Frame (not CTkFrame) for the border line
-        # Standard tk widgets handle pixel-perfect rendering better
         self.border_line = tk.Frame(
             self,
             width=self._border_width,
@@ -457,19 +439,15 @@ class CustomSidebarFrame(ctk.CTkFrame):
             highlightthickness=0,
             bd=0,
         )
-        # Place it at the right edge, spanning full height
         self.border_line.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
 
-        # Bind to window map event to ensure it stays on top after widgets are added
         self.bind("<Map>", lambda e: self._ensure_border_on_top())
 
-        # Initial raise
         self.after(100, self._ensure_border_on_top)
 
     def _ensure_border_on_top(self):
         """Ensure the border line stays on top of all widgets"""
         if self.border_line and self.border_line.winfo_exists():
-            # Use standard tkinter raise which works properly on tk.Frame
             self.border_line.tkraise()
 
     def raise_border(self):
@@ -480,7 +458,6 @@ class CustomSidebarFrame(ctk.CTkFrame):
 class SidebarIconButton(ctk.CTkFrame):
     """Sidebar button with icon above text, selection state, and border hover effect"""
 
-    # Class-level icon cache for all instances
     _icon_cache = {}
 
     def __init__(
@@ -492,23 +469,18 @@ class SidebarIconButton(ctk.CTkFrame):
         command: Optional[Callable] = None,
         **kwargs,
     ):
-        # Initialize frame with transparent background
         super().__init__(parent, fg_color="transparent", corner_radius=0, **kwargs)
 
-        # State management
         self.is_selected = False
         self.command = command
         self.icon_filename = icon_filename
         self._asset_paths_config = asset_paths_config
 
-        # Calculate icon size using width_percentage for responsive sizing
         available_width = theme.sidebar_layout.button_width
         self.icon_size = int(available_width * theme.icon_properties.width_percentage)
 
-        # Configure grid
         self.grid_columnconfigure(0, weight=1)
 
-        # Create button frame
         text_height = theme.font_sizes.small + 2
         button_height = (
             theme.spacing.small + self.icon_size + theme.icon_properties.icon_text_spacing + text_height + theme.spacing.small

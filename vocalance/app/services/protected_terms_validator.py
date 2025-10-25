@@ -18,19 +18,19 @@ class ProtectedTermsValidator:
     """
 
     def __init__(self, config: GlobalAppConfig, storage: StorageService) -> None:
-        self._config = config
-        self._storage = storage
+        self._config: GlobalAppConfig = config
+        self._storage: StorageService = storage
         self._cached_terms: Optional[Set[str]] = None
         self._cache_expiry: float = 0.0
         self._cache_ttl: float = config.protected_terms_validator.cache_ttl_seconds
 
-        logger.info("ProtectedTermsValidator initialized")
+        logger.debug("ProtectedTermsValidator initialized")
 
     async def get_all_protected_terms(self) -> Set[str]:
         """Get all protected terms from all sources with caching.
 
         Returns:
-            Set of normalized (lowercase, stripped) protected terms
+            Set of normalized (lowercase, stripped) protected terms.
         """
         current_time = time.time()
 
@@ -61,13 +61,13 @@ class ProtectedTermsValidator:
             marks_data = await self._storage.read(model_type=MarksData)
             protected.update(name.lower().strip() for name in marks_data.marks.keys())
         except Exception as e:
-            logger.warning(f"Could not fetch mark names for protection: {e}")
+            logger.debug(f"Could not fetch mark names for protection: {e}")
 
         try:
             sound_data = await self._storage.read(model_type=SoundMappingsData)
             protected.update(sound.lower().strip() for sound in sound_data.mappings.keys())
         except Exception as e:
-            logger.warning(f"Could not fetch sound names for protection: {e}")
+            logger.debug(f"Could not fetch sound names for protection: {e}")
 
         self._cached_terms = protected
         self._cache_expiry = current_time + self._cache_ttl
@@ -78,10 +78,10 @@ class ProtectedTermsValidator:
         """Check if a term is protected.
 
         Args:
-            term: Term to check
+            term: Term to check.
 
         Returns:
-            True if term is protected, False otherwise
+            True if term is protected, False otherwise.
         """
         protected = await self.get_all_protected_terms()
         return term.lower().strip() in protected
@@ -90,11 +90,11 @@ class ProtectedTermsValidator:
         """Validate a term for use as command/mark/sound name.
 
         Args:
-            term: Term to validate
-            exclude_term: Optional term to exclude from conflict check (for updates)
+            term: Term to validate.
+            exclude_term: Optional term to exclude from conflict check (for updates).
 
         Returns:
-            Tuple of (is_valid, error_message) where error_message is None if valid
+            Tuple of (is_valid, error_message) where error_message is None if valid.
         """
         if not term or not term.strip():
             return False, "Term cannot be empty"

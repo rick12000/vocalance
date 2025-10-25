@@ -38,8 +38,8 @@ class LLMModelDownloader:
         self._temp_dir = os.path.join(config.storage.user_data_root, "llm_models_temp")
         os.makedirs(self._models_dir, exist_ok=True)
         os.makedirs(self._temp_dir, exist_ok=True)
-        logger.info(f"LLM models directory: {self._models_dir}")
-        logger.info(f"LLM temp directory: {self._temp_dir}")
+        logger.debug(f"LLM models directory: {self._models_dir}")
+        logger.debug(f"LLM temp directory: {self._temp_dir}")
 
     def get_models_directory(self) -> str:
         return self._models_dir

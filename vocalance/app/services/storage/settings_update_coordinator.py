@@ -38,12 +38,12 @@ class SettingsUpdateCoordinator:
         self._config = config
         self._service_registry: Dict[str, Any] = {}
 
-        logger.info("SettingsUpdateCoordinator initialized")
+        logger.debug("SettingsUpdateCoordinator initialized")
 
     def setup_subscriptions(self) -> None:
         """Subscribe to settings update events"""
         self._event_bus.subscribe(event_type=DynamicSettingsUpdatedEvent, handler=self._handle_settings_updated)
-        logger.info("SettingsUpdateCoordinator subscriptions configured")
+        logger.debug("SettingsUpdateCoordinator subscriptions configured")
 
     def register_service(self, service_name: str, service_instance: Any) -> None:
         """

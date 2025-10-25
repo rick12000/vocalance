@@ -30,7 +30,7 @@ def _get_icon_path() -> Optional[str]:
                 icon_path = Path(icon_path_str)
                 if icon_path.exists():
                     _ICON_PATH = str(icon_path.absolute())
-                    logger.info(f"Icon path loaded: {_ICON_PATH}")
+                    logger.debug(f"Icon path loaded: {_ICON_PATH}")
         except Exception as e:
             logger.error(f"Failed to load icon path: {e}")
     return _ICON_PATH
@@ -48,7 +48,7 @@ def initialize_windows_taskbar_icon():
     try:
         app_id = "Vocalance.VoiceControl.1.0"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
-        logger.info(f"Windows App ID set: {app_id}")
+        logger.debug(f"Windows App ID set: {app_id}")
         _APP_ID_SET = True
     except Exception as e:
         logger.debug(f"Could not set App User Model ID: {e}")

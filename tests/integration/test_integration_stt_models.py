@@ -57,7 +57,7 @@ def test_vosk_recognition_accuracy_and_performance(vosk_stt, vosk_test_files, sa
         audio_bytes = _load_audio_bytes(file_path)
 
         start_time = time.time()
-        recognized_text = vosk_stt.recognize(audio_bytes, sample_rate)
+        recognized_text = vosk_stt.recognize_sync(audio_bytes, sample_rate)
         runtime_ms = (time.time() - start_time) * 1000
 
         is_correct = recognized_text.strip().lower() == expected_text

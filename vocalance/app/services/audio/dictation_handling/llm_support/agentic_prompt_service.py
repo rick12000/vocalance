@@ -38,7 +38,7 @@ class AgenticPromptService:
         # Default prompt
         self.default_prompt_text = "Fix grammar and punctuation. Correct any misspelled words. If words look like transcription errors, infer what they should have been from context, or if unclear, remove them. Improve clarity, and make the text more succinct and readable. Ensure to preserve all original meaning and content. Output ONLY the processed text."
 
-        logger.info("AgenticPromptService initialized with thread safety")
+        logger.debug("AgenticPromptService initialized with thread safety")
 
     async def initialize(self) -> bool:
         """Initialize service"""
@@ -53,7 +53,7 @@ class AgenticPromptService:
 
             await self._publish_state()
 
-            logger.info("AgenticPromptService ready")
+            logger.debug("AgenticPromptService ready")
             return True
 
         except Exception as e:
@@ -72,7 +72,7 @@ class AgenticPromptService:
 
         self.prompts[default_id] = default_prompt
         await self._save_prompts()
-        logger.info("Created default prompt")
+        logger.debug("Created default prompt")
 
     def _get_default_prompt(self) -> Optional[AgenticPrompt]:
         """Get default prompt"""

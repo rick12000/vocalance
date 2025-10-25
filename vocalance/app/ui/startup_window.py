@@ -251,12 +251,9 @@ class StartupWindow:
 
         Note: In this architecture, main_thread() is tkinter thread, not GUI event loop thread.
         """
-        # Always queue updates for thread safety, except when already in main tkinter thread
         if threading.current_thread() == threading.main_thread():
-            # We're in main tkinter thread - execute directly
             self._update_progress_impl(progress, status, animate)
         else:
-            # We're in another thread (likely GUI event loop) - queue the update
             self._update_queue.put((progress, status, animate))
 
     def _update_progress_impl(self, progress: float, status: str, animate: bool) -> None:
@@ -344,7 +341,6 @@ class StartupWindow:
             try:
                 self._stop_animation_impl()
 
-                # Cancel queue checker
                 if self._check_queue_id and self.window:
                     try:
                         self.window.after_cancel(self._check_queue_id)
@@ -352,10 +348,8 @@ class StartupWindow:
                         pass
                     self._check_queue_id = None
 
-                # Mark as closed FIRST to prevent callbacks from executing
                 self.is_closed = True
 
-                # Cancel all icon reinforcement callbacks
                 for after_id in self._icon_after_ids:
                     if self.window:
                         try:
@@ -364,14 +358,11 @@ class StartupWindow:
                             pass
                 self._icon_after_ids.clear()
 
-                # Now safely destroy the window
                 if self.window:
                     self.window.destroy()
                     self.window = None
                 self.logger.info("Startup window closed")
 
-                # Only trigger shutdown if this was a USER-INITIATED close (not programmatic)
-                # and shutdown hasn't already started
                 if (
                     not self._programmatic_close
                     and self.shutdown_coordinator
@@ -404,7 +395,6 @@ class StartupWindow:
 
     def _set_icon_with_retry(self) -> None:
         """Set icon with parent inheritance for best results."""
-        # Check under lock to avoid race conditions with close
         with self._lock:
             if not self.window or self.is_closed:
                 return
@@ -420,7 +410,6 @@ class StartupWindow:
 
     def _reinforce_icon(self) -> None:
         """Reinforce the icon setting to prevent CustomTkinter override."""
-        # Check under lock to avoid race conditions with close
         with self._lock:
             if not self.window or self.is_closed:
                 return

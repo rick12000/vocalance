@@ -42,16 +42,14 @@ class GridViewConfig(BaseModel):
     def get_font_tuple(self, cell_height: float) -> tuple:
         """Calculate font tuple based on cell height with min/max constraints"""
         calculated_size = int(cell_height / self.text_font_size_divisor)
-        # Apply min constraint (no maximum constraint as per requirements)
         font_size = max(self.text_font_min_size, calculated_size)
-        # Apply max constraint to prevent overly large fonts
         font_size = min(self.text_font_max_size, font_size)
         return (self.text_font_family, font_size, "bold")
 
     def get_fill_color_with_alpha(self) -> str:
         """Get fill color with applied alpha transparency"""
         if self.rect_fill_alpha == 0.0 or not self.rect_fill_color:
-            return ""  # No fill - transparent
+            return ""
         return self._apply_alpha_to_color(self.rect_fill_color, self.rect_fill_alpha)
 
     def get_outline_color_with_alpha(self) -> str:
@@ -64,7 +62,6 @@ class GridViewConfig(BaseModel):
 
     def _apply_alpha_to_color(self, color_name: str, alpha: float) -> str:
         """Convert a color name to hex with alpha applied"""
-        # Color name to RGB mapping for common Tkinter colors
         color_map = {
             "white": (255, 255, 255),
             "black": (0, 0, 0),
@@ -86,10 +83,8 @@ class GridViewConfig(BaseModel):
             "gray90": (230, 230, 230),
         }
 
-        # Handle hex colors
         if color_name.startswith("#"):
             try:
-                # Remove # and convert to RGB
                 hex_color = color_name[1:]
                 if len(hex_color) == 6:
                     r = int(hex_color[0:2], 16)
@@ -101,11 +96,8 @@ class GridViewConfig(BaseModel):
             except ValueError:
                 rgb = color_map.get("white", (255, 255, 255))
         else:
-            # Use color map
             rgb = color_map.get(color_name.lower(), color_map.get("white", (255, 255, 255)))
 
-        # Apply alpha by blending with black background
-        # This simulates transparency over a dark background
         r, g, b = rgb
         final_r = int(r * alpha)
         final_g = int(g * alpha)
@@ -167,7 +159,6 @@ class FormDefaults(BaseModel):
     placeholder_samples: str = Field(default="5", description="Default placeholder for sample count")
     example_prefix: str = Field(default="e.g. ", description="Prefix for example text")
 
-    # These will be read from settings_service at runtime
     @staticmethod
     async def get_dynamic_defaults(settings_service) -> Dict[str, Any]:
         """Get dynamic default values from settings service"""
@@ -178,7 +169,6 @@ class FormDefaults(BaseModel):
                 "max_tokens": await settings_service.get_setting("llm.max_tokens", "1024"),
             }
         except Exception:
-            # Fallback to static defaults if settings service unavailable
             return {
                 "grid_rects": "500",
                 "context_length": "4096",
@@ -207,8 +197,6 @@ class ViewMessages(BaseModel):
 
 class CommandsViewConfig(BaseModel):
     """Configuration for the commands view"""
-
-    # Removed column width configurations since we simplified the layout
 
 
 class ViewConfiguration(BaseModel):

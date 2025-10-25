@@ -48,16 +48,13 @@ class FontService:
                 return True
 
         try:
-            # Get the path to the fonts directory
             fonts_dir = Path(self._asset_paths_config.fonts_dir)
 
-            # Load variable font first (preferred)
             variable_font_path = fonts_dir / "Manrope-VariableFont_wght.ttf"
             if variable_font_path.exists():
                 self._load_font_file(str(variable_font_path), "Manrope")
-                logger.info("Loaded Manrope variable font")
+                logger.debug("Loaded Manrope variable font")
 
-            # Load static fonts as fallback
             static_fonts_dir = fonts_dir / "static"
             if static_fonts_dir.exists():
                 font_mappings = {
@@ -91,16 +88,11 @@ class FontService:
         Load a single font file using Windows GDI font loading. Thread-safe.
         """
         try:
-            # Load the font using Windows GDI
             gdi32 = ctypes.windll.gdi32
 
-            # AddFontResourceEx function
-            result = gdi32.AddFontResourceExW(ctypes.c_wchar_p(font_path), 0x10, 0)  # FR_PRIVATE - font is private to the process
+            result = gdi32.AddFontResourceExW(ctypes.c_wchar_p(font_path), 0x10, 0)
 
             if result > 0:
-                # Font loaded successfully
-                # For TTF fonts, we need to extract the actual font family name
-                # We'll use a simplified approach and assume the font name matches the file
                 actual_name = self._extract_font_family_name(font_path, font_name)
                 with self._font_lock:
                     self._loaded_fonts[font_name] = actual_name
@@ -119,11 +111,6 @@ class FontService:
         Extract the actual font family name from a TTF file.
         """
         try:
-            # Try to read the font name from the TTF file
-            # This is a simplified approach - in a production system you might use
-            # a library like fonttools for more robust font name extraction
-
-            # For now, we'll use a mapping based on the file names
             filename = Path(font_path).name.lower()
 
             if "regular" in filename or filename.endswith("manrope.ttf"):
@@ -164,7 +151,6 @@ class FontService:
                 self.load_fonts()
                 self._font_lock.acquire()
 
-        # Map weight to font name
         weight_mapping = {
             "extralight": "Manrope ExtraLight",
             "light": "Manrope Light",
@@ -178,57 +164,35 @@ class FontService:
         requested_font = weight_mapping.get(weight.lower(), "Manrope")
 
         with self._font_lock:
-            # Check if the requested font is loaded
             if requested_font in self._loaded_fonts:
                 return self._loaded_fonts[requested_font]
 
-            # Fall back to base Manrope if available
             if "Manrope" in self._loaded_fonts:
                 return self._loaded_fonts["Manrope"]
 
-        # Final fallback to system fonts
         logger.warning("Manrope font not available, falling back to system font")
-        return "Segoe UI"  # Windows default
+        return "Segoe UI"
 
     def create_font(self, family: str = None, size: int = 12, weight: str = "normal") -> tkFont.Font:
-        """
-        Create a Font object with the specified parameters. Thread-safe.
-        Uses caching to avoid creating duplicate font objects.
+        """Create or retrieve a cached font. Thread-safe."""
+        if not family:
+            family = self.get_font_family(weight)
 
-        Args:
-            family: Font family (if None, uses Manrope regular)
-            size: Font size in points
-            weight: Font weight (normal, bold, or Manrope weight names)
+        cache_key = f"{family}_{size}_{weight}"
 
-        Returns:
-            tkFont.Font object
-        """
-        # If no family specified, use Manrope
-        if family is None:
-            # Map Tkinter weight to Manrope weight
-            if weight == "bold":
-                family = self.get_font_family("bold")
-                tk_weight = "normal"  # Since we're using the bold variant
-            else:
-                family = self.get_font_family("regular")
-                tk_weight = weight
-        else:
-            tk_weight = weight
-
-        # Create cache key
-        cache_key = (family, size, tk_weight)
-
-        # Return cached font if available
         with self._font_lock:
             if cache_key in self._font_cache:
                 return self._font_cache[cache_key]
 
-        # Create new font
-        font = tkFont.Font(family=family, size=size, weight=tk_weight)
+        tk_weight = weight
+        if weight == "bold":
+            tk_weight = "bold"
+        else:
+            tk_weight = "normal"
 
+        font = tkFont.Font(family=family, size=size, weight=tk_weight)
         with self._font_lock:
             self._font_cache[cache_key] = font
-
         return font
 
     def get_available_fonts(self) -> Dict[str, str]:

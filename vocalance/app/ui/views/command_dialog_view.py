@@ -39,11 +39,9 @@ class CommandEditDialog:
         try:
             self.logger.info(f"Creating command edit dialog for: '{self.command.command_key}'")
 
-            # Create dialog window
             if self.parent:
                 dialog = ctk.CTkToplevel(self.parent)
             else:
-                # Fallback for testing
                 dialog = ctk.CTk()
 
             dialog.title(f"Edit Command: {self.command.command_key}")
@@ -60,7 +58,6 @@ class CommandEditDialog:
             except Exception:
                 pass
 
-            # Main frame - transparent to match dialog background
             main_frame = TransparentFrame(dialog)
             main_frame.grid(
                 row=0,
@@ -70,24 +67,20 @@ class CommandEditDialog:
                 pady=ui_theme.theme.two_box_layout.base_spacing,
             )
 
-            # Configure dialog grid
             dialog.grid_columnconfigure(0, weight=1)
 
-            # Configure main frame grid
             main_frame.grid_columnconfigure(0, weight=1)
-            main_frame.grid_rowconfigure(0, weight=0)  # Command info
-            main_frame.grid_rowconfigure(1, weight=0)  # Edit tile
-            main_frame.grid_rowconfigure(2, weight=0)  # Delete tile
-            main_frame.grid_rowconfigure(3, weight=1)  # Spacer
+            main_frame.grid_rowconfigure(0, weight=0)
+            main_frame.grid_rowconfigure(1, weight=0)
+            main_frame.grid_rowconfigure(2, weight=0)
+            main_frame.grid_rowconfigure(3, weight=1)
 
-            # Command description - wrapped in themed frame
             description_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
             description_tile.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.medium))
             description_tile.grid_columnconfigure(0, weight=1)
-            description_tile.grid_rowconfigure(0, weight=0)  # Title
-            description_tile.grid_rowconfigure(1, weight=0)  # Content
+            description_tile.grid_rowconfigure(0, weight=0)
+            description_tile.grid_rowconfigure(1, weight=0)
 
-            # Description title
             description_title = ThemedLabel(
                 description_tile, text="Description", bold=True, color=ui_theme.theme.text_colors.light
             )
@@ -99,9 +92,7 @@ class CommandEditDialog:
                 pady=(ui_theme.theme.spacing.small, ui_theme.theme.spacing.tiny),
             )
 
-            # Description text with wrapping
             description_text = self._get_command_description()
-            # Calculate wraplength: dialog width - base spacing on both sides - inner padding on both sides
             wrap_length = (
                 ui_theme.theme.dimensions.command_dialog_width
                 - (ui_theme.theme.two_box_layout.base_spacing * 2)
@@ -122,13 +113,11 @@ class CommandEditDialog:
                 pady=(0, ui_theme.theme.spacing.small),
             )
 
-            # Update main frame row configuration to account for description tile
-            main_frame.grid_rowconfigure(0, weight=0)  # Description tile
-            main_frame.grid_rowconfigure(1, weight=0)  # Edit tile
-            main_frame.grid_rowconfigure(2, weight=0)  # Delete tile
-            main_frame.grid_rowconfigure(3, weight=1)  # Spacer
+            main_frame.grid_rowconfigure(0, weight=0)
+            main_frame.grid_rowconfigure(1, weight=0)
+            main_frame.grid_rowconfigure(2, weight=0)
+            main_frame.grid_rowconfigure(3, weight=1)
 
-            # Edit tile
             edit_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
             edit_tile.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.small))
             edit_tile.grid_columnconfigure(0, weight=1)
