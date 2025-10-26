@@ -42,7 +42,6 @@ class ProtectedTermsValidator:
         protected.update(phrase.lower().strip() for phrase in AutomationCommandRegistry.get_protected_phrases())
 
         protected.add(self._config.grid.show_grid_phrase.lower().strip())
-        protected.add(self._config.grid.cancel_grid_phrase.lower().strip())
 
         mark_triggers = self._config.mark.triggers
         protected.add(mark_triggers.create_mark.lower().strip())

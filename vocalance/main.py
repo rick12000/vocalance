@@ -34,7 +34,7 @@ from vocalance.app.ui import ui_theme
 from vocalance.app.ui.main_window import AppControlRoom
 from vocalance.app.ui.startup_window import StartupProgressTracker, StartupWindow
 from vocalance.app.ui.utils.font_service import FontService
-from vocalance.app.ui.utils.ui_icon_utils import initialize_windows_taskbar_icon, set_window_icon_robust
+from vocalance.app.ui.utils.ui_icon_utils import configure_dpi_awareness, initialize_windows_taskbar_icon, set_window_icon_robust
 from vocalance.app.ui.utils.ui_thread_utils import initialize_ui_scheduler
 
 logger = logging.getLogger(__name__)
@@ -512,20 +512,31 @@ def _create_main_window(app_config: GlobalAppConfig) -> ctk.CTk:
     Returns:
         Configured Tkinter root window.
     """
+    # CRITICAL: Configure DPI awareness FIRST to prevent blurry icons
+    # This must happen before any window creation
+    # Sets Per-Monitor V2 DPI awareness for crisp icons at all DPI levels
+    configure_dpi_awareness()
+
     initialize_windows_taskbar_icon()
 
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
 
+    # Create window
     app_tk_root = ctk.CTk()
-    app_tk_root.withdraw()
     app_tk_root.title("Vocalance")
+
+    # Withdraw immediately to prevent CustomTkinter from showing with default icon
+    app_tk_root.withdraw()
+
+    # CRITICAL: Set icon after withdraw but before any update_idletasks
+    # This prevents CustomTkinter's icon handling from interfering
+    set_window_icon_robust(window=app_tk_root)
 
     app_tk_root.geometry(f"{ui_theme.theme.dimensions.main_window_width}x{ui_theme.theme.dimensions.main_window_height}")
     app_tk_root.minsize(ui_theme.theme.dimensions.main_window_min_width, ui_theme.theme.dimensions.main_window_min_height)
     app_tk_root.resizable(False, False)
 
-    set_window_icon_robust(window=app_tk_root)
     initialize_ui_scheduler(root_window=app_tk_root)
 
     return app_tk_root
@@ -698,8 +709,17 @@ async def main() -> None:
         logger.info("Activating services now that initialization is complete")
         await service_initializer.activate_all_services()
 
+        # Set icon RIGHT BEFORE showing window - this is the critical moment
+        # CustomTkinter's icon handling happens during visibility changes
+        set_window_icon_robust(window=app_tk_root)
+
         app_tk_root.deiconify()
         app_tk_root.lift()
+
+        # Reinforce icon immediately after showing (CustomTkinter may reset it)
+        app_tk_root.after(1, lambda: set_window_icon_robust(window=app_tk_root))
+        app_tk_root.after(10, lambda: set_window_icon_robust(window=app_tk_root))
+        app_tk_root.after(50, lambda: set_window_icon_robust(window=app_tk_root))
 
         def safe_focus() -> None:
             try:

@@ -14,6 +14,7 @@ import customtkinter as ctk
 
 from vocalance.app.ui import ui_theme
 from vocalance.app.ui.controls.dictation_popup_control import DictationPopupController, DictationPopupMode
+from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from vocalance.app.ui.views.components.view_config import view_config
 
 # Constants
@@ -69,6 +70,12 @@ class DictationPopupView:
         """Create non-intrusive popup window"""
         popup = ctk.CTkToplevel(self.parent_root)
         popup.title("Dictation")
+
+        # Set icon early - before making visible
+        try:
+            set_window_icon_robust(popup)
+        except Exception:
+            pass
 
         # Make window completely non-intrusive
         popup.wm_attributes("-topmost", True)
@@ -251,6 +258,10 @@ class DictationPopupView:
             # Explicitly prevent focus stealing
             self.popup_window.lift()  # Bring to front without focus
 
+            # Reinforce icon after window is shown to prevent CustomTkinter override
+            self.parent_root.after(50, self._reinforce_icon)
+            self.parent_root.after(200, self._reinforce_icon)
+
     def _hide(self):
         with self._ui_lock:
             if self.is_visible:
@@ -280,3 +291,12 @@ class DictationPopupView:
         y = screen_height - height - WINDOW_MARGIN_Y_BOTTOM if height < 200 else (screen_height - height) // 2
 
         self.popup_window.geometry(f"+{x}+{y}")
+
+    def _reinforce_icon(self) -> None:
+        """Reinforce the icon setting to prevent CustomTkinter override."""
+        if self.popup_window and self.popup_window.winfo_exists():
+            try:
+                set_window_icon_robust(self.popup_window)
+                self.popup_window.update_idletasks()
+            except Exception:
+                pass

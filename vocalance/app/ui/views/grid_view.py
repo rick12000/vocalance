@@ -14,6 +14,7 @@ from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects
 from vocalance.app.services.storage.storage_models import GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService
+from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from vocalance.app.ui.views.components.view_config import view_config
 from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
 
@@ -252,6 +253,10 @@ class GridView:
             self.overlay_window.focus_force()
             self.logger.debug("[GridView] Overlay window shown with content ready")
 
+            # Reinforce icon after window is shown to prevent override
+            self.root.after(50, self._reinforce_icon)
+            self.root.after(200, self._reinforce_icon)
+
     def _calculate_grid_layout(self, num_rects_requested: int) -> Tuple[List[Dict[str, Any]], float, float]:
         """Calculate grid layout that creates approximately the requested number of cells while filling the screen."""
         if not self.root:
@@ -366,6 +371,13 @@ class GridView:
         """Ensure overlay window and canvas exist, but keep hidden until content is ready."""
         if not self.overlay_window or not self.overlay_window.winfo_exists():
             self.overlay_window = tk.Toplevel(self.root)
+
+            # Set window icon
+            try:
+                set_window_icon_robust(self.overlay_window)
+            except Exception:
+                pass
+
             self.overlay_window.attributes("-fullscreen", True)
             self.overlay_window.attributes("-alpha", view_config.grid.window_alpha)
             self.overlay_window.overrideredirect(True)
@@ -525,3 +537,12 @@ class GridView:
                 self.logger.info(f"Updated {key} to {value}")
             else:
                 self.logger.warning(f"Unknown config key: {key}")
+
+    def _reinforce_icon(self) -> None:
+        """Reinforce the icon setting to prevent override."""
+        if self.overlay_window and self.overlay_window.winfo_exists():
+            try:
+                set_window_icon_robust(self.overlay_window)
+                self.overlay_window.update_idletasks()
+            except Exception:
+                pass

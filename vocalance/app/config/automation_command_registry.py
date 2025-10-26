@@ -229,6 +229,22 @@ class AutomationCommandRegistry:
             functional_group="Basic",
         ),
         ExactMatchCommand(
+            command_key="sky",
+            action_type="scroll",
+            action_value="up",
+            short_description="Scroll Up",
+            long_description="Scroll upward using mouse scroll wheel",
+            functional_group="Basic",
+        ),
+        ExactMatchCommand(
+            command_key="earth",
+            action_type="scroll",
+            action_value="down",
+            short_description="Scroll Down",
+            long_description="Scroll downward using mouse scroll wheel",
+            functional_group="Basic",
+        ),
+        ExactMatchCommand(
             command_key="enter",
             action_type="key",
             action_value="enter",
@@ -315,7 +331,7 @@ class AutomationCommandRegistry:
             short_description="Ask AI",
             long_description="Toggle in line AI Chat in VSCode",
             functional_group="VSCode IDE",
-        ),   
+        ),
         ExactMatchCommand(
             command_key="blue new",
             action_type="hotkey",
@@ -323,7 +339,7 @@ class AutomationCommandRegistry:
             short_description="AI New Chat",
             long_description="Open a new AI chat in VSCode (only trigger if you're in the context of a chat)",
             functional_group="VSCode IDE",
-        ),     
+        ),
         ExactMatchCommand(
             command_key="blue keep line",
             action_type="hotkey",
@@ -339,7 +355,7 @@ class AutomationCommandRegistry:
             short_description="Reject Line",
             long_description="Reject edit at given or next highlighted code section in VSCode (only trigger if you are on a file with AI changes)",
             functional_group="VSCode IDE",
-        ),   
+        ),
         ExactMatchCommand(
             command_key="blue keep file",
             action_type="hotkey",
@@ -347,7 +363,7 @@ class AutomationCommandRegistry:
             short_description="Keep File",
             long_description="Keep edits in the current file in VSCode (only trigger if you are on a file with AI changes)",
             functional_group="VSCode IDE",
-        ),               
+        ),
         ExactMatchCommand(
             command_key="blue reject file",
             action_type="hotkey",
@@ -355,7 +371,7 @@ class AutomationCommandRegistry:
             short_description="Reject File",
             long_description="Reject edits in the current file in VSCode (only trigger if you are on a file with AI changes)",
             functional_group="VSCode IDE",
-        ),   
+        ),
         ExactMatchCommand(
             command_key="blue next",
             action_type="hotkey",
@@ -363,7 +379,7 @@ class AutomationCommandRegistry:
             short_description="Next",
             long_description="Move to next AI changed section in VSCode (only trigger if you are on a file with AI changes)",
             functional_group="VSCode IDE",
-        ),               
+        ),
         ExactMatchCommand(
             command_key="blue previous",
             action_type="hotkey",
@@ -371,7 +387,7 @@ class AutomationCommandRegistry:
             short_description="Previous",
             long_description="Move to previous AI changed section in VSCode (only trigger if you are on a file with AI changes)",
             functional_group="VSCode IDE",
-        ), 
+        ),
         ExactMatchCommand(
             command_key="square mode",
             action_type="hotkey",
@@ -403,7 +419,7 @@ class AutomationCommandRegistry:
             short_description="Reject Line",
             long_description="Reject edit at given or next highlighted code section in Cursor (only trigger if you are on a file with AI changes)",
             functional_group="Cursor IDE",
-        ),   
+        ),
         ExactMatchCommand(
             command_key="square keep file",
             action_type="hotkey",
@@ -411,7 +427,7 @@ class AutomationCommandRegistry:
             short_description="Keep File",
             long_description="Keep edits in the current file in Cursor (only trigger if you are on a file with AI changes)",
             functional_group="Cursor IDE",
-        ),               
+        ),
         ExactMatchCommand(
             command_key="square reject file",
             action_type="hotkey",
@@ -419,7 +435,7 @@ class AutomationCommandRegistry:
             short_description="Reject File",
             long_description="Reject edits in the current file in Cursor (only trigger if you are on a file with AI changes)",
             functional_group="Cursor IDE",
-        ),               
+        ),
         ExactMatchCommand(
             command_key="square context",
             action_type="hotkey",

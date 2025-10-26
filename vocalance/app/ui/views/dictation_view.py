@@ -160,10 +160,15 @@ class DictationView(ViewHelper):
             view_config.theme.dimensions.dictation_view_dialog_width, view_config.theme.dimensions.dictation_view_dialog_min_height
         )
 
+        # Set icon immediately
         try:
             set_window_icon_robust(dialog)
         except Exception:
             pass
+
+        # Reinforce icon after dialog is displayed to prevent CustomTkinter override
+        dialog.after(50, lambda: self._reinforce_icon(dialog))
+        dialog.after(200, lambda: self._reinforce_icon(dialog))
 
         main_frame = ThemedFrame(dialog, fg_color=view_config.theme.shape_colors.dark)
         main_frame.grid(
@@ -230,3 +235,12 @@ class DictationView(ViewHelper):
     def on_status_update(self, message: str, is_error: bool = False) -> None:
         """Handle status updates - now simplified"""
         super().on_status_update(message, is_error)
+
+    def _reinforce_icon(self, dialog) -> None:
+        """Reinforce the icon setting to prevent CustomTkinter override."""
+        if dialog and dialog.winfo_exists():
+            try:
+                set_window_icon_robust(dialog)
+                dialog.update_idletasks()
+            except Exception:
+                pass

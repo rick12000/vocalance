@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Tuple
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDetectedEvent, MarkovPredictionEvent, MarkovPredictionFeedbackEvent
+from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
 from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
 from vocalance.app.services.storage.storage_service import StorageService
 
@@ -18,6 +19,9 @@ class MarkovCommandService:
     Trains 2nd through 4th order Markov chains on command history, uses backoff from
     highest to lowest order for prediction, and provides feedback-based cooldown on
     incorrect predictions to maintain accuracy.
+
+    CRITICAL: Predictor is automatically disabled during dictation mode to prevent
+    premature "stop dictation" predictions from interrupting active dictation sessions.
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
@@ -36,6 +40,7 @@ class MarkovCommandService:
         self._prediction_cooldown: float = self._markov_config.prediction_cooldown_seconds
         self._pending_prediction: Optional[Tuple[str, float]] = None
         self._cooldown_remaining: int = 0
+        self._dictation_active: bool = False  # Track dictation state to prevent predictions during dictation
 
         logger.debug(f"MarkovCommandService initialized (orders {self._markov_config.min_order}-{self._markov_config.max_order})")
 
@@ -53,9 +58,10 @@ class MarkovCommandService:
             return False
 
     def setup_subscriptions(self) -> None:
-        """Setup event subscriptions for audio detection and prediction feedback."""
+        """Setup event subscriptions for audio detection, prediction feedback, and dictation state."""
         self._event_bus.subscribe(event_type=AudioDetectedEvent, handler=self._handle_audio_detected_fast_track)
         self._event_bus.subscribe(event_type=MarkovPredictionFeedbackEvent, handler=self._handle_prediction_feedback)
+        self._event_bus.subscribe(event_type=DictationModeDisableOthersEvent, handler=self._handle_dictation_mode_change)
 
         logger.debug("Markov predictor event subscriptions configured")
 
@@ -138,11 +144,36 @@ class MarkovCommandService:
 
         return filtered
 
+    async def _handle_dictation_mode_change(self, event: DictationModeDisableOthersEvent) -> None:
+        """Handle dictation mode changes to prevent predictions during active dictation.
+
+        CRITICAL: This prevents the predictor from firing during dictation, which would
+        cause premature "stop dictation" predictions after seeing the activation word,
+        interrupting the actual dictation before any text is captured.
+
+        Args:
+            event: Dictation mode change event
+        """
+        try:
+            old_state = self._dictation_active
+            self._dictation_active = event.dictation_mode_active
+
+            if old_state != self._dictation_active:
+                if self._dictation_active:
+                    logger.info("Markov predictor DISABLED - dictation mode active (prevents premature stop predictions)")
+                else:
+                    logger.info("Markov predictor ENABLED - dictation mode inactive")
+        except Exception as e:
+            logger.error(f"Error handling dictation mode change: {e}", exc_info=True)
+
     async def _handle_audio_detected_fast_track(self, event: AudioDetectedEvent) -> None:
         """Predict and execute command immediately when audio detected for ultra-low latency.
 
         Uses backoff Markov prediction based on recent command history to execute the
         most likely next command before STT completes, subject to cooldown and confidence.
+
+        CRITICAL: Automatically disabled during dictation mode to prevent premature
+        "stop dictation" predictions from interrupting active dictation sessions.
 
         Args:
             event: Audio detection event from recorder
@@ -155,6 +186,12 @@ class MarkovCommandService:
                 return
 
             if not self._markov_config.enabled:
+                return
+
+            # CRITICAL: Do not predict during dictation mode
+            # Prevents: "dictate" → immediate "stop dictation" prediction → interrupted dictation
+            if self._dictation_active:
+                logger.debug("Skipping Markov prediction - dictation mode active")
                 return
 
             # Check if we're in cooldown from incorrect prediction

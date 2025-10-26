@@ -14,7 +14,9 @@ def pad_to_square(im, fill_color=(255, 255, 255, 0)):  # Use white with full tra
 INPUT_FILE = "color_icon_full_size.png"
 OUTPUT_FILE = "icon.ico"
 RESAMPLE_FILTER = Image.Resampling.LANCZOS
-ICON_SIZES = [256, 128, 64, 48, 32, 16]
+# Include all standard Windows icon sizes for maximum compatibility
+# This ensures Windows always has the perfect size available at any DPI
+ICON_SIZES = [256, 128, 96, 64, 48, 40, 32, 24, 20, 16]
 
 # Function requires explicit fill color to avoid hidden defaults
 FILL_COLOR = (255, 255, 255, 0)

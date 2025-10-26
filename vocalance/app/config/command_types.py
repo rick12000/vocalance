@@ -196,10 +196,6 @@ class GridSelectCommand(GridCommand):
     selected_number: int = Field(..., description="The number selected from the grid")
 
 
-class GridCancelCommand(GridCommand):
-    """Command to cancel/hide the grid."""
-
-
 class SoundCommand(BaseCommand):
     """Base class for sound management commands."""
 
@@ -252,7 +248,7 @@ MarkCommandType = Union[
     MarkCreateCommand, MarkExecuteCommand, MarkDeleteCommand, MarkVisualizeCommand, MarkResetCommand, MarkVisualizeCancelCommand
 ]
 
-GridCommandType = Union[GridShowCommand, GridSelectCommand, GridCancelCommand]
+GridCommandType = Union[GridShowCommand, GridSelectCommand]
 
 SoundCommandType = Union[SoundTrainCommand, SoundDeleteCommand, SoundResetAllCommand, SoundListAllCommand, SoundMapCommand]
 

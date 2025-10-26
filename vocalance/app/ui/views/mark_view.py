@@ -4,6 +4,7 @@ import tkinter as tk
 from typing import Dict, List, Optional, Tuple
 
 from vocalance.app.events.mark_events import MarkData
+from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from vocalance.app.ui.views.components.view_config import view_config
 
 
@@ -97,6 +98,13 @@ class MarkView:
             # Use Toplevel instead of creating a new Tk root
             self.overlay_window = tk.Toplevel(self.root)
             self.overlay_window.title("Active Marks")
+
+            # Set window icon
+            try:
+                set_window_icon_robust(self.overlay_window)
+            except Exception:
+                pass
+
             self.overlay_window.attributes("-topmost", True)  # Keep window on top
             self.overlay_window.attributes("-alpha", 0.8)  # Slight transparency
             self.overlay_window.geometry("+0+0")  # Default position, can be adjusted
@@ -130,6 +138,10 @@ class MarkView:
             self.overlay_window.focus_force()
 
             self._is_active = True
+
+            # Reinforce icon after window is shown to prevent override
+            self.root.after(50, self._reinforce_icon)
+            self.root.after(200, self._reinforce_icon)
 
             if self.controller_callback:
                 self.controller_callback.on_mark_visualization_shown()
@@ -200,3 +212,12 @@ class MarkView:
         """Clean up resources when mark view is destroyed."""
         self.hide()
         self.logger.info("MarkView cleaned up")
+
+    def _reinforce_icon(self) -> None:
+        """Reinforce the icon setting to prevent override."""
+        if self.overlay_window and self.overlay_window.winfo_exists():
+            try:
+                set_window_icon_robust(self.overlay_window)
+                self.overlay_window.update_idletasks()
+            except Exception:
+                pass

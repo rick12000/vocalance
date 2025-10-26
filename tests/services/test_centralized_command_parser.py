@@ -10,7 +10,6 @@ from vocalance.app.config.command_types import (
     DictationStartCommand,
     DictationStopCommand,
     ExactMatchCommand,
-    GridCancelCommand,
     GridSelectCommand,
     GridShowCommand,
     MarkCreateCommand,
@@ -198,27 +197,6 @@ async def test_parse_grid_select_number(command_parser):
     assert len(captured_events) == 1
     assert isinstance(captured_events[0].command, GridSelectCommand)
     assert captured_events[0].command.selected_number == 5
-
-
-@pytest.mark.asyncio
-async def test_parse_grid_cancel_command(command_parser):
-    """Test parsing grid cancel command."""
-    parser = command_parser
-    event_bus = parser._event_bus
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(GridCommandParsedEvent, capture_event)
-
-    event = CommandTextRecognizedEvent(text="cancel", engine="vosk")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.1)
-
-    assert len(captured_events) == 1
-    assert isinstance(captured_events[0].command, GridCancelCommand)
 
 
 @pytest.mark.asyncio

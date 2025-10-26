@@ -4,7 +4,7 @@ import math
 from typing import Any, Dict, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.config.command_types import GridCancelCommand, GridSelectCommand, GridShowCommand
+from vocalance.app.config.command_types import GridSelectCommand, GridShowCommand
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import GridCommandParsedEvent
 from vocalance.app.events.core_events import CommandExecutedStatusEvent
@@ -12,7 +12,6 @@ from vocalance.app.events.grid_events import (
     ClickGridCellRequestEventData,
     GridConfigUpdatedEventData,
     GridVisibilityChangedEventData,
-    HideGridRequestEventData,
     ShowGridRequestEventData,
     UpdateGridConfigRequestEventData,
 )
@@ -100,17 +99,6 @@ class GridService:
                 f"Grid cell {command.selected_number} selected",
                 {"selected_number": command.selected_number},
             )
-
-        elif isinstance(command, GridCancelCommand):
-            async with self._state_lock:
-                is_visible = self._visible
-
-            if is_visible:
-                hide_event = HideGridRequestEventData()
-                self.event_publisher.publish(hide_event)
-                await self._publish_visibility_event(False)
-
-            self._publish_command_status(command_type, True, "Grid hidden")
 
         else:
             logger.warning(f"Unknown grid command type: {command_type}")

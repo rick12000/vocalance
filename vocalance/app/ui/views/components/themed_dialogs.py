@@ -29,11 +29,22 @@ def _get_button_class(button_text: str):
         return PrimaryButton
 
 
+def _reinforce_dialog_icon(dialog: ctk.CTkToplevel) -> None:
+    """Reinforce the icon setting to prevent CustomTkinter override."""
+    if dialog and dialog.winfo_exists():
+        try:
+            set_window_icon_robust(dialog)
+            dialog.update_idletasks()
+        except Exception:
+            pass
+
+
 def _setup_dialog_window(dialog: ctk.CTkToplevel, parent=None) -> None:
     """Helper function to set up common dialog window properties including icon."""
     dialog.minsize(ui_theme.theme.dimensions.dialog_width, ui_theme.theme.dimensions.dialog_min_height)
     dialog.configure(fg_color=ui_theme.theme.shape_colors.darkest)
 
+    # Set icon immediately
     try:
         set_window_icon_robust(dialog)
     except Exception:
@@ -41,6 +52,10 @@ def _setup_dialog_window(dialog: ctk.CTkToplevel, parent=None) -> None:
 
     dialog.transient(parent)
     dialog.grab_set()
+
+    # Reinforce icon after dialog is displayed to prevent CustomTkinter override
+    dialog.after(50, lambda: _reinforce_dialog_icon(dialog))
+    dialog.after(200, lambda: _reinforce_dialog_icon(dialog))
 
 
 def _create_dialog_base(

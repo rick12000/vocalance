@@ -53,10 +53,15 @@ class CommandEditDialog:
 
             dialog.configure(fg_color=ui_theme.theme.shape_colors.darkest)
 
+            # Set icon immediately
             try:
                 set_window_icon_robust(dialog)
             except Exception:
                 pass
+
+            # Reinforce icon after dialog is displayed to prevent CustomTkinter override
+            dialog.after(50, lambda: self._reinforce_icon(dialog))
+            dialog.after(200, lambda: self._reinforce_icon(dialog))
 
             main_frame = TransparentFrame(dialog)
             main_frame.grid(
@@ -308,3 +313,12 @@ class CommandEditDialog:
         self.new_phrase = None
         self.logger.info("Dialog cancelled")
         dialog.destroy()
+
+    def _reinforce_icon(self, dialog):
+        """Reinforce the icon setting to prevent CustomTkinter override."""
+        if dialog and dialog.winfo_exists():
+            try:
+                set_window_icon_robust(dialog)
+                dialog.update_idletasks()
+            except Exception:
+                pass

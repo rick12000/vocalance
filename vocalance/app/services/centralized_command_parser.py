@@ -14,7 +14,6 @@ from vocalance.app.config.command_types import (
     DictationTypeCommand,
     ErrorResult,
     ExactMatchCommand,
-    GridCancelCommand,
     GridSelectCommand,
     GridShowCommand,
     MarkCreateCommand,
@@ -97,7 +96,6 @@ class CentralizedCommandParser:
     def _cache_config_data(self) -> None:
         """Cache frequently accessed configuration values."""
         self._grid_show_phrase = self._app_config.grid.show_grid_phrase.lower()
-        self._grid_cancel_phrase = self._app_config.grid.cancel_grid_phrase.lower()
         self._mark_create_prefix = self._app_config.mark.triggers.create_mark.lower()
         self._mark_delete_prefix = self._app_config.mark.triggers.delete_mark.lower()
         self._mark_visualize_phrases = [p.lower() for p in self._app_config.mark.triggers.visualize_marks]
@@ -176,6 +174,18 @@ class CentralizedCommandParser:
         """Handle custom command mappings updates"""
         logger.info("Received command mappings update")
 
+    async def _is_valid_command(self, text: str) -> bool:
+        """Check if text is a valid command without executing it.
+
+        Args:
+            text: Text to validate
+
+        Returns:
+            True if text parses to a valid command, False otherwise
+        """
+        parse_result = await self._parse_text(text)
+        return isinstance(parse_result, BaseCommand)
+
     async def _process_text_input(self, text: str, source: Optional[str] = None) -> None:
         """Process text input through the parsing pipeline"""
         # Duplicate detection
@@ -198,6 +208,44 @@ class CentralizedCommandParser:
                 CommandNoMatchEvent(source=source, attempted_parsers=["dictation", "mark", "grid", "automation"])
             )
         elif isinstance(parse_result, ErrorResult):
+            await self._event_bus.publish(
+                CommandParseErrorEvent(
+                    source=source, error_message=parse_result.error_message, attempted_parser="CentralizedCommandParser"
+                )
+            )
+
+    async def _process_text_input_with_history(self, text: str, source: Optional[str] = None) -> None:
+        """Process text input and record to history only if it's a valid command.
+
+        Args:
+            text: Text to process
+            source: Source of the text (stt, sound, markov, etc.)
+        """
+        # Duplicate detection
+        current_time = time.time()
+        if text == self._last_text and current_time - self._last_text_time < self._duplicate_interval:
+            logger.debug(f"Suppressing duplicate text: '{text}'")
+            return
+
+        self._last_text = text
+        self._last_text_time = current_time
+
+        logger.info(f"Processing text input: '{text}' from source: {source}")
+
+        parse_result = await self._parse_text(text)
+
+        if isinstance(parse_result, BaseCommand):
+            # Valid command - record to history and execute
+            await self._history_manager.record_command(command=text, source=source)
+            await self._publish_command_event(parse_result, source)
+            logger.debug(f"Recorded valid command to history: '{text}' (source={source})")
+        elif isinstance(parse_result, NoMatchResult):
+            logger.debug(f"Not recording to history - no match: '{text}' (source={source})")
+            await self._event_bus.publish(
+                CommandNoMatchEvent(source=source, attempted_parsers=["dictation", "mark", "grid", "automation"])
+            )
+        elif isinstance(parse_result, ErrorResult):
+            logger.debug(f"Not recording to history - parse error: '{text}' (source={source})")
             await self._event_bus.publish(
                 CommandParseErrorEvent(
                     source=source, error_message=parse_result.error_message, attempted_parser="CentralizedCommandParser"
@@ -309,9 +357,6 @@ class CentralizedCommandParser:
                 else:
                     return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
 
-        if normalized_text == self._grid_cancel_phrase:
-            return GridCancelCommand()
-
         action_map = await self._action_map_provider.get_action_map()
 
         is_automation_prefix = False
@@ -403,7 +448,6 @@ class CentralizedCommandParser:
             MarkVisualizeCancelCommand: MarkCommandParsedEvent,
             GridShowCommand: GridCommandParsedEvent,
             GridSelectCommand: GridCommandParsedEvent,
-            GridCancelCommand: GridCommandParsedEvent,
             SoundTrainCommand: SoundCommandParsedEvent,
             SoundDeleteCommand: SoundCommandParsedEvent,
             SoundResetAllCommand: SoundCommandParsedEvent,
@@ -480,7 +524,7 @@ class CentralizedCommandParser:
         """Process recognized commands with Markov deduplication and history tracking.
 
         Checks for recent Markov predictions to avoid duplicate execution, sends
-        prediction feedback, records commands to history, and executes if not duplicate.
+        prediction feedback, records ONLY VALID commands to history, and executes if not duplicate.
 
         Args:
             command_text: The final command text to process
@@ -495,13 +539,21 @@ class CentralizedCommandParser:
 
             await self._send_markov_feedback(predicted=predicted_cmd, actual=command_text, was_correct=was_correct, source=source)
 
-            await self._history_manager.record_command(command=command_text, source=source)
-
-            logger.info(
-                f"Skipping duplicate: Markov predicted '{predicted_cmd}', "
-                f"{source} recognized '{command_text}' "
-                f"({'CORRECT' if was_correct else 'INCORRECT'})"
-            )
+            # Only record if command is valid (will be checked in _process_text_input_with_history)
+            is_valid = await self._is_valid_command(command_text)
+            if is_valid:
+                await self._history_manager.record_command(command=command_text, source=source)
+                logger.info(
+                    f"Skipping duplicate: Markov predicted '{predicted_cmd}', "
+                    f"{source} recognized '{command_text}' "
+                    f"({'CORRECT' if was_correct else 'INCORRECT'}) - recorded to history"
+                )
+            else:
+                logger.info(
+                    f"Skipping duplicate: Markov predicted '{predicted_cmd}', "
+                    f"{source} recognized '{command_text}' "
+                    f"({'CORRECT' if was_correct else 'INCORRECT'}) - NOT recorded (invalid command)"
+                )
 
             if pred_time in self._recent_predictions:
                 del self._recent_predictions[pred_time]
@@ -510,8 +562,8 @@ class CentralizedCommandParser:
 
         logger.debug(f"No recent Markov prediction found for {source} command: '{command_text}'")
 
-        await self._process_text_input(text=command_text, source=source)
-        await self._history_manager.record_command(command=command_text, source=source)
+        # Process and record only if valid
+        await self._process_text_input_with_history(text=command_text, source=source)
 
     async def _send_markov_feedback(self, predicted: str, actual: str, was_correct: bool, source: str) -> None:
         """Send feedback to Markov predictor about prediction accuracy.

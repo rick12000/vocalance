@@ -1,88 +1,83 @@
 <div style="width:100%; display:flex; justify-content:center;">
-  <img src="assets/repo/banner_github.png" alt="Vocalance Logo" style="width:100%; max-width:1000px; height:auto;"/>
+  <img src="vocalance/app/assets/repo/banner_github.png" alt="Vocalance Logo" style="width:100%; max-width:1000px; height:auto;"/>
 </div>
 
-## ✨ Core Features
+<!-- TODO: update links: -->
+<div align="center">
+  <a href="https://vocalance.readthedocs.io/en/latest/getting_started.html">Website</a> |
+  <a href="https://vocalance.readthedocs.io/en/latest/basic_usage.html">Demo</a> |
+  <a href="https://vocalance.readthedocs.io/en/latest/api_reference.html">User Guide</a>
+</div>
 
-### 🎤 Advanced Speech Recognition
-- **Multi-Engine STT Support**: Dual-mode processing with Vosk and Open AI Whisper engines for ultra fast command execution and good transcription accuracy.
-- **Low Latency**: Voice commands execute instantly thanks to smart optimizations (dictionary pruning, predictive word recognition).
 
-### 🤖 AI-Powered Dictation
-- **LLM Integration**: Local large language model processing of dictation outputs to correct grammar, rephrase in a custom tone, etc. at source.
-- **Privacy-First**: All AI processing happens locally, no data leaves your device.
+## 💡 Overview
 
-### 🎛️ Comprehensive Command System
-- **Custom Command Management**: Create, edit, and manage voice activated hot keys through intuitive GUI.
-- **Mouse Control**: Voice-controlled clicking, scrolling, and cursor movement
-- **Command Parametrization**: Scroll down three times by saying "scroll down 3".
-- **Custom Sounds**: Train your own non-verbal sounds to trigger any hot key or command.
+Vocalance offers hands free control of your computer, enabling you to switch tabs, move on screen, dictate anywhere and much more!
 
-### 🖱️ Intelligent Screen Interaction
-- **Visual Grid System**: Overlay numbered grids for precise screen targeting, that learn where you click most often.
-- **Marks**: Navigate to locations on screen by name.
+## 🚀 Getting Started
 
-## 📚 Documentation
 
-### **[Getting Started Guide](https://vocalance.readthedocs.io/en/latest/getting_started.html)**
-Complete setup walkthrough and first-time user tutorial.
 
-### **[User Guide](https://vocalance.readthedocs.io/en/latest/basic_usage.html)**
-- **[Voice Commands](https://vocalance.readthedocs.io/en/latest/basic_usage.html#speech-recognition-modes)**: Master command and dictation modes
-- **[Grid Navigation](https://vocalance.readthedocs.io/en/latest/basic_usage.html#grid-navigation-system)**: Precise screen targeting without mouse
-- **[Custom Commands](https://vocalance.readthedocs.io/en/latest/basic_usage.html#custom-command-creation)**: Create personalized voice commands
-- **[AI Dictation](https://vocalance.readthedocs.io/en/latest/basic_usage.html#ai-powered-dictation)**: Intelligent text processing and formatting
+## 💻 Build from Source
 
-### **[API Reference](https://vocalance.readthedocs.io/en/latest/api_reference.html)**
-Complete technical documentation for developers and advanced users.
+If you prefer to run Vocalance directly from the source code in this repository, rather than running it as an executable, follow the instructions below.
 
-### **[Architecture Overview](https://vocalance.readthedocs.io/en/latest/architecture.html)**
-System design, component interactions, and extensibility guide.
+### Installation Steps
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/rick12000/vocalance.git
+   ```
+
+2. **Create a Python 3.11 environment using your environment manager of choice. Then with that environment activated:**
+
+    - **Go to repository directory:**
+      ```bash
+      cd vocalance
+      ```
+
+    - **Install Vocalance as a package locally:**
+      ```bash
+      pip install .
+      ```
+
+    - **Run the application:**
+        ```bash
+        python vocalance.py
+        ```
+
+The application will start up and download any required models (like speech recognition models) on first run. This may take several minutes depending on your internet connection.
+
+On follow up runs, skip the `pip install .` step.
 
 ## 🔧 System Requirements
 
 - **Operating System**: Windows 10/11 (macOS and Linux support planned)
-- **Memory**: 1GB RAM (4GB if installing with LLM features)
-- **Audio**: Microphone input device required (strongly recommend buying a good quality headset or microphone for best results)
-
-## 🛡️ Privacy & Security
-
-**Local Processing**: All speech recognition and AI processing happens on your device. No data is transmitted to external servers.
-
-**Minimal Permissions**: Vocalance requires only essential system permissions:
-- Microphone access for speech recognition
-- Keyboard/mouse automation for command execution
-- File system access for configuration and settings/artifact storage
+- **Memory**: 2GB RAM
+- **Hardware**: It is **strongly** recommended to purchase a reasonably good headset or microphone to improve Vocalance outputs and recognition, but it will still work without this.
 
 ## 🤝 Contributing
 
-We welcome contributions from the community! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+Reach out at vocalance.contact@gmail.com with title **"Contribution"** if:
 
-## 📈 Roadmap
+- You have software engineering experience and have feedback on how the architecture of the application could be improved.
+- You want to add an original or pre-approved feature.
 
-### Q4 2025
-- Cross-platform support (macOS, Linux)
-- Enhanced UI with modern design elements
-- Mark reutilization across interfaces
-- Gaze cursor control
+For now, contributions will be handled on an ad-hoc basis, but in future contribution guidelines will be set up depending on the number of contributors.
 
-### Q1 2026
-- Multi-language support
+## 📈 Upcoming Features
 
-See our complete [Roadmap](https://vocalance.readthedocs.io/en/latest/roadmap.html) for detailed feature plans. If you have feature ideas please reach out!
+The following features are planned additions to Vocalance, with some in early development and others under consideration:
 
-## 💬 Support
+*   **Eye Tracking for Cursor Control:** This feature is planned to enable cursor control via eye movements.
+    *   **Gaze Tracking Accuracy:** Merge gaze tracking with historical screen click data and screen contents to improve accuracy, aiming for good performance even with webcam tracking.
+    *   **Zoom Option:** Add a zoom option to better direct gaze on screen contents.
 
-- **Documentation**: [vocalance.readthedocs.io](https://vocalance.readthedocs.io/)
-- **Issues**: [GitHub Issues](https://github.com/rick12000/vocalance/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/rick12000/vocalance/discussions)
-- **Email**: riccardo.doyle.edu@gmail.com
+*   **Context-Aware Commands:** Implement context bucketing for commands, allowing the same command phrase (e.g., "previous") to map to different hotkeys depending on the active application (e.g., VSCode vs. Chrome). This aims to avoid disambiguation phrases.
 
----
+*   **LLM-Powered Text Refactoring:** Ability to select any text and reformat it via an LLM by speaking a prompt.
 
-<div align="center">
-  <strong>Ready to transform your computing experience with voice control?</strong><br>
-  <a href="https://vocalance.readthedocs.io/en/latest/getting_started.html">Get Started</a> |
-  <a href="https://vocalance.readthedocs.io/en/latest/basic_usage.html">User Guide</a> |
-  <a href="https://vocalance.readthedocs.io/en/latest/api_reference.html">API Docs</a>
-</div>
+*   **Improved Text Editing & Navigation:** Further enhancements to text editing and text navigation tools.
+
+*   **Enhanced Predictive Features:** Improve predictive capabilities based on window contents, recent context, gaze patterns, and more.
+    *   *Privacy Note:* Any feature requiring local storage of potentially sensitive data (e.g., screenshots, window contents) will be deployed as an opt-in feature and disabled by default.

@@ -452,11 +452,11 @@ Output command events (all extend ``BaseCommandEvent`` with source and context f
 
     - ``GridShowCommand(num_rects: Optional[int])``: Displays overlay grid for mouse navigation
     - ``GridSelectCommand(selected_number: int)``: Clicks specified grid cell
-    - ``GridCancelCommand()``: Hides active grid overlay
 
   - Published by: ``CentralizedCommandParser._publish_command_event()``
   - Consumed by: ``GridService._handle_grid_command()``
-  - Pattern matching: "show grid [number]", "select [number]", "cancel grid"
+  - Pattern matching: "show grid [number]", "select [number]"
+  - Note: Grid can be hidden by pressing the Escape key (bound in grid overlay window)
   - Integration: Grid uses ``ClickTrackerService`` click statistics for intelligent cell prioritization
 
 - **SoundCommandParsedEvent** (Priority: NORMAL)

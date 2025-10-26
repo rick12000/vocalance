@@ -120,7 +120,6 @@ class GridConfig(BaseModel):
 
     show_grid_phrase: str = "go"
     select_cell_phrase: str = "select"
-    cancel_grid_phrase: str = "cancel"
 
 
 class ErrorHandlingConfig(BaseModel):
@@ -300,7 +299,7 @@ class MarkovPredictorConfig(BaseModel):
     )
 
     training_window_days: Dict[int, int] = Field(
-        default_factory=lambda: {2: 3, 3: 5, 4: 7},
+        default_factory=lambda: {2: 7, 3: 21, 4: 60},
         description="Number of days of command history to train on per order {order: days}",
     )
 
@@ -309,7 +308,7 @@ class MarkovPredictorConfig(BaseModel):
     min_order: int = Field(default=2, description="Minimum order of Markov chain (backoff to this)")
 
     min_command_frequency: Dict[int, int] = Field(
-        default_factory=lambda: {2: 30, 3: 15, 4: 10}, description="Minimum transition frequency per order {order: min_count}"
+        default_factory=lambda: {2: 15, 3: 10, 4: 10}, description="Minimum transition frequency per order {order: min_count}"
     )
 
     incorrect_prediction_cooldown: int = Field(
@@ -339,6 +338,10 @@ class AutomationServiceConfig(BaseModel):
     key_sequence_delay_seconds: float = Field(
         default=0.25, description="Delay in seconds between individual key presses in a key sequence"
     )
+
+    scroll_total_clicks: int = Field(default=400, description="Total number of scroll clicks for animated scrolling")
+    scroll_animation_steps: int = Field(default=20, description="Number of animation steps for scrolling")
+    scroll_animation_delay_seconds: float = Field(default=0.01, description="Delay between scroll animation steps in seconds")
 
 
 class ProtectedTermsValidatorConfig(BaseModel):
@@ -477,7 +480,7 @@ class AssetPathsConfig(BaseModel):
             Path to icon logo image or None.
         """
         if self.logo_dir:
-            icon_path: Path = Path(self.logo_dir) / "grey_icon_full_size.png"
+            icon_path: Path = Path(self.logo_dir) / "color_icon_full_size.png"
             return str(icon_path)
         return None
 

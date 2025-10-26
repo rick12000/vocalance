@@ -439,8 +439,8 @@ class ListLayout(BaseModel):
 class LogoProperties(BaseModel):
     """Logo styling properties"""
 
-    full_logo_filename: str = "grey_icon_full_size.png"
-    icon_logo_filename: str = "grey_icon_full_size.png"
+    full_logo_filename: str = "color_icon_full_size.png"
+    icon_logo_filename: str = "color_icon_full_size.png"
 
     # Monochrome conversion toggles
     full_logo_apply_monochrome: bool = False

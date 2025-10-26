@@ -6,7 +6,7 @@ import asyncio
 import pytest
 import pytest_asyncio
 
-from vocalance.app.config.command_types import GridCancelCommand, GridSelectCommand, GridShowCommand
+from vocalance.app.config.command_types import GridSelectCommand, GridShowCommand
 from vocalance.app.events.command_events import GridCommandParsedEvent
 from vocalance.app.events.core_events import CommandExecutedStatusEvent
 from vocalance.app.events.grid_events import GridVisibilityChangedEventData
@@ -93,36 +93,6 @@ async def test_grid_dimension_calculation(grid_service):
 
 
 @pytest.mark.asyncio
-async def test_grid_cancel(grid_service):
-    """Test canceling grid overlay."""
-    service = grid_service
-    event_bus = service._event_bus
-
-    async with service._state_lock:
-        service._visible = True
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(GridVisibilityChangedEventData, capture_event)
-    event_bus.subscribe(CommandExecutedStatusEvent, capture_event)
-
-    command = GridCancelCommand()
-    event = GridCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.1)
-
-    viz_events = [e for e in captured_events if isinstance(e, GridVisibilityChangedEventData)]
-    status_events = [e for e in captured_events if isinstance(e, CommandExecutedStatusEvent)]
-
-    assert len(viz_events) == 1
-    assert viz_events[0].visible is False
-    assert len(status_events) == 1
-
-
-@pytest.mark.asyncio
 async def test_grid_select_cell(grid_service):
     """Test selecting a grid cell by number."""
     service = grid_service
@@ -197,14 +167,6 @@ async def test_grid_visibility_state_tracking(grid_service):
 
     async with service._state_lock:
         assert service._visible is True
-
-    cancel_command = GridCancelCommand()
-    cancel_event = GridCommandParsedEvent(command=cancel_command, source="speech")
-    await event_bus.publish(cancel_event)
-    await asyncio.sleep(0.1)
-
-    async with service._state_lock:
-        assert service._visible is False
 
 
 @pytest.mark.parametrize("num_rects,expected_min_cells", [(4, 4), (9, 9), (16, 16), (12, 12), (25, 25)])

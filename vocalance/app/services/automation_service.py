@@ -147,6 +147,20 @@ class AutomationService:
             }
             return click_actions.get(action_value)
 
+        elif action_type == "scroll":
+
+            def scroll_up():
+                self._execute_animated_scroll("up")
+
+            def scroll_down():
+                self._execute_animated_scroll("down")
+
+            scroll_directions = {
+                "up": scroll_up,
+                "down": scroll_down,
+            }
+            return scroll_directions.get(action_value)
+
         return None
 
     def _execute_key_sequence(self, key_list: list[str]) -> None:
@@ -162,6 +176,36 @@ class AutomationService:
             else:
                 pyautogui.press(key_combination.strip())
             time.sleep(self._app_config.automation_service.key_sequence_delay_seconds)
+
+    def _execute_animated_scroll(self, direction: str) -> None:
+        """Execute animated scrolling with multiple steps and delays.
+
+        Args:
+            direction: "up" for scrolling up, "down" for scrolling down.
+        """
+        total_clicks = self._app_config.automation_service.scroll_total_clicks
+        animation_steps = self._app_config.automation_service.scroll_animation_steps
+        animation_delay = self._app_config.automation_service.scroll_animation_delay_seconds
+
+        # Determine scroll direction multiplier
+        direction_multiplier = 1 if direction == "up" else -1
+
+        # Calculate base clicks per step and remainder
+        clicks_per_step = total_clicks // animation_steps
+        remainder_clicks = total_clicks % animation_steps
+
+        for step in range(animation_steps):
+            # Add one extra click for remainder steps
+            step_clicks = clicks_per_step
+            if step < remainder_clicks:
+                step_clicks += 1
+
+            # Perform the scroll
+            pyautogui.scroll(step_clicks * direction_multiplier)
+
+            # Add delay between steps (except for the last step)
+            if step < animation_steps - 1:
+                time.sleep(animation_delay)
 
     async def _check_cooldown(self, command_key: str) -> bool:
         """Check if command is off cooldown.
