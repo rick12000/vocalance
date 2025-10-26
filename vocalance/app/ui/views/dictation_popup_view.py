@@ -21,7 +21,7 @@ from vocalance.app.ui.views.components.view_config import view_config
 SIMPLE_WINDOW_WIDTH = 200
 SIMPLE_WINDOW_HEIGHT = 70
 SMART_WINDOW_WIDTH = 800
-SMART_WINDOW_HEIGHT = 600
+SMART_WINDOW_HEIGHT = 550
 WINDOW_MARGIN_X = 80
 WINDOW_MARGIN_Y_BOTTOM = 80
 
@@ -112,20 +112,30 @@ class DictationPopupView:
 
         # Dictation pane
         ctk.CTkLabel(frame, text="Dictation", font=(view_config.dictation_popup.font_family, 20, "bold")).grid(
-            row=0, column=0, padx=5, pady=5, sticky="w"
+            row=0, column=0, padx=(10, 10), pady=5, sticky="w"
         )
         self.dictation_box = ctk.CTkTextbox(
-            frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark
+            frame,
+            height=200,
+            font=(view_config.dictation_popup.font_family, 13),
+            fg_color=ui_theme.theme.shape_colors.dark,
+            border_width=1,
+            border_color=ui_theme.theme.shape_colors.medium,
         )
-        self.dictation_box.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        self.dictation_box.grid(row=1, column=0, padx=(10, 10), pady=(0, 10), sticky="nsew")
 
         # LLM pane
-        self.llm_label = ctk.CTkLabel(frame, text="AI Processing", font=(view_config.dictation_popup.font_family, 20, "bold"))
-        self.llm_label.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        self.llm_label = ctk.CTkLabel(frame, text="AI Output", font=(view_config.dictation_popup.font_family, 20, "bold"))
+        self.llm_label.grid(row=0, column=1, padx=(10, 10), pady=5, sticky="w")
         self.llm_box = ctk.CTkTextbox(
-            frame, height=200, font=(view_config.dictation_popup.font_family, 11), fg_color=ui_theme.theme.shape_colors.dark
+            frame,
+            height=200,
+            font=(view_config.dictation_popup.font_family, 13),
+            fg_color=ui_theme.theme.shape_colors.dark,
+            border_width=1,
+            border_color=ui_theme.theme.shape_colors.medium,
         )
-        self.llm_box.grid(row=1, column=1, padx=5, pady=5, sticky="nsew")
+        self.llm_box.grid(row=1, column=1, padx=(10, 10), pady=(0, 10), sticky="nsew")
 
         return frame
 
@@ -276,7 +286,7 @@ class DictationPopupView:
         """Clear smart content. Thread-safe buffer clearing."""
         self.dictation_box.delete("1.0", "end")
         self.llm_box.delete("1.0", "end")
-        self.llm_label.configure(text="AI Processing")
+        self.llm_label.configure(text="AI Output")
         # Reset streaming token tracking
         self._last_token_start_index = None
         self._last_token_end_index = None
@@ -288,7 +298,8 @@ class DictationPopupView:
         screen_height = self.parent_root.winfo_screenheight()
 
         x = WINDOW_MARGIN_X
-        y = screen_height - height - WINDOW_MARGIN_Y_BOTTOM if height < 200 else (screen_height - height) // 2
+        # Position higher up on screen (35% from top instead of 50% center)
+        y = int(screen_height * 0.35 - height // 2) if height >= 200 else screen_height - height - WINDOW_MARGIN_Y_BOTTOM
 
         self.popup_window.geometry(f"+{x}+{y}")
 

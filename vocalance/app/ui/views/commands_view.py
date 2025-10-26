@@ -42,7 +42,7 @@ class CommandsView(ViewHelper):
             container, "Command Phrase:", "Enter command phrase..."
         )
 
-        self.hotkey_label, self.hotkey_entry = form_builder.create_labeled_entry(container, "Hotkey:", "e.g., ctrl+alt+7")
+        self.hotkey_label, self.hotkey_entry = form_builder.create_labeled_entry(container, "Hotkey:", "e.g. ctrl+alt+7")
 
         # Add button
         form_builder.create_button_row(

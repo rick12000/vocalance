@@ -41,6 +41,7 @@ class SettingsService:
         "sound_recognizer.confidence_threshold",
         "sound_recognizer.vote_threshold",
         "vad.energy_threshold",
+        "vad.dictation_silent_chunks_for_end",
         "audio.device",
         "markov_predictor.confidence_threshold",
     }
@@ -51,6 +52,7 @@ class SettingsService:
         "sound_recognizer.confidence_threshold",
         "sound_recognizer.vote_threshold",
         "grid.default_rect_count",
+        "vad.dictation_silent_chunks_for_end",
     }
 
     def __init__(
@@ -101,23 +103,29 @@ class SettingsService:
     async def _build_effective_settings(self) -> None:
         """Build effective settings by applying overrides to defaults"""
         try:
-            # Start with config defaults
+            # Start with defaults from Pydantic field definitions
             self._effective_settings = {
-                "llm": {"context_length": self._config.llm.context_length, "max_tokens": self._config.llm.max_tokens},
-                "grid": {"default_rect_count": self._config.grid.default_rect_count},
-                "sound_recognizer": {
-                    "confidence_threshold": self._config.sound_recognizer.confidence_threshold,
-                    "vote_threshold": self._config.sound_recognizer.vote_threshold,
+                "llm": {
+                    "context_length": self._get_default_value("llm.context_length"),
+                    "max_tokens": self._get_default_value("llm.max_tokens"),
                 },
-                "vad": {"energy_threshold": self._config.vad.energy_threshold},
-                "audio": {"device": self._config.audio.device, "sample_rate": self._config.audio.sample_rate},
-                "markov_predictor": {"confidence_threshold": self._config.markov_predictor.confidence_threshold},
+                "grid": {"default_rect_count": self._get_default_value("grid.default_rect_count")},
+                "sound_recognizer": {
+                    "confidence_threshold": self._get_default_value("sound_recognizer.confidence_threshold"),
+                    "vote_threshold": self._get_default_value("sound_recognizer.vote_threshold"),
+                },
+                "vad": {
+                    "energy_threshold": self._get_default_value("vad.energy_threshold"),
+                    "dictation_silent_chunks_for_end": self._get_default_value("vad.dictation_silent_chunks_for_end"),
+                },
+                "audio": {
+                    "device": self._get_default_value("audio.device"),
+                    "sample_rate": self._get_default_value("audio.sample_rate"),
+                },
+                "markov_predictor": {"confidence_threshold": self._get_default_value("markov_predictor.confidence_threshold")},
             }
 
-            # Apply user overrides
             self._apply_overrides_to_effective_settings()
-
-            logger.debug("Built effective settings with user overrides")
 
         except Exception as e:
             logger.error(f"Failed to build effective settings: {e}")
@@ -131,7 +139,6 @@ class SettingsService:
                     setting_path = f"{category}.{key}"
                     if setting_path in self.OVERRIDEABLE_SETTINGS:
                         self._effective_settings[category][key] = value
-                        logger.debug(f"Applied override: {setting_path} = {value}")
 
     async def get_effective_settings(self) -> Dict[str, Any]:
         """Get current effective settings (defaults + overrides)"""
@@ -188,17 +195,9 @@ class SettingsService:
                 await self._publish_settings_response()
 
                 # Publish dynamic settings update event only for real-time settings
-                # The coordinator will handle propagating to services
                 real_time_updates = {k: v for k, v in settings_updates.items() if k in self.REAL_TIME_SETTINGS}
                 if real_time_updates:
                     await self._publish_dynamic_settings_update(settings_updates=real_time_updates)
-
-                # Log whether restart is required (default unless in REAL_TIME_SETTINGS)
-                all_real_time = all(setting in self.REAL_TIME_SETTINGS for setting in settings_updates.keys())
-                if all_real_time:
-                    logger.info(f"Updated {len(settings_updates)} settings (applied in real-time)")
-                else:
-                    logger.info(f"Updated {len(settings_updates)} settings (restart required for changes to take effect)")
 
                 return True
 
@@ -230,13 +229,10 @@ class SettingsService:
                 await self._build_effective_settings()
                 await self._publish_settings_response()
 
-                # Get default value and publish update only for real-time settings
-                default_value = self._get_default_value(setting_path=setting_path)
+                # Publish update only for real-time settings
                 if setting_path in self.REAL_TIME_SETTINGS:
+                    default_value = self._get_default_value(setting_path=setting_path)
                     await self._publish_dynamic_settings_update(settings_updates={setting_path: default_value})
-                    logger.info(f"Reset setting to default (applied in real-time): {setting_path}")
-                else:
-                    logger.info(f"Reset setting to default (restart required): {setting_path}")
 
                 return True
 
@@ -267,20 +263,39 @@ class SettingsService:
             return False
 
     def _get_default_value(self, setting_path: str) -> Any:
-        """Get default value for a setting from config"""
+        """Get default value for a setting from Pydantic field definitions"""
+        from vocalance.app.config.app_config import (
+            AudioConfig,
+            GridConfig,
+            LLMConfig,
+            MarkovPredictorConfig,
+            SoundRecognizerConfig,
+            VADConfig,
+        )
+
         category, key = setting_path.split(".", 1)
 
-        category_map = {
-            "llm": self._config.llm,
-            "grid": self._config.grid,
-            "sound_recognizer": self._config.sound_recognizer,
-            "markov_predictor": self._config.markov_predictor,
-            "vad": self._config.vad,
-            "audio": self._config.audio,
+        config_class_map = {
+            "llm": LLMConfig,
+            "grid": GridConfig,
+            "sound_recognizer": SoundRecognizerConfig,
+            "markov_predictor": MarkovPredictorConfig,
+            "vad": VADConfig,
+            "audio": AudioConfig,
         }
 
-        config_obj = category_map.get(category)
-        return getattr(config_obj, key) if config_obj else None
+        config_class = config_class_map.get(category)
+        if not config_class:
+            return None
+
+        try:
+            field_info = config_class.model_fields.get(key)
+            if field_info and hasattr(field_info, "default"):
+                return field_info.default
+            return None
+        except Exception as e:
+            logger.error(f"Error getting default for {setting_path}: {e}")
+            return None
 
     async def _publish_settings_response(self) -> None:
         """Publish current settings for UI and services"""
@@ -292,33 +307,24 @@ class SettingsService:
             logger.error(f"Failed to publish settings response: {e}")
 
     async def _publish_dynamic_settings_update(self, settings_updates: Dict[str, Any]) -> None:
-        """
-        Publish dynamic settings update event.
-        The SettingsUpdateCoordinator subscribes to this and handles propagation.
-        """
+        """Publish dynamic settings update event for real-time propagation"""
         try:
             event = DynamicSettingsUpdatedEvent(updated_settings=settings_updates)
             await self._event_bus.publish(event)
-            logger.debug(f"Published DynamicSettingsUpdatedEvent for: {list(settings_updates.keys())}")
         except Exception as e:
             logger.error(f"Failed to publish dynamic settings update: {e}")
 
     async def apply_startup_settings_to_config(self) -> None:
-        """
-        Apply user overrides to config at startup.
-        This publishes an update event that the coordinator handles.
-        """
+        """Apply user overrides to config at startup via coordinator"""
         try:
-            settings_to_apply = {}
-
-            for category, overrides in self._user_overrides.items():
-                for key, value in overrides.items():
-                    setting_path = f"{category}.{key}"
-                    settings_to_apply[setting_path] = value
+            settings_to_apply = {
+                f"{category}.{key}": value
+                for category, overrides in self._user_overrides.items()
+                for key, value in overrides.items()
+            }
 
             if settings_to_apply:
                 await self._publish_dynamic_settings_update(settings_updates=settings_to_apply)
-                logger.info(f"Applied {len(settings_to_apply)} startup settings via coordinator")
 
         except Exception as e:
             logger.error(f"Failed to apply startup settings: {e}")

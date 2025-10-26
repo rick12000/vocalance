@@ -24,8 +24,9 @@ class SettingsUpdateCoordinator:
     - sound_recognizer.confidence_threshold
     - sound_recognizer.vote_threshold
     - grid.default_rect_count
+    - vad.dictation_silent_chunks_for_end
 
-    Other settings (LLM, audio device, VAD) require app restart.
+    Other settings (LLM, audio device) require app restart.
 
     Flow:
     1. The GlobalAppConfig is updated (single source of truth)
@@ -57,14 +58,9 @@ class SettingsUpdateCoordinator:
         logger.debug(f"Registered service for settings updates: {service_name}")
 
     async def _handle_settings_updated(self, event: DynamicSettingsUpdatedEvent) -> None:
-        """
-        Handle settings update event and coordinate updates across services.
-
-        This is the central point where all settings updates flow through.
-        """
+        """Handle settings update event and coordinate updates across services"""
         try:
             updated_settings = event.updated_settings
-            logger.info(f"Coordinating settings update for: {list(updated_settings.keys())}")
 
             # Update the GlobalAppConfig first (single source of truth)
             self._update_config(updated_settings=updated_settings)
@@ -93,7 +89,6 @@ class SettingsUpdateCoordinator:
 
                 if config_obj and hasattr(config_obj, key):
                     setattr(config_obj, key, value)
-                    logger.debug(f"Updated config: {setting_path} = {value}")
                 else:
                     logger.warning(f"Unknown setting path: {setting_path}")
 
@@ -101,22 +96,19 @@ class SettingsUpdateCoordinator:
                 logger.error(f"Error updating config for {setting_path}: {e}")
 
     async def _propagate_to_services(self, updated_settings: Dict[str, Any]) -> None:
-        """
-        Propagate settings to registered services that need them.
-
-        Note: Only real-time settings are passed here by SettingsService.
-        Settings requiring restart are not propagated and won't appear in updated_settings.
-        """
-
-        # Map real-time settings to service update methods
+        """Propagate real-time settings to registered services"""
         propagation_map = {
             "markov_predictor.confidence_threshold": ("markov_predictor", "on_confidence_threshold_updated"),
             "sound_recognizer.confidence_threshold": ("sound_recognizer", "on_confidence_threshold_updated"),
             "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),
-            "grid.default_rect_count": ("grid", "on_default_rect_count_updated"),
+            "vad.dictation_silent_chunks_for_end": ("audio", "on_dictation_silent_chunks_updated"),
         }
 
         for setting_path, value in updated_settings.items():
+            # GridService reads directly from config - no callback needed
+            if setting_path == "grid.default_rect_count":
+                continue
+
             service_info = propagation_map.get(setting_path)
             if service_info:
                 service_name, method_name = service_info
@@ -124,8 +116,14 @@ class SettingsUpdateCoordinator:
 
                 if service and hasattr(service, method_name):
                     method = getattr(service, method_name)
-                    method(threshold=value) if "threshold" in method_name else method(count=value)
-                    logger.debug(f"Propagated {setting_path} to {service_name}: {value}")
+                    if "threshold" in method_name:
+                        method(threshold=value)
+                    elif "count" in method_name:
+                        method(count=value)
+                    elif "chunks" in method_name:
+                        method(chunks=value)
+                    else:
+                        method(value)
                 else:
                     logger.warning(f"Service '{service_name}' not registered or method '{method_name}' not found")
             else:

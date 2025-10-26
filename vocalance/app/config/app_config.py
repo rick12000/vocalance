@@ -238,7 +238,7 @@ class VADConfig(BaseModel):
         default=3,
         description="Number of consecutive silent chunks to end recording in command mode (3 chunks = 180ms at 60ms/chunk).",
     )
-    command_max_recording_duration: float = Field(default=3, description="Maximum recording duration for command mode.")
+    command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")
     command_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for command mode (240ms at 60ms chunks).")
 
     dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
@@ -246,7 +246,7 @@ class VADConfig(BaseModel):
         default=40,
         description="Number of consecutive silent chunks to end recording in dictation mode (40 chunks = 800ms at 20ms/chunk).",
     )
-    dictation_max_recording_duration: float = Field(default=8.0, description="Maximum recording duration for dictation mode.")
+    dictation_max_recording_duration: float = Field(default=30.0, description="Maximum recording duration for dictation mode.")
     dictation_pre_roll_buffers: int = Field(default=8, description="Pre-roll buffers for dictation mode (160ms at 20ms/chunk).")
 
     training_energy_threshold: float = Field(default=0.003, description="Energy threshold for training sample collection.")
@@ -480,7 +480,7 @@ class AssetPathsConfig(BaseModel):
             Path to icon logo image or None.
         """
         if self.logo_dir:
-            icon_path: Path = Path(self.logo_dir) / "color_icon_full_size.png"
+            icon_path: Path = Path(self.logo_dir) / "grey_red_icon_full_size.png"
             return str(icon_path)
         return None
 

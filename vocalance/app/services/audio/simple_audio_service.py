@@ -204,3 +204,11 @@ class SimpleAudioService:
 
     def setup_subscriptions(self) -> None:
         self.init_listeners()
+
+    def on_dictation_silent_chunks_updated(self, chunks: int) -> None:
+        """Update dictation silent chunks threshold in real-time"""
+        with self._lock:
+            if self._dictation_recorder:
+                self._dictation_recorder.update_dictation_silent_chunks(chunks)
+            else:
+                logger.warning("Dictation recorder not initialized, cannot update silent chunks")

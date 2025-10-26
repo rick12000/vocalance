@@ -36,7 +36,7 @@ class AgenticPromptService:
         self.current_prompt_id: Optional[str] = None
 
         # Default prompt
-        self.default_prompt_text = "Fix grammar and punctuation. Correct any misspelled words. If words look like transcription errors, infer what they should have been from context, or if unclear, remove them. Improve clarity, and make the text more succinct and readable. Ensure to preserve all original meaning and content. Output ONLY the processed text."
+        self.default_prompt_text = "Fix grammar errors, punctuation errors, and capitalization errors. Correct any misspelled words. Make the overall text more succinct and readable. Ensure to preserve all original meaning and content."
 
         logger.debug("AgenticPromptService initialized with thread safety")
 

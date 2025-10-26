@@ -16,7 +16,7 @@ from vocalance.app.ui.views.components.themed_components import (
 
 
 class SettingsView(ctk.CTkFrame):
-    """UI view for settings tab - handles LLM settings configuration"""
+    """UI view for settings tab - handles settings configuration with real-time updates"""
 
     def __init__(self, parent_frame, controller: SettingsController, root_window):
         super().__init__(parent_frame, fg_color=ui_theme.theme.shape_colors.darkest)
@@ -26,12 +26,17 @@ class SettingsView(ctk.CTkFrame):
         self.root_window = root_window
         self._is_alive = True
 
+        # Store entry widget references to manage focus
+        self._entry_widgets = []
+
+        # Create string variables for all settings
         self.llm_context_length_var = ctk.StringVar()
         self.llm_max_tokens_var = ctk.StringVar()
         self.grid_default_cells_var = ctk.StringVar()
         self.markov_confidence_var = ctk.StringVar()
         self.sound_confidence_var = ctk.StringVar()
         self.sound_vote_var = ctk.StringVar()
+        self.dictation_silent_chunks_var = ctk.StringVar()
 
         self._build_tab_ui()
         self._load_current_settings()
@@ -86,6 +91,8 @@ class SettingsView(ctk.CTkFrame):
                 pady=ui_theme.theme.spacing.small,
                 sticky="ew",
             )
+            # Store entry widget reference for focus management
+            self._entry_widgets.append(entry)
 
             info_button = PrimaryButton(parent, text="Info", command=lambda desc=description: self._show_info_dialog(desc))
             info_button.grid(
@@ -226,13 +233,56 @@ class SettingsView(ctk.CTkFrame):
             ],
             self._save_sound_settings,
             self._reset_sound_to_defaults,
+        )
+
+        self._create_settings_section(
+            scrollable_frame,
+            "Dictation Settings",
+            4,
+            [
+                (
+                    "Max Silent Chunks:",
+                    self.dictation_silent_chunks_var,
+                    "Number of consecutive silent audio chunks before an audio segment is transcribed. Increase this if you want to talk for longer before seeing the transcription (helps with formatting and punctuation). 1 chunk ≈ 20ms",
+                )
+            ],
+            self._save_dictation_settings,
+            self._reset_dictation_to_defaults,
             is_last_section=True,
         )
 
+    def _force_entry_updates(self):
+        """Force all entry widgets to update their displayed values from StringVars"""
+        try:
+            # Remove focus from all entries by focusing on root
+            self.root_window.focus_set()
+            self.root_window.update_idletasks()
+
+            # Force each entry to update by deleting and reinserting from StringVar
+            for entry in self._entry_widgets:
+                try:
+                    if entry.winfo_exists():
+                        var = entry.cget("textvariable")
+                        if var:
+                            new_value = var.get()
+                            current_value = entry.get()
+
+                            if new_value != current_value:
+                                entry.delete(0, "end")
+                                entry.insert(0, new_value)
+                except Exception as e:
+                    self.controller.logger.warning(f"Could not update entry widget: {e}")
+
+            self.update_idletasks()
+        except Exception as e:
+            self.controller.logger.error(f"Could not force entry updates: {e}", exc_info=True)
+
     def on_settings_updated(self):
+        """Handle settings updated event from controller"""
         if not self._is_alive:
             return
         self._load_current_settings()
+        self._force_entry_updates()
 
     def on_validation_error(self, title: str, message: str):
         """Handle validation errors from controller"""
@@ -240,6 +290,8 @@ class SettingsView(ctk.CTkFrame):
 
     def on_save_success(self, message: str):
         """Handle successful save from controller"""
+        self._load_current_settings()
+        self._force_entry_updates()
         messagebox.showinfo(message, parent=self.root_window)
 
     def on_save_error(self, message: str):
@@ -249,10 +301,11 @@ class SettingsView(ctk.CTkFrame):
     def on_reset_complete(self):
         """Handle reset completion from controller"""
         self._load_current_settings()
+        self._force_entry_updates()
         messagebox.showinfo("Settings have been reset to defaults", parent=self.root_window)
 
     def _load_current_settings(self):
-        """Load current settings from controller"""
+        """Load current settings from controller and update UI"""
         try:
             settings = self.controller.load_current_settings()
 
@@ -270,7 +323,11 @@ class SettingsView(ctk.CTkFrame):
                 sound_settings = settings.get("sound_recognizer", {})
                 self.sound_confidence_var.set(str(sound_settings.get("confidence_threshold", 0.15)))
                 self.sound_vote_var.set(str(sound_settings.get("vote_threshold", 0.35)))
+
+                vad_settings = settings.get("vad", {})
+                self.dictation_silent_chunks_var.set(str(vad_settings.get("dictation_silent_chunks_for_end", 40)))
             else:
+                # Set error state if settings could not be loaded
                 for var in [
                     self.llm_context_length_var,
                     self.llm_max_tokens_var,
@@ -278,6 +335,7 @@ class SettingsView(ctk.CTkFrame):
                     self.markov_confidence_var,
                     self.sound_confidence_var,
                     self.sound_vote_var,
+                    self.dictation_silent_chunks_var,
                 ]:
                     if isinstance(var, ctk.StringVar):
                         var.set("Error")
@@ -324,12 +382,27 @@ class SettingsView(ctk.CTkFrame):
         ):
             self.controller.reset_sound_to_defaults()
 
+    def _save_dictation_settings(self):
+        """Save Dictation settings through controller"""
+        self.controller.save_dictation_settings(self.dictation_silent_chunks_var.get())
+
+    def _reset_dictation_to_defaults(self):
+        """Reset Dictation settings to defaults through controller"""
+        if messagebox.askyesno(
+            "Are you sure you want to reset Dictation settings to defaults?",
+            parent=self.root_window,
+        ):
+            self.controller.reset_dictation_to_defaults()
+
     def refresh_settings(self):
+        """Refresh settings display"""
         if not self._is_alive:
             return
         self._load_current_settings()
+        self._force_entry_updates()
 
     def destroy(self):
+        """Clean up resources when view is destroyed"""
         self._is_alive = False
         self.controller.set_view_callback(None)
         super().destroy()

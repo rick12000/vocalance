@@ -378,6 +378,7 @@ class FastServiceInitializer:
                 ("markov_predictor", "markov_predictor"),
                 ("sound_service", "sound_recognizer"),
                 ("grid", "grid"),
+                ("audio", "audio"),
             ]
 
             for service_key, registration_name in service_mappings:
@@ -708,6 +709,23 @@ async def main() -> None:
 
         logger.info("Activating services now that initialization is complete")
         await service_initializer.activate_all_services()
+
+        def position_main_window():
+            try:
+                app_tk_root.update_idletasks()
+                screen_width = app_tk_root.winfo_screenwidth()
+                screen_height = app_tk_root.winfo_screenheight()
+                window_width = ui_theme.theme.dimensions.main_window_width
+                window_height = ui_theme.theme.dimensions.main_window_height
+
+                x = (screen_width - window_width) // 2
+                y = int(screen_height * 0.35 - window_height // 2)
+
+                app_tk_root.geometry(f"+{x}+{y}")
+            except Exception as e:
+                logger.warning(f"Could not position main window: {e}")
+
+        position_main_window()
 
         # Set icon RIGHT BEFORE showing window - this is the critical moment
         # CustomTkinter's icon handling happens during visibility changes

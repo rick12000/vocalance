@@ -80,12 +80,13 @@ class SettingsController(BaseController):
                 "confidence_threshold": self.config.sound_recognizer.confidence_threshold,
                 "vote_threshold": self.config.sound_recognizer.vote_threshold,
             },
+            "vad": {"dictation_silent_chunks_for_end": self.config.vad.dictation_silent_chunks_for_end},
         }
 
+    # Validation methods
     def validate_llm_settings(self, context_length: str, max_tokens: str) -> List[str]:
         """Validate LLM input fields and return list of errors"""
         errors = []
-
         try:
             context_length_int = int(context_length)
             if context_length_int < 128 or context_length_int > 32768:
@@ -96,209 +97,18 @@ class SettingsController(BaseController):
                 errors.append("Max Tokens must be between 1 and 1024")
         except ValueError:
             errors.append("LLM settings must be valid numbers")
-
         return errors
 
     def validate_grid_settings(self, default_rect_count: str) -> List[str]:
         """Validate Grid input fields and return list of errors"""
         errors = []
-
         try:
             default_rect_count_int = int(default_rect_count)
             if default_rect_count_int < 100 or default_rect_count_int > 10000:
                 errors.append("Default Cell Count must be between 100 and 10000")
         except ValueError:
             errors.append("Default Cell Count must be a valid number")
-
         return errors
-
-    def save_llm_settings(self, context_length: str, max_tokens: str) -> bool:
-        """Save LLM settings through the settings service"""
-        if not self.settings_service:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, "Settings service not available")
-            return False
-
-        validation_errors = self.validate_llm_settings(context_length, max_tokens)
-        if validation_errors:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
-            return False
-
-        try:
-            settings_updates = {"llm.context_length": int(context_length), "llm.max_tokens": int(max_tokens)}
-
-            asyncio.run_coroutine_threadsafe(self._save_settings_simple_async(settings_updates), self.event_loop)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error saving LLM settings: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"An unexpected error occurred: {e}")
-            return False
-
-    async def _save_settings_simple_async(self, settings_updates: Dict[str, Any]):
-        """Async method to save settings. Thread-safe."""
-        try:
-            success = await self.settings_service.update_multiple_settings(settings_updates)
-
-            if success:
-                settings = await self.settings_service.get_effective_settings()
-                with self._state_lock:
-                    self._cached_settings = settings
-
-                if self.view_callback:
-                    self.schedule_ui_update(
-                        self.view_callback.on_save_success,
-                        "LLM settings saved successfully!\n\nNote: Restart the application for changes to take effect.",
-                    )
-            else:
-                if self.view_callback:
-                    self.schedule_ui_update(self.view_callback.on_save_error, "Failed to save LLM settings")
-
-        except Exception as e:
-            self.logger.error(f"Error in async save: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"Save error: {e}")
-
-    def save_grid_settings(self, default_rect_count: str) -> bool:
-        """Save Grid settings through the settings service"""
-        if not self.settings_service:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, "Settings service not available")
-            return False
-
-        validation_errors = self.validate_grid_settings(default_rect_count)
-        if validation_errors:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
-            return False
-
-        try:
-            settings_updates = {"grid.default_rect_count": int(default_rect_count)}
-
-            asyncio.run_coroutine_threadsafe(self._save_grid_settings_async(settings_updates), self.event_loop)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error saving Grid settings: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"An unexpected error occurred: {e}")
-            return False
-
-    async def _save_grid_settings_async(self, settings_updates: Dict[str, Any]):
-        """Async method to save grid settings. Thread-safe."""
-        try:
-            success = await self.settings_service.update_multiple_settings(settings_updates)
-
-            if success:
-                settings = await self.settings_service.get_effective_settings()
-                with self._state_lock:
-                    self._cached_settings = settings
-
-                if self.view_callback:
-                    self.schedule_ui_update(
-                        self.view_callback.on_save_success, "Grid settings saved successfully!\n\nChanges take effect immediately."
-                    )
-            else:
-                if self.view_callback:
-                    self.schedule_ui_update(self.view_callback.on_save_error, "Failed to save Grid settings")
-
-        except Exception as e:
-            self.logger.error(f"Error in async grid save: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"Save error: {e}")
-
-    def reset_llm_to_defaults(self) -> bool:
-        """Reset LLM settings to default values"""
-        if not self.settings_service:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, "Settings service not available")
-            return False
-
-        try:
-            asyncio.run_coroutine_threadsafe(self._reset_llm_settings_async(), self.event_loop)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error resetting LLM settings: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"Failed to reset LLM settings: {e}")
-            return False
-
-    async def _reset_llm_settings_async(self):
-        """Async method to reset settings. Thread-safe."""
-        try:
-            llm_settings = ["llm.context_length", "llm.max_tokens"]
-
-            success = True
-            for setting in llm_settings:
-                if not await self.settings_service.reset_setting(setting):
-                    success = False
-                    break
-
-            if success:
-                settings = await self.settings_service.get_effective_settings()
-                with self._state_lock:
-                    self._cached_settings = settings
-
-                if self.view_callback:
-                    self.schedule_ui_update(
-                        self.view_callback.on_save_success,
-                        "LLM settings reset to defaults successfully!\n\nNote: Restart the application for changes to take effect.",
-                    )
-            else:
-                if self.view_callback:
-                    self.schedule_ui_update(self.view_callback.on_save_error, "Failed to reset LLM settings")
-
-        except Exception as e:
-            self.logger.error(f"Error in async reset: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"Reset error: {e}")
-
-    def reset_grid_to_defaults(self) -> bool:
-        """Reset Grid settings to default values"""
-        if not self.settings_service:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, "Settings service not available")
-            return False
-
-        try:
-            # Schedule async reset operation
-            asyncio.run_coroutine_threadsafe(self._reset_grid_settings_async(), self.event_loop)
-
-            return True  # Return immediately, success/failure will be handled in callback
-
-        except Exception as e:
-            self.logger.error(f"Error resetting Grid settings: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"Failed to reset Grid settings: {e}")
-            return False
-
-    async def _reset_grid_settings_async(self):
-        """Async method to reset grid settings. Thread-safe."""
-        try:
-            success = await self.settings_service.reset_setting("grid.default_rect_count")
-
-            if success:
-                # Update cache under lock
-                settings = await self.settings_service.get_effective_settings()
-                with self._state_lock:
-                    self._cached_settings = settings
-
-                if self.view_callback:
-                    self.schedule_ui_update(self.view_callback.on_reset_complete)
-            else:
-                if self.view_callback:
-                    self.schedule_ui_update(self.view_callback.on_save_error, "Failed to reset Grid settings")
-
-        except Exception as e:
-            self.logger.error(f"Error in async grid reset: {e}")
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_save_error, f"Reset error: {e}")
 
     def _validate_threshold(self, value_str: str, name: str) -> Optional[str]:
         """Validate a threshold value (0.0-1.0). Returns error message or None."""
@@ -321,17 +131,26 @@ class SettingsController(BaseController):
     def validate_sound_settings(self, confidence_threshold: str, vote_threshold: str) -> List[str]:
         """Validate Sound Recognizer input fields and return list of errors"""
         errors = []
-
         error = self._validate_threshold(confidence_threshold, "Sound Confidence Threshold")
         if error:
             errors.append(error)
-
         error = self._validate_threshold(vote_threshold, "Sound Vote Threshold")
         if error:
             errors.append(error)
-
         return errors
 
+    def validate_dictation_settings(self, silent_chunks: str) -> List[str]:
+        """Validate Dictation input fields and return list of errors"""
+        errors = []
+        try:
+            silent_chunks_int = int(silent_chunks)
+            if silent_chunks_int < 1 or silent_chunks_int > 1000:
+                errors.append("Silent Chunks for End must be between 1 and 1000")
+        except ValueError:
+            errors.append("Silent Chunks for End must be a valid integer")
+        return errors
+
+    # Generic save method
     def _save_settings_generic(self, settings_updates: Dict[str, Any], success_msg: str, category: str) -> bool:
         """Generic settings save method"""
         if not self.settings_service:
@@ -367,39 +186,7 @@ class SettingsController(BaseController):
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_save_error, f"Save error: {e}")
 
-    def save_markov_settings(self, confidence_threshold: str) -> bool:
-        """Save Markov settings through the settings service"""
-        validation_errors = self.validate_markov_settings(confidence_threshold=confidence_threshold)
-        if validation_errors:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
-            return False
-
-        settings_updates = {"markov_predictor.confidence_threshold": float(confidence_threshold)}
-        return self._save_settings_generic(
-            settings_updates=settings_updates,
-            success_msg="Markov settings saved successfully!\n\nChanges take effect immediately.",
-            category="Markov",
-        )
-
-    def save_sound_settings(self, confidence_threshold: str, vote_threshold: str) -> bool:
-        """Save Sound Recognizer settings through the settings service"""
-        validation_errors = self.validate_sound_settings(confidence_threshold=confidence_threshold, vote_threshold=vote_threshold)
-        if validation_errors:
-            if self.view_callback:
-                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
-            return False
-
-        settings_updates = {
-            "sound_recognizer.confidence_threshold": float(confidence_threshold),
-            "sound_recognizer.vote_threshold": float(vote_threshold),
-        }
-        return self._save_settings_generic(
-            settings_updates=settings_updates,
-            success_msg="Sound Recognizer settings saved successfully!\n\nChanges take effect immediately.",
-            category="Sound Recognizer",
-        )
-
+    # Generic reset method
     def _reset_settings_generic(self, settings_list: List[str], category: str) -> bool:
         """Generic settings reset method"""
         if not self.settings_service:
@@ -435,9 +222,97 @@ class SettingsController(BaseController):
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_save_error, f"Failed to reset {category} settings")
         except Exception as e:
-            self.logger.error(f"Error in async {category} reset: {e}")
+            self.logger.error(f"Error in async {category} reset: {e}", exc_info=True)
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_save_error, f"Reset error: {e}")
+
+    # Public save methods
+    def save_llm_settings(self, context_length: str, max_tokens: str) -> bool:
+        """Save LLM settings through the settings service"""
+        validation_errors = self.validate_llm_settings(context_length, max_tokens)
+        if validation_errors:
+            if self.view_callback:
+                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
+            return False
+
+        settings_updates = {"llm.context_length": int(context_length), "llm.max_tokens": int(max_tokens)}
+        return self._save_settings_generic(
+            settings_updates=settings_updates,
+            success_msg="LLM settings saved successfully!\n\nNote: Restart the application for changes to take effect.",
+            category="LLM",
+        )
+
+    def save_grid_settings(self, default_rect_count: str) -> bool:
+        """Save Grid settings through the settings service"""
+        validation_errors = self.validate_grid_settings(default_rect_count)
+        if validation_errors:
+            if self.view_callback:
+                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
+            return False
+
+        settings_updates = {"grid.default_rect_count": int(default_rect_count)}
+        return self._save_settings_generic(
+            settings_updates=settings_updates,
+            success_msg="Grid settings saved successfully!\n\nChanges take effect immediately.",
+            category="Grid",
+        )
+
+    def save_markov_settings(self, confidence_threshold: str) -> bool:
+        """Save Markov settings through the settings service"""
+        validation_errors = self.validate_markov_settings(confidence_threshold=confidence_threshold)
+        if validation_errors:
+            if self.view_callback:
+                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
+            return False
+
+        settings_updates = {"markov_predictor.confidence_threshold": float(confidence_threshold)}
+        return self._save_settings_generic(
+            settings_updates=settings_updates,
+            success_msg="Markov settings saved successfully!\n\nChanges take effect immediately.",
+            category="Markov",
+        )
+
+    def save_sound_settings(self, confidence_threshold: str, vote_threshold: str) -> bool:
+        """Save Sound Recognizer settings through the settings service"""
+        validation_errors = self.validate_sound_settings(confidence_threshold=confidence_threshold, vote_threshold=vote_threshold)
+        if validation_errors:
+            if self.view_callback:
+                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
+            return False
+
+        settings_updates = {
+            "sound_recognizer.confidence_threshold": float(confidence_threshold),
+            "sound_recognizer.vote_threshold": float(vote_threshold),
+        }
+        return self._save_settings_generic(
+            settings_updates=settings_updates,
+            success_msg="Sound Recognizer settings saved successfully!\n\nChanges take effect immediately.",
+            category="Sound Recognizer",
+        )
+
+    def save_dictation_settings(self, silent_chunks: str) -> bool:
+        """Save Dictation settings through the settings service"""
+        validation_errors = self.validate_dictation_settings(silent_chunks=silent_chunks)
+        if validation_errors:
+            if self.view_callback:
+                self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
+            return False
+
+        settings_updates = {"vad.dictation_silent_chunks_for_end": int(silent_chunks)}
+        return self._save_settings_generic(
+            settings_updates=settings_updates,
+            success_msg="Dictation settings saved successfully!\n\nChanges take effect immediately.",
+            category="Dictation",
+        )
+
+    # Public reset methods
+    def reset_llm_to_defaults(self) -> bool:
+        """Reset LLM settings to default values"""
+        return self._reset_settings_generic(["llm.context_length", "llm.max_tokens"], "LLM")
+
+    def reset_grid_to_defaults(self) -> bool:
+        """Reset Grid settings to default values"""
+        return self._reset_settings_generic(["grid.default_rect_count"], "Grid")
 
     def reset_markov_to_defaults(self) -> bool:
         """Reset Markov settings to default values"""
@@ -448,3 +323,7 @@ class SettingsController(BaseController):
         return self._reset_settings_generic(
             ["sound_recognizer.confidence_threshold", "sound_recognizer.vote_threshold"], "Sound Recognizer"
         )
+
+    def reset_dictation_to_defaults(self) -> bool:
+        """Reset Dictation settings to default values"""
+        return self._reset_settings_generic(["vad.dictation_silent_chunks_for_end"], "Dictation")

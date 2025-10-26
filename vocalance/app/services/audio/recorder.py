@@ -230,3 +230,12 @@ class AudioRecorder:
     def is_active(self) -> bool:
         with self._lock:
             return self._is_active
+
+    def update_dictation_silent_chunks(self, chunks: int) -> None:
+        """Update the dictation silent chunks for end threshold in real-time"""
+        if self.mode == "dictation":
+            with self._lock:
+                self.silent_chunks_for_end = chunks
+                self.logger.info(f"Updated dictation_silent_chunks_for_end to {chunks}")
+        else:
+            self.logger.warning(f"Attempted to update dictation_silent_chunks on {self.mode} mode recorder")

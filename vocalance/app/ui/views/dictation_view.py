@@ -38,15 +38,13 @@ class DictationView(ViewHelper):
         form_builder = FormBuilder()
         form_builder.setup_form_grid(container)
 
-        self.title_label, self.title_entry = form_builder.create_labeled_entry(
-            container, "Prompt Title:", "e.g. 'Professional Email Cleanup'"
-        )
+        self.title_label, self.title_entry = form_builder.create_labeled_entry(container, "Prompt Title:", "e.g. Email Formatting")
 
         self.prompt_label, self.prompt_textbox = form_builder.create_labeled_textbox(
             container,
             "Prompt Instructions:",
-            "e.g. Convert informal speech to professional writing while preserving all key information and maintaining clarity.",
-            height=100,
+            "e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' Adopt a professional tone and style.",
+            height=130,
         )
 
         def on_textbox_click(event):

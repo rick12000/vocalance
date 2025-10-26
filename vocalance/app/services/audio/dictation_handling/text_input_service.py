@@ -238,7 +238,7 @@ class TextInputService:
             return False
 
     def _paste_clipboard(self, text: str) -> bool:
-        """Paste using clipboard with proper error handling"""
+        """Paste using clipboard with proper error handling and key repeat prevention"""
         original = None
 
         try:
@@ -251,7 +251,15 @@ class TextInputService:
             # Copy and paste text
             pyperclip.copy(text)
             time.sleep(self.config.clipboard_paste_delay_pre)
-            pyautogui.hotkey("ctrl", "v")
+
+            # CRITICAL: Use explicit key press/release to prevent keyboard repeat
+            # hotkey() can sometimes hold keys too long causing Windows autorepeat
+            pyautogui.keyDown("ctrl")
+            time.sleep(0.01)  # Brief delay to register modifier
+            pyautogui.press("v")
+            time.sleep(0.01)  # Brief delay before release
+            pyautogui.keyUp("ctrl")
+
             time.sleep(self.config.clipboard_paste_delay_post)
 
             # Restore original clipboard content
