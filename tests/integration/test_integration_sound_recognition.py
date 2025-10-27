@@ -79,8 +79,6 @@ class TestSoundRecognitionIntegration:
 
         assert discrimination_margin > 0.05, f"Discrimination margin should be > 5%, got {discrimination_margin:.3f}"
 
-        print(f"Discrimination test passed: margin = {discrimination_margin:.3f}")
-
     @pytest.mark.asyncio
     async def test_recognition_pipeline_accuracy(self, real_recognizer, training_samples, user_prompt_sample):
         """
@@ -112,8 +110,6 @@ class TestSoundRecognitionIntegration:
         assert predicted_label == "lip_popping", f"User prompt should be recognized as 'lip_popping', got '{predicted_label}'"
 
         assert confidence > 0.2, f"Confidence should be reasonable (> 0.2), got {confidence:.3f}"
-
-        print(f"Recognition test passed: {predicted_label} (confidence: {confidence:.3f})")
 
     @pytest.mark.asyncio
     async def test_noise_rejection_capability(self, real_recognizer, audio_samples, training_samples):
@@ -148,7 +144,6 @@ class TestSoundRecognitionIntegration:
                 # False positive if it's recognized as a custom sound (not ESC-50)
                 if not label.startswith("esc50_"):
                     false_positives += 1
-                    print(f"Warning: False positive: {noise_name} -> {label} (conf: {confidence:.3f})")
 
         false_positive_rate = false_positives / total_tested if total_tested > 0 else 0
 
@@ -156,8 +151,6 @@ class TestSoundRecognitionIntegration:
         assert (
             false_positive_rate <= 0.5
         ), f"False positive rate should be <= 50%, got {false_positive_rate:.1%} ({false_positives}/{total_tested})"
-
-        print(f"Noise rejection test passed: {false_positive_rate:.1%} false positive rate ({false_positives}/{total_tested})")
 
     @pytest.mark.asyncio
     async def test_silence_trimming_effectiveness(self, real_recognizer, audio_samples):
@@ -192,8 +185,6 @@ class TestSoundRecognitionIntegration:
         # Assertion
         assert similarity > 0.8, f"Silence trimming should maintain high similarity between same sound type, got {similarity:.3f}"
 
-        print(f"Silence trimming test passed: similarity = {similarity:.3f}")
-
     @pytest.mark.asyncio
     async def test_vote_threshold_effectiveness(self, real_recognizer, training_samples, sample_rate):
         """
@@ -227,10 +218,10 @@ class TestSoundRecognitionIntegration:
 
         # High threshold should be more restrictive
         if result_high_threshold is None and result_low_threshold is not None:
-            print("Vote threshold test passed: high threshold more restrictive")
+            pass  # Test passed
         else:
             # This test might not always work with mock embeddings, so we'll be lenient
-            print("Warning: Vote threshold test inconclusive with mock embeddings")
+            pass
 
     @pytest.mark.asyncio
     async def test_confidence_threshold_effectiveness(self, real_recognizer, training_samples, sample_rate):
@@ -265,11 +256,11 @@ class TestSoundRecognitionIntegration:
 
         # High threshold should be more restrictive
         if result_high is None and result_low is not None:
-            print("Confidence threshold test passed: high threshold more restrictive")
+            pass  # Test passed
         elif result_high is None and result_low is None:
-            print("Confidence threshold test passed: both appropriately restrictive")
+            pass  # Test passed
         else:
-            print("Warning: Confidence threshold test inconclusive with mock embeddings")
+            pass  # Test inconclusive with mock embeddings
 
 
 class TestMinimalGuarantees:
@@ -295,8 +286,6 @@ class TestMinimalGuarantees:
         test_audio = np.random.randn(int(0.5 * sample_rate)) * 0.1
         isolated_recognizer.recognize_sound(test_audio, sample_rate)
         # No assertion on result - just that it doesn't crash
-
-        print("Basic functionality guarantee passed")
 
     @pytest.mark.asyncio
     async def test_silence_trimming_guarantee(self, isolated_recognizer, sample_rate):
@@ -325,8 +314,6 @@ class TestMinimalGuarantees:
         assert np.isfinite(processed).all()  # No NaN or infinite values
         assert len(processed) <= len(padded_audio)  # Should not grow
 
-        print("Silence trimming guarantee passed")
-
     @pytest.mark.asyncio
     async def test_embedding_consistency_guarantee(self, isolated_recognizer, sample_rate):
         """
@@ -352,8 +339,6 @@ class TestMinimalGuarantees:
                 similarity > 0.1
             ), f"Same audio should produce at least somewhat consistent embeddings, got similarity {similarity:.4f}"
 
-        print("Embedding consistency guarantee passed")
-
     def test_configuration_validity_guarantee(self, isolated_recognizer):
         """
         Minimal Guarantee 4: Configuration parameters are within valid ranges.
@@ -375,5 +360,3 @@ class TestMinimalGuarantees:
         assert 0.0 < preprocessor.silence_threshold < 1.0
         assert 0.0 < preprocessor.min_sound_duration < preprocessor.max_sound_duration
         assert preprocessor.max_sound_duration <= 10.0  # Reasonable upper bound
-
-        print("Configuration validity guarantee passed")

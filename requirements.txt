@@ -15,6 +15,7 @@ llama-cpp-python>=0.2.0
 scikit-learn>=1.0.2
 joblib>=1.0.0
 tensorflow-hub>=0.15.0
+tensorflow>=2.19.0
 
 # GUI Framework
 customtkinter>=5.2.0

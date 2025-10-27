@@ -101,8 +101,7 @@ class AudioRecorder:
             wav_file.setframerate(self.config.sample_rate)
             wav_file.writeframes(audio_data.tobytes())
 
-        duration = len(audio_data) / self.config.sample_rate
-        print(f"Saved {duration:.2f}s of audio to {output_path}")
+        len(audio_data) / self.config.sample_rate
         return output_path
 
 
@@ -122,9 +121,7 @@ def main():
     recorder = AudioRecorder(config)
     output_path = os.path.join(output_dir, filename)
 
-    print("Recording... Speak now!")
     recorder.record_audio_to_wav(output_path)
-    print(f"Audio saved to: {output_path}")
 
 
 if __name__ == "__main__":

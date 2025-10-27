@@ -117,7 +117,7 @@ def test_whisper_dictation_accuracy_and_performance(whisper_stt, dictation_file,
     expected_text = "this is a test of the dictation capabilities"
 
     start_time = time.time()
-    recognized_text = whisper_stt.recognize(audio_bytes, sample_rate)
+    recognized_text = whisper_stt.recognize_sync(audio_bytes, sample_rate)
     runtime_ms = (time.time() - start_time) * 1000
     runtime_s = runtime_ms / 1000
 

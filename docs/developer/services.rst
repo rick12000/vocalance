@@ -12,13 +12,14 @@ Module Dependency Graph
     %% Core Infrastructure
     EventBus[EventBus]
     GlobalAppConfig[GlobalAppConfig]
+    ShutdownCoordinator[ShutdownCoordinator]
 
     %% Audio Services
     SimpleAudioService[SimpleAudioService]
     Recorder[Recorder]
     STTService[SpeechToTextService]
-    VoskSTT[VoskSTT]
-    WhisperSTT[WhisperSTT]
+    EnhancedVoskSTT[EnhancedVoskSTT]
+    WhisperSpeechToText[WhisperSpeechToText]
     StreamlinedSoundService[StreamlinedSoundService]
     StreamlinedSoundRecognizer[StreamlinedSoundRecognizer]
 
@@ -48,6 +49,9 @@ Module Dependency Graph
     %% Optimization Services
     MarkovCommandService[MarkovCommandService]
 
+    %% Service Initialization & Lifecycle
+    FastServiceInitializer[FastServiceInitializer]
+
     %% Dependencies
     EventBus --> SimpleAudioService
     EventBus --> STTService
@@ -72,8 +76,8 @@ Module Dependency Graph
     SimpleAudioService --> EventBus
     Recorder --> EventBus
 
-    STTService --> VoskSTT
-    STTService --> WhisperSTT
+    STTService --> EnhancedVoskSTT
+    STTService --> WhisperSpeechToText
     STTService --> StreamlinedSoundService
 
     StreamlinedSoundService --> StreamlinedSoundRecognizer
@@ -122,6 +126,12 @@ Module Dependency Graph
     MarkovCommandService --> StorageService
     MarkovCommandService --> EventBus
 
+    %% Initialization & Lifecycle
+    FastServiceInitializer --> EventBus
+    FastServiceInitializer --> GlobalAppConfig
+    FastServiceInitializer --> ShutdownCoordinator
+    ShutdownCoordinator --> EventBus
+
 High-Level Information Flow
 ---------------------------
 
@@ -135,10 +145,10 @@ Audio Processing Pipeline
 
 Both recorders run continuously, using ``sounddevice`` for audio capture and Voice Activity Detection (VAD) for speech identification. The command recorder publishes ``AudioDetectedEvent`` for ultra-low latency Markov prediction bypass.
 
-**Recognition Layer**: Audio segments flow to ``SpeechToTextService`` with mode-aware processing:
+**Recognition Layer**: Audio segments flow to ``SpeechToTextService`` (located in ``vocalance.app.services.audio.stt.stt_service``) with mode-aware processing:
 
-- **Command Mode**: Uses Vosk STT for speed-optimized recognition, checking only for amber trigger words during dictation
-- **Dictation Mode**: Uses Whisper STT for accuracy-optimized recognition, processing full speech content
+- **Command Mode**: Uses ``EnhancedVoskSTT`` for speed-optimized recognition, checking only for amber trigger words during dictation
+- **Dictation Mode**: Uses ``WhisperSpeechToText`` for accuracy-optimized recognition, processing full speech content
 
 **Parallel Processing**: If STT fails to recognize speech, audio segments are sent to ``StreamlinedSoundService`` for custom sound recognition.
 
@@ -854,7 +864,7 @@ The ``StorageService`` serves as the foundational storage engine, providing low-
 
 **Core Components**:
 
-- ``_cache`` (Dict[str, CacheEntry]): In-memory cache with 5-minute TTL
+- ``_cache`` (Dict[str, CacheEntry]): In-memory cache with configurable TTL (default 5 minutes)
 
 - ``_path_map`` (Dict[Type[StorageData], str]): Maps storage model types to filesystem paths
 
@@ -868,6 +878,8 @@ The ``StorageService`` serves as the foundational storage engine, providing low-
 
 - ``_lock`` (threading.RLock): Reentrant lock for thread-safe cache access
 - ``_executor`` (ThreadPoolExecutor): 2-worker thread pool for async I/O
+- ``_base_dir`` (Path): Base directory for all storage (from ``config.storage.user_data_root``)
+- ``_cache_ttl`` (float): Cache TTL in seconds (from ``config.storage.cache_ttl_seconds``)
 
 **Read Operation Flow**:
 
@@ -913,15 +925,37 @@ The ``write(data)`` method implements atomic writes:
 
 **Storage Data Models**:
 
-Type-safe Pydantic models define the schema:
+Type-safe Pydantic models define the schema (all extend ``StorageData`` base class):
 
-- **MarksData**: Voice-navigable screen position bookmarks ``marks: Dict[str, Coordinate]``
-- **SettingsData**: User configuration overrides ``user_overrides: Dict[str, Dict]``
-- **CommandsData**: Custom automation commands ``custom_commands: Dict[str, AutomationCommand]``
-- **GridClicksData**: Click pattern tracking ``clicks: List[GridClickEvent]``
-- **AgenticPromptsData**: Smart dictation LLM prompts ``prompts: List[AgenticPrompt]``
-- **SoundMappingsData**: Sound recognition mappings ``mappings: Dict[str, str]``
-- **CommandHistoryData**: Markov training data ``entries: List[CommandHistoryEntry]``
+- **MarksData**: Voice-navigable screen position bookmarks
+
+  - ``marks: Dict[str, Coordinate]`` - Map of mark name to coordinate
+
+- **SettingsData**: User configuration overrides
+
+  - ``user_overrides: Dict[str, Dict[str, Any]]`` - User setting overrides organized by category
+
+- **CommandsData**: Custom automation commands and phrase overrides
+
+  - ``custom_commands: Dict[str, AutomationCommand]`` - User-defined custom commands
+  - ``phrase_overrides: Dict[str, str]`` - Phrase overrides for default commands
+
+- **GridClicksData**: Click pattern tracking
+
+  - ``clicks: List[GridClickEvent]`` - History of grid click events
+
+- **AgenticPromptsData**: Smart dictation LLM prompts
+
+  - ``prompts: List[AgenticPrompt]`` - List of agentic prompt configurations
+  - ``current_prompt_id: Optional[str]`` - ID of currently active prompt
+
+- **SoundMappingsData**: Sound recognition mappings
+
+  - ``mappings: Dict[str, str]`` - Map of sound name to action/command
+
+- **CommandHistoryData**: Markov training data
+
+  - ``history: List[CommandHistoryEntry]`` - Historical command execution records (max 10,000)
 
 **Performance Characteristics**:
 
@@ -1196,3 +1230,77 @@ Critical operations publish timing and status events:
 - **Predictive Loading**: ``MarkService`` pre-loads all marks into cache during initialization
 - **Lazy Initialization**: LLM model only loaded when smart dictation first used
 - **Duplicate Filtering**: Command parser prevents double-execution within 1-second window
+
+Service Initialization and Lifecycle
+-------------------------------------
+
+The Vocalance application uses a sophisticated initialization system coordinated by ``FastServiceInitializer`` to ensure services start up in the correct order while maintaining UI responsiveness.
+
+FastServiceInitializer Architecture
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Purpose**: Orchestrates parallel service initialization with progress tracking and graceful shutdown handling.
+
+**Initialization Phases**:
+
+The ``initialize_all()`` method implements a three-phase sequential initialization strategy:
+
+1. **Core Services Phase** (``_init_core_services()``):
+
+   - ``GridService``: Visual grid overlay for mouse navigation
+   - ``AutomationService``: Command execution engine
+
+2. **Storage Services Phase** (``_init_storage_services()``):
+
+   Initialized in parallel using ``asyncio.gather()``:
+
+   - ``StorageService``: Base storage layer
+   - ``SettingsService`` + ``SettingsUpdateCoordinator``: User preferences and real-time updates
+   - ``CommandManagementService`` + helper services: Command storage and validation
+   - ``ClickTrackerService``: Click history for grid optimization
+   - ``MarkService``: Position bookmarking system
+
+3. **Audio Services Phase** (``_init_audio_services()``):
+
+   Initialized sequentially due to dependencies:
+
+   - ``SimpleAudioService``: Audio capture
+   - ``StreamlinedSoundService``: Custom sound recognition
+   - ``SpeechToTextService``: Vosk and Whisper STT engines
+   - ``CentralizedCommandParser`` + ``CommandHistoryManager``: Command parsing and history
+   - ``DictationCoordinator``: Dictation modes with LLM support
+   - ``MarkovCommandService``: Predictive command execution
+
+**Service Activation**:
+
+After initialization completes, ``activate_all_services()`` sets up event subscriptions:
+
+- Calls ``setup_subscriptions()`` on all services that implement it
+- Starts audio processing via ``SimpleAudioService.start_processing()``
+- Ensures services don't become operational until app is fully ready
+
+**Shutdown Coordination**:
+
+``ShutdownCoordinator`` manages graceful application shutdown:
+
+- Tracks initialization tasks and active services
+- Handles shutdown requests during initialization via ``_check_cancellation()``
+- Coordinates cleanup of partially initialized services on error or cancellation
+- Ensures resources are released in correct order
+
+**Thread Safety**:
+
+All service access protected by ``threading.RLock``:
+
+- ``_services_lock`` guards the ``services`` dictionary
+- Allows reentrant access during initialization
+- Prevents race conditions during parallel initialization
+
+**Progress Tracking Integration**:
+
+``StartupProgressTracker`` provides real-time feedback:
+
+- Step-based progress updates (core, storage, audio phases)
+- Sub-step updates for individual service initialization
+- Status animation for long-running operations (model downloads)
+- Graceful cancellation handling with user feedback

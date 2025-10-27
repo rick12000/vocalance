@@ -18,6 +18,10 @@ class TestStreamlinedSoundService:
     @pytest.fixture
     def service(self, mock_event_bus, mock_config, mock_storage_factory, mock_recognizer):
         """Create a service instance with mocked dependencies."""
+        # Mock asset paths
+        mock_config.asset_paths = Mock()
+        mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
+
         with patch(
             "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer",
             return_value=mock_recognizer,
@@ -27,6 +31,10 @@ class TestStreamlinedSoundService:
 
     def test_init(self, mock_event_bus, mock_config, mock_storage_factory):
         """Test service initialization."""
+        # Mock asset paths
+        mock_config.asset_paths = Mock()
+        mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
+
         with patch(
             "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer"
         ) as mock_recognizer_class:
@@ -39,14 +47,29 @@ class TestStreamlinedSoundService:
             assert service._current_training_label is None
             assert service._training_samples == []
 
+            # Event subscriptions are NOT set up during __init__, but in setup_subscriptions()
+            # So we should not check subscribe calls here
+
+            # Should create recognizer
+            mock_recognizer_class.assert_called_once_with(config=mock_config, storage=mock_storage_factory)
+
+    def test_setup_subscriptions(self, mock_event_bus, mock_config, mock_storage_factory):
+        """Test that setup_subscriptions registers all expected events."""
+        # Mock asset paths
+        mock_config.asset_paths = Mock()
+        mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
+
+        with patch("vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer"):
+            service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
+            service.setup_subscriptions()
+
             # Should subscribe to 7 events total
             assert mock_event_bus.subscribe.call_count == 7
 
             # Check that it subscribes to the main audio chunk event
-            mock_event_bus.subscribe.assert_any_call(ProcessAudioChunkForSoundRecognitionEvent, service._handle_audio_chunk)
-
-            # Should create recognizer
-            mock_recognizer_class.assert_called_once_with(mock_config, mock_storage_factory)
+            mock_event_bus.subscribe.assert_any_call(
+                event_type=ProcessAudioChunkForSoundRecognitionEvent, handler=service._handle_audio_chunk
+            )
 
     @pytest.mark.asyncio
     async def test_initialize_success(self, service, mock_recognizer):
@@ -254,11 +277,12 @@ class TestStreamlinedSoundService:
 
         # Check that train_sound was called with correct arguments
         mock_recognizer.train_sound.assert_called_once()
-        args, kwargs = mock_recognizer.train_sound.call_args
-        assert args[0] == "test_sound"
-        assert len(args[1]) == 1
-        assert args[1][0][1] == 16000  # sample rate
-        np.testing.assert_array_equal(args[1][0][0], test_audio)  # audio data
+        call_args = mock_recognizer.train_sound.call_args
+        # Method is called with keyword arguments
+        assert call_args.kwargs["label"] == "test_sound"
+        assert len(call_args.kwargs["samples"]) == 1
+        assert call_args.kwargs["samples"][0][1] == 16000  # sample rate
+        np.testing.assert_array_equal(call_args.kwargs["samples"][0][0], test_audio)  # audio data
 
     @pytest.mark.asyncio
     async def test_finish_training_no_active_session(self, service, mock_recognizer):

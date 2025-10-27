@@ -145,12 +145,16 @@ class TestAudioPreprocessor:
 class TestStreamlinedSoundRecognizer:
     """Test the StreamlinedSoundRecognizer class."""
 
-    def test_init(self, mock_config, mock_storage_service):
+    def test_init(self, mock_config, mock_storage_factory):
         """Test recognizer initialization."""
-        recognizer = StreamlinedSoundRecognizer(config=mock_config, storage=mock_storage_service)
+        # Mock asset paths
+        mock_config.asset_paths = Mock()
+        mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
+
+        recognizer = StreamlinedSoundRecognizer(config=mock_config, storage=mock_storage_factory)
 
         assert recognizer.config == mock_config.sound_recognizer
-        assert recognizer._storage == mock_storage_service
+        assert recognizer._storage == mock_storage_factory
         assert isinstance(recognizer.preprocessor, AudioPreprocessor)
         assert recognizer.embeddings.shape == (0, 1024)
         assert recognizer.labels == []

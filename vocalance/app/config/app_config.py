@@ -497,12 +497,16 @@ class AssetPathsConfig(BaseModel):
         return None
 
     def get_vosk_model_path(self) -> str:
-        """Get the Vosk model path (legacy method).
+        """Get the Vosk model path.
 
         Returns:
             Path to Vosk model.
         """
-        return self.vosk_model_path or "vocalance/app/assets/vosk-model-small-en-us-0.15"
+        path = self.vosk_model_path
+        if path:
+            return path
+        # Fallback for cases where assets root is not properly set
+        return "vocalance/app/assets/vosk-model-small-en-us-0.15"
 
 
 class StorageConfig(BaseModel):

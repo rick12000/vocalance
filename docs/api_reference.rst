@@ -11,7 +11,7 @@ Core Services
 Speech Recognition
 ------------------
 
-.. currentmodule:: vocalance.app.services.audio.stt_service
+.. currentmodule:: vocalance.app.services.audio.stt.stt_service
 
 SpeechToTextService
 ~~~~~~~~~~~~~~~~~~~
@@ -236,7 +236,7 @@ Data Models and Enums
 STT Modes
 ---------
 
-.. currentmodule:: vocalance.app.services.audio.stt_service
+.. currentmodule:: vocalance.app.services.audio.stt.stt_service
 
 .. autoclass:: STTMode
    :members:

@@ -28,6 +28,7 @@ dependencies = [
     "scikit-learn>=1.0.2",
     "joblib>=1.0.0",
     "tensorflow-hub>=0.15.0",
+    "tensorflow>=2.19.0",
     "customtkinter>=5.2.0",
     "Pillow>=9.0.0",
     "PyAutoGUI>=0.9.53",
@@ -47,6 +48,7 @@ Homepage = "https://github.com/rick12000/vocalance"
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-timeout>=2.1.0",
     "pre-commit>=3.4.0",
     "black>=22.10.0",
     "flake8>=7.0.0",
@@ -88,8 +90,5 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "-v",
-    "--strict-markers",
-    "--tb=short",
     "--disable-warnings"
 ]

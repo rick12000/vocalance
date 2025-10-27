@@ -28,11 +28,7 @@ from vocalance.app.services.storage.storage_service import StorageService
 if TYPE_CHECKING:
     from vocalance.app.config.app_config import SoundRecognizerConfig
 
-# TensorFlow import - can be mocked for testing
-try:
-    import tensorflow as tf
-except ImportError:
-    tf = None
+import tensorflow as tf
 
 logger = logging.getLogger(__name__)
 

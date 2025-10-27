@@ -41,30 +41,24 @@ def audio_samples():
 
     # Load target sound samples
     for wav_file in sorted(assets_path.glob("*.wav")):
-        try:
-            audio, sr = sf.read(wav_file)
-            if audio.ndim > 1:
-                audio = np.mean(audio, axis=-1)
+        audio, sr = sf.read(wav_file)
+        if audio.ndim > 1:
+            audio = np.mean(audio, axis=-1)
 
-            filename = wav_file.name.lower()
-            if "lip_popping" in filename or "lip_pop" in filename:
-                samples["lip_popping"].append((audio, sr, wav_file.name))
-            elif "tongue_clicking" in filename or "tongue_click" in filename:
-                samples["tongue_clicking"].append((audio, sr, wav_file.name))
-        except Exception as e:
-            print(f"Failed to load {wav_file}: {e}")
+        filename = wav_file.name.lower()
+        if "lip_popping" in filename or "lip_pop" in filename:
+            samples["lip_popping"].append((audio, sr, wav_file.name))
+        elif "tongue_clicking" in filename or "tongue_click" in filename:
+            samples["tongue_clicking"].append((audio, sr, wav_file.name))
 
     # Load noise samples
     noise_path = assets_path / "noise"
     if noise_path.exists():
         for wav_file in sorted(noise_path.glob("*.wav")):
-            try:
-                audio, sr = sf.read(wav_file)
-                if audio.ndim > 1:
-                    audio = np.mean(audio, axis=-1)
-                samples["noise"].append((audio, sr, wav_file.name))
-            except Exception as e:
-                print(f"Failed to load noise sample {wav_file}: {e}")
+            audio, sr = sf.read(wav_file)
+            if audio.ndim > 1:
+                audio = np.mean(audio, axis=-1)
+            samples["noise"].append((audio, sr, wav_file.name))
 
     return samples
 
@@ -101,43 +95,61 @@ def mock_yamnet_model():
     mock_model = Mock()
 
     # Predefined embeddings for different sound types
-    np.random.seed(42)  # Fixed seed for reproducibility
-    base_embeddings = {
-        "lip_popping": np.random.normal(0, 1, 1024),
-        "tongue_clicking": np.random.normal(100, 1, 1024),  # Different seed for different sound
-        "noise": np.random.normal(200, 1, 1024),
-        "default": np.random.normal(300, 1, 1024),
-    }
-
-    # Normalize base embeddings
-    for key in base_embeddings:
-        base_embeddings[key] = base_embeddings[key] / np.linalg.norm(base_embeddings[key])
+    # Use distinct random seeds for each sound type to create differentiation
+    base_embeddings = {}
+    for sound_type, seed in [("lip_popping", 42), ("tongue_clicking", 123), ("noise", 456), ("default", 789)]:
+        np.random.seed(seed)
+        embedding = np.random.normal(0, 1, 1024)
+        base_embeddings[sound_type] = embedding / np.linalg.norm(embedding)
 
     def mock_yamnet_call(audio_tensor):
         # Return consistent embeddings based on audio characteristics
         audio_np = audio_tensor.numpy() if hasattr(audio_tensor, "numpy") else audio_tensor
 
-        # Simple heuristic to classify audio type based on RMS and duration
+        # Ensure we have a numpy array
+        if not isinstance(audio_np, np.ndarray):
+            audio_np = np.array(audio_np)
+
+        # Use audio spectral features to differentiate
+        # Lip-popping: lower frequency, burst-like
+        # Tongue-clicking: higher frequency, sharper transients
+
         rms = np.sqrt(np.mean(audio_np**2))
-        duration = len(audio_np) / 16000  # Assume 16kHz
 
-        # Classify based on simple heuristics
-        if 0.05 < duration < 0.3 and 0.01 < rms < 0.5:
-            # Use spectral_centroid as a simple differentiator
-            spectral_centroid = np.mean(np.abs(np.fft.fft(audio_np)[: len(audio_np) // 4]))
+        # Spectral analysis
+        if len(audio_np) > 0:
+            fft_result = np.fft.fft(audio_np)
+            power_spectrum = np.abs(fft_result[: len(fft_result) // 2])
 
-            # Different sounds have different spectral characteristics
-            if spectral_centroid > 1000:  # Arbitrary threshold for differentiation
-                sound_type = "tongue_clicking"
-            else:
-                sound_type = "lip_popping"
-        elif rms < 0.01:
-            sound_type = "noise"  # Very quiet = noise
+            # Spectral centroid (center of mass of spectrum)
+            freqs = np.fft.fftfreq(len(audio_np), 1 / 16000)[: len(audio_np) // 2]
+            spectral_centroid = np.sum(freqs * power_spectrum) / (np.sum(power_spectrum) + 1e-10)
+
+            # Zero-crossing rate (rapid signal changes)
+            zero_crossings = np.sum(np.abs(np.diff(np.sign(audio_np)))) / len(audio_np)
+        else:
+            spectral_centroid = 0
+            zero_crossings = 0
+
+        # Classification logic:
+        # Tongue clicks tend to have higher spectral centroid and more zero crossings
+        # Lip pops tend to have lower spectral centroid and fewer zero crossings
+        if rms < 0.005:
+            sound_type = "noise"
+        elif spectral_centroid > 1500 or zero_crossings > 0.15:
+            sound_type = "tongue_clicking"
+        elif spectral_centroid < 1500 and rms > 0.01:
+            sound_type = "lip_popping"
         else:
             sound_type = "default"
 
-        # Return base embedding with tiny variation for same sound type
-        embedding = base_embeddings[sound_type] + np.random.normal(0, 0.01, 1024)
+        # Return base embedding with small consistent variation for same sound type
+        # Use hash of audio for consistent variation per sample
+        audio_hash = hash(tuple(audio_np[: min(100, len(audio_np))].tobytes())) % 1000
+        np.random.seed(audio_hash)
+        variation = np.random.normal(0, 0.02, 1024)
+
+        embedding = base_embeddings[sound_type] + variation
         embedding = embedding / np.linalg.norm(embedding)
 
         return None, embedding.reshape(1, -1), None
@@ -168,6 +180,15 @@ def mock_config():
     }
     config.sound_recognizer.max_esc50_samples_per_category = 15
     config.sound_recognizer.max_total_esc50_samples = 40
+
+    # Add asset paths pointing to real assets for integration tests
+    config.asset_paths = Mock()
+    # Determine the project root (3 levels up from this file: tests/conftest.py -> vocalance/)
+    project_root = Path(__file__).parent.parent
+    assets_root = project_root / "vocalance" / "app" / "assets"
+    config.asset_paths.yamnet_model_path = str(assets_root / "sound_processing" / "yamnet")
+    config.asset_paths.esc50_samples_path = str(assets_root / "sound_processing" / "esc50")
+
     return config
 
 
@@ -181,11 +202,12 @@ def mock_storage_factory():
     # Create temporary directories for testing
     temp_dir = tempfile.mkdtemp()
 
-    # Mock storage_config attribute
+    # Mock storage_config attribute with proper string paths
     storage.storage_config = Mock()
     storage.storage_config.sound_model_dir = os.path.join(temp_dir, "model")
     storage.storage_config.external_non_target_sounds_dir = os.path.join(temp_dir, "external_sounds")
 
+    # Ensure directories exist
     os.makedirs(storage.storage_config.sound_model_dir, exist_ok=True)
     os.makedirs(storage.storage_config.external_non_target_sounds_dir, exist_ok=True)
 
@@ -204,10 +226,47 @@ def mock_storage_factory():
 @pytest.fixture
 def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, monkeypatch):
     """Create an isolated recognizer instance for testing."""
+    # Create temporary directory for YAMNet model
+    temp_yamnet_dir = tempfile.mkdtemp()
+
+    # Mock asset paths
+    mock_config.asset_paths = Mock()
+    mock_config.asset_paths.yamnet_model_path = os.path.join(temp_yamnet_dir, "yamnet")
+    mock_config.asset_paths.esc50_samples_path = os.path.join(temp_yamnet_dir, "esc50")
+    os.makedirs(mock_config.asset_paths.yamnet_model_path, exist_ok=True)
+    os.makedirs(mock_config.asset_paths.esc50_samples_path, exist_ok=True)
+
+    # Create proper YAMNet model structure to pass validation
+    with open(os.path.join(mock_config.asset_paths.yamnet_model_path, "saved_model.pb"), "w") as f:
+        f.write("fake model")
+
+    # Create variables directory with required files
+    variables_dir = os.path.join(mock_config.asset_paths.yamnet_model_path, "variables")
+    os.makedirs(variables_dir, exist_ok=True)
+    with open(os.path.join(variables_dir, "variables.data-00000-of-00001"), "w") as f:
+        f.write("fake variables data")
+    with open(os.path.join(variables_dir, "variables.index"), "w") as f:
+        f.write("fake variables index")
+
     # Mock TensorFlow import at the module level where it's imported
     tf_mock = Mock()
-    tf_mock.convert_to_tensor = lambda x, dtype=None: Mock(numpy=lambda: x)
-    tf_mock.reduce_mean = lambda x, axis=None: Mock(numpy=lambda: np.mean(x.numpy() if hasattr(x, "numpy") else x, axis=axis))
+
+    # Create a proper tensor mock that carries the audio data
+    class TensorMock:
+        def __init__(self, data):
+            self._data = np.array(data) if not isinstance(data, np.ndarray) else data
+
+        def numpy(self):
+            return self._data
+
+    tf_mock.convert_to_tensor = lambda x, dtype=None: TensorMock(x)
+
+    def reduce_mean_mock(x, axis=None):
+        data = x.numpy() if hasattr(x, "numpy") else x
+        result = np.mean(data, axis=axis)
+        return TensorMock(result)
+
+    tf_mock.reduce_mean = reduce_mean_mock
     tf_mock.saved_model = Mock()
     tf_mock.saved_model.load.return_value = mock_yamnet_model
 
