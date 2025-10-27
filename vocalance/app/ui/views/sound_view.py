@@ -198,6 +198,10 @@ class SoundView(ViewHelper):
         except Exception:
             pass
 
+        # Reinforce icon after dialog is displayed to prevent CustomTkinter override
+        dialog.after(50, lambda: self._reinforce_icon(dialog))
+        dialog.after(200, lambda: self._reinforce_icon(dialog))
+
         # Current mapping display frame
         current_mapping_frame = ctk.CTkFrame(
             dialog,
@@ -458,3 +462,12 @@ class SoundView(ViewHelper):
         """Handle training status updates"""
         # Simplified - only update status label with the message
         self.safe_widget_operation(lambda: self.training_status_label.configure(text=message))
+
+    def _reinforce_icon(self, dialog):
+        """Reinforce the icon setting to prevent CustomTkinter override."""
+        if dialog and dialog.winfo_exists():
+            try:
+                set_window_icon_robust(dialog)
+                dialog.update_idletasks()
+            except Exception:
+                pass
