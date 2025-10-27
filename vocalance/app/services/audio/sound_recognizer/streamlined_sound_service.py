@@ -272,18 +272,26 @@ class StreamlinedSoundService:
         self._current_training_label = None
         self._training_samples = []
 
-    def set_sound_mapping(self, sound_label: str, command: str) -> None:
-        """Set command mapping for a sound."""
+    async def set_sound_mapping(self, sound_label: str, command: str) -> bool:
+        """Set command mapping for a sound and persist to storage.
+
+        Returns:
+            True if mapping was set and saved successfully, False otherwise.
+        """
         if not sound_label or not isinstance(sound_label, str):
             logger.error("Invalid sound label")
-            return
+            return False
 
         if not command or not isinstance(command, str):
             logger.error("Invalid command")
-            return
+            return False
 
-        self.recognizer.set_mapping(sound_label=sound_label, command=command)
-        logger.info(f"Mapped sound '{sound_label}' to command '{command}'")
+        success = await self.recognizer.set_mapping(sound_label=sound_label, command=command)
+        if success:
+            logger.info(f"Mapped sound '{sound_label}' to command '{command}' and saved to storage")
+        else:
+            logger.warning(f"Failed to save mapping for sound '{sound_label}'")
+        return success
 
     def get_sound_mapping(self, sound_label: str) -> Optional[str]:
         """Get command mapping for a sound."""
@@ -390,7 +398,7 @@ class StreamlinedSoundService:
     async def _handle_map_sound_command(self, event_data: MapSoundToCommandPhraseCommand) -> None:
         """Handle map sound to command phrase."""
         try:
-            self.recognizer.set_mapping(
+            success = await self.recognizer.set_mapping(
                 sound_label=event_data.sound_label,
                 command=event_data.command_phrase,
             )
@@ -398,10 +406,17 @@ class StreamlinedSoundService:
                 SoundToCommandMappingUpdatedEvent(
                     sound_label=event_data.sound_label,
                     command_phrase=event_data.command_phrase,
-                    success=True,
+                    success=success,
                 )
             )
-            logger.info(f"Mapped sound '{event_data.sound_label}' to command '{event_data.command_phrase}'")
+            if success:
+                logger.info(
+                    f"Mapped sound '{event_data.sound_label}' to command '{event_data.command_phrase}' and saved to storage"
+                )
+            else:
+                logger.warning(
+                    f"Mapped sound '{event_data.sound_label}' to command '{event_data.command_phrase}' but failed to save to storage"
+                )
         except Exception as e:
             logger.error(f"Error mapping sound to command: {e}", exc_info=True)
             await self.event_bus.publish(

@@ -446,7 +446,7 @@ def mock_recognizer():
     recognizer.initialize = AsyncMock(return_value=True)
     recognizer.recognize_sound = Mock(return_value=None)
     recognizer.train_sound = AsyncMock(return_value=True)
-    recognizer.set_mapping = Mock()
+    recognizer.set_mapping = AsyncMock(return_value=True)
     recognizer.get_mapping = Mock(return_value=None)
     recognizer.get_stats = Mock(
         return_value={

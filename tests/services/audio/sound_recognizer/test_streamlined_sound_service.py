@@ -332,11 +332,15 @@ class TestStreamlinedSoundService:
 
         assert service._training_active is False
 
-    def test_set_sound_mapping(self, service, mock_recognizer):
+    @pytest.mark.asyncio
+    async def test_set_sound_mapping(self, service, mock_recognizer):
         """Test setting sound mapping."""
-        service.set_sound_mapping("test_sound", "test_command")
+        mock_recognizer.set_mapping.return_value = True
 
-        mock_recognizer.set_mapping.assert_called_once_with("test_sound", "test_command")
+        success = await service.set_sound_mapping("test_sound", "test_command")
+
+        assert success is True
+        mock_recognizer.set_mapping.assert_called_once_with(sound_label="test_sound", command="test_command")
 
     def test_get_sound_mapping(self, service, mock_recognizer):
         """Test getting sound mapping."""
@@ -345,7 +349,7 @@ class TestStreamlinedSoundService:
         result = service.get_sound_mapping("test_sound")
 
         assert result == "test_command"
-        mock_recognizer.get_mapping.assert_called_once_with("test_sound")
+        mock_recognizer.get_mapping.assert_called_once_with(sound_label="test_sound")
 
     def test_get_stats(self, service, mock_recognizer):
         """Test getting service statistics."""

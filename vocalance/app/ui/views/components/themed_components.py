@@ -291,9 +291,10 @@ class TwoColumnTabLayout(TransparentFrame):
 
         self.left_box = ctk.CTkFrame(
             self,
-            fg_color=theme.shape_colors.dark,
+            fg_color=theme.two_box_layout.box_background_color,
             corner_radius=theme.two_box_layout.box_corner_radius,
-            border_width=0,
+            border_width=theme.two_box_layout.box_border_width,
+            border_color=theme.two_box_layout.box_border_color,
         )
         self.left_box.grid(
             row=0,
@@ -305,9 +306,10 @@ class TwoColumnTabLayout(TransparentFrame):
 
         self.right_box = ctk.CTkFrame(
             self,
-            fg_color=theme.shape_colors.dark,
+            fg_color=theme.two_box_layout.box_background_color,
             corner_radius=theme.two_box_layout.box_corner_radius,
-            border_width=0,
+            border_width=theme.two_box_layout.box_border_width,
+            border_color=theme.two_box_layout.box_border_color,
         )
         self.right_box.grid(
             row=0,
@@ -344,12 +346,12 @@ class TwoColumnTabLayout(TransparentFrame):
         )
 
         self.left_content = TransparentFrame(self.left_box)
-        self.left_content.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, theme.two_box_layout.last_element_bottom_padding))
+        self.left_content.grid(row=1, column=0, sticky="nsew", padx=1, pady=(0, theme.two_box_layout.last_element_bottom_padding))
         self.left_content.grid_rowconfigure(0, weight=1)
         self.left_content.grid_columnconfigure(0, weight=1)
 
         self.right_content = TransparentFrame(self.right_box)
-        self.right_content.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, theme.two_box_layout.last_element_bottom_padding))
+        self.right_content.grid(row=1, column=0, sticky="nsew", padx=1, pady=(0, theme.two_box_layout.last_element_bottom_padding))
         self.right_content.grid_rowconfigure(0, weight=1)
         self.right_content.grid_columnconfigure(0, weight=1)
 

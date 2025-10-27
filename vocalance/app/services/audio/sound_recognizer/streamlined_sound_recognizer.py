@@ -616,8 +616,12 @@ class StreamlinedSoundRecognizer:
         else:
             logger.debug("No valid ESC-50 embeddings extracted")
 
-    def set_mapping(self, sound_label: str, command: str) -> None:
-        """Set command mapping for a sound - thread-safe."""
+    async def set_mapping(self, sound_label: str, command: str) -> bool:
+        """Set command mapping for a sound and persist to storage - thread-safe.
+
+        Returns:
+            True if mapping was set and saved successfully, False otherwise.
+        """
         if not sound_label or not isinstance(sound_label, str):
             raise ValueError("Sound label must be a non-empty string")
         if not command or not isinstance(command, str):
@@ -625,6 +629,15 @@ class StreamlinedSoundRecognizer:
 
         with self._model_lock:
             self.mappings[sound_label] = command
+
+        # Persist mappings to storage
+        success = await self._save_model_data_async()
+        if success:
+            logger.info(f"Successfully saved mapping '{sound_label}' -> '{command}' to storage")
+        else:
+            logger.warning(f"Failed to save mapping '{sound_label}' -> '{command}' to storage")
+
+        return success
 
     def get_mapping(self, sound_label: str) -> Optional[str]:
         """Get command mapping for a sound - thread-safe."""

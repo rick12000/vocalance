@@ -162,23 +162,11 @@ class SoundView(ViewHelper):
 
     def _create_sound_item(self, sound_name: str, row_index: int) -> None:
         """Create a sound item in the list"""
-        try:
-            mapped_command = self.controller.get_sound_command_mapping(sound_name)
-            mapping_status = mapped_command if mapped_command else "Unmapped"
-        except Exception as e:
-            self.logger.debug(f"Could not get command mapping for {sound_name}: {e}")
-            mapping_status = "Unmapped"
-
-        status_color = (
-            view_config.theme.text_colors.medium if mapping_status == "Unmapped" else view_config.theme.accent_colors.success_text
-        )
-
         ListBuilder.create_list_item(
             container=self.sounds_scroll_frame,
             row_index=row_index,
             columns=[
                 ListItemColumn.label(text=sound_name, weight=1),
-                ListItemColumn.label(text=mapping_status, weight=0, anchor="e", color=status_color),
                 ListItemColumn.button(
                     text=view_config.theme.button_text.map,
                     command=lambda s=sound_name: self._map_sound_to_command(s),
@@ -210,17 +198,70 @@ class SoundView(ViewHelper):
         except Exception:
             pass
 
-        main_frame = ctk.CTkFrame(dialog, fg_color=theme.shape_colors.dark, border_color=theme.shape_colors.medium, border_width=1)
-        main_frame.grid(
+        # Current mapping display frame
+        current_mapping_frame = ctk.CTkFrame(
+            dialog,
+            fg_color=theme.shape_colors.dark,
+            border_color=theme.shape_colors.medium,
+            border_width=1,
+            corner_radius=theme.border_radius.medium,
+        )
+        current_mapping_frame.grid(
             row=0,
             column=0,
             sticky="ew",
             padx=theme.two_box_layout.inner_content_padx,
-            pady=theme.two_box_layout.inner_content_padx,
+            pady=(theme.two_box_layout.inner_content_padx, theme.spacing.small),
+        )
+        current_mapping_frame.grid_columnconfigure(0, weight=1)
+
+        current_mapping_title = ThemedLabel(
+            current_mapping_frame, text="Current Mapping:", font=(theme.font_family.primary, theme.font_sizes.medium, "bold")
+        )
+        current_mapping_title.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=theme.two_box_layout.inner_content_padx,
+            pady=(theme.spacing.medium, theme.spacing.tiny),
+        )
+
+        # Get current mapping for this sound
+        try:
+            mapped_command = self.controller.get_sound_command_mapping(sound_name)
+            mapping_display_text = mapped_command if mapped_command else "Unmapped"
+        except Exception as e:
+            self.logger.debug(f"Could not get command mapping for {sound_name}: {e}")
+            mapping_display_text = "Unmapped"
+
+        current_mapping_label = ThemedLabel(current_mapping_frame, text=mapping_display_text)
+        current_mapping_label.grid(
+            row=1,
+            column=0,
+            sticky="w",
+            padx=theme.two_box_layout.inner_content_padx,
+            pady=(0, theme.spacing.medium),
+        )
+
+        main_frame = ctk.CTkFrame(
+            dialog,
+            fg_color=theme.shape_colors.dark,
+            border_color=theme.shape_colors.medium,
+            border_width=1,
+            corner_radius=theme.border_radius.medium,
+        )
+        main_frame.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=theme.two_box_layout.inner_content_padx,
+            pady=(0, theme.two_box_layout.inner_content_padx),
         )
 
         dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(1, weight=1)  # Allow main_frame to expand vertically
         main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(5, weight=1)  # Allow space after button row
 
         command_types = self.controller.get_mapping_command_types()
         type_var = tk.StringVar(value=command_types[0] if command_types else "Commands")
@@ -279,26 +320,20 @@ class SoundView(ViewHelper):
             dropdown_fg_color=theme.shape_colors.darkest,
             dropdown_text_color=theme.text_colors.light,
         )
+        value_dropdown.grid(
+            row=3, column=0, sticky="ew", pady=(0, theme.spacing.medium), padx=theme.two_box_layout.inner_content_padx
+        )
 
         # Store references for the callback
         self._temp_dialog_refs = {"type_var": type_var, "value_var": value_var, "value_dropdown": value_dropdown}
 
         def on_confirm():
-            command_type = type_var.get()
+            type_var.get()
             command_value = value_var.get().strip()
 
             if command_value:
-                # Create appropriate command phrase based on type
-                if command_type == "Commands":
-                    command_phrase = command_value
-                elif command_type == "Marks":
-                    command_phrase = f"mark:{command_value}"
-                elif command_type == "Grid":
-                    command_phrase = command_value
-                else:
-                    command_phrase = command_value
-
-                self.controller.map_sound_to_command(sound_name, command_phrase)
+                # Use the raw command/mark/grid value directly - no prefix needed
+                self.controller.map_sound_to_command(sound_name, command_value)
                 dialog.destroy()
                 self.refresh_sounds_list()
 
@@ -314,6 +349,7 @@ class SoundView(ViewHelper):
                 {"text": theme.button_text.confirm, "command": on_confirm, "type": "primary", "compact": False},
             ],
             row=4,  # Place after the dropdowns (rows 0-3)
+            extra_pady=(theme.spacing.medium, theme.spacing.xlarge),  # Extra bottom padding
         )
 
         # Initialize the value dropdown with the default command type

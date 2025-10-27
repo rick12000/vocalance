@@ -71,9 +71,9 @@ class ShapeColors(BaseModel):
     accent_minus: str = "#9dabaa"
     lightest: str = "#494e4e"
     light: str = "#2a2c2c"
-    medium: str = "#222424"
-    dark: str = "#131515"
-    darkest: str = "#111111"
+    medium: str = "#202020"
+    dark: str = "#0f0f0f"
+    darkest: str = "#0d0d0d"
 
 
 class AccentColors(BaseModel):
@@ -181,8 +181,8 @@ class HeaderLayout(BaseModel):
 
     @property
     def border_color(self) -> str:
-        """Border color - shape_colors.medium"""
-        return ShapeColors().medium
+        """Border color - shape_colors.light"""
+        return ShapeColors().lightest
 
     @property
     def frame_padding_left(self) -> int:
@@ -313,6 +313,14 @@ class TwoBoxLayout(BaseModel):
         """Box background color - shape_colors.dark"""
         return ShapeColors().dark
 
+    # Box border configuration
+    box_border_width: int = 1
+
+    @property
+    def box_border_color(self) -> str:
+        """Box border color - shape_colors.medium"""
+        return ShapeColors().medium
+
     # Box spacing and padding
     # SINGLE SOURCE OF TRUTH - all spacing derives from base_spacing
     base_spacing: int = 25
@@ -405,8 +413,8 @@ class TileLayout(BaseModel):
 
     @property
     def border_color(self) -> str:
-        """Border color - shape_colors.medium"""
-        return ShapeColors().medium
+        """Border color - shape_colors.lightest"""
+        return ShapeColors().lightest
 
 
 class ListLayout(BaseModel):
@@ -498,7 +506,7 @@ class Dimensions(BaseModel):
 
     # Component dimensions
     button_height: int = 30
-    button_text_padding: int = 2
+    button_text_padding: int = 1
     entry_height: int = 35
     entry_height_standard: int = 35
     logo_size: int = 13

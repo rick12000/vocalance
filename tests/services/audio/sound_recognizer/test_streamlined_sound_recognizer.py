@@ -271,10 +271,12 @@ class TestStreamlinedSoundRecognizer:
         assert result is False
         assert len(isolated_recognizer.embeddings) == 0
 
-    def test_set_and_get_mapping(self, isolated_recognizer):
+    @pytest.mark.asyncio
+    async def test_set_and_get_mapping(self, isolated_recognizer):
         """Test sound-to-command mapping functionality."""
-        isolated_recognizer.set_mapping("test_sound", "test_command")
+        success = await isolated_recognizer.set_mapping("test_sound", "test_command")
 
+        assert success is True
         assert isolated_recognizer.get_mapping("test_sound") == "test_command"
         assert isolated_recognizer.get_mapping("nonexistent") is None
 

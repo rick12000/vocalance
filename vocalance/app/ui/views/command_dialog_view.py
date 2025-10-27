@@ -80,7 +80,12 @@ class CommandEditDialog:
             main_frame.grid_rowconfigure(2, weight=0)
             main_frame.grid_rowconfigure(3, weight=1)
 
-            description_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
+            description_tile = ThemedFrame(
+                main_frame,
+                fg_color=ui_theme.theme.shape_colors.dark,
+                border_width=1,
+                border_color=ui_theme.theme.shape_colors.medium,
+            )
             description_tile.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.medium))
             description_tile.grid_columnconfigure(0, weight=1)
             description_tile.grid_rowconfigure(0, weight=0)
@@ -123,7 +128,12 @@ class CommandEditDialog:
             main_frame.grid_rowconfigure(2, weight=0)
             main_frame.grid_rowconfigure(3, weight=1)
 
-            edit_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
+            edit_tile = ThemedFrame(
+                main_frame,
+                fg_color=ui_theme.theme.shape_colors.dark,
+                border_width=1,
+                border_color=ui_theme.theme.shape_colors.medium,
+            )
             edit_tile.grid(row=1, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.small))
             edit_tile.grid_columnconfigure(0, weight=1)
             edit_tile.grid_rowconfigure(0, weight=0)
@@ -173,7 +183,12 @@ class CommandEditDialog:
             save_btn.grid(row=0, column=0, sticky="ew")
 
             # Delete tile
-            delete_tile = ThemedFrame(main_frame, fg_color=ui_theme.theme.shape_colors.dark, border_width=0)
+            delete_tile = ThemedFrame(
+                main_frame,
+                fg_color=ui_theme.theme.shape_colors.dark,
+                border_width=1,
+                border_color=ui_theme.theme.shape_colors.medium,
+            )
             delete_tile.grid(row=2, column=0, sticky="ew", padx=0, pady=(0, ui_theme.theme.spacing.small))
             delete_tile.grid_columnconfigure(0, weight=1)
 

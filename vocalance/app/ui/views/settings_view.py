@@ -142,11 +142,13 @@ class SettingsView(ctk.CTkFrame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        # Outer container with border and padding from parent
         container_frame = ctk.CTkFrame(
             self,
             fg_color=ui_theme.theme.shape_colors.dark,
             corner_radius=ui_theme.theme.two_box_layout.box_corner_radius,
-            border_width=0,
+            border_width=1,
+            border_color=ui_theme.theme.shape_colors.medium,
         )
         container_frame.grid(
             row=0,
@@ -159,7 +161,30 @@ class SettingsView(ctk.CTkFrame):
         container_frame.grid_rowconfigure(0, weight=1)
         container_frame.grid_columnconfigure(0, weight=1)
 
-        scrollable_frame = ListBuilder.create_scrollable_list_container(container_frame)
+        # Inner content frame to provide proper spacing from border
+        content_frame = ctk.CTkFrame(
+            container_frame,
+            fg_color="transparent",  # Transparent to show container background
+            corner_radius=0,  # No corner radius for inner frame
+            border_width=0,  # No border for inner frame
+        )
+        content_frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=ui_theme.theme.spacing.medium,  # Consistent padding from border
+            pady=ui_theme.theme.spacing.medium,
+        )
+
+        content_frame.grid_rowconfigure(0, weight=1)
+        content_frame.grid_columnconfigure(0, weight=1)
+
+        # Scrollable content inside the content frame
+        scrollable_frame = ListBuilder.create_scrollable_list_container(
+            content_frame,
+            padx=0,  # No additional padding, handled by content_frame
+            pady=0,  # No additional padding, handled by content_frame
+        )
 
         scrollable_frame.grid_columnconfigure(0, weight=0)
         scrollable_frame.grid_columnconfigure(1, weight=1)
