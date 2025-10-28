@@ -59,7 +59,7 @@ mermaid_version = "10.6.1"
 mermaid_init_js = """
 mermaid.initialize({
     startOnLoad: true,
-    theme: 'default',
+    theme: 'dark',
     securityLevel: 'loose',
     fontFamily: 'arial',
     flowchart: {
@@ -71,7 +71,74 @@ mermaid.initialize({
         nodeSpacing: 50
     },
     themeVariables: {
-        fontSize: '12px'
+        fontSize: '14px',
+        fontFamily: 'arial',
+        primaryColor: '#60a5fa',
+        primaryTextColor: '#ffffff',
+        primaryBorderColor: '#3b82f6',
+        lineColor: '#ffffff',
+        secondaryColor: '#3b82f6',
+        secondaryTextColor: '#ffffff',
+        secondaryBorderColor: '#60a5fa',
+        tertiaryColor: '#2563eb',
+        tertiaryTextColor: '#ffffff',
+        tertiaryBorderColor: '#60a5fa',
+        background: '#374151',
+        mainBkg: '#60a5fa',
+        secondBkg: '#3b82f6',
+        tertiaryBkg: '#2563eb',
+        mainContrastColor: '#ffffff',
+        darkMode: true,
+        nodeBorder: '#3b82f6',
+        clusterBkg: '#475569',
+        clusterBorder: '#3b82f6',
+        defaultLinkColor: '#ffffff',
+        titleColor: '#ffffff',
+        edgeLabelBackground: '#2563eb',
+        nodeTextColor: '#ffffff',
+        actorBorder: '#3b82f6',
+        actorBkg: '#60a5fa',
+        actorTextColor: '#ffffff',
+        actorLineColor: '#ffffff',
+        signalColor: '#ffffff',
+        signalTextColor: '#ffffff',
+        labelBoxBkgColor: '#2563eb',
+        labelBoxBorderColor: '#60a5fa',
+        labelTextColor: '#ffffff',
+        loopTextColor: '#ffffff',
+        noteBorderColor: '#3b82f6',
+        noteBkgColor: '#60a5fa',
+        noteTextColor: '#ffffff',
+        activationBorderColor: '#3b82f6',
+        activationBkgColor: '#60a5fa',
+        sequenceNumberColor: '#ffffff',
+        sectionBkgColor: '#60a5fa',
+        altSectionBkgColor: '#3b82f6',
+        sectionBkgColor2: '#2563eb',
+        taskBorderColor: '#3b82f6',
+        taskBkgColor: '#60a5fa',
+        taskTextColor: '#ffffff',
+        taskTextOutsideColor: '#ffffff',
+        activeTaskBorderColor: '#3b82f6',
+        activeTaskBkgColor: '#60a5fa',
+        gridColor: '#ffffff',
+        doneTaskBkgColor: '#10b981',
+        doneTaskBorderColor: '#059669',
+        critBkgColor: '#ef4444',
+        critBorderColor: '#dc2626',
+        todayLineColor: '#ffffff',
+        labelColor: '#ffffff',
+        errorBkgColor: '#ef4444',
+        errorTextColor: '#ffffff',
+        classText: '#ffffff',
+        fillType0: '#60a5fa',
+        fillType1: '#3b82f6',
+        fillType2: '#2563eb',
+        fillType3: '#2563eb',
+        fillType4: '#1e40af',
+        fillType5: '#1d4ed8',
+        fillType6: '#93c5fd',
+        fillType7: '#7dd3fc'
     }
 });
 """
@@ -81,7 +148,7 @@ html_theme_options = {
     "logo_only": True,
     "prev_next_buttons_location": "bottom",
     "style_external_links": True,
-    "style_nav_header_background": "#2563eb",
+    "style_nav_header_background": "#1f2937",
     "collapse_navigation": False,
     "sticky_navigation": True,
     "navigation_depth": 3,
@@ -104,7 +171,7 @@ html_logo = "../vocalance/app/assets/logo/logo_full_text_full_size.png"
 html_favicon = None
 
 root_doc = "index"
-pygments_style = "sphinx"
+pygments_style = "monokai"
 
 suppress_warnings = [
     "ref.doc",

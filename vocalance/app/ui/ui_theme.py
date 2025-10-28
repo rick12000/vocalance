@@ -69,11 +69,11 @@ class ShapeColors(BaseModel):
 
     accent: str = "#b4c7c6"
     accent_minus: str = "#9dabaa"
-    lightest: str = "#494e4e"
-    light: str = "#2a2c2c"
-    medium: str = "#202020"
-    dark: str = "#0f0f0f"
-    darkest: str = "#0d0d0d"
+    lightest: str = "#5c5c5c"
+    light: str = "#3f3f3f"
+    medium: str = "#303030"
+    dark: str = "#161616"
+    darkest: str = "#121212"
 
 
 class AccentColors(BaseModel):

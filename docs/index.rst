@@ -19,6 +19,7 @@ Vocalance is a voice command assistant designed for accessibility, featuring on-
    :maxdepth: 1
    :caption: Additional Information
 
+   README
    contact
 
 Quick Start

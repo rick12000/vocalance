@@ -16,6 +16,11 @@ Vocalance offers hands free control of your computer, enabling you to switch tab
 
 ## 🚀 Getting Started
 
+To download Vocalance and find out more about what it can do, refer to the [official website](https://vocalance.com):
+
+<div style="width:100%; display:flex; justify-content:center;">
+  <img src="vocalance/app/assets/repo/website_prompt.png" alt="Vocalance Logo" style="width:100%; max-width:1000px; height:auto;"/>
+</div>
 
 
 ## 💻 Build from Source

@@ -1,6 +1,5 @@
-=============================================
-Vocalance at a Glance
-=============================================
+﻿Vocalance Services Overview
+###########################
 
 Introduction
 ============
@@ -9,6 +8,8 @@ Vocalance is a voice-controlled automation application that transforms spoken co
 This document provides a comprehensive overview of how the application works, from audio capture to command execution.
 
 **Target Audience**: New developers joining the project who need to understand the system architecture and component interactions.
+
+**Document Structure**: This guide follows the voice command processing pipeline sequentially, from microphone input through recognition and parsing to final execution. Supporting infrastructure (event bus, threading, storage) is covered at the end.
 
 System Architecture Overview
 ==============================
@@ -59,8 +60,10 @@ Vocalance processes voice commands through a sequential pipeline from microphone
        T --> AB[Text output]
 
 
-Layer 1: Audio Capture & Voice Activity Detection
-===================================================
+Audio Capture & Voice Activity Detection
+==========================================
+
+The foundation of Vocalance is its audio capture system, which continuously monitors microphone input and detects when speech occurs. This section covers the voice activity detection engine and the dual-recorder coordination system.
 
 AudioRecorder: The Voice Detection Engine
 -------------------------------------------
@@ -131,9 +134,8 @@ The recorder updates its noise floor estimate to handle varying acoustic environ
 
 When enough low-energy samples are collected, the noise floor is recalculated, and thresholds can be adapted if the environment is consistently noisy.
 
-
-AudioService: Dual-Recorder Management
-----------------------------------------------
+AudioService: Dual-Recorder Coordination
+------------------------------------------
 
 The ``AudioService`` coordinates two ``AudioRecorder`` instances running simultaneously in separate threads:
 
@@ -195,8 +197,10 @@ This sequence diagram illustrates the complete event flow when switching between
        Note over CmdRec,DictRec: Back to: Command Mode
 
 
-Layer 2: Speech-to-Text Processing
-====================================
+Speech-to-Text Processing
+===========================
+
+Once audio is captured, it must be converted to text. Vocalance uses a dual-engine approach: a fast Vosk engine for commands and an accurate Whisper engine for dictation. This section also covers auxiliary recognition systems for non-speech sounds and predictive execution.
 
 SpeechToTextService: Dual-Engine Recognition
 ----------------------------------------------
@@ -263,21 +267,20 @@ The service uses a ``DuplicateTextFilter`` to prevent duplicate recognition resu
 - Duplicate threshold: 1000ms
 - If same text seen within threshold, marked as duplicate and ignored
 
-
-Layer 2b: Sound Recognition
-===============================================
-
-SoundService: YAMNet-Based Classification
------------------------------------------------------
+Sound Recognition for Non-Speech Audio
+----------------------------------------
 
 When Vosk returns empty (no speech detected), the ``SpeechToTextService`` publishes a ``ProcessAudioChunkForSoundRecognitionEvent``. The ``SoundService`` handles non-speech audio like finger snaps, whistles, or clicks.
+
+YAMNet-Based Classification
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The service uses Google's pre-trained YAMNet model to convert audio into a 1024-dimensional embedding vector. During **training**, the user records multiple samples of a custom sound (e.g., finger snap), and the service collects these embeddings to train a KNN classifier. The classifier also includes pre-trained embeddings from the ESC-50 dataset (keyboard typing, mouse clicks, coughing, etc.) which serve as **negative labels** - they help the classifier distinguish what is NOT the target sound.
 
 At **prediction time**, when audio arrives, YAMNet generates an embedding and the KNN classifier finds the closest match. If the match is a custom sound (not one of the ESC-50 negative examples), the service looks up its command mapping and publishes a ``CustomSoundRecognizedEvent`` with the corresponding command text. The parser then treats this like any other recognized text.
 
-Recognition Flow
-~~~~~~~~~~~~~~~~
+Training and Recognition Flow
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This flowchart shows two operational modes: training (collecting samples to build the classifier) and recognition (identifying sounds in real-time):
 
@@ -316,21 +319,20 @@ After training, users can map sounds to command phrases in the UI. For example:
 
 When a sound is recognized, its mapped command text is published as a ``CustomSoundRecognizedEvent``. The ``CentralizedCommandParser`` treats this like STT text and parses it into a command.
 
-
-Layer 2c: Predictive Execution (Markov Chains)
-===============================================
-
-MarkovCommandService: Zero-Latency Prediction
------------------------------------------------
+Predictive Execution with Markov Chains
+-----------------------------------------
 
 The ``MarkovCommandService`` predicts and executes commands before STT completes, reducing perceived latency to near-zero for repetitive workflows.
+
+Zero-Latency Command Prediction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **The Problem**: Even Vosk's fast recognition takes 50-200ms + silence timeout of 180ms. For rapid command sequences, this latency is noticeable.
 
 **The Solution**: When audio is *detected* (not yet recognized), predict the most likely command based on recent history and execute immediately.
 
-Prediction Trigger
-~~~~~~~~~~~~~~~~~~
+How Prediction Works
+~~~~~~~~~~~~~~~~~~~~~
 
 The command recorder publishes ``AudioDetectedEvent`` as soon as speech energy exceeds the threshold (~5-10ms into speech). This triggers the predictor before any STT processing:
 
@@ -375,8 +377,8 @@ Configuration parameters from ``MarkovPredictorConfig``:
    training_window_days: {2: 7, 3: 21, 4: 60}  # Days of history per order
    min_command_frequency: {2: 15, 3: 10, 4: 10}  # Min occurrences to trust pattern
 
-Cooldown on Incorrect Predictions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Error Handling and Safeguards
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When a prediction is wrong, a cooldown is applied:
 
@@ -392,10 +394,7 @@ When a prediction is wrong, a cooldown is applied:
 
 This prevents repeated mispredictions from distributional shifts (eg. user changes pattern, or website layout changes, etc...)
 
-Dictation Mode Safeguard
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-CRITICAL: The predictor disables itself during dictation mode:
+The predictor also disables itself during dictation mode:
 
 .. code-block:: python
 
@@ -414,8 +413,10 @@ CRITICAL: The predictor disables itself during dictation mode:
 The service subscribes to ``DictationModeDisableOthersEvent`` to track dictation state.
 
 
-Layer 3: Command Parsing
-=========================
+Command Parsing
+================
+
+After text is recognized (via STT, sound recognition, or Markov prediction), it must be converted into structured commands that execution services can act upon. The command parser also routes dictation text to the dictation system.
 
 CentralizedCommandParser: Text to Structured Commands
 -------------------------------------------------------
@@ -429,9 +430,12 @@ The parser subscribes to three event types:
 3. ``CustomSoundRecognizedEvent``: Mapped command text from sound recognition
 4. ``MarkovPredictionEvent``: Predicted command text from Markov service
 
+Deduplication Mechanisms
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
 The parser prevents double-execution through two layers:
 
-**Layer 1: Text Deduplication**
+**Text Deduplication**
 
 .. code-block:: python
 
@@ -446,7 +450,7 @@ The parser prevents double-execution through two layers:
 
 Prevents identical text within 1 second from being processed twice (default ``_duplicate_interval``).
 
-**Layer 2: Markov-STT Deduplication**
+**Markov-STT Deduplication**
 
 When Markov predicts and executes a command, it's added to ``_recent_predictions`` dict. When the STT result arrives:
 
@@ -515,12 +519,10 @@ Only valid commands are recorded to history (for Markov training):
        await self._event_bus.publish(CommandNoMatchEvent(...))
 
 
-Layer 3b: Dictation System
-===========================
+Dictation System
+=================
 
-Dictation is a core feature that converts continuous speech into typed text, with three distinct modes for different use cases.
-
-The Command Parser (Layer 3) identifies dictation commands ("dictate", "type", "smart dictate") and routes them to the DictationCoordinator. Dictation represents an alternative execution path—instead of automation commands going to AutomationService, dictation commands activate a separate text input pipeline. This makes it a parallel branch from Layer 3, hence "3b".
+Dictation is a core feature that converts continuous speech into typed text, with three distinct modes for different use cases. When the Command Parser identifies dictation commands ("dictate", "type", "smart dictate"), it routes them to the DictationCoordinator, which represents an alternative execution path parallel to automation commands.
 
 DictationCoordinator: The Orchestrator
 ---------------------------------------
@@ -691,8 +693,10 @@ This diagram shows the more complex flow where text is accumulated, then enhance
        Coord->>STT: DictationModeDisableOthersEvent(active=False)
 
 
-Layer 4: Command Execution
-===========================
+Command Execution
+==================
+
+The final stage of the pipeline executes the parsed commands by performing keyboard input, mouse clicks, or other automation actions.
 
 AutomationService: Keyboard & Mouse Control
 --------------------------------------------
@@ -780,16 +784,19 @@ PyAutoGUI is synchronous and blocks during execution. To avoid blocking the asyn
 
 The ``_execution_lock`` ensures only one automation command executes at a time.
 
-Infrastructure: Event Bus & Threading
-=======================================
 
-EventBus: Asynchronous Message Broker
---------------------------------------
+Infrastructure & Supporting Systems
+=====================================
 
-All Vocalance services communicate via the ``EventBus``, a priority queue-based message broker.
+The preceding sections covered the voice command processing pipeline. This section describes the infrastructure that enables inter-service communication, manages concurrency, and provides data persistence.
 
-Architecture
-~~~~~~~~~~~~
+Event Bus
+----------
+
+All Vocalance services communicate via the ``EventBus``, a priority queue-based message broker that enables loose coupling between components.
+
+Architecture and Design
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 The EventBus acts as a central message broker. Publishers can be on any thread, but all subscribers run in the GUI event loop thread. This diagram shows the publish-subscribe architecture:
 
@@ -851,8 +858,8 @@ Subscribing to Events
 
 Subscribers are matched via ``isinstance()`` check, allowing inheritance-based subscriptions.
 
-Threading Architecture
-----------------------
+Threading Model
+----------------
 
 Vocalance uses multiple threads to prevent blocking and maintain responsiveness.
 
@@ -950,14 +957,13 @@ Cross-Thread Communication
            self._main_event_loop  # GUI event loop
        )
 
-
-Async Programming Patterns
-===========================
+Asynchronous Programming Patterns
+-----------------------------------
 
 Vocalance uses ``async/await`` to manage I/O-bound operations without blocking. Understanding these patterns is critical for maintaining system responsiveness and preventing deadlocks.
 
 The Hybrid Pattern
-------------------
+~~~~~~~~~~~~~~~~~~~
 
 Most services use an "async shell, sync core" pattern to offload blocking work. The async wrapper provides a non-blocking interface, while the sync core does the actual work in a thread pool:
 
@@ -981,8 +987,8 @@ Most services use an "async shell, sync core" pattern to offload blocking work. 
 
 This keeps the event loop responsive while CPU-bound work runs in a thread pool.
 
-Key Rules
----------
+Best Practices
+~~~~~~~~~~~~~~~
 
 **Rule 1**: Never block the event loop with CPU-bound or I/O operations
 
@@ -1008,9 +1014,8 @@ Key Rules
            self._gui_event_loop
        )
 
-
-Data Persistence: StorageService
-==================================
+Data Persistence
+-----------------
 
 The ``StorageService`` provides crash-safe, thread-safe file persistence for application data.
 
@@ -1023,7 +1028,7 @@ The ``StorageService`` provides crash-safe, thread-safe file persistence for app
 - **Thread-safe**: RLock protects cache access
 
 Atomic Write Pattern
---------------------
+~~~~~~~~~~~~~~~~~~~~~
 
 Writes are atomic at the OS level to prevent corruption. The pattern uses a temp file + atomic rename to ensure that either the complete old file or complete new file exists, never a partially-written file:
 
@@ -1052,7 +1057,7 @@ Writes are atomic at the OS level to prevent corruption. The pattern uses a temp
 If the process crashes mid-write, either the old file or new file exists (never corrupted).
 
 Caching Strategy
-----------------
+~~~~~~~~~~~~~~~~~
 
 The service caches read data with TTL expiration:
 
