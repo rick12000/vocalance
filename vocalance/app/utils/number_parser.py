@@ -1,5 +1,10 @@
-"""Number parsing utilities for converting text numbers to integers."""
+"""Utility functions for parsing spoken numbers to integers.
 
+Provides robust number parsing from text, handling numeric strings ('123'),
+number words ('four hundred nine'), homophones ('won' -> 'one'), digit sequences
+('four zero nine' -> '409'), conjunctions, and ordinals with multi-stage pipeline
+processing and range validation.
+"""
 import logging
 from typing import Dict, Optional, Set
 

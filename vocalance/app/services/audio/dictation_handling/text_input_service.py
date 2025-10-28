@@ -1,25 +1,3 @@
-"""
-Text Input Service Module
-
-Provides text input functionality for dictation modes with smart text processing:
-- Clipboard-based and keyboard-based text input
-- Text cleaning utilities (ellipsis removal, spacing)
-- Formatting removal (punctuation, capitalization)
-- Period concatenation logic for proper sentence joining
-- Smart capitalization rules for proper mid-sentence case
-- Thread-safe operation
-
-Utility Functions:
-    clean_dictation_text: Remove ellipsis and add trailing spaces
-    should_remove_previous_period: Check if period needs removal when joining segments
-    should_lowercase_current_start: Check if current text's first letter should be lowercased
-    get_trailing_whitespace_count: Calculate trailing whitespace for precise deletion
-    lowercase_first_letter: Lowercase the first character of text
-    remove_formatting: Remove punctuation and apply lowercase (when formatting disabled)
-
-Classes:
-    TextInputService: Main service for text input operations
-"""
 import asyncio
 import logging
 import re

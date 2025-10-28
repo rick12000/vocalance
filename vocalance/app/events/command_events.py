@@ -13,11 +13,15 @@ from vocalance.app.events.base_event import BaseEvent, EventPriority
 
 
 class BaseCommandEvent(BaseEvent):
-    """Base event for all parsed command types.
+    """Base event for all parsed command types with source tracking and context.
+
+    Parent class for events representing successfully parsed commands of any type
+    (dictation, automation, mark, grid, sound). Provides common fields for tracking
+    command origin (STT, sound recognition, Markov prediction) and associated metadata.
 
     Attributes:
-        source: Source of the command (stt, sound, markov, etc.).
-        context: Optional context data about the command.
+        source: Command origin identifier (e.g., 'stt', 'sound', 'markov', 'user').
+        context: Optional dictionary containing additional command metadata.
     """
 
     source: Optional[str] = None

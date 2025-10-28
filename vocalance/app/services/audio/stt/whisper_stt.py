@@ -14,10 +14,34 @@ from vocalance.app.config.app_config import GlobalAppConfig
 logger = logging.getLogger(__name__)
 
 
-class WhisperSpeechToText:
-    """Faster-Whisper STT engine optimized for dictation accuracy with normalization."""
+class WhisperSTT:
+    """Faster-Whisper STT engine optimized for dictation accuracy with normalization.
+
+    Wraps faster-whisper library for high-accuracy transcription with retry logic,
+    model download management, and extensive text normalization. Uses dynamic beam
+    sizing and advanced transcription options to balance speed and accuracy for
+    dictation mode.
+
+    Attributes:
+        _model: Loaded WhisperModel instance.
+        _model_lock: Asyncio lock ensuring thread-safe recognition.
+        _beam_size: Beam search width for decoding.
+        _temperature: Sampling temperature for generation.
+        _no_speech_threshold: Threshold for no-speech detection.
+    """
 
     def __init__(self, model_name: str, device: str, sample_rate: int, config: GlobalAppConfig) -> None:
+        """Initialize Whisper STT engine with model and configuration.
+
+        Downloads model if necessary, performs warm-up inference, and configures
+        transcription parameters from global config.
+
+        Args:
+            model_name: Whisper model identifier (e.g., "tiny", "base", "small").
+            device: Compute device ("cpu" or "cuda").
+            sample_rate: Audio sample rate in Hz.
+            config: Global application configuration.
+        """
         self._model_name = model_name
         self._device = device
         self._sample_rate = sample_rate
@@ -44,7 +68,14 @@ class WhisperSpeechToText:
         logger.debug(f"Initialized faster-whisper: {model_name}, device: {device}")
 
     def _load_model_with_retry(self) -> None:
-        """Load Whisper model with retry logic and permanent storage."""
+        """Load Whisper model with retry logic and permanent storage.
+
+        Downloads model to user_data_root if not present, retries on failure with
+        exponential backoff configured via max_retries and retry_delay_seconds.
+
+        Raises:
+            RuntimeError: If model loading fails after all retry attempts.
+        """
         for attempt in range(1, self._max_retries + 1):
             try:
                 logger.debug(f"Loading faster-whisper model: {self._model_name} (attempt {attempt}/{self._max_retries})")
@@ -70,6 +101,11 @@ class WhisperSpeechToText:
                     raise RuntimeError(f"Failed to load Whisper model after {self._max_retries} attempts")
 
     def _warm_up_model(self) -> None:
+        """Warm up model with dummy inference to optimize first real transcription.
+
+        Runs a quick transcription on silent audio to load model into memory and
+        optimize inference latency for subsequent calls.
+        """
         try:
             logger.debug("Warming up faster-whisper model...")
             dummy_audio = np.zeros(16000, dtype=np.float32)
@@ -80,6 +116,14 @@ class WhisperSpeechToText:
             logger.warning(f"Failed to warm up model: {e}")
 
     def _get_transcription_options(self, audio_duration: float) -> Dict[str, Any]:
+        """Get transcription options dynamically adjusted for audio duration.
+
+        Args:
+            audio_duration: Duration of audio segment in seconds.
+
+        Returns:
+            Dictionary of transcription options for faster-whisper.
+        """
         options = {
             "language": "en",
             "beam_size": self._beam_size,
@@ -96,10 +140,26 @@ class WhisperSpeechToText:
         return options
 
     def _prepare_audio(self, audio_bytes: bytes) -> np.ndarray:
+        """Convert raw audio bytes to float32 numpy array normalized to [-1, 1].
+
+        Args:
+            audio_bytes: Raw 16-bit PCM audio data.
+
+        Returns:
+            Float32 numpy array normalized for Whisper input.
+        """
         audio_np = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         return audio_np
 
     def _extract_text_from_segments(self, segments: List[Any]) -> Tuple[str, float]:
+        """Extract and combine text from Whisper segments with confidence scoring.
+
+        Args:
+            segments: List of Whisper segment objects from transcription.
+
+        Returns:
+            Tuple of (combined text, average confidence score).
+        """
         all_text_parts = []
         total_confidence = 0.0
         segment_count = 0
@@ -124,6 +184,15 @@ class WhisperSpeechToText:
         return combined_text, avg_confidence
 
     def recognize_sync(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
+        """Synchronous speech recognition with Whisper and text normalization.
+
+        Args:
+            audio_bytes: Raw audio data to transcribe.
+            sample_rate: Optional sample rate override.
+
+        Returns:
+            Normalized recognized text string, or empty string if no speech detected.
+        """
         if sample_rate and sample_rate != self._sample_rate:
             logger.warning(f"Sample rate mismatch. Expected {self._sample_rate}, got {sample_rate}")
 
@@ -156,10 +225,30 @@ class WhisperSpeechToText:
         return recognized_text
 
     async def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
+        """Async speech recognition wrapper with thread-safe execution.
+
+        Args:
+            audio_bytes: Raw audio data to transcribe.
+            sample_rate: Optional sample rate override.
+
+        Returns:
+            Normalized recognized text string.
+        """
         async with self._model_lock:
             return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
 
     def _normalize_text(self, text: str) -> str:
+        """Normalize transcribed text by removing filler words and duplicates.
+
+        Removes leading/trailing fillers (um, uh, like, so), collapses whitespace,
+        and removes consecutive duplicate words for cleaner dictation output.
+
+        Args:
+            text: Raw transcribed text.
+
+        Returns:
+            Normalized text string.
+        """
         if not text:
             return ""
 
@@ -182,13 +271,19 @@ class WhisperSpeechToText:
         return text.strip()
 
     async def reset_context(self) -> None:
+        """Reset Whisper context and text cache for fresh transcription state."""
         async with self._model_lock:
             if hasattr(self, "_text_cache"):
                 self._text_cache.clear()
             logger.debug("Whisper context and cache reset")
 
     async def shutdown(self) -> None:
-        logger.info("Shutting down WhisperSpeechToText")
+        """Shutdown Whisper engine and release all model resources.
+
+        Unloads model if supported, deletes references to noise samples and cached
+        results, and runs garbage collection to free memory immediately.
+        """
+        logger.info("Shutting down WhisperSTT")
 
         async with self._model_lock:
             if hasattr(self, "_model") and self._model is not None:
@@ -206,4 +301,4 @@ class WhisperSpeechToText:
                 self._last_result = None
 
         gc.collect()
-        logger.info("WhisperSpeechToText shutdown complete")
+        logger.info("WhisperSTT shutdown complete")

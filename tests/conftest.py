@@ -1,9 +1,3 @@
-"""
-Test fixtures for sound recognition and audio flow tests.
-
-Provides isolated fixtures for testing sound recognition components
-and audio flow integration without dependencies on external storage or persistent state.
-"""
 import os
 
 # Add vocalance to path for imports
@@ -20,8 +14,8 @@ import soundfile as sf
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
-from vocalance.app.services.audio.stt.vosk_stt import EnhancedVoskSTT
-from vocalance.app.services.audio.stt.whisper_stt import WhisperSpeechToText
+from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
+from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -277,9 +271,9 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     monkeypatch.setattr("vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer.tf", tf_mock)
 
     # Import after mocking
-    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
+    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
 
-    recognizer = StreamlinedSoundRecognizer(config=mock_config, storage=mock_storage_factory)
+    recognizer = SoundRecognizer(config=mock_config, storage=mock_storage_factory)
     recognizer.yamnet_model = mock_yamnet_model
 
     return recognizer
@@ -300,7 +294,7 @@ def stt_config():
 @pytest.fixture
 def vosk_stt(vosk_model_path, sample_rate, stt_config):
     """Initialize Vosk STT instance."""
-    return EnhancedVoskSTT(model_path=vosk_model_path, sample_rate=sample_rate, config=stt_config)
+    return VoskSTT(model_path=vosk_model_path, sample_rate=sample_rate, config=stt_config)
 
 
 @pytest.fixture
@@ -319,7 +313,7 @@ def vosk_test_files(audio_samples_path):
 @pytest.fixture
 def whisper_stt(sample_rate, stt_config):
     """Initialize Whisper STT instance."""
-    return WhisperSpeechToText(model_name="base", device="cpu", sample_rate=sample_rate, config=stt_config)
+    return WhisperSTT(model_name="base", device="cpu", sample_rate=sample_rate, config=stt_config)
 
 
 @pytest.fixture
@@ -455,9 +449,9 @@ def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, stt_config):
     with patch("vocalance.app.services.audio.stt.vosk_stt.vosk.Model", return_value=mock_vosk_model), patch(
         "vocalance.app.services.audio.stt.vosk_stt.vosk.KaldiRecognizer", return_value=mock_vosk_recognizer
     ):
-        from vocalance.app.services.audio.stt.vosk_stt import EnhancedVoskSTT
+        from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
 
-        instance = EnhancedVoskSTT(model_path="fake_model_path", sample_rate=16000, config=stt_config)
+        instance = VoskSTT(model_path="fake_model_path", sample_rate=16000, config=stt_config)
         instance._recognizer = mock_vosk_recognizer
         return instance
 
@@ -482,9 +476,9 @@ def mock_whisper_model():
 def whisper_stt_instance(mock_whisper_model, stt_config):
     """Create Whisper STT instance with mocked dependencies."""
     with patch("vocalance.app.services.audio.stt.whisper_stt.WhisperModel", return_value=mock_whisper_model):
-        from vocalance.app.services.audio.stt.whisper_stt import WhisperSpeechToText
+        from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
 
-        instance = WhisperSpeechToText(model_name="base", device="cpu", sample_rate=16000, config=stt_config)
+        instance = WhisperSTT(model_name="base", device="cpu", sample_rate=16000, config=stt_config)
         instance._model = mock_whisper_model
         return instance
 

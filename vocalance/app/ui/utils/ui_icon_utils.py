@@ -1,9 +1,3 @@
-"""
-UI Icon Utilities
-
-Simple icon management for CustomTkinter windows.
-"""
-
 import ctypes
 import logging
 import sys

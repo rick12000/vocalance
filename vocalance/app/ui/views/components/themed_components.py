@@ -1,8 +1,3 @@
-"""
-Themed UI Components for Vocalance Control Room
-Pre-configured CustomTkinter widgets with design attributes
-"""
-
 import logging
 import tkinter.font as tkFont
 from pathlib import Path

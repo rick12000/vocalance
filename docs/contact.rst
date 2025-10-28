@@ -1,7 +1,7 @@
 Contact
 =======
 
-We welcome feedback, questions, and contributions.
+We welcome feedback and contributions!
 
-* **Issues & Bug Reports**: https://github.com/rick12000/vocalance/issues
-* **Developer Contact**: riccardo.doyle.edu@gmail.com
+* **Bug Reports**: https://github.com/rick12000/vocalance/issues
+* **Feedback or Questions**: vocalance.contact@gmail.com

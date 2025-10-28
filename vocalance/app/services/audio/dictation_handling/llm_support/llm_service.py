@@ -1,11 +1,3 @@
-"""
-Streamlined LLM Service using llama-cpp-python native capabilities.
-
-Relies entirely on llama-cpp-python's built-in:
-- Chat completion API with automatic formatting
-- Native tokenization and output handling
-- Optimized streaming
-"""
 import asyncio
 import gc
 import logging
@@ -24,9 +16,26 @@ logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """High-performance LLM service optimized for speed and quality with proper resource management"""
+    """High-performance LLM service optimized for speed and quality with proper resource management.
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
+    Manages local LLM model (llama.cpp) for smart dictation formatting and editing.
+    Handles model downloading, loading with performance optimizations (threading, GPU
+    layers, flash attention), warm-up, streaming generation, and resource cleanup.
+
+    Attributes:
+        llm: Loaded Llama model instance.
+        _model_loaded: Flag indicating successful model load.
+        _warmed_up: Flag indicating model warm-up completion.
+        model_downloader: LLMModelDownloader for model acquisition.
+    """
+
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
+        """Initialize LLM service with configuration.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration.
+        """
         self.event_bus = event_bus
         self.config = config
         self.llm: Optional[Llama] = None
@@ -45,7 +54,14 @@ class LLMService:
         logger.debug(f"LLMService initialized: {self.model_filename}")
 
     async def initialize(self) -> bool:
-        """Initialize LLM model with atomic download and retry logic"""
+        """Initialize LLM model with atomic download and retry logic.
+
+        Downloads model if not present, loads with performance optimizations, and
+        performs warm-up inference to prepare for real requests.
+
+        Returns:
+            True if initialization and warm-up successful, False otherwise.
+        """
         try:
             if not self.model_downloader.model_exists(self.model_filename):
                 logger.debug(f"Downloading model: {self.model_filename}")
@@ -83,7 +99,17 @@ class LLMService:
             return False
 
     def _load_model(self, model_path: str) -> Optional[Llama]:
-        """Load model with performance-optimized settings"""
+        """Load model with performance-optimized settings.
+
+        Configures llama.cpp with threading, GPU layers, flash attention, quantization
+        types, and memory mapping for optimal inference performance.
+
+        Args:
+            model_path: Path to GGUF model file.
+
+        Returns:
+            Loaded Llama model instance if successful, None otherwise.
+        """
         try:
             cfg = self.config.llm
             model = Llama(

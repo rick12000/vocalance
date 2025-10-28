@@ -1,10 +1,3 @@
-"""
-Settings Update Coordinator
-
-Centralized service for coordinating real-time settings updates across all services.
-All settings changes flow through this coordinator to ensure consistent updates.
-"""
-
 import logging
 from typing import Any, Dict
 
@@ -52,7 +45,7 @@ class SettingsUpdateCoordinator:
 
         Services must implement specific update methods for their settings:
         - MarkovCommandService: update_confidence_threshold(float)
-        - StreamlinedSoundRecognizer: update_confidence_threshold(float), update_vote_threshold(float)
+        - SoundRecognizer: update_confidence_threshold(float), update_vote_threshold(float)
         """
         self._service_registry[service_name] = service_instance
         logger.debug(f"Registered service for settings updates: {service_name}")

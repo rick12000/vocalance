@@ -13,10 +13,20 @@ class CommandActionMapProvider:
     """Centralized provider for automation command action maps.
 
     Single source of truth for building the complete command map from custom
-    commands and default commands with phrase overrides.
+    commands and default commands with phrase overrides. Merges custom commands
+    with defaults, applies phrase overrides for default commands, and returns
+    normalized command map for parser use.
+
+    Attributes:
+        _storage: Storage service for accessing custom commands and overrides.
     """
 
     def __init__(self, storage: StorageService) -> None:
+        """Initialize provider with storage service.
+
+        Args:
+            storage: Storage service for command data access.
+        """
         self._storage: StorageService = storage
         logger.debug("CommandActionMapProvider initialized")
 

@@ -1,8 +1,3 @@
-"""
-Command edit dialog with 2-tile structure for editing and deleting commands.
-Replaces the simple text input with a comprehensive themed dialog.
-"""
-
 import logging
 import tkinter as tk
 from typing import Optional, Tuple

@@ -21,10 +21,22 @@ class AutomationService:
 
     Processes automation commands through pyautogui, manages execution timing
     with per-command cooldowns, and provides async-safe execution with status
-    reporting through the event bus.
+    reporting through the event bus. Uses thread pool executor to avoid blocking
+    the async event loop during pyautogui operations.
+
+    Attributes:
+        _thread_pool: ThreadPoolExecutor for executing pyautogui calls.
+        _execution_lock: Async lock preventing concurrent command execution.
+        _cooldown_timers: Dict tracking last execution time per command key.
     """
 
     def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig) -> None:
+        """Initialize automation service with event bus and configuration.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            app_config: Global application configuration.
+        """
         self._event_bus: EventBus = event_bus
         self._app_config: GlobalAppConfig = app_config
         self._thread_pool: ThreadPoolExecutor = ThreadPoolExecutor(

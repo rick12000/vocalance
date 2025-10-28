@@ -19,16 +19,33 @@ from vocalance.app.services.audio.recorder import AudioRecorder
 logger = logging.getLogger(__name__)
 
 
-class SimpleAudioService:
+class AudioService:
     """Dual-recorder audio service with independent command and dictation streams.
 
-    Manages separate optimized recorders for command (speed) and dictation (accuracy)
-    modes with mode-based activation control for efficient resource usage.
+    Manages two concurrent AudioRecorder instances optimized for different use cases:
+    command recorder (low-latency, short utterances) and dictation recorder (longer
+    duration, more tolerant of pauses). Dynamically activates/deactivates recorders
+    based on mode to minimize resource usage. Publishes audio segment events to the
+    event bus for downstream STT processing. Handles mode switching between command
+    and dictation via event subscriptions.
+
+    Attributes:
+        _command_recorder: AudioRecorder optimized for command mode.
+        _dictation_recorder: AudioRecorder optimized for dictation mode.
+        _is_dictation_mode: Current mode flag (True=dictation, False=command).
+        _main_event_loop: Asyncio event loop for publishing events from recorder threads.
     """
 
     def __init__(
         self, event_bus: EventBus, config: GlobalAppConfig, main_event_loop: Optional[asyncio.AbstractEventLoop] = None
     ) -> None:
+        """Initialize audio service with dual recorders and event bus integration.
+
+        Args:
+            event_bus: EventBus for publishing audio segment events.
+            config: Global application configuration with audio and VAD settings.
+            main_event_loop: Optional asyncio event loop for thread-safe event publishing.
+        """
         self._event_bus = event_bus
         self._config = config
 
@@ -48,9 +65,17 @@ class SimpleAudioService:
         self._is_processing = False
         self._initialize_recorders()
 
-        logger.debug("SimpleAudioService initialized with dual independent recorders")
+        logger.debug("AudioService initialized with dual independent recorders")
 
     def _initialize_recorders(self) -> None:
+        """Initialize both command and dictation audio recorders with callbacks.
+
+        Creates two AudioRecorder instances with mode-specific configurations and
+        registers callbacks for handling captured audio segments.
+
+        Raises:
+            Exception: If recorder initialization fails (propagated from AudioRecorder).
+        """
         try:
             self._command_recorder = AudioRecorder(
                 app_config=self._config,
@@ -70,6 +95,11 @@ class SimpleAudioService:
             raise
 
     def _on_command_audio_segment(self, segment_bytes: bytes) -> None:
+        """Callback invoked when command recorder captures a complete audio segment.
+
+        Args:
+            segment_bytes: Raw audio bytes from the command recorder.
+        """
         try:
             event = CommandAudioSegmentReadyEvent(audio_bytes=segment_bytes, sample_rate=self._config.audio.sample_rate)
             self._publish_audio_event(event)
@@ -78,6 +108,11 @@ class SimpleAudioService:
             logger.error(f"Error handling command audio: {e}")
 
     def _on_dictation_audio_segment(self, segment_bytes: bytes) -> None:
+        """Callback invoked when dictation recorder captures a complete audio segment.
+
+        Args:
+            segment_bytes: Raw audio bytes from the dictation recorder.
+        """
         try:
             logger.info(f"Publishing dictation audio segment: {len(segment_bytes)} bytes at {self._config.audio.sample_rate}Hz")
             event = DictationAudioSegmentReadyEvent(audio_bytes=segment_bytes, sample_rate=self._config.audio.sample_rate)
@@ -87,6 +122,10 @@ class SimpleAudioService:
             logger.error(f"Error handling dictation audio: {e}", exc_info=True)
 
     def _on_audio_detected(self) -> None:
+        """Callback invoked immediately when command recorder detects speech onset.
+
+        Used for triggering Markov prediction before STT completes.
+        """
         try:
             event = AudioDetectedEvent(timestamp=time.time())
             self._publish_audio_event(event)
@@ -94,6 +133,14 @@ class SimpleAudioService:
             logger.error(f"Error handling audio detected: {e}")
 
     def _publish_audio_event(self, event_data: BaseEvent) -> None:
+        """Publish event to event bus from recorder thread in a thread-safe manner.
+
+        Uses run_coroutine_threadsafe to safely publish events from recorder threads
+        to the main event loop. Handles closed event loops gracefully.
+
+        Args:
+            event_data: Event instance to publish.
+        """
         if not self._main_event_loop or self._main_event_loop.is_closed():
             return
 
@@ -103,13 +150,22 @@ class SimpleAudioService:
             logger.debug(f"Event loop closed while publishing event: {e}")
 
     def init_listeners(self) -> None:
+        """Register event subscriptions for audio service control.
+
+        Subscribes to recording trigger and audio mode change events for controlling
+        recorder behavior during runtime.
+        """
         self._event_bus.subscribe(event_type=RecordingTriggerEvent, handler=self._handle_recording_trigger)
         self._event_bus.subscribe(event_type=AudioModeChangeRequestEvent, handler=self._handle_audio_mode_change_request)
 
         logger.info("Audio service event subscriptions configured")
 
-    async def _handle_recording_trigger(self, event: RecordingTriggerEvent):
-        """Handle recording trigger event - recorders already running continuously"""
+    async def _handle_recording_trigger(self, event: RecordingTriggerEvent) -> None:
+        """Handle recording trigger event (legacy - recorders run continuously).
+
+        Args:
+            event: Recording trigger event with start/stop command.
+        """
         if event.trigger == "start":
             logger.info("Start recording command received - recorders already active")
         elif event.trigger == "stop":
@@ -117,8 +173,16 @@ class SimpleAudioService:
         else:
             logger.warning(f"Unknown recording trigger: {event.trigger}")
 
-    async def _handle_audio_mode_change_request(self, event: AudioModeChangeRequestEvent):
-        """Handle audio mode change requests - switches between command and dictation modes"""
+    async def _handle_audio_mode_change_request(self, event: AudioModeChangeRequestEvent) -> None:
+        """Handle audio mode change requests between command and dictation modes.
+
+        Switches recorder activation states based on requested mode: command mode
+        activates only command recorder, dictation mode activates both recorders
+        to enable stop word detection during dictation.
+
+        Args:
+            event: Audio mode change request event with target mode and reason.
+        """
         try:
             logger.info(f"Audio mode change request received: mode={event.mode}, reason={event.reason}")
 
@@ -144,6 +208,11 @@ class SimpleAudioService:
             logger.error(f"Error handling audio mode change request: {e}", exc_info=True)
 
     def start_processing(self) -> None:
+        """Start both audio recorders and configure initial activation state.
+
+        Starts both command and dictation recorder threads, then sets their activation
+        states based on current mode (command mode = command only, dictation mode = both).
+        """
         try:
             logger.info("Starting audio processing with dual recorders")
 
@@ -173,7 +242,11 @@ class SimpleAudioService:
             raise
 
     def stop_processing(self) -> None:
-        """Stop audio processing - properly cleans up recorder threads"""
+        """Stop both audio recorders and clean up their threads.
+
+        Signals both recorders to stop, waits for thread termination, and releases
+        audio stream resources. Thread-safe operation.
+        """
         try:
             logger.info("Stopping audio processing")
 
@@ -188,7 +261,11 @@ class SimpleAudioService:
             logger.error(f"Error stopping audio processing: {e}", exc_info=True)
 
     async def shutdown(self) -> None:
-        """Shutdown audio service with proper resource cleanup"""
+        """Shutdown audio service with complete resource cleanup.
+
+        Stops all recorders, waits for thread termination, and releases recorder
+        references to enable garbage collection. Safe to call multiple times.
+        """
         try:
             logger.info("Shutting down audio service")
             self.stop_processing()
@@ -203,10 +280,22 @@ class SimpleAudioService:
             logger.error(f"Error during audio service shutdown: {e}", exc_info=True)
 
     def setup_subscriptions(self) -> None:
+        """Setup event subscriptions for the audio service.
+
+        Delegates to init_listeners() for backward compatibility. Called by main
+        initialization sequence after all services are created.
+        """
         self.init_listeners()
 
     def on_dictation_silent_chunks_updated(self, chunks: int) -> None:
-        """Update dictation silent chunks threshold in real-time"""
+        """Update dictation silent chunks threshold dynamically during runtime.
+
+        Allows real-time adjustment of silence detection sensitivity in dictation mode,
+        forwarding the update to the dictation recorder instance.
+
+        Args:
+            chunks: New number of consecutive silent chunks required to end recording.
+        """
         with self._lock:
             if self._dictation_recorder:
                 self._dictation_recorder.update_dictation_silent_chunks(chunks)

@@ -1,5 +1,9 @@
-"""Thread-safe event publishing utilities."""
+"""Utility classes and decorators for thread-safe event handling.
 
+Provides ThreadSafeEventPublisher for cross-thread event publishing using
+asyncio.run_coroutine_threadsafe, EventSubscriptionManager for tracking and
+cleanup of subscriptions, and decorators for error-handling event handlers.
+"""
 import asyncio
 import logging
 from collections import defaultdict
@@ -13,7 +17,17 @@ logger = logging.getLogger(__name__)
 
 
 class ThreadSafeEventPublisher:
-    """Utility class for thread-safe event publishing."""
+    """Utility class for thread-safe event publishing from any thread.
+
+    Uses asyncio.run_coroutine_threadsafe to safely publish events to the event
+    bus from UI threads or background threads. Automatically detects event loop
+    and handles errors gracefully.
+
+    Attributes:
+        event_bus: EventBus instance for publishing.
+        event_loop: Optional cached event loop reference.
+        subscriptions: Dict tracking subscriptions for cleanup.
+    """
 
     def __init__(self, event_bus: EventBus, event_loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         self.event_bus: EventBus = event_bus
@@ -96,7 +110,16 @@ def thread_safe_event_handler(publisher: ThreadSafeEventPublisher) -> Callable:
 
 
 class EventSubscriptionManager:
-    """Manages event subscriptions for a component."""
+    """Manages event subscriptions for a component with automatic cleanup tracking.
+
+    Tracks all subscriptions made by a component for centralized cleanup, logging,
+    and debugging. Simplifies component teardown.
+
+    Attributes:
+        event_bus: EventBus instance.
+        component_name: Name of component for logging.
+        subscriptions: Dict of event type to handler mappings.
+    """
 
     def __init__(self, event_bus: EventBus, component_name: str) -> None:
         self.event_bus: EventBus = event_bus

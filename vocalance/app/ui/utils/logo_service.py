@@ -1,13 +1,3 @@
-"""
-Centralized Logo Service for Vocalance Application
-
-Provides elegant, streamlined logo loading with automatic fallbacks.
-
-Thread Safety:
-- All logo cache access protected by _cache_lock
-- Safe to call from any thread
-"""
-
 import logging
 import threading
 from typing import Optional

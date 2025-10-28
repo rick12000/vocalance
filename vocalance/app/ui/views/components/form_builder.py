@@ -1,7 +1,3 @@
-"""
-Form builder utility to simplify and standardize widget creation across views.
-"""
-
 from typing import Any, Dict, List, Optional, Tuple
 
 import customtkinter as ctk

@@ -1,8 +1,3 @@
-"""
-Streamlined Agentic Prompt Service
-
-Simplified prompt management using unified storage service.
-"""
 import logging
 import threading
 import uuid

@@ -1,19 +1,14 @@
-"""
-Unit tests for StreamlinedSoundService.
-
-Tests the service layer functionality in isolation using mocks.
-"""
 from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
 
 from vocalance.app.events.core_events import CustomSoundRecognizedEvent, ProcessAudioChunkForSoundRecognitionEvent
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
 
 
-class TestStreamlinedSoundService:
-    """Test the StreamlinedSoundService class."""
+class TestSoundService:
+    """Test the SoundService class."""
 
     @pytest.fixture
     def service(self, mock_event_bus, mock_config, mock_storage_factory, mock_recognizer):
@@ -23,10 +18,10 @@ class TestStreamlinedSoundService:
         mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
 
         with patch(
-            "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer",
+            "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.SoundRecognizer",
             return_value=mock_recognizer,
         ):
-            service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
+            service = SoundService(mock_event_bus, mock_config, mock_storage_factory)
             return service
 
     def test_init(self, mock_event_bus, mock_config, mock_storage_factory):
@@ -36,9 +31,9 @@ class TestStreamlinedSoundService:
         mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
 
         with patch(
-            "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer"
+            "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.SoundRecognizer"
         ) as mock_recognizer_class:
-            service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
+            service = SoundService(mock_event_bus, mock_config, mock_storage_factory)
 
             assert service.event_bus == mock_event_bus
             assert service.config == mock_config
@@ -59,8 +54,8 @@ class TestStreamlinedSoundService:
         mock_config.asset_paths = Mock()
         mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
 
-        with patch("vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.StreamlinedSoundRecognizer"):
-            service = StreamlinedSoundService(mock_event_bus, mock_config, mock_storage_factory)
+        with patch("vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.SoundRecognizer"):
+            service = SoundService(mock_event_bus, mock_config, mock_storage_factory)
             service.setup_subscriptions()
 
             # Should subscribe to 7 events total

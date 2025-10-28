@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class AudioConfig(BaseModel):
+    """Configuration for audio capture settings and chunk sizing.
+
+    Controls sample rate, chunk sizes for different modes (command vs dictation),
+    audio format, and device selection for the audio service.
+    """
+
     sample_rate: int = 16000
     chunk_size: int = Field(320, description="Audio chunk size for command mode.")
     channels: int = 1
@@ -26,6 +32,13 @@ class AudioConfig(BaseModel):
 
 
 class STTConfig(BaseModel):
+    """Configuration for speech-to-text engines and processing parameters.
+
+    Manages Whisper model selection and retry behavior, configures debouncing and
+    duplicate suppression intervals separately for command and dictation modes to
+    optimize responsiveness vs accuracy tradeoffs.
+    """
+
     whisper_model: Literal["tiny", "base", "small", "medium"] = "base"
     whisper_device: Literal["cpu", "cuda"] = "cpu"
     whisper_max_retries: int = Field(default=3, description="Maximum retry attempts for Whisper model loading")
@@ -51,7 +64,12 @@ class STTConfig(BaseModel):
 
 
 class SoundRecognizerConfig(BaseModel):
-    """Sound recognizer configuration using ESC-50 for non-target sounds."""
+    """Sound recognizer configuration using ESC-50 for non-target sounds.
+
+    Configures the YAMNet-based sound recognition system with k-NN classification,
+    ESC-50 negative examples, and audio preprocessing parameters. Controls confidence
+    thresholds, training sample counts, and sound detection parameters.
+    """
 
     target_sample_rate: int = Field(16000, description="Target sample rate for YAMNet (do not change)")
     energy_threshold: float = Field(0.001, description="Minimum audio energy for processing")
@@ -90,6 +108,12 @@ class SoundRecognizerConfig(BaseModel):
 
 
 class MarkTriggersConfig(BaseModel):
+    """Voice command triggers for mark system operations.
+
+    Defines the voice phrases that trigger mark creation, deletion, visualization,
+    and reset operations in the mark service.
+    """
+
     create_mark: str = "mark"
     delete_mark: str = "delete mark"
     visualize_marks: List[str] = ["show marks", "visualize marks"]
@@ -98,6 +122,12 @@ class MarkTriggersConfig(BaseModel):
 
 
 class MarkConfig(BaseModel):
+    """Configuration for the mark system including triggers and timing parameters.
+
+    Controls voice command phrases for mark operations, visualization overlay duration,
+    and shutdown grace period for persisting mark data to storage.
+    """
+
     triggers: MarkTriggersConfig = MarkTriggersConfig()
     visualization_duration_seconds: int = Field(
         default=15, description="Duration in seconds for mark visualization overlay before auto-hide."
@@ -108,6 +138,12 @@ class MarkConfig(BaseModel):
 
 
 class GridConfig(BaseModel):
+    """Configuration for the click grid overlay system.
+
+    Controls grid appearance (colors, labels, dimensions), default cell count,
+    and voice command phrases for showing the grid and selecting cells.
+    """
+
     rows: int = 3
     cols: int = 3
     line_color: str = "#00FF00"
@@ -123,7 +159,11 @@ class GridConfig(BaseModel):
 
 
 class ErrorHandlingConfig(BaseModel):
-    """Configuration for error handling service."""
+    """Configuration for error handling service.
+
+    Controls UI notifications for errors, auto-dismiss behavior, timeout durations,
+    and whether to log detailed error information.
+    """
 
     notify_ui_on_error: bool = True
     auto_dismiss_notifications: bool = True
@@ -133,7 +173,12 @@ class ErrorHandlingConfig(BaseModel):
 
 
 class DictationConfig(BaseModel):
-    """Configuration for dictation functionality."""
+    """Configuration for dictation functionality.
+
+    Defines voice triggers for starting/stopping dictation, typing mode, clipboard behavior,
+    timing delays for text input operations, and whether to enable automatic formatting
+    through the LLM service.
+    """
 
     start_trigger: str = "green"
     stop_trigger: str = "amber"
@@ -156,7 +201,13 @@ class DictationConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    """Configuration for LLM service."""
+    """Configuration for LLM service.
+
+    Comprehensive configuration for llama.cpp-based LLM inference including model selection,
+    context/generation limits, threading/batching parameters, quantization settings,
+    sampling parameters, GPU offloading, and startup initialization mode. Tuned for
+    dictation formatting on CPU with optimal speed/quality balance.
+    """
 
     model_info: Dict[str, str] = Field(
         default={"repo_id": "Qwen/Qwen2.5-1.5B-Instruct-GGUF", "filename": "qwen2.5-1.5b-instruct-q5_k_m.gguf"},
@@ -217,15 +268,23 @@ class LLMConfig(BaseModel):
     )
 
     def get_model_filename(self) -> str:
-        """Get the model filename.
+        """Get the GGUF model filename from model_info dictionary.
 
         Returns:
-            Model filename string.
+            Model filename string extracted from model_info.
         """
         return self.model_info["filename"]
 
 
 class VADConfig(BaseModel):
+    """Configuration for Voice Activity Detection (VAD) across multiple modes.
+
+    Defines energy thresholds, recording durations, silence detection parameters, and
+    pre-roll buffering separately optimized for command mode (low latency), dictation mode
+    (longer speech), and training mode (sample collection). Includes adaptive noise floor
+    estimation for robust speech detection in varying acoustic environments.
+    """
+
     energy_threshold: float = Field(default=0.006, description="Base energy threshold for speech detection.")
     max_recording_duration: float = Field(default=4.0, description="Maximum recording duration in seconds.")
     pre_roll_buffers: int = Field(default=2, description="Number of audio chunks to buffer before speech detection.")
@@ -360,19 +419,30 @@ class AppInfoConfig(BaseModel):
 
 
 class AssetPathsConfig(BaseModel):
-    """Centralized asset path resolution for both dev and PyInstaller bundle modes."""
+    """Centralized asset path resolution for both dev and PyInstaller bundle modes.
+
+    Automatically detects whether running from source (development) or from a PyInstaller
+    bundle and provides consistent path resolution for all application assets including
+    logos, icons, fonts, ML models, and audio samples.
+    """
 
     def __init__(self, **data: any) -> None:
+        """Initialize asset paths configuration and resolve assets root directory.
+
+        Args:
+            **data: Arbitrary keyword arguments passed to Pydantic BaseModel.
+        """
         super().__init__(**data)
         self._assets_root: Optional[Path] = self._get_assets_root()
 
     def _get_assets_root(self) -> Optional[Path]:
-        """Get the assets root directory.
+        """Get the assets root directory adaptively for dev or bundled execution.
 
-        Works in both dev and PyInstaller bundle modes.
+        Checks for PyInstaller bundle (_MEIPASS) first, then falls back to development
+        mode by navigating relative to this config file's location.
 
         Returns:
-            Path to assets root or None if not found.
+            Path to assets root directory, or None if not found.
         """
         if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
             bundle_dir: Path = Path(sys._MEIPASS)
@@ -497,10 +567,11 @@ class AssetPathsConfig(BaseModel):
         return None
 
     def get_vosk_model_path(self) -> str:
-        """Get the Vosk model path.
+        """Get the Vosk model path with fallback for missing assets root.
 
         Returns:
-            Path to Vosk model.
+            Absolute path to Vosk model directory, or fallback relative path if assets
+            root is not properly initialized.
         """
         path = self.vosk_model_path
         if path:
@@ -510,6 +581,13 @@ class AssetPathsConfig(BaseModel):
 
 
 class StorageConfig(BaseModel):
+    """Configuration for persistent storage paths and caching behavior.
+
+    Defines subdirectory names and full paths for all user data storage including
+    sound models/samples, marks, click tracking history, settings, LLM models, and
+    command history. Paths are initialized automatically in GlobalAppConfig.__init__.
+    """
+
     sound_model_subdir: str = "sound_models"
     sound_samples_subdir: str = "sound_samples"
     marks_subdir: str = "marks"
@@ -536,7 +614,12 @@ class StorageConfig(BaseModel):
 
 
 class GlobalAppConfig(BaseModel):
-    """Main application configuration container."""
+    """Main application configuration container aggregating all subsystem configs.
+
+    Central configuration object containing nested configuration models for every
+    subsystem: audio, STT, VAD, LLM, grid, marks, storage, error handling, etc.
+    Automatically initializes storage directory structure on instantiation.
+    """
 
     logging: LoggingConfigModel = LoggingConfigModel()
     app_info: AppInfoConfig = AppInfoConfig()
@@ -559,11 +642,21 @@ class GlobalAppConfig(BaseModel):
     automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
 
     def __init__(self, **data: any) -> None:
+        """Initialize global configuration and create storage directory structure.
+
+        Args:
+            **data: Arbitrary keyword arguments passed to Pydantic for config overrides.
+        """
         super().__init__(**data)
         self._setup_storage_paths()
 
     def _setup_storage_paths(self) -> None:
-        """Setup storage directory paths."""
+        """Setup storage directory paths and create directories if they don't exist.
+
+        Constructs absolute paths for all storage subdirectories, creates them using
+        os.makedirs with exist_ok=True, and updates the storage config object with
+        the computed paths.
+        """
         app_info = self.app_info
         storage = self.storage
         user_data_root = get_default_user_data_root(app_info=app_info)
@@ -606,17 +699,20 @@ DEFAULT_CONFIG_DIR_NAME = "config"
 def get_config_path(
     config_dir: Optional[str] = None, config_file: str = CONFIG_FILE_NAME, app_info: Optional[AppInfoConfig] = None
 ) -> str:
-    """Get configuration file path.
+    """Get configuration file path with fallback hierarchy.
 
-    Uses app_info if provided, otherwise falls back to repo config directory.
+    Determines configuration file location with the following priority:
+    1. Custom config_dir if provided
+    2. User data settings directory if app_info provided
+    3. Project repository config directory as fallback
 
     Args:
-        config_dir: Optional custom config directory.
-        config_file: Config filename.
-        app_info: Application info for user data root.
+        config_dir: Optional custom config directory path.
+        config_file: Configuration filename (defaults to settings.yaml).
+        app_info: Application info for resolving user data root directory.
 
     Returns:
-        Path to configuration file.
+        Absolute path to configuration file.
     """
     if config_dir:
         return os.path.join(config_dir, config_file)
@@ -632,16 +728,18 @@ def get_config_path(
 
 
 def load_app_config(config_path: Optional[str] = None, app_info: Optional[AppInfoConfig] = None) -> GlobalAppConfig:
-    """Load application configuration from YAML file.
+    """Load application configuration from YAML file with fallback to defaults.
 
-    Falls back to default config if file not found or invalid.
+    Attempts to load configuration from the specified or computed path. Returns default
+    GlobalAppConfig if the file is missing, empty, or lacks the required 'app' root key.
+    Raises exceptions for YAML parsing errors or other unexpected failures.
 
     Args:
-        config_path: Optional custom config file path.
-        app_info: Application info for user data root.
+        config_path: Optional explicit path to configuration file.
+        app_info: Application info for computing default configuration path.
 
     Returns:
-        Loaded or default GlobalAppConfig instance.
+        Loaded GlobalAppConfig instance with overrides applied, or default instance on failure.
     """
     actual_config_path = config_path or get_config_path(app_info=app_info)
     logger.debug(f"Loading application configuration from: {actual_config_path}")
@@ -667,15 +765,16 @@ def load_app_config(config_path: Optional[str] = None, app_info: Optional[AppInf
 
 
 def get_default_user_data_root(app_info: AppInfoConfig) -> str:
-    """Get default user data root directory.
+    """Get default user data root directory based on operating system conventions.
 
-    Uses AppData on Windows, home directory on other systems.
+    Uses %APPDATA% on Windows for application data storage, and home directory on
+    Unix-like systems. Appends the configured application name and suffix.
 
     Args:
-        app_info: Application info configuration.
+        app_info: Application info configuration containing name and suffix.
 
     Returns:
-        Path to user data root directory.
+        Absolute path to user data root directory.
     """
     if os.name == "nt":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))

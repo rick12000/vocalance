@@ -29,6 +29,12 @@ class GridService:
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
+        """Initialize grid service with dependencies.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration.
+        """
         self._event_bus = event_bus
         self._config = config
         self._visible: bool = False

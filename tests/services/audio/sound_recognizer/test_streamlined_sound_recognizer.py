@@ -1,19 +1,10 @@
-"""
-Unit tests for StreamlinedSoundRecognizer.
-
-Tests individual methods and components in isolation using fixtures
-and mocks to avoid dependencies on external storage or persistent state.
-"""
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
 from sklearn.metrics.pairwise import cosine_similarity
 
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import (
-    AudioPreprocessor,
-    StreamlinedSoundRecognizer,
-)
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor, SoundRecognizer
 
 
 class TestAudioPreprocessor:
@@ -142,8 +133,8 @@ class TestAudioPreprocessor:
         assert len(processed) <= max_samples
 
 
-class TestStreamlinedSoundRecognizer:
-    """Test the StreamlinedSoundRecognizer class."""
+class TestSoundRecognizer:
+    """Test the SoundRecognizer class."""
 
     def test_init(self, mock_config, mock_storage_factory):
         """Test recognizer initialization."""
@@ -151,7 +142,7 @@ class TestStreamlinedSoundRecognizer:
         mock_config.asset_paths = Mock()
         mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
 
-        recognizer = StreamlinedSoundRecognizer(config=mock_config, storage=mock_storage_factory)
+        recognizer = SoundRecognizer(config=mock_config, storage=mock_storage_factory)
 
         assert recognizer.config == mock_config.sound_recognizer
         assert recognizer._storage == mock_storage_factory

@@ -1,13 +1,3 @@
-"""
-Themed dialog components that match the application's dark theme.
-Provides CustomTkinter-based replacements for standard tkinter messageboxes.
-
-Thread Safety:
-- All dialog operations must run in main tkinter thread
-- Dialogs are modal and block until closed
-- Safe to call from event handlers (already in event loop thread)
-"""
-
 from typing import Callable, List, Optional, Tuple
 
 import customtkinter as ctk

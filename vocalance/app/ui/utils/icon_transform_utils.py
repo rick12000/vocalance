@@ -1,10 +1,3 @@
-"""
-Icon Transformation Utilities
-
-Pure image transformation functions with no dependencies on other UI utilities.
-Single responsibility: Transform and recolor icon images.
-"""
-
 import logging
 
 from PIL import Image

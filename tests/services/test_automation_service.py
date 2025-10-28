@@ -1,6 +1,3 @@
-"""
-Tests for AutomationService - command execution and cooldown management.
-"""
 import asyncio
 from unittest.mock import patch
 

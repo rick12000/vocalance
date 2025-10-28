@@ -42,7 +42,14 @@ class MarkService:
 
     Provides fast mark creation, navigation (click), and deletion with cached
     coordinate lookups and validation against reserved labels (commands, sounds).
-    All state access is protected with async locks for thread safety.
+    All state access is protected with async locks for thread safety. Integrates
+    with UI mark visualization for visual feedback.
+
+    Attributes:
+        _storage: Storage service for persistent mark data.
+        _protected_terms_validator: Validator ensuring mark labels don't conflict.
+        _is_viz_active: Flag tracking mark visualization state.
+        _viz_lock: Async lock protecting visualization state.
     """
 
     def __init__(
@@ -52,6 +59,14 @@ class MarkService:
         storage: StorageService,
         protected_terms_validator: ProtectedTermsValidator,
     ) -> None:
+        """Initialize mark service with dependencies.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration.
+            storage: Storage service for persistent mark data.
+            protected_terms_validator: Validator for mark label conflicts.
+        """
         self._event_bus = event_bus
         self._config = config
         self._storage = storage

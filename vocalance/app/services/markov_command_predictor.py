@@ -25,6 +25,13 @@ class MarkovCommandService:
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
+        """Initialize Markov predictor with configuration.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration.
+            storage: Storage service for command history access.
+        """
         self._event_bus: EventBus = event_bus
         self._config: GlobalAppConfig = config
         self._markov_config = config.markov_predictor

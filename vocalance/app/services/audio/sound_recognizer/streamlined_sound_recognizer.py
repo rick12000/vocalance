@@ -1,10 +1,3 @@
-"""
-Streamlined Sound Recognizer - Single cohesive implementation.
-
-Optimized for lip-popping vs tongue-clicking discrimination with noise rejection.
-Keeps only essential components: YAMNet embeddings, k-NN classification,
-silence trimming, and ESC-50 negative examples.
-"""
 import asyncio
 import gc
 import logging
@@ -34,10 +27,18 @@ logger = logging.getLogger(__name__)
 
 
 class AudioPreprocessor:
-    """Essential audio preprocessing for consistent embeddings."""
+    """Essential audio preprocessing for consistent embeddings.
 
-    def __init__(self, config: "SoundRecognizerConfig"):
-        """Initialize preprocessor from configuration."""
+    Performs resampling, silence trimming, duration normalization, and amplitude
+    normalization to ensure consistent audio features for embedding generation.
+    """
+
+    def __init__(self, config: "SoundRecognizerConfig") -> None:
+        """Initialize preprocessor from configuration.
+
+        Args:
+            config: Sound recognizer configuration with preprocessing parameters.
+        """
         self.target_sr = config.target_sample_rate
         self.silence_threshold = config.silence_threshold
         self.min_sound_duration = config.min_sound_duration
@@ -47,7 +48,19 @@ class AudioPreprocessor:
         self.normalization_level = config.normalization_level
 
     def preprocess_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        """Essential preprocessing pipeline: resample, trim silence, normalize."""
+        """Essential preprocessing pipeline: resample, trim silence, normalize.
+
+        Args:
+            audio: Input audio numpy array.
+            sr: Sample rate of input audio.
+
+        Returns:
+            Preprocessed audio array ready for embedding extraction.
+
+        Raises:
+            TypeError: If audio is not a numpy array.
+            ValueError: If audio is empty or sample rate is invalid.
+        """
         if not isinstance(audio, np.ndarray):
             raise TypeError("Audio must be a numpy array")
 
@@ -87,7 +100,14 @@ class AudioPreprocessor:
         return audio
 
     def _trim_silence(self, audio: np.ndarray) -> np.ndarray:
-        """Trim silence using RMS energy analysis."""
+        """Trim silence using RMS energy analysis with adaptive noise floor.
+
+        Args:
+            audio: Audio array to trim.
+
+        Returns:
+            Trimmed audio with silence removed from start and end.
+        """
         rms = librosa.feature.rms(y=audio, frame_length=self.frame_length, hop_length=self.hop_length)[0]
 
         sorted_rms = np.sort(rms)
@@ -109,11 +129,29 @@ class AudioPreprocessor:
         return audio[start_sample:end_sample]
 
 
-class StreamlinedSoundRecognizer:
-    """Streamlined sound recognizer focused on core functionality."""
+class SoundRecognizer:
+    """Streamlined sound recognizer focused on core functionality.
 
-    def __init__(self, config: GlobalAppConfig, storage: StorageService):
-        """Initialize recognizer with thread-safe state management."""
+    Uses YAMNet embeddings and cosine similarity for real-time sound recognition.
+    Supports training from user-recorded sounds, voting-based classification for
+    robustness, and persistent storage of trained models. Thread-safe for concurrent
+    recognition and training operations.
+
+    Attributes:
+        yamnet_model: Loaded YAMNet TensorFlow model for embedding extraction.
+        scaler: StandardScaler for normalizing embeddings.
+        embeddings: Stored sound embeddings for recognition.
+        labels: Corresponding labels for each embedding.
+        sound_mapping: Dict mapping sound IDs to automation command phrases.
+    """
+
+    def __init__(self, config: GlobalAppConfig, storage: StorageService) -> None:
+        """Initialize recognizer with thread-safe state management.
+
+        Args:
+            config: Global application configuration.
+            storage: Storage service for persistent model data.
+        """
         self.asset_path_config = config.asset_paths
         self.config = config.sound_recognizer
         self._storage = storage
@@ -145,12 +183,19 @@ class StreamlinedSoundRecognizer:
         os.makedirs(self.model_path, exist_ok=True)
         os.makedirs(self.external_sounds_path, exist_ok=True)
 
-        logger.info("StreamlinedSoundRecognizer initialized")
+        logger.info("SoundRecognizer initialized")
 
     async def initialize(self) -> bool:
-        """Initialize YAMNet model and load existing data."""
+        """Initialize YAMNet model and load existing data.
+
+        Loads YAMNet TensorFlow model, loads persisted embeddings/labels/scaler,
+        and copies ESC-50 negative examples for training robustness.
+
+        Returns:
+            True if initialization successful, False otherwise.
+        """
         try:
-            logger.info("Initializing StreamlinedSoundRecognizer...")
+            logger.info("Initializing SoundRecognizer...")
 
             if tf is None:
                 logger.error("TensorFlow not available")
@@ -163,7 +208,7 @@ class StreamlinedSoundRecognizer:
 
             await self._copy_esc50_samples()
 
-            logger.info(f"StreamlinedSoundRecognizer initialized: {len(self.embeddings)} embeddings")
+            logger.info(f"SoundRecognizer initialized: {len(self.embeddings)} embeddings")
             return True
 
         except ValueError as e:
@@ -390,7 +435,19 @@ class StreamlinedSoundRecognizer:
         return copied_count
 
     def recognize_sound(self, audio: np.ndarray, sr: int) -> Optional[Tuple[str, float]]:
-        """Core recognition method - thread-safe."""
+        """Core recognition method using YAMNet embeddings and k-NN voting.
+
+        Extracts embedding from audio, calculates cosine similarities to all trained
+        embeddings, applies k-NN voting with custom sound prioritization, and returns
+        result if confidence and vote thresholds are met. Thread-safe.
+
+        Args:
+            audio: Audio numpy array to recognize.
+            sr: Sample rate of audio.
+
+        Returns:
+            Tuple of (sound_label, confidence) if recognized, None otherwise.
+        """
         if not isinstance(audio, np.ndarray) or sr <= 0:
             logger.warning("Invalid audio input")
             return None
@@ -458,7 +515,18 @@ class StreamlinedSoundRecognizer:
         return None
 
     def _extract_embedding(self, audio: np.ndarray, sr: int) -> Optional[np.ndarray]:
-        """Extract YAMNet embedding with preprocessing."""
+        """Extract YAMNet embedding with preprocessing.
+
+        Preprocesses audio, converts to TensorFlow tensor, extracts embeddings using
+        YAMNet model, and averages embeddings across time for a single vector.
+
+        Args:
+            audio: Audio numpy array.
+            sr: Sample rate.
+
+        Returns:
+            1024-dim embedding vector if successful, None otherwise.
+        """
         try:
             # Preprocess audio
             processed_audio = self.preprocessor.preprocess_audio(audio=audio, sr=sr)
@@ -486,7 +554,19 @@ class StreamlinedSoundRecognizer:
             return None
 
     async def train_sound(self, label: str, samples: List[Tuple[np.ndarray, int]]) -> bool:
-        """Train the recognizer with sound samples."""
+        """Train the recognizer with sound samples.
+
+        Extracts embeddings from all provided samples, adds them to the model with
+        the given label, retrains the scaler, adds ESC-50 negative examples, and
+        persists the updated model. Thread-safe.
+
+        Args:
+            label: Sound label identifier.
+            samples: List of (audio, sample_rate) tuples.
+
+        Returns:
+            True if training successful and model saved, False otherwise.
+        """
         try:
             if not label or not isinstance(label, str):
                 raise ValueError("Sound label must be a non-empty string")
@@ -783,7 +863,7 @@ class StreamlinedSoundRecognizer:
     async def shutdown(self) -> None:
         """Shutdown sound recognizer and cleanup TensorFlow resources."""
         try:
-            logger.info("Shutting down StreamlinedSoundRecognizer")
+            logger.info("Shutting down SoundRecognizer")
 
             # Signal shutdown
             self._shutdown_event.set()
@@ -823,7 +903,7 @@ class StreamlinedSoundRecognizer:
             # Force garbage collection
             gc.collect()
 
-            logger.info("StreamlinedSoundRecognizer shutdown complete")
+            logger.info("SoundRecognizer shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during shutdown: {e}", exc_info=True)

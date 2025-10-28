@@ -1,6 +1,3 @@
-"""
-Tests for GridService - grid overlay and cell selection functionality.
-"""
 import asyncio
 
 import pytest

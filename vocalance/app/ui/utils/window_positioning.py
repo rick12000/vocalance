@@ -1,6 +1,3 @@
-"""Window positioning utilities for centering dialogs on parent windows."""
-
-
 def center_window_on_parent(window, parent):
     """
     Center a dialog window on its parent window.

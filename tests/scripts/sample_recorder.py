@@ -1,10 +1,3 @@
-"""
-Records audio from microphone and saves as raw audio bytes.
-Automatically stops recording when silence is detected or max duration is reached.
-
-Use this ad-hoc to generate audio bytes for unit testing.
-"""
-
 import os
 import time
 from datetime import datetime

@@ -1,13 +1,3 @@
-"""
-Simplified Settings Service
-
-Handles settings override flow:
-- Loads defaults from configuration
-- Applies user overrides that persist between sessions
-- Provides simple API for getting and setting values
-- Centralizes all settings operations through unified storage
-"""
-
 import logging
 from typing import Any, Dict, Optional
 
@@ -22,15 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 class SettingsService:
-    """
-    Settings service for configuration overrides with real-time updates.
+    """Settings service for configuration overrides with real-time updates.
 
-    This service:
-    1. Loads/saves user overrides from storage
-    2. Builds effective settings (defaults + overrides)
-    3. Publishes updates to SettingsUpdateCoordinator for real-time propagation
+    Manages user-defined settings overrides, builds effective settings from defaults
+    plus overrides, and coordinates real-time settings updates to running services
+    via SettingsUpdateCoordinator. Distinguishes between real-time updateable settings
+    and restart-required settings.
 
-    All settings updates flow through the coordinator to ensure consistency.
+    Attributes:
+        OVERRIDEABLE_SETTINGS: Set of setting paths that can be overridden.
+        REAL_TIME_SETTINGS: Subset of overrideable settings that update immediately.
+        _coordinator: SettingsUpdateCoordinator for propagating updates to services.
+        _user_overrides: Dict of user-defined overrides loaded from storage.
+        _effective_settings: Dict of final effective settings (defaults + overrides).
     """
 
     # Define which settings can be overridden by users
@@ -61,7 +55,15 @@ class SettingsService:
         config: GlobalAppConfig,
         storage: StorageService,
         coordinator: Optional[SettingsUpdateCoordinator] = None,
-    ):
+    ) -> None:
+        """Initialize settings service with dependencies.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration with defaults.
+            storage: Storage service for persistent overrides.
+            coordinator: Optional coordinator for real-time updates.
+        """
         self._event_bus = event_bus
         self._config = config
         self._storage = storage

@@ -42,9 +42,22 @@ class StorageService:
 
     Provides persistent JSON storage for Pydantic models with in-memory caching,
     atomic file writes, and thread-safe operations for reliable data persistence.
+    Uses thread pool executor for async file I/O without blocking event loop.
+
+    Attributes:
+        storage_config: Storage configuration from global config.
+        _cache: In-memory cache of loaded data with TTL-based expiration.
+        _path_map: Dict mapping model types to their file paths.
+        _lock: Threading RLock for thread-safe cache access.
+        _executor: ThreadPoolExecutor for async file operations.
     """
 
     def __init__(self, config: GlobalAppConfig) -> None:
+        """Initialize storage service with configuration.
+
+        Args:
+            config: Global application configuration.
+        """
         self._config = config
         self._base_dir = Path(config.storage.user_data_root)
         self._cache_ttl = config.storage.cache_ttl_seconds

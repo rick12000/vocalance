@@ -1,6 +1,3 @@
-"""
-Tests for MarkService - mark creation, execution, and visualization.
-"""
 import asyncio
 from unittest.mock import patch
 

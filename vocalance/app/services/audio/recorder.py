@@ -10,6 +10,24 @@ from vocalance.app.config.app_config import GlobalAppConfig
 
 
 class AudioRecorder:
+    """Voice Activity Detection (VAD) based audio recorder with mode-specific configuration.
+
+    Captures audio from microphone using sounddevice, detects speech via energy-based VAD
+    with adaptive noise floor estimation, and delivers complete audio segments through
+    callbacks. Supports two modes: command (low-latency, short utterances) and dictation
+    (longer duration, more tolerant of pauses). Runs recording in a background thread with
+    pre-roll buffering to capture speech onset and configurable silence detection for
+    speech endpoint determination.
+
+    Attributes:
+        mode: Recording mode - 'command' or 'dictation' with different VAD parameters.
+        chunk_size: Audio chunk size in samples for processing.
+        energy_threshold: Minimum RMS energy to detect speech onset.
+        silent_chunks_for_end: Consecutive silent chunks required to end recording.
+        max_duration: Maximum recording duration in seconds before force-stop.
+        sample_rate: Audio sample rate in Hz.
+    """
+
     def __init__(
         self,
         app_config: GlobalAppConfig,
@@ -17,6 +35,14 @@ class AudioRecorder:
         on_audio_segment: Optional[Callable[[bytes], None]] = None,
         on_audio_detected: Optional[Callable[[], None]] = None,
     ) -> None:
+        """Initialize audio recorder with mode-specific VAD parameters.
+
+        Args:
+            app_config: Global application configuration containing audio and VAD settings.
+            mode: Recording mode - 'command' for low-latency or 'dictation' for longer speech.
+            on_audio_segment: Callback invoked with complete audio segment bytes when ready.
+            on_audio_detected: Optional callback invoked immediately when speech is detected.
+        """
         self.logger = logging.getLogger(f"{self.__class__.__name__}_{mode}")
         self.app_config = app_config
         self.mode = mode
@@ -58,11 +84,31 @@ class AudioRecorder:
         )
 
     def _calculate_energy(self, audio_chunk: np.ndarray) -> float:
+        """Calculate RMS energy of an audio chunk.
+
+        Computes root mean square energy normalized to [0, 1] range, handling both
+        int16 and float32 audio formats.
+
+        Args:
+            audio_chunk: NumPy array containing audio samples.
+
+        Returns:
+            RMS energy value as a float.
+        """
         if audio_chunk.dtype == np.int16:
             return np.sqrt(np.mean((audio_chunk.astype(np.float32) / 32768.0) ** 2))
         return np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2))
 
     def _update_noise_floor(self, energy: float) -> None:
+        """Update adaptive noise floor estimation from low-energy samples.
+
+        Collects energy samples below the initial threshold to estimate ambient noise
+        levels. Once sufficient samples are gathered, calculates the noise floor using
+        a percentile and adaptively adjusts energy and silence thresholds if needed.
+
+        Args:
+            energy: RMS energy value from a low-energy audio chunk.
+        """
         if len(self._noise_samples) < self._max_noise_samples:
             self._noise_samples.append(energy)
 
@@ -77,6 +123,13 @@ class AudioRecorder:
                     self.logger.debug(f"Adapted thresholds: {old_threshold:.6f} -> {self.energy_threshold:.6f}")
 
     def _recording_thread(self) -> None:
+        """Main recording thread implementing the VAD state machine.
+
+        Continuously monitors audio input, detecting speech onset via energy thresholding,
+        collecting audio with pre-roll buffering, determining speech endpoints through
+        silence detection, and delivering complete segments via callback. Handles three
+        states: waiting for speech, recording active speech, and processing completed segment.
+        """
         try:
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate, blocksize=self.chunk_size, channels=1, dtype="int16", device=self.device
@@ -183,6 +236,11 @@ class AudioRecorder:
             self._cleanup_stream()
 
     def _cleanup_stream(self) -> None:
+        """Clean up audio stream resources safely.
+
+        Stops and closes the sounddevice input stream if active, handling any errors
+        that may occur during cleanup to ensure resources are always released.
+        """
         if self._stream:
             try:
                 if hasattr(self._stream, "active") and self._stream.active:
@@ -199,6 +257,11 @@ class AudioRecorder:
                 self.logger.info(f"{self.mode} audio stream cleanup completed")
 
     def start(self) -> None:
+        """Start the recording thread and begin audio capture.
+
+        Creates and starts the background recording thread if not already running.
+        Thread-safe - multiple calls are ignored if already recording.
+        """
         with self._lock:
             if self._is_recording:
                 return
@@ -207,6 +270,11 @@ class AudioRecorder:
             self._thread.start()
 
     def stop(self) -> None:
+        """Stop the recording thread and clean up audio resources.
+
+        Sets the stop flag and waits up to 5 seconds for the recording thread to
+        terminate. Cleans up the audio stream regardless of thread termination status.
+        """
         with self._lock:
             if not self._is_recording:
                 return
@@ -220,19 +288,45 @@ class AudioRecorder:
         self._cleanup_stream()
 
     def set_active(self, active: bool) -> None:
+        """Set the active state to enable or disable speech detection.
+
+        When inactive, the recorder still runs but skips VAD processing, effectively
+        pausing speech detection without stopping the audio stream. Thread-safe.
+
+        Args:
+            active: True to enable speech detection, False to pause it.
+        """
         with self._lock:
             self._is_active = active
 
     def is_recording(self) -> bool:
+        """Check if the recording thread is currently running.
+
+        Returns:
+            True if recording thread is active, False otherwise.
+        """
         with self._lock:
             return self._is_recording
 
     def is_active(self) -> bool:
+        """Check if speech detection is currently enabled.
+
+        Returns:
+            True if VAD processing is enabled, False if paused.
+        """
         with self._lock:
             return self._is_active
 
     def update_dictation_silent_chunks(self, chunks: int) -> None:
-        """Update the dictation silent chunks for end threshold in real-time"""
+        """Update the dictation silent chunks threshold dynamically during runtime.
+
+        Allows real-time adjustment of the silence detection sensitivity for dictation
+        mode, enabling users to adapt to their speaking pace. Only applies to dictation
+        mode recorders.
+
+        Args:
+            chunks: New number of consecutive silent chunks required to end recording.
+        """
         if self.mode == "dictation":
             with self._lock:
                 self.silent_chunks_for_end = chunks

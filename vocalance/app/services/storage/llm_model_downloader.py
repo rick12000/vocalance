@@ -1,10 +1,3 @@
-"""
-LLM Model Downloader Service
-
-Handles downloading and caching of LLM models from Hugging Face Hub.
-Implements atomic downloads with retry logic to prevent partial/corrupted files.
-"""
-
 import asyncio
 import logging
 import os

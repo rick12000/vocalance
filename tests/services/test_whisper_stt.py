@@ -1,8 +1,3 @@
-"""
-Unit tests for Whisper STT service.
-
-Tests core recognition behavior, audio preparation, and text normalization.
-"""
 from unittest.mock import Mock, patch
 
 import numpy as np

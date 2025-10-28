@@ -1,10 +1,3 @@
-"""
-Streamlined Dictation Coordinator
-
-Simplified coordinator that handles dictation modes with clean event-driven architecture.
-Follows DRY principles and maintains all essential functionality with minimal code.
-"""
-
 import asyncio
 import gc
 import logging
@@ -59,6 +52,14 @@ logger = logging.getLogger(__name__)
 
 
 class DictationMode(Enum):
+    """Dictation modes for different recognition and processing behavior.
+
+    INACTIVE: No dictation active.
+    STANDARD: Direct transcription without LLM processing.
+    SMART: LLM-enhanced dictation with formatting and editing.
+    TYPE: Direct typing of recognized text without formatting.
+    """
+
     INACTIVE = "inactive"
     STANDARD = "standard"
     SMART = "smart"
@@ -66,7 +67,13 @@ class DictationMode(Enum):
 
 
 class DictationState(Enum):
-    """Explicit state machine for dictation coordinator"""
+    """Explicit state machine for dictation coordinator.
+
+    IDLE: No active session.
+    RECORDING: Recording and accumulating dictation text.
+    PROCESSING_LLM: Processing accumulated text through LLM.
+    SHUTTING_DOWN: Service shutdown in progress.
+    """
 
     IDLE = "idle"
     RECORDING = "recording"
@@ -85,7 +92,16 @@ _VALID_TRANSITIONS = {
 
 @dataclass
 class DictationSession:
-    """Immutable session snapshot - never modified after creation"""
+    """Immutable session snapshot capturing dictation state.
+
+    Attributes:
+        session_id: Unique session identifier.
+        mode: Active dictation mode.
+        start_time: Session start timestamp.
+        accumulated_text: Accumulated dictation text from STT.
+        last_text_time: Timestamp of last text segment.
+        is_first_segment: Flag indicating if next segment is first.
+    """
 
     session_id: str
     mode: DictationMode
@@ -97,7 +113,13 @@ class DictationSession:
 
 @dataclass
 class LLMSession:
-    """Separate immutable LLM session for proper state isolation"""
+    """Immutable LLM processing session for state isolation.
+
+    Attributes:
+        session_id: Unique LLM session identifier.
+        raw_text: Raw dictation text to process.
+        agentic_prompt: Generated agentic prompt for LLM.
+    """
 
     session_id: str
     raw_text: str
@@ -105,7 +127,21 @@ class LLMSession:
 
 
 class DictationCoordinator:
-    """Production-ready dictation coordinator with proper thread-safe state management"""
+    """Production-ready dictation coordinator with thread-safe state management.
+
+    Orchestrates all dictation workflows including standard/smart/type modes,
+    integrates STT text recognition events, manages LLM processing for smart mode,
+    coordinates with text input service for typing, and maintains strict state
+    machine transitions. Thread-safe with RLock protecting all mutable state.
+
+    Attributes:
+        _current_state: Current dictation state (IDLE/RECORDING/PROCESSING_LLM/SHUTTING_DOWN).
+        _current_session: Active dictation session or None.
+        _pending_llm_session: LLM session awaiting processing.
+        text_input: TextInputService for typing operations.
+        llm_service: LLMService for smart dictation processing.
+        agentic_prompt_service: AgenticPromptService for prompt generation.
+    """
 
     def __init__(
         self,
@@ -113,7 +149,15 @@ class DictationCoordinator:
         config: GlobalAppConfig,
         storage: StorageService,
         gui_event_loop: Optional[asyncio.AbstractEventLoop] = None,
-    ):
+    ) -> None:
+        """Initialize dictation coordinator with services and state management.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration.
+            storage: Storage service for persistent data.
+            gui_event_loop: Optional GUI event loop for cross-thread operations.
+        """
         self.event_bus = event_bus
         self.config = config
         self.gui_event_loop = gui_event_loop
@@ -189,7 +233,11 @@ class DictationCoordinator:
         logger.info(f"Direct token callback {'registered' if callback else 'cleared'}")
 
     async def initialize(self) -> bool:
-        """Initialize all services"""
+        """Initialize all dictation services concurrently.
+
+        Returns:
+            True if all services initialized successfully, False otherwise.
+        """
         try:
             results = await asyncio.gather(
                 self.text_service.initialize(),
@@ -211,7 +259,11 @@ class DictationCoordinator:
             return False
 
     def setup_subscriptions(self) -> None:
-        """Set up event subscriptions"""
+        """Set up event subscriptions for dictation coordinator.
+
+        Subscribes to dictation text, command parsed events, LLM events, and
+        agentic prompt ready events for comprehensive dictation workflow management.
+        """
         subscriptions = [
             (DictationTextRecognizedEvent, self._handle_dictation_text),
             (LLMProcessingCompletedEvent, self._handle_llm_completed),

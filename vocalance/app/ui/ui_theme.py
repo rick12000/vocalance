@@ -1,13 +1,13 @@
-"""
-UI Theme system for Vocalance Control Room
-Core design tokens using Pydantic models
-"""
+"""UI theme design tokens for consistent styling across the application.
 
+Defines color palettes, font configurations, dimensions, spacing, and component-specific
+styles using Pydantic models. Provides centralized theme management for all UI components.
+"""
 from pydantic import BaseModel
 
 
 class FontSizes(BaseModel):
-    """Font size design tokens"""
+    """Font size design tokens for typography hierarchy."""
 
     small: int = 12
     medium: int = 15

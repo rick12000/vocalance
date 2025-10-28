@@ -1,5 +1,3 @@
-"""Base controller class with common patterns for all UI controls."""
-
 import asyncio
 import logging
 import threading

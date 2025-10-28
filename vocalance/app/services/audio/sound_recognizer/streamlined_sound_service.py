@@ -1,9 +1,3 @@
-"""
-Streamlined Sound Recognition Service.
-
-Simplified service using the streamlined recognizer with focus on core functionality.
-Implements proper async patterns and thread-safe operations.
-"""
 import asyncio
 import logging
 from threading import RLock
@@ -31,20 +25,37 @@ from vocalance.app.events.sound_events import (
     SoundTrainingProgressEvent,
     SoundTrainingRequestEvent,
 )
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
 from vocalance.app.services.storage.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
 
-class StreamlinedSoundService:
-    """Streamlined sound recognition service focused on core functionality."""
+class SoundService:
+    """Streamlined sound recognition service focused on core functionality.
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
-        """Initialize service with thread-safe state management."""
+    Manages sound recognition and training workflows via event bus integration.
+    Handles audio chunk processing, training state management (collecting samples
+    for training), sound-to-command mapping, and persistent storage. Thread-safe
+    for concurrent operations.
+
+    Attributes:
+        recognizer: SoundRecognizer instance for core recognition logic.
+        _training_active: Flag indicating if training mode is active.
+        _training_samples: List collecting audio samples during training.
+    """
+
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
+        """Initialize service with thread-safe state management.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration.
+            storage: Storage service for persistent data.
+        """
         self.event_bus = event_bus
         self.config = config
-        self.recognizer = StreamlinedSoundRecognizer(config=config, storage=storage)
+        self.recognizer = SoundRecognizer(config=config, storage=storage)
 
         # State management
         self.is_initialized = False
@@ -59,11 +70,15 @@ class StreamlinedSoundService:
         # Shutdown coordination
         self._shutdown_event = asyncio.Event()
 
-        logger.debug("StreamlinedSoundService created")
+        logger.debug("SoundService created")
 
     def setup_subscriptions(self) -> None:
-        """Set up all event subscriptions."""
-        logger.debug("StreamlinedSoundService subscribing to events...")
+        """Set up all event subscriptions for sound service.
+
+        Subscribes to audio chunks, training requests, sound list/mapping queries,
+        delete/reset commands, and sound-to-command mapping updates.
+        """
+        logger.debug("SoundService subscribing to events...")
         self.event_bus.subscribe(
             event_type=ProcessAudioChunkForSoundRecognitionEvent,
             handler=self._handle_audio_chunk,
@@ -92,20 +107,27 @@ class StreamlinedSoundService:
             event_type=MapSoundToCommandPhraseCommand,
             handler=self._handle_map_sound_command,
         )
-        logger.debug("StreamlinedSoundService event subscriptions complete")
+        logger.debug("SoundService event subscriptions complete")
 
     async def initialize(self) -> bool:
-        """Initialize the sound recognition service."""
+        """Initialize the sound recognition service.
+
+        Delegates initialization to underlying recognizer, which loads YAMNet model
+        and persisted training data.
+
+        Returns:
+            True if initialization successful, False otherwise.
+        """
         try:
-            logger.info("Initializing StreamlinedSoundService...")
+            logger.info("Initializing SoundService...")
             self.is_initialized = await self.recognizer.initialize()
             if self.is_initialized:
-                logger.info("StreamlinedSoundService initialized successfully")
+                logger.info("SoundService initialized successfully")
             else:
-                logger.error("Failed to initialize StreamlinedSoundService - recognizer initialization failed")
+                logger.error("Failed to initialize SoundService - recognizer initialization failed")
             return self.is_initialized
         except Exception as e:
-            logger.error(f"Error initializing StreamlinedSoundService: {e}", exc_info=True)
+            logger.error(f"Error initializing SoundService: {e}", exc_info=True)
             return False
 
     async def _handle_audio_chunk(self, event_data: ProcessAudioChunkForSoundRecognitionEvent) -> None:
@@ -444,7 +466,7 @@ class StreamlinedSoundService:
     async def shutdown(self) -> None:
         """Shutdown sound service and cleanup resources."""
         try:
-            logger.info("Shutting down StreamlinedSoundService")
+            logger.info("Shutting down SoundService")
 
             # Signal shutdown
             self._shutdown_event.set()
@@ -456,7 +478,7 @@ class StreamlinedSoundService:
             if self.recognizer:
                 await self.recognizer.shutdown()
 
-            logger.info("StreamlinedSoundService shutdown complete")
+            logger.info("SoundService shutdown complete")
 
         except Exception as e:
             logger.error(f"Error during shutdown: {e}", exc_info=True)

@@ -1,8 +1,3 @@
-"""
-Unit tests for Enhanced Vosk STT service.
-
-Tests core recognition behavior, duplicate filtering, and threading safety.
-"""
 import json
 
 

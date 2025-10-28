@@ -1,6 +1,3 @@
-"""
-Tests for CentralizedCommandParser - command parsing and routing logic.
-"""
 import asyncio
 
 import pytest

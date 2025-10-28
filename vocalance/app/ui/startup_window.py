@@ -1,7 +1,3 @@
-"""
-Production-Ready Startup Window with Thread-Safe Animation
-"""
-
 import logging
 import queue
 import threading
@@ -18,20 +14,23 @@ from vocalance.app.ui.utils.ui_assets import AssetCache
 
 
 class StartupWindow:
-    """
-    Thread-safe startup window with reliable spinner animation.
+    """Thread-safe startup window with reliable spinner animation.
 
-    Design:
-    - All GUI operations run in the main Tkinter thread
-    - Initialization runs in GUI event loop thread (not main thread!)
-    - Cross-thread updates queued via thread-safe queue
-    - Animation runs via Tkinter's after() mechanism
-    - Monospace spinner font prevents character width jitter
+    Displays application logo, progress bar, and animated spinner during initialization.
+    All GUI operations run in main Tkinter thread with cross-thread updates queued via
+    thread-safe queue. Animation uses Tkinter's after() for smooth updates. Monospace
+    spinner font prevents character width jitter.
 
     Thread Safety:
-    - update_progress() can be called from any thread (uses queue for cross-thread calls)
+    - update_progress() can be called from any thread (uses queue)
     - Animation and UI updates always execute in main tkinter thread
-    - _programmatic_close flag prevents accidental shutdown triggers
+    - _programmatic_close flag distinguishes programmatic vs user-initiated closure
+
+    Attributes:
+        window: CTkToplevel instance for startup overlay.
+        progress_bar: Progress bar widget.
+        _update_queue: Thread-safe queue for cross-thread progress updates.
+        animation_frames: Spinner animation frames.
     """
 
     def __init__(
@@ -40,7 +39,15 @@ class StartupWindow:
         main_root: Union[tk.Tk, ctk.CTk],
         asset_paths_config: AssetPathsConfig,
         shutdown_coordinator=None,
-    ):
+    ) -> None:
+        """Initialize startup window with assets and configuration.
+
+        Args:
+            logger: Logger instance.
+            main_root: Root Tkinter/CustomTkinter window.
+            asset_paths_config: Asset paths configuration.
+            shutdown_coordinator: Optional shutdown coordinator reference.
+        """
         self.logger = logger
         self.main_root = main_root
         self.shutdown_coordinator = shutdown_coordinator

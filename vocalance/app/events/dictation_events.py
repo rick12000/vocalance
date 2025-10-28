@@ -6,7 +6,17 @@ from vocalance.app.events.base_event import BaseEvent, EventPriority
 
 
 class DictationStatusChangedEvent(BaseEvent):
-    """Event fired when dictation status changes for UI updates"""
+    """Event fired when dictation status changes for UI synchronization.
+
+    Published by DictationCoordinator when dictation mode is activated, deactivated,
+    or transitions between modes. Drives UI indicator visibility and stop command display.
+
+    Attributes:
+        is_active: True if any dictation mode is currently active.
+        mode: Current dictation mode type.
+        show_ui: True if dictation UI indicator should be visible.
+        stop_command: Voice phrase to stop current dictation mode, or None if inactive.
+    """
 
     is_active: bool = Field(description="Whether dictation is currently active")
     mode: Literal["inactive", "standard", "type", "smart"] = Field(description="Current dictation mode")

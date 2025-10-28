@@ -1,6 +1,3 @@
-"""
-Tests for SpeechToTextService - core STT processing and mode management.
-"""
 import asyncio
 from unittest.mock import AsyncMock, Mock
 

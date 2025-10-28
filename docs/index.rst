@@ -1,5 +1,5 @@
 Vocalance Documentation
-==================
+=======================
 
 Vocalance is a voice command assistant designed for accessibility, featuring on-device processing and minimal system permissions. Built for users with limited mobility, Vocalance provides powerful voice control capabilities while maintaining privacy through local processing.
 
@@ -7,20 +7,13 @@ Vocalance is a voice command assistant designed for accessibility, featuring on-
    :maxdepth: 1
    :caption: User Guide
 
-   user_guide/installation
-   user_guide/getting_started
+   setup/installation
 
 .. toctree::
-   :maxdepth: 1
-   :caption: API Reference
-
-   api_reference
-
-.. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Developer Guide
 
-   developer/services
+   developer/services_overview
 
 .. toctree::
    :maxdepth: 1
@@ -33,4 +26,4 @@ Quick Start
 
 TBI.
 
-For detailed examples and usage patterns, see the :doc:`user_guide/getting_started` section.
+For detailed examples and usage patterns, see the :doc:`setup/getting_started` section.

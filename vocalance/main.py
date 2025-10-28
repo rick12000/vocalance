@@ -16,8 +16,8 @@ from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
-from vocalance.app.services.audio.simple_audio_service import SimpleAudioService
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
+from vocalance.app.services.audio.simple_audio_service import AudioService
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.automation_service import AutomationService
 from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
@@ -46,19 +46,20 @@ async def initialize_services_with_ui_integration(
     root_window: tk.Tk,
     startup_window: Optional[StartupWindow] = None,
 ) -> Dict[str, Any]:
-    """Initialize services while keeping Tkinter responsive.
+    """Initialize services while maintaining UI responsiveness during startup.
 
-    Runs initialization tasks asynchronously while processing Tkinter events
-    to maintain UI responsiveness during startup.
+    Executes service initialization asynchronously in parallel with Tkinter's event loop
+    to prevent the UI from freezing. Periodically processes GUI events and updates the
+    startup window while the background initialization task runs to completion.
 
     Args:
-        initializer: Service initializer instance.
-        progress_tracker: Tracks and updates startup progress.
-        root_window: Root Tkinter window.
-        startup_window: Optional startup progress window.
+        initializer: FastServiceInitializer instance managing service creation sequence.
+        progress_tracker: Monitors initialization steps and publishes progress updates.
+        root_window: Main Tkinter root window requiring periodic event processing.
+        startup_window: Optional progress indicator window displaying initialization status.
 
     Returns:
-        Dictionary of initialized services.
+        Dictionary mapping service names to initialized service instances.
     """
     init_task = asyncio.create_task(initializer.initialize_all(progress_tracker=progress_tracker))
     gui_update_interval = 0.01
@@ -80,7 +81,13 @@ async def initialize_services_with_ui_integration(
 
 
 class FastServiceInitializer:
-    """Streamlined service initialization for maximum startup speed with thread safety."""
+    """Manages parallel service initialization with thread-safe access and shutdown support.
+
+    Coordinates the staged initialization of application services including storage, audio
+    processing, speech-to-text engines, and UI components. Provides thread-safe access to
+    the services dictionary during concurrent initialization and supports graceful cancellation
+    through the shutdown coordinator.
+    """
 
     def __init__(
         self,
@@ -90,6 +97,15 @@ class FastServiceInitializer:
         root: tk.Tk,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
     ) -> None:
+        """Initialize the service initializer with core infrastructure dependencies.
+
+        Args:
+            event_bus: Central event bus for inter-service communication.
+            config: Global application configuration containing all settings.
+            gui_loop: Asyncio event loop dedicated to GUI operations.
+            root: Tkinter root window instance.
+            shutdown_coordinator: Optional coordinator for handling shutdown requests during init.
+        """
         self.event_bus: EventBus = event_bus
         self.config: GlobalAppConfig = config
         self.gui_loop: asyncio.AbstractEventLoop = gui_loop
@@ -99,13 +115,19 @@ class FastServiceInitializer:
         self._services_lock: threading.RLock = threading.RLock()
 
     async def initialize_all(self, progress_tracker: StartupProgressTracker) -> Dict[str, Any]:
-        """Initialize all non-UI services in parallel with progress tracking.
+        """Initialize all non-UI services in staged parallel batches with progress updates.
+
+        Executes initialization in three sequential stages: core services (grid, automation),
+        storage services (settings, commands, marks, click tracking), and audio services
+        (capture, sound recognition, STT, dictation, command parsing). Within each stage,
+        services are initialized concurrently where possible. Checks for shutdown requests
+        between stages to support cancellation.
 
         Args:
-            progress_tracker: Tracks initialization progress.
+            progress_tracker: Tracks and reports initialization progress to the UI.
 
         Returns:
-            Dictionary of initialized services.
+            Thread-safe dictionary mapping service names to initialized instances.
         """
         progress_tracker.start_step(step_name="Starting core services...")
         progress_tracker.update_sub_step(sub_step_name="Initializing grid service...")
@@ -128,16 +150,24 @@ class FastServiceInitializer:
             return dict(self.services)
 
     def _check_cancellation(self) -> None:
-        """Check if shutdown was requested and raise CancelledError if so."""
+        """Check for shutdown request and abort initialization if detected.
+
+        Raises:
+            asyncio.CancelledError: When shutdown coordinator indicates shutdown was requested.
+        """
         if self.shutdown_coordinator and self.shutdown_coordinator.is_shutdown_requested():
             logger.info("Shutdown detected during initialization - cancelling")
             raise asyncio.CancelledError("Initialization cancelled due to shutdown request")
 
     async def initialize_ui_components(self, progress_tracker: StartupProgressTracker) -> None:
-        """Initialize UI components in main thread.
+        """Initialize UI components including fonts, theme, and main control room window.
+
+        Loads custom fonts, configures the UI theme with the font service, and creates
+        the AppControlRoom instance that manages all UI controls and views. Must be called
+        in the main thread after services are initialized.
 
         Args:
-            progress_tracker: Tracks initialization progress.
+            progress_tracker: Tracks and reports UI initialization progress.
         """
         progress_tracker.start_step(step_name="Creating interface...")
         progress_tracker.update_status_animated(status="Building main window")
@@ -145,16 +175,24 @@ class FastServiceInitializer:
         progress_tracker.complete_step()
 
     async def _init_core_services(self) -> None:
-        """Initialize lightweight core services."""
+        """Initialize lightweight core services that have no external dependencies.
+
+        Creates GridService for click grid overlay functionality and AutomationService
+        for executing keyboard/mouse automation commands.
+        """
         with self._services_lock:
             self.services["grid"] = GridService(event_bus=self.event_bus, config=self.config)
             self.services["automation"] = AutomationService(event_bus=self.event_bus, app_config=self.config)
 
     async def _init_storage_services(self, progress_tracker: Optional[StartupProgressTracker] = None) -> None:
-        """Initialize storage services in parallel.
+        """Initialize storage layer and dependent services concurrently.
+
+        Creates the StorageService for file I/O, then initializes settings, command management,
+        click tracking, and mark services in parallel. These services all depend on storage
+        but are independent of each other, enabling concurrent initialization.
 
         Args:
-            progress_tracker: Optional progress tracker for UI updates.
+            progress_tracker: Optional tracker for reporting progress to the startup UI.
         """
         with self._services_lock:
             self.services["storage"] = StorageService(config=self.config)
@@ -234,10 +272,15 @@ class FastServiceInitializer:
         await asyncio.gather(init_settings(), init_commands(), init_click_tracker(), init_marks())
 
     async def _init_audio_services(self, progress_tracker: Optional[StartupProgressTracker] = None) -> None:
-        """Initialize audio services sequentially with progress tracking.
+        """Initialize audio processing pipeline services sequentially with cancellation checks.
+
+        Initializes the audio capture service, sound recognition, STT engines, command parser,
+        dictation coordinator with LLM support, and Markov command predictor. Services are
+        initialized sequentially due to dependencies, with shutdown checks between each stage.
+        Registers initialized services with the settings coordinator for dynamic configuration.
 
         Args:
-            progress_tracker: Optional progress tracker for UI updates.
+            progress_tracker: Optional tracker for reporting progress and estimated times to UI.
         """
         with self._services_lock:
             storage = self.services["storage"]
@@ -247,7 +290,7 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_sub_step(sub_step_name="Starting audio capture...")
 
-            audio = SimpleAudioService(event_bus=self.event_bus, config=self.config, main_event_loop=self.gui_loop)
+            audio = AudioService(event_bus=self.event_bus, config=self.config, main_event_loop=self.gui_loop)
 
             with self._services_lock:
                 self.services["audio"] = audio
@@ -256,7 +299,7 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Loading sound recognition")
 
-            sound_service = StreamlinedSoundService(event_bus=self.event_bus, config=self.config, storage=storage)
+            sound_service = SoundService(event_bus=self.event_bus, config=self.config, storage=storage)
             await sound_service.initialize()
 
             with self._services_lock:
@@ -368,7 +411,11 @@ class FastServiceInitializer:
         self._register_services_with_settings_coordinator()
 
     def _register_services_with_settings_coordinator(self) -> None:
-        """Register services with settings coordinator for real-time updates."""
+        """Register services with settings coordinator to enable dynamic configuration updates.
+
+        Registers audio, grid, sound recognizer, and Markov predictor services so they
+        receive real-time configuration changes when settings are updated through the UI.
+        """
         with self._services_lock:
             coordinator = self.services.get("settings_coordinator")
             if not coordinator:
@@ -388,10 +435,13 @@ class FastServiceInitializer:
         logger.debug("Services registered with settings coordinator")
 
     async def _background_llm_init(self, dictation: DictationCoordinator) -> None:
-        """Initialize LLM in background after startup.
+        """Initialize LLM model in background after application startup completes.
+
+        Delays initialization by 2 seconds to avoid blocking startup, then initializes
+        the LLM model asynchronously. Used when startup_mode is set to 'background'.
 
         Args:
-            dictation: Dictation coordinator instance.
+            dictation: DictationCoordinator instance requiring LLM initialization.
         """
         await asyncio.sleep(2.0)
         await dictation.initialize()
@@ -400,8 +450,10 @@ class FastServiceInitializer:
     async def activate_all_services(self) -> None:
         """Activate all services by setting up event subscriptions and starting audio processing.
 
-        Must be called after all services are initialized and startup window closes
-        to ensure services don't become operational until app is fully ready.
+        Iterates through initialized services and calls setup_subscriptions() to register
+        event handlers. Separately starts the audio service's processing thread to begin
+        capturing audio. Must be called after initialization completes and before the main
+        window is shown to ensure services are ready but not processing prematurely.
         """
         logger.debug("Activating all services")
 
@@ -433,7 +485,12 @@ class FastServiceInitializer:
         logger.info("All services activated successfully")
 
     async def _init_ui_components(self) -> None:
-        """Initialize UI components."""
+        """Initialize UI components including fonts, theme, and AppControlRoom.
+
+        Loads custom fonts through FontService, configures the UI theme, and creates
+        the main AppControlRoom window that hosts all UI controls and views. Links
+        the settings service and mark service to the control room.
+        """
         font_service = FontService(self.config.asset_paths)
         font_service.load_fonts()
         ui_theme.theme.font_family.set_font_service(font_service=font_service)
@@ -466,8 +523,11 @@ class FastServiceInitializer:
 def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
     """Validate that critical assets exist before starting application.
 
+    Checks for the presence of the Vosk STT model directory required for offline
+    speech recognition. Logs critical error with download instructions if missing.
+
     Args:
-        app_config: Application configuration.
+        app_config: Application configuration containing asset paths.
 
     Returns:
         True if all critical assets are valid, False otherwise.
@@ -483,8 +543,12 @@ def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
 def _setup_infrastructure(app_config: GlobalAppConfig) -> tuple[EventBus, asyncio.AbstractEventLoop, threading.Thread]:
     """Setup core infrastructure: event bus, GUI event loop, and GUI thread.
 
+    Creates a dedicated asyncio event loop running in a separate daemon thread for
+    GUI-related async operations. Starts the event bus worker in this loop to handle
+    asynchronous event dispatching without blocking the main thread.
+
     Args:
-        app_config: Application configuration.
+        app_config: Application configuration (included for consistency, currently unused).
 
     Returns:
         Tuple of (event_bus, gui_event_loop, gui_thread).
@@ -505,13 +569,17 @@ def _setup_infrastructure(app_config: GlobalAppConfig) -> tuple[EventBus, asynci
 
 
 def _create_main_window(app_config: GlobalAppConfig) -> ctk.CTk:
-    """Create and configure the main application window.
+    """Create and configure the main application window with proper DPI and icon handling.
+
+    Configures DPI awareness for crisp rendering on high-DPI displays, sets dark theme,
+    creates the CustomTkinter root window, and applies the application icon. The window
+    is initially withdrawn to prevent flashing before initialization completes.
 
     Args:
-        app_config: Application configuration.
+        app_config: Application configuration containing theme dimensions.
 
     Returns:
-        Configured Tkinter root window.
+        Configured CustomTkinter root window ready for content.
     """
     # CRITICAL: Configure DPI awareness FIRST to prevent blurry icons
     # This must happen before any window creation
@@ -544,10 +612,14 @@ def _create_main_window(app_config: GlobalAppConfig) -> ctk.CTk:
 
 
 def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> None:
-    """Setup signal handlers for graceful shutdown.
+    """Setup signal handlers for graceful shutdown on SIGINT and SIGTERM.
+
+    Registers handlers that request shutdown through the coordinator and start a
+    fallback force-exit thread that terminates the process after 5 seconds if
+    graceful shutdown fails to complete.
 
     Args:
-        shutdown_coordinator: Coordinator to handle shutdown requests.
+        shutdown_coordinator: Coordinator managing the shutdown sequence.
     """
 
     def signal_handler(signum: int, frame: Any) -> None:
@@ -577,17 +649,22 @@ async def _handle_initialization(
 ) -> Optional[Dict[str, Any]]:
     """Handle service initialization with proper error handling and cancellation support.
 
+    Awaits the initialization task and handles three outcomes: successful completion,
+    cancellation due to user request (with partial cleanup), or runtime error (with
+    full cleanup). Updates the startup window with appropriate status messages and
+    unregisters the initialization task from the shutdown coordinator on completion.
+
     Args:
-        init_task: Asyncio task for initialization.
-        service_initializer: Service initializer instance.
-        startup_window: Startup progress window.
-        shutdown_coordinator: Shutdown coordinator.
-        event_bus: Application event bus.
-        gui_event_loop: GUI event loop.
-        gui_thread: GUI thread.
+        init_task: Asyncio task executing the initialization sequence.
+        service_initializer: Service initializer containing partially initialized services.
+        startup_window: Progress window displaying initialization status to user.
+        shutdown_coordinator: Coordinator tracking initialization task for cancellation.
+        event_bus: Application event bus requiring cleanup on failure.
+        gui_event_loop: GUI event loop requiring cleanup on failure.
+        gui_thread: GUI thread requiring cleanup on failure.
 
     Returns:
-        Dictionary of services if successful, None if cancelled or failed.
+        Dictionary of initialized services if successful, None if cancelled or failed.
     """
     try:
         services = await init_task
@@ -624,7 +701,13 @@ async def _handle_initialization(
 
 
 async def main() -> None:
-    """Main application entry point."""
+    """Main application entry point orchestrating startup, initialization, and cleanup.
+
+    Coordinates the complete application lifecycle: configures logging, validates assets,
+    sets up infrastructure (event bus, GUI thread), creates the main window and startup
+    window, initializes all services with progress tracking, activates services, displays
+    the main window, runs the Tkinter mainloop, and performs cleanup on shutdown.
+    """
     logging.getLogger("numba").setLevel(logging.WARNING)
 
     shutdown_coordinator: Optional[ShutdownCoordinator] = None
@@ -771,15 +854,19 @@ async def main() -> None:
 async def _stop_audio_and_event_bus(
     services: Dict[str, Any], event_bus: EventBus, gui_event_loop: asyncio.AbstractEventLoop
 ) -> list[str]:
-    """Stop audio service and event bus.
+    """Stop audio service and event bus during shutdown sequence.
+
+    Stops the audio service's processing thread to halt audio capture, waits briefly
+    for pending audio processing to complete, then stops the event bus worker to
+    prevent new events from being processed.
 
     Args:
-        services: Dictionary of active services.
-        event_bus: Event bus instance.
-        gui_event_loop: GUI event loop.
+        services: Dictionary of active services potentially including 'audio'.
+        event_bus: Event bus instance to be stopped.
+        gui_event_loop: GUI event loop where event bus worker is running.
 
     Returns:
-        List of error messages encountered.
+        List of error messages encountered during shutdown.
     """
     errors = []
 
@@ -802,14 +889,17 @@ async def _stop_audio_and_event_bus(
 
 
 async def _stop_mark_service_tasks(services: Dict[str, Any], gui_event_loop: asyncio.AbstractEventLoop) -> list[str]:
-    """Stop mark service background tasks.
+    """Stop mark service background tasks during shutdown.
+
+    Calls the mark service's stop_service_tasks() method in the GUI event loop
+    to cleanly terminate any running background tasks with a timeout.
 
     Args:
-        services: Dictionary of active services.
-        gui_event_loop: GUI event loop.
+        services: Dictionary of active services potentially including 'mark'.
+        gui_event_loop: GUI event loop where mark service tasks are running.
 
     Returns:
-        List of error messages encountered.
+        List of error messages encountered during task cancellation.
     """
     errors = []
 
@@ -827,10 +917,13 @@ async def _stop_mark_service_tasks(services: Dict[str, Any], gui_event_loop: asy
 
 
 async def _cancel_gui_event_loop_tasks(gui_event_loop: asyncio.AbstractEventLoop) -> None:
-    """Cancel all pending tasks in GUI event loop.
+    """Cancel all pending tasks in GUI event loop during shutdown.
+
+    Retrieves all pending tasks from the GUI event loop, cancels them, and waits
+    for cancellation to complete with a timeout to prevent hanging on stuck tasks.
 
     Args:
-        gui_event_loop: GUI event loop.
+        gui_event_loop: GUI event loop potentially containing pending async tasks.
     """
     if gui_event_loop.is_closed():
         return
@@ -856,14 +949,18 @@ async def _cancel_gui_event_loop_tasks(gui_event_loop: asyncio.AbstractEventLoop
 
 
 async def _stop_gui_event_loop(gui_event_loop: asyncio.AbstractEventLoop, gui_thread: threading.Thread) -> list[str]:
-    """Stop GUI event loop and wait for GUI thread termination.
+    """Stop GUI event loop and wait for GUI thread termination during shutdown.
+
+    Stops the GUI event loop using call_soon_threadsafe, waits for the GUI thread to
+    terminate with a timeout, and closes the event loop. Logs warnings if the thread
+    doesn't terminate cleanly within the timeout period.
 
     Args:
-        gui_event_loop: GUI event loop.
-        gui_thread: GUI thread.
+        gui_event_loop: GUI event loop to be stopped and closed.
+        gui_thread: GUI thread running the event loop.
 
     Returns:
-        List of error messages encountered.
+        List of error messages encountered during shutdown.
     """
     errors = []
 
@@ -896,13 +993,17 @@ async def _stop_gui_event_loop(gui_event_loop: asyncio.AbstractEventLoop, gui_th
 
 
 async def _shutdown_services_in_order(services: Dict[str, Any]) -> list[str]:
-    """Shutdown all services in proper dependency order.
+    """Shutdown all services in proper dependency order to prevent cleanup issues.
+
+    Calls the shutdown() method on each service in reverse initialization order to
+    ensure dependent services are cleaned up before their dependencies. Continues
+    shutdown even if individual services fail, collecting all errors.
 
     Args:
-        services: Dictionary of active services.
+        services: Dictionary of active services with string keys and service instances.
 
     Returns:
-        List of error messages encountered.
+        List of error messages encountered during service shutdown.
     """
     errors = []
     shutdown_order = [
@@ -931,7 +1032,12 @@ async def _shutdown_services_in_order(services: Dict[str, Any]) -> list[str]:
 
 
 def _cleanup_memory() -> None:
-    """Perform aggressive memory cleanup and return memory to OS if possible."""
+    """Perform aggressive memory cleanup and return memory to OS if possible.
+
+    Runs multiple garbage collection cycles and attempts to call malloc_trim on
+    Linux systems to return freed memory to the operating system immediately rather
+    than keeping it in the process heap.
+    """
     for i in range(3):
         gc.collect()
         logger.debug(f"Garbage collection round {i+1} performed")
@@ -956,11 +1062,16 @@ async def _cleanup_services(
 ) -> None:
     """Clean up all services during shutdown with proper async task cleanup.
 
+    Orchestrates the complete shutdown sequence: stops audio and event bus, cancels
+    pending GUI tasks, stops the GUI event loop, shuts down services in order, clears
+    service references, performs memory cleanup, and exits the process. Collects all
+    errors encountered and logs them for debugging.
+
     Args:
-        services: Dictionary of active services.
-        event_bus: Event bus instance.
-        gui_event_loop: GUI event loop.
-        gui_thread: GUI thread.
+        services: Dictionary of active services to be shut down.
+        event_bus: Event bus instance to be stopped.
+        gui_event_loop: GUI event loop to be stopped and closed.
+        gui_thread: GUI thread to be joined and terminated.
     """
     cleanup_errors: list[str] = []
 

@@ -1,12 +1,3 @@
-"""
-Integration test for complete audio flow from wav input to text recognition.
-
-This test simulates the entire audio processing pipeline:
-1. Load wav file audio samples (simulating microphone input)
-2. Process through the event-driven audio service flow
-3. Verify STT recognition accuracy
-4. Measure end-to-end latency performance
-"""
 import asyncio
 import time
 from typing import Optional, Tuple

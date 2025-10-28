@@ -38,13 +38,19 @@ from vocalance.app.ui.views.sound_view import SoundView
 
 
 class AppControlRoom:
-    """
-    Main application control room - manages UI views and controllers.
+    """Main application control room managing UI views and controllers.
 
-    Thread Safety:
-    - View cache operations protected by _view_cache_lock
-    - Tab switching is atomic with lock protection
-    - All UI operations run in main tkinter thread
+    Orchestrates the main window UI with sidebar navigation, lazy-loaded tab views,
+    and specialized overlay windows (dictation popup, grid overlay, mark visualization).
+    Coordinates between UI views, controllers, and the event bus for a fully integrated
+    user experience. Thread-safe view caching and tab switching.
+
+    Attributes:
+        asset_cache: AssetCache for icons and images.
+        font_service: FontService for loading custom fonts.
+        logo_service: LogoService for app logo.
+        _view_cache: Dict of lazily-loaded view instances.
+        _controllers: Dict of controller instances by tab name.
     """
 
     def __init__(
@@ -55,7 +61,17 @@ class AppControlRoom:
         logger: logging.Logger,
         config: GlobalAppConfig,
         storage_service=None,
-    ):
+    ) -> None:
+        """Initialize application control room with UI setup.
+
+        Args:
+            root: Tkinter root window.
+            event_bus: EventBus for pub/sub messaging.
+            event_loop: Asyncio event loop for async operations.
+            logger: Logger instance.
+            config: Global application configuration.
+            storage_service: Optional storage service reference.
+        """
         self.root = root
         self.event_bus = event_bus
         self.event_loop = event_loop

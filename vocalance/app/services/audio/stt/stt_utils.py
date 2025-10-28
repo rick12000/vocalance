@@ -14,6 +14,12 @@ class DuplicateTextFilter:
     """
 
     def __init__(self, cache_size: int = 5, duplicate_threshold_ms: float = 300) -> None:
+        """Initialize duplicate filter with cache and time window configuration.
+
+        Args:
+            cache_size: Maximum number of recent texts to cache.
+            duplicate_threshold_ms: Time window in milliseconds for duplicate detection.
+        """
         self._text_cache: deque = deque(maxlen=cache_size)
         self._duplicate_threshold_ms: float = duplicate_threshold_ms
         self._last_recognized_text: str = ""

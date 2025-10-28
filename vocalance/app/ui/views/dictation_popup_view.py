@@ -1,8 +1,3 @@
-"""
-Simplified Dictation Popup View
-
-Minimal popup for dictation with no focus stealing.
-"""
 import logging
 import threading
 import time

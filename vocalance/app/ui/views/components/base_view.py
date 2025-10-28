@@ -1,7 +1,3 @@
-"""
-Base view class to eliminate common patterns and reduce code duplication.
-"""
-
 import logging
 import tkinter as tk
 from typing import Any, Callable, Optional

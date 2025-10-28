@@ -1,21 +1,3 @@
-"""
-Aligned Sample Recorder
-
-Records audio using the same AudioRecorder class and configurations used in the main Vocalance application.
-This generates realistic audio byte segments that match the exact format passed to stt_service.py,
-making it ideal for unit testing downstream audio processing components.
-
-The recorder runs continuously from script start until interrupted (Ctrl+C), saving each audio
-segment as a separate .bytes file with timestamps.
-
-Usage:
-    python aligned_sample_recorder.py --mode command
-    python aligned_sample_recorder.py --mode dictation
-
-Arguments:
-    --mode: Recording mode ('command' or 'dictation') - uses corresponding config from app_config
-"""
-
 import argparse
 import logging
 import os

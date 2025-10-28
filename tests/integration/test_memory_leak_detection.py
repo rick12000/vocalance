@@ -64,7 +64,7 @@ async def test_process_exit_releases_memory(app_config):
 
 #     Note: This test can take several minutes due to repeated Whisper model initialization.
 #     """
-#     from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import StreamlinedSoundService
+#     from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
 #     from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 #     from vocalance.app.services.automation_service import AutomationService
 #     from vocalance.app.services.grid.grid_service import GridService
@@ -101,7 +101,7 @@ async def test_process_exit_releases_memory(app_config):
 #         services["grid"].setup_subscriptions()
 #         services["automation"].setup_subscriptions()
 
-#         services["sound_service"] = StreamlinedSoundService(event_bus, app_config, services["unified_storage"])
+#         services["sound_service"] = SoundService(event_bus, app_config, services["unified_storage"])
 #         await services["sound_service"].initialize()
 
 #         services["stt"] = SpeechToTextService(event_bus, app_config)

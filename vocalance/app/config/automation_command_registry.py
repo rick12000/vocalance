@@ -1,14 +1,14 @@
-"""Automation command registry providing default commands and helper methods."""
-
 from typing import Dict, List, Set
 
 from vocalance.app.config.command_types import AutomationCommand, ExactMatchCommand
 
 
 class AutomationCommandRegistry:
-    """Registry for automation commands using proper command objects.
+    """Registry for default automation commands with lookup and query utilities.
 
-    Provides default automation commands and helper methods for lookup.
+    Provides a comprehensive set of default voice-activated automation commands organized
+    by functional groups (editing, navigation, IDE operations, etc.). Supports exact match
+    lookups, command key retrieval, and validation of protected terms through helper methods.
     """
 
     DEFAULT_COMMANDS: List[AutomationCommand] = [
@@ -552,10 +552,10 @@ class AutomationCommandRegistry:
 
     @classmethod
     def get_default_commands(cls) -> List[AutomationCommand]:
-        """Get all default automation commands.
+        """Get all default automation commands as a copy.
 
         Returns:
-            List of default automation commands.
+            Shallow copy of the complete default automation commands list.
         """
         return cls.DEFAULT_COMMANDS.copy()
 
@@ -563,25 +563,28 @@ class AutomationCommandRegistry:
     def get_commands_dict(cls) -> Dict[str, AutomationCommand]:
         """Get automation commands as a dictionary keyed by command phrase.
 
+        Constructs a dictionary mapping each command's voice trigger phrase to its
+        AutomationCommand object for efficient lookup operations.
+
         Returns:
-            Dictionary mapping command phrases to AutomationCommand objects.
+            Dictionary mapping command key strings to AutomationCommand instances.
         """
         return {cmd.command_key: cmd for cmd in cls.DEFAULT_COMMANDS}
 
     @classmethod
     def get_command_phrases(cls) -> List[str]:
-        """Get list of all automation command phrases.
+        """Get list of all automation command voice trigger phrases.
 
         Returns:
-            List of command phrase strings.
+            List of command key strings used as voice triggers.
         """
         return [cmd.command_key for cmd in cls.DEFAULT_COMMANDS]
 
     @classmethod
     def get_protected_phrases(cls) -> Set[str]:
-        """Get phrases that are protected from being used as custom commands.
+        """Get phrases that are protected from being overridden by custom commands.
 
         Returns:
-            Set of protected command phrases.
+            Set of command key strings reserved for default automation commands.
         """
         return {cmd.command_key for cmd in cls.DEFAULT_COMMANDS}

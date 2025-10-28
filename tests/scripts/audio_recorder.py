@@ -1,12 +1,3 @@
-"""
-Records audio from microphone and saves as a raw .wav file.
-Automatically stops recording when silence is detected or max duration is reached.
-
-This simulates the raw audio input that would be fed into the AudioRecorder,
-rather than the processed output bytes it generates. Useful for unit testing
-the recorder with real audio data.
-"""
-
 import os
 import time
 import wave

@@ -27,7 +27,12 @@ class CommandManagementService:
     """Service for managing custom automation commands with protected term validation.
 
     Handles adding, updating, and deleting custom commands while validating against
-    protected terms (system commands, marks, sounds) to prevent conflicts.
+    protected terms (system commands, marks, sounds) to prevent conflicts. Publishes
+    command mapping updates when changes occur.
+
+    Attributes:
+        _protected_terms_validator: Validator ensuring command phrases don't conflict.
+        _action_map_provider: Provider for rebuilding command action map after changes.
     """
 
     def __init__(
@@ -38,6 +43,15 @@ class CommandManagementService:
         protected_terms_validator: ProtectedTermsValidator,
         action_map_provider: CommandActionMapProvider,
     ) -> None:
+        """Initialize service with dependencies.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            app_config: Global application configuration.
+            storage: Storage service for persistent command data.
+            protected_terms_validator: Validator for command phrase conflicts.
+            action_map_provider: Provider for command action map rebuilding.
+        """
         self._event_bus: EventBus = event_bus
         self._app_config: GlobalAppConfig = app_config
         self._storage: StorageService = storage

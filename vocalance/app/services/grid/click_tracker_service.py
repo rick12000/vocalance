@@ -39,6 +39,13 @@ class ClickTrackerService:
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
+        """Initialize click tracker service with dependencies.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            config: Global application configuration.
+            storage: Storage service for persistent click data.
+        """
         self._event_bus = event_bus
         self._config = config
         self._storage = storage

@@ -18,6 +18,12 @@ class ProtectedTermsValidator:
     """
 
     def __init__(self, config: GlobalAppConfig, storage: StorageService) -> None:
+        """Initialize validator with configuration and storage.
+
+        Args:
+            config: Global application configuration.
+            storage: Storage service for mark/sound data access.
+        """
         self._config: GlobalAppConfig = config
         self._storage: StorageService = storage
         self._cached_terms: Optional[Set[str]] = None

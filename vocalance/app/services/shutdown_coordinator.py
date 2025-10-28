@@ -22,6 +22,14 @@ class ShutdownCoordinator:
         logger: Optional[logging.Logger] = None,
         gui_event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
+        """Initialize shutdown coordinator with application dependencies.
+
+        Args:
+            event_bus: EventBus for publishing shutdown events.
+            root_window: Root Tkinter window for destruction.
+            logger: Optional logger instance (uses module logger if None).
+            gui_event_loop: Optional GUI event loop reference.
+        """
         self.event_bus: EventBus = event_bus
         self.root_window = root_window
         self.logger: logging.Logger = logger or logging.getLogger(__name__)

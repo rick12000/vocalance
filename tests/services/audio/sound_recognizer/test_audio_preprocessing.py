@@ -1,8 +1,3 @@
-"""
-Unit tests for AudioPreprocessor component.
-
-Tests the audio preprocessing functionality in isolation.
-"""
 from unittest.mock import patch
 
 import numpy as np

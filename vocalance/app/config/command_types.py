@@ -1,5 +1,3 @@
-"""Command types and data structures used throughout the application."""
-
 from abc import ABC
 from typing import Literal, Optional, Union
 
@@ -7,27 +5,40 @@ from pydantic import BaseModel, Field
 
 
 class ParseResult(BaseModel):
-    """Base class for parsing results."""
+    """Base class for command parsing results.
+
+    Marker class used as a discriminated union base for successful command parses,
+    no-match results, and error results.
+    """
 
 
 class NoMatchResult(ParseResult):
-    """Indicates no command was matched."""
+    """Indicates no command was matched during parsing.
+
+    Used by the command parser to signal that the input text did not match any
+    known command pattern or trigger phrase.
+    """
 
 
 class ErrorResult(ParseResult):
-    """Indicates an error occurred during parsing.
+    """Indicates an error occurred during command parsing.
+
+    Captures parsing errors distinct from no-matches, such as malformed input,
+    invalid parameters, or internal parsing failures.
 
     Attributes:
-        error_message: Description of the error.
+        error_message: Human-readable description of the error.
     """
 
     error_message: str
 
 
 class BaseCommand(BaseModel, ABC):
-    """Abstract base class for all commands.
+    """Abstract base class for all command types in the system.
 
-    Configuration allows arbitrary types for flexibility with command structures.
+    Serves as the root of the command hierarchy, inherited by dictation, automation,
+    mark, grid, and sound command families. Pydantic configuration allows arbitrary
+    types for flexibility in command structure extensions.
     """
 
     class Config:
@@ -35,39 +46,60 @@ class BaseCommand(BaseModel, ABC):
 
 
 class DictationCommand(BaseCommand):
-    """Base class for dictation-related commands."""
+    """Base class for dictation-related commands.
+
+    Parent class for commands controlling dictation mode lifecycle and behavior.
+    """
 
 
 class DictationStartCommand(DictationCommand):
-    """Command to start standard dictation mode."""
+    """Command to start standard dictation mode.
+
+    Activates dictation with the configured start trigger phrase, capturing speech
+    for text generation without formatting.
+    """
 
 
 class DictationStopCommand(DictationCommand):
-    """Command to stop dictation mode."""
+    """Command to stop dictation mode and return to command mode.
+
+    Triggered by the configured stop phrase to end dictation capture.
+    """
 
 
 class DictationTypeCommand(DictationCommand):
-    """Command to enter type mode."""
+    """Command to enter type mode for immediate text input.
+
+    Captures a short phrase and types it directly without additional processing.
+    """
 
 
 class DictationSmartStartCommand(DictationCommand):
-    """Command to start smart dictation mode."""
+    """Command to start smart dictation mode with LLM formatting.
+
+    Activates dictation with automatic punctuation and capitalization applied
+    through the LLM service before output.
+    """
 
 
 ActionType = Literal["hotkey", "key", "key_sequence", "click", "scroll"]
 
 
 class AutomationCommand(BaseCommand):
-    """Base class for automation commands (PyAutoGUI).
+    """Base class for automation commands executed via PyAutoGUI.
+
+    Represents voice-triggered keyboard/mouse automation actions including hotkeys,
+    individual keys, key sequences, clicks, and scrolling. Supports both default
+    and custom user-defined commands with categorization by functional group.
 
     Attributes:
-        command_key: The command phrase that triggers this action.
-        action_type: Type of action (hotkey, key, key_sequence, click, scroll).
-        action_value: The action value.
-        is_custom: Whether this is a custom user-defined command.
-        short_description: Short description for UI.
-        long_description: Detailed description.
-        functional_group: Functional grouping (Basic, Window Navigation, etc.).
+        command_key: Voice trigger phrase that activates this automation action.
+        action_type: Type of action - 'hotkey', 'key', 'key_sequence', 'click', or 'scroll'.
+        action_value: Action-specific value (e.g., 'ctrl+s' for hotkey, 'enter' for key).
+        is_custom: True if user-defined custom command, False for default commands.
+        short_description: Brief description displayed in UI command listings.
+        long_description: Detailed explanation of command purpose and behavior.
+        functional_group: Category for organization (Basic, Window Navigation, Editing, etc.).
     """
 
     command_key: str = Field(..., description="The command phrase that triggers this action")
@@ -83,18 +115,24 @@ class AutomationCommand(BaseCommand):
 
     @property
     def display_description(self) -> str:
-        """Get the appropriate description for display.
+        """Get the appropriate description for UI display.
+
+        Prefers the explicit short_description if set, otherwise generates a
+        fallback description based on the action_type.
 
         Returns:
-            Short description if available, otherwise generated description.
+            Short description string suitable for UI display.
         """
         return self.short_description if self.short_description else self._generate_short_description()
 
     def _generate_short_description(self) -> str:
-        """Generate a short description based on action type.
+        """Generate a fallback short description from action type.
+
+        Maps action_type to a human-readable category label when no explicit
+        short_description is provided.
 
         Returns:
-            Description string for the action type.
+            Generated description string based on action_type, or "Action" as fallback.
         """
         action_type_map = {
             "hotkey": "Hotkey",
@@ -109,30 +147,44 @@ class AutomationCommand(BaseCommand):
 
 
 class ExactMatchCommand(AutomationCommand):
-    """Command for exact phrase matches that execute once."""
+    """Command for exact phrase matches that execute a single action.
+
+    Represents commands that match the input phrase exactly and execute their
+    action once without repetition or parameterization.
+    """
 
 
 class ParameterizedCommand(AutomationCommand):
-    """Command for parameterized actions with repeat count.
+    """Command for parameterized actions supporting repeat counts.
+
+    Extends AutomationCommand with a count parameter enabling repeated execution
+    of the same action, commonly used with scrolling or repeated key presses.
 
     Attributes:
-        count: Number of times to repeat the command.
+        count: Number of times to repeat the command execution (default 1).
     """
 
     count: int = Field(default=1, description="Number of times to repeat the command")
 
 
 class MarkCommand(BaseCommand):
-    """Base class for mark-related commands."""
+    """Base class for mark-related commands.
+
+    Parent class for commands managing screen position bookmarks (marks) that
+    enable clicking saved locations via voice commands.
+    """
 
 
 class MarkCreateCommand(MarkCommand):
-    """Command to create a new mark.
+    """Command to create a new mark at current cursor position.
+
+    Captures the current mouse coordinates and associates them with a voice-activated
+    label for future click execution.
 
     Attributes:
-        label: The label for the new mark.
-        x: The x coordinate for the new mark.
-        y: The y coordinate for the new mark.
+        label: Voice-activated label for the new mark.
+        x: Screen x-coordinate of the mark position.
+        y: Screen y-coordinate of the mark position.
     """
 
     label: str = Field(..., description="The label for the new mark")
@@ -141,99 +193,141 @@ class MarkCreateCommand(MarkCommand):
 
 
 class MarkExecuteCommand(MarkCommand):
-    """Command to execute a click at a mark location.
+    """Command to execute a click at a previously saved mark location.
+
+    Performs a mouse click at the screen coordinates associated with the
+    specified mark label.
 
     Attributes:
-        label: The label of the mark to execute.
+        label: Voice label of the mark to click.
     """
 
     label: str = Field(..., description="The label of the mark to execute")
 
 
 class MarkDeleteCommand(MarkCommand):
-    """Command to delete a specific mark.
+    """Command to delete a specific mark by label.
+
+    Removes the mark from storage, preventing future execution of that label.
 
     Attributes:
-        label: The label of the mark to delete.
+        label: Voice label of the mark to delete.
     """
 
     label: str = Field(..., description="The label of the mark to delete")
 
 
 class MarkVisualizeCommand(MarkCommand):
-    """Command to show/visualize all marks."""
+    """Command to show overlay visualization of all saved marks.
+
+    Displays all mark positions and labels on screen for a configured duration.
+    """
 
 
 class MarkResetCommand(MarkCommand):
-    """Command to reset/delete all marks."""
+    """Command to reset and delete all marks from storage.
+
+    Clears all saved marks, requiring re-creation from scratch.
+    """
 
 
 class MarkVisualizeCancelCommand(MarkCommand):
-    """Command to cancel mark visualization."""
+    """Command to immediately cancel mark visualization overlay.
+
+    Hides the mark overlay before the auto-hide timeout expires.
+    """
 
 
 class GridCommand(BaseCommand):
-    """Base class for grid-related commands."""
+    """Base class for grid-related commands.
+
+    Parent class for commands controlling the click grid overlay system used for
+    precise mouse positioning via numbered grid cells.
+    """
 
 
 class GridShowCommand(GridCommand):
-    """Command to show the grid overlay.
+    """Command to display the numbered grid overlay on screen.
+
+    Shows a configurable grid of numbered cells covering the screen, with optional
+    specification of cell count.
 
     Attributes:
-        num_rects: Number of rectangles to show.
+        num_rects: Optional number of grid cells to display (uses default if None).
     """
 
     num_rects: Optional[int] = Field(default=None, description="Number of rectangles to show")
 
 
 class GridSelectCommand(GridCommand):
-    """Command to select a grid cell by number.
+    """Command to select and click a specific grid cell by its number.
+
+    Identifies the grid cell by spoken number and performs a click at its center,
+    then hides the grid overlay.
 
     Attributes:
-        selected_number: The number selected from the grid.
+        selected_number: Numeric identifier of the grid cell to click.
     """
 
     selected_number: int = Field(..., description="The number selected from the grid")
 
 
 class SoundCommand(BaseCommand):
-    """Base class for sound management commands."""
+    """Base class for sound recognition management commands.
+
+    Parent class for commands controlling training, deletion, listing, and mapping
+    of custom sound recognition triggers.
+    """
 
 
 class SoundTrainCommand(SoundCommand):
-    """Command to train a new sound.
+    """Command to train a new custom sound recognition trigger.
+
+    Initiates audio sample collection for training the sound recognizer to detect
+    a specific sound associated with the given label.
 
     Attributes:
-        sound_label: The label for the sound to be trained.
+        sound_label: Voice label for the sound to be trained.
     """
 
     sound_label: str = Field(..., description="The label for the sound to be trained")
 
 
 class SoundDeleteCommand(SoundCommand):
-    """Command to delete a trained sound.
+    """Command to delete a trained sound and its samples.
+
+    Removes the trained sound model and associated samples from storage.
 
     Attributes:
-        sound_label: The label of the sound to delete.
+        sound_label: Voice label of the sound to delete.
     """
 
     sound_label: str = Field(..., description="The label of the sound to delete")
 
 
 class SoundResetAllCommand(SoundCommand):
-    """Command to reset all trained sounds."""
+    """Command to reset and delete all trained sounds.
+
+    Clears all trained sound models and samples, requiring re-training.
+    """
 
 
 class SoundListAllCommand(SoundCommand):
-    """Command to list all trained sounds."""
+    """Command to list all currently trained sounds.
+
+    Displays or returns information about all trained sound labels in the system.
+    """
 
 
 class SoundMapCommand(SoundCommand):
-    """Command to map a sound to a command phrase.
+    """Command to map a trained sound to a command phrase.
+
+    Associates a trained sound trigger with a specific command phrase, so that
+    detecting the sound executes the mapped command automatically.
 
     Attributes:
-        sound_label: The label of the sound to map.
-        command_phrase: The command phrase to map to the sound.
+        sound_label: Voice label of the trained sound to map.
+        command_phrase: Command phrase to execute when sound is detected.
     """
 
     sound_label: str = Field(..., description="The label of the sound to map")

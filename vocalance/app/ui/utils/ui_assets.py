@@ -1,15 +1,3 @@
-"""
-UI Asset Management Utility
-
-Handles loading, caching, and management of UI assets like images and icons.
-Single responsibility: Asset loading and caching.
-
-Thread Safety:
-- All cache access protected by _cache_lock
-- Safe to call from any thread
-- Images cached after first load for performance
-"""
-
 import logging
 import threading
 from pathlib import Path

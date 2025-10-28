@@ -1,7 +1,3 @@
-"""
-View configuration models using Pydantic that integrate with ui_theme and settings_service.
-"""
-
 from typing import Any, Dict
 
 from pydantic import BaseModel, Field

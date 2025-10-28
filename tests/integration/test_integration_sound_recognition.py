@@ -1,19 +1,9 @@
-"""
-Integration tests for sound recognition system.
-
-Tests the core requirements:
-1. Lip-popping vs tongue-clicking discrimination
-2. User prompt recognition accuracy
-3. Noise sample rejection (no false positives)
-
-Uses real audio samples with real YAMNet embeddings for true integration testing.
-"""
 import numpy as np
 import pytest
 import pytest_asyncio
 from sklearn.metrics.pairwise import cosine_similarity
 
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import StreamlinedSoundRecognizer
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
 
 
 class TestSoundRecognitionIntegration:
@@ -22,7 +12,7 @@ class TestSoundRecognitionIntegration:
     @pytest_asyncio.fixture
     async def real_recognizer(self, mock_config, mock_storage_factory):
         """Create a recognizer with real YAMNet model for integration testing."""
-        recognizer = StreamlinedSoundRecognizer(mock_config, mock_storage_factory)
+        recognizer = SoundRecognizer(mock_config, mock_storage_factory)
         await recognizer.initialize()
         return recognizer
 

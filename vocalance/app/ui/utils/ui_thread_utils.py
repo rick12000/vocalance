@@ -1,15 +1,3 @@
-"""
-UI Thread Utilities
-
-Thread-safe utilities for scheduling UI updates and managing UI operations across threads.
-Single responsibility: Thread-safe UI operation scheduling.
-
-Thread Safety:
-- UIScheduler must be initialized in the main tkinter thread
-- schedule_ui_update() can be called from any thread
-- All UI operations are marshalled to main thread via root.after_idle()
-"""
-
 import logging
 import threading
 import tkinter as tk

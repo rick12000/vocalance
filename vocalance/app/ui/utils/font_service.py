@@ -1,14 +1,3 @@
-"""
-Font service for loading and managing custom fonts in the application.
-This service loads TTF fonts from the assets directory and makes them available
-to Tkinter without requiring system-wide font installation.
-
-Thread Safety:
-- All font loading and cache access protected by _font_lock
-- Safe to call from any thread
-- Fonts loaded once on first access
-"""
-
 import ctypes
 import logging
 import threading

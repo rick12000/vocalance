@@ -1,9 +1,3 @@
-"""
-Integration tests for STT models (Vosk and Whisper).
-
-Tests the recognition accuracy and performance of both Vosk and Whisper STT models
-using real audio samples recorded with the system's audio recorder.
-"""
 import time
 from pathlib import Path
 

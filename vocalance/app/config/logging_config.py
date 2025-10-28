@@ -9,13 +9,15 @@ from pydantic import BaseModel, Field
 
 
 def get_cache_directory() -> str:
-    """Get cache directory for logs and temporary files.
+    """Get cache directory for logs and temporary files with dev/production awareness.
 
-    Uses repository cache directory in development mode, or platform-appropriate
-    cache directories in installed mode (LOCALAPPDATA on Windows, XDG_CACHE_HOME on Unix).
+    Searches up the directory tree for pyproject.toml to detect development mode,
+    using a sibling 'cache' directory if found. Falls back to platform-specific
+    cache locations in production: %LOCALAPPDATA% on Windows, XDG_CACHE_HOME (or
+    ~/.cache) on Unix-like systems.
 
     Returns:
-        Path to cache directory.
+        Absolute path to cache directory, created if it doesn't exist.
     """
     current_dir = Path(__file__).resolve().parent
     max_iterations = 10
@@ -47,10 +49,13 @@ LOGS_BASE_DIR = os.path.join(CACHE_DIR, "logs")
 
 
 def get_log_dir_for_run() -> str:
-    """Create timestamped log directory for this run.
+    """Create timestamped log directory for this application run.
+
+    Generates a subdirectory within the logs folder using the current timestamp
+    in YYYYMMDD_HHMMSS format, enabling chronological organization of log files.
 
     Returns:
-        Path to timestamped log directory.
+        Absolute path to timestamped log directory, created if it doesn't exist.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(LOGS_BASE_DIR, timestamp)
@@ -62,12 +67,15 @@ LOG_FILE_NAME = "app.log"
 
 
 class LoggingConfigModel(BaseModel):
-    """Logging configuration model.
+    """Logging configuration model controlling verbosity and output destinations.
+
+    Configures logging level, message format, and whether logging is enabled.
+    When disabled, uses NullHandler for complete silence (privacy-first mode).
 
     Attributes:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-        format: Log message format string.
-        enable_logs: Enable logging to console and cache directory.
+        level: Log verbosity level - DEBUG, INFO, WARNING, ERROR, or CRITICAL.
+        format: Log message format string following Python logging formatter spec.
+        enable_logs: Enable logging to console and cache directory (default True).
     """
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -81,10 +89,11 @@ class LoggingConfigModel(BaseModel):
 
 
 def setup_logging(config: Any) -> None:
-    """Setup logging with enable_logs parameter.
+    """Setup logging infrastructure with dual console and file handlers.
 
-    When enabled, logs are printed to console and saved to cache directory.
-    When disabled, completely silent with NullHandler (privacy-first).
+    Configures Python's logging system based on the provided configuration. When
+    enabled, creates a timestamped log directory and configures both console (stdout)
+    and file handlers. When disabled, installs a NullHandler for complete silence.
 
     Args:
         config: Logging configuration object with enable_logs, level, and format attributes.

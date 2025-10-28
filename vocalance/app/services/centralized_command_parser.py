@@ -67,7 +67,14 @@ class CentralizedCommandParser:
 
     Parses voice/text input through hierarchical command parsers (dictation, mark, grid,
     automation), maps custom sounds to commands, handles Markov prediction deduplication,
-    and maintains command history for prediction training.
+    and maintains command history for prediction training. Processing order: dictation
+    commands > mark commands > grid commands > sound-mapped commands > automation commands.
+
+    Attributes:
+        _action_map_provider: Provides automation command action map.
+        _history_manager: Manages command history for Markov prediction.
+        _sound_to_command_mapping: Dict mapping sound labels to command phrases.
+        _recent_predictions: Dict tracking recent predictions for deduplication.
     """
 
     def __init__(
@@ -78,6 +85,15 @@ class CentralizedCommandParser:
         action_map_provider: CommandActionMapProvider,
         history_manager: CommandHistoryManager,
     ) -> None:
+        """Initialize parser with dependencies and configuration.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            app_config: Global application configuration.
+            storage: Storage service for persistent data.
+            action_map_provider: Provider for automation command action map.
+            history_manager: Manager for command history tracking.
+        """
         self._event_bus: EventBus = event_bus
         self._app_config: GlobalAppConfig = app_config
         self._storage: StorageService = storage
@@ -107,6 +123,11 @@ class CentralizedCommandParser:
         self._dictation_smart_trigger = self._app_config.dictation.smart_start_trigger.lower()
 
     def setup_subscriptions(self) -> None:
+        """Setup event subscriptions for command parsing.
+
+        Subscribes to command text recognized, custom sounds, sound mappings, command
+        mappings, Markov predictions, and explicit command phrase processing requests.
+        """
         subscriptions = [
             (CommandTextRecognizedEvent, self._handle_command_text_recognized),
             (ProcessCommandPhraseEvent, self._handle_process_command_phrase),
