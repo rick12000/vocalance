@@ -1,30 +1,32 @@
-Vocalance Documentation
-=======================
+Introduction
+=================================
 
-Vocalance is a voice command assistant designed for accessibility, featuring on-device processing and minimal system permissions. Built for users with limited mobility, Vocalance provides powerful voice control capabilities while maintaining privacy through local processing.
+This documentation serves as the official technical guide for Vocalance. It is intended for developers, contributors, and technically-minded users seeking to understand its architecture and implementation.
+
+For general information, features, or download instructions, please visit `vocalance.com <https://vocalance.com>`_ instead.
 
 .. toctree::
    :maxdepth: 1
-   :caption: User Guide
+   :caption: Setup
+   :hidden:
 
    setup/installation
 
 .. toctree::
    :maxdepth: 2
    :caption: Developer Guide
+   :hidden:
 
-   developer/services_overview
+   developer/introduction
+   developer/audio_processing
+   developer/command_parsing
+   developer/dictation_system
+   developer/command_execution
+   developer/infrastructure
 
 .. toctree::
    :maxdepth: 1
    :caption: Additional Information
+   :hidden:
 
-   README
    contact
-
-Quick Start
------------
-
-TBI.
-
-For detailed examples and usage patterns, see the :doc:`setup/getting_started` section.

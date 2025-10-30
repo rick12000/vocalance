@@ -186,16 +186,16 @@ latex_elements = {
 }
 
 latex_documents = [
-    (root_doc, "vocalance.tex", "Vocalance Documentation", author, "manual"),
+    (root_doc, "vocalance.tex", "Documentation", author, "manual"),
 ]
 
-man_pages = [(root_doc, "vocalance", "Vocalance Documentation", [author], 1)]
+man_pages = [(root_doc, "vocalance", "Documentation", [author], 1)]
 
 texinfo_documents = [
     (
         root_doc,
         "vocalance",
-        "Vocalance Documentation",
+        "Documentation",
         author,
         "vocalance",
         "Voice Command Assistant for Accessibility.",

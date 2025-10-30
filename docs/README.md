@@ -1,4 +1,4 @@
-# Vocalance Documentation
+# Documentation
 
 This directory contains the Sphinx documentation for the Vocalance voice command assistant.
 

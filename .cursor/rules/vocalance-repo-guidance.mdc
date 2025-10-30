@@ -1,7 +1,5 @@
 ---
-description:
-globs:
-alwaysApply: true
+alwaysApply: false
 ---
 # General Rules:
 - Put all parameters and configuration variables that you think would be customizable in the [app_config.py](mdc:src/config/app_config.py) or another configuration module in the config folder, do not hard code them in the module you're working on or place them at the top of the module.

@@ -1,9 +1,6 @@
 ---
-description:
-globs:
-alwaysApply: true
+alwaysApply: false
 ---
-
 When executing code in the terminal, ALWAYS use:
 conda activate iris_env
 pip install .

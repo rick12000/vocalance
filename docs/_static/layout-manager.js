@@ -1,5 +1,5 @@
 /**
- * Vocalance Documentation - Simplified Layout Manager
+ * Documentation - Simplified Layout Manager
  * Minimal JavaScript for enhanced UX without breaking RTD functionality
  */
 

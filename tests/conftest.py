@@ -1,7 +1,4 @@
 import os
-
-# Add vocalance to path for imports
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -16,8 +13,6 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
 from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 @pytest.fixture
@@ -413,6 +408,50 @@ def mock_storage_service():
     storage.write = AsyncMock(return_value=True)
 
     return storage
+
+
+@pytest.fixture
+def isolated_storage_config():
+    """Create isolated storage config that NEVER touches production data.
+
+    SAFETY: This fixture ensures tests use temporary directories only.
+    All storage paths are explicitly set to temp locations.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from vocalance.app.config.app_config import GlobalAppConfig
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config = GlobalAppConfig()
+        temp_path = Path(temp_dir)
+
+        # Override ALL storage paths - CRITICAL for data safety
+        config.storage.user_data_root = temp_dir
+        config.storage.marks_dir = str(temp_path / "marks")
+        config.storage.settings_dir = str(temp_path / "settings")
+        config.storage.click_tracker_dir = str(temp_path / "click_tracker")
+        config.storage.sound_model_dir = str(temp_path / "sound_model")
+        config.storage.command_history_dir = str(temp_path / "command_history")
+
+        # Verify no production paths leaked through
+        production_indicators = ["AppData", "Roaming", "vocalance_voice_assistant_data"]
+        for path_attr in [
+            "user_data_root",
+            "marks_dir",
+            "settings_dir",
+            "click_tracker_dir",
+            "sound_model_dir",
+            "command_history_dir",
+        ]:
+            path_value = getattr(config.storage, path_attr)
+            for indicator in production_indicators:
+                if indicator in path_value:
+                    raise RuntimeError(
+                        f"SAFETY VIOLATION: Test config contains production path indicator '{indicator}' in {path_attr}: {path_value}"
+                    )
+
+        yield config
 
 
 @pytest.fixture

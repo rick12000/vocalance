@@ -1,5 +1,5 @@
 /* ===================================================================
-   Vocalance Documentation - Simplified Modern Blue Theme
+   Documentation - Simplified Modern Blue Theme
    Compatible with sphinx_rtd_theme
    ================================================================== */
 
@@ -247,6 +247,9 @@ a:hover {
 .code-block-container,
 .literal-block-wrapper,
 .highlight-python,
+.highlight-bash,
+.highlight-shell,
+.highlight-console,
 .highlight-default,
 .rst-content .code-block,
 .rst-content .literal-block,
@@ -815,6 +818,9 @@ body {
 .code-block-container,
 .literal-block-wrapper,
 .highlight-python,
+.highlight-bash,
+.highlight-shell,
+.highlight-console,
 .highlight-default,
 .rst-content .code-block,
 .rst-content .literal-block,
