@@ -3,139 +3,71 @@ import threading
 import time
 from typing import Callable, Optional
 
-import numpy as np
 import sounddevice as sd
 
 from vocalance.app.config.app_config import GlobalAppConfig
 
 
 class AudioRecorder:
-    """Voice Activity Detection (VAD) based audio recorder with mode-specific configuration.
+    """Simple continuous audio chunk recorder.
 
-    Captures audio from microphone using sounddevice, detects speech via energy-based VAD
-    with adaptive noise floor estimation, and delivers complete audio segments through
-    callbacks. Supports two modes: command (low-latency, short utterances) and dictation
-    (longer duration, more tolerant of pauses). Runs recording in a background thread with
-    pre-roll buffering to capture speech onset and configurable silence detection for
-    speech endpoint determination.
+    Captures audio from microphone at a fixed chunk size (30ms base unit) and
+    continuously streams chunks via callback. No VAD logic - just pure streaming.
+    Downstream listeners handle VAD, buffering, and segment detection.
+
+    This design decouples audio capture from processing, enabling multiple independent
+    listeners with different parameters (command, dictation, sound recognition, etc).
 
     Attributes:
-        mode: Recording mode - 'command' or 'dictation' with different VAD parameters.
-        chunk_size: Audio chunk size in samples for processing.
-        energy_threshold: Minimum RMS energy to detect speech onset.
-        silent_chunks_for_end: Consecutive silent chunks required to end recording.
-        max_duration: Maximum recording duration in seconds before force-stop.
-        sample_rate: Audio sample rate in Hz.
+        chunk_size: Audio chunk size in samples (30ms base unit = 480 samples at 16kHz).
+        sample_rate: Audio sample rate in Hz (default 16000).
+        device: Audio input device ID (None = system default).
     """
 
     def __init__(
         self,
         app_config: GlobalAppConfig,
-        mode: str = "command",
-        on_audio_segment: Optional[Callable[[bytes], None]] = None,
-        on_audio_detected: Optional[Callable[[], None]] = None,
+        on_audio_chunk: Optional[Callable[[bytes, float], None]] = None,
     ) -> None:
-        """Initialize audio recorder with mode-specific VAD parameters.
+        """Initialize continuous audio recorder.
 
         Args:
-            app_config: Global application configuration containing audio and VAD settings.
-            mode: Recording mode - 'command' for low-latency or 'dictation' for longer speech.
-            on_audio_segment: Callback invoked with complete audio segment bytes when ready.
-            on_audio_detected: Optional callback invoked immediately when speech is detected.
+            app_config: Global application configuration.
+            on_audio_chunk: Callback invoked for every audio chunk captured.
+                          Signature: (audio_bytes: bytes, timestamp: float) -> None
         """
-        self.logger = logging.getLogger(f"{self.__class__.__name__}_{mode}")
+        self.logger = logging.getLogger(f"{self.__class__.__name__}")
         self.app_config = app_config
-        self.mode = mode
-        self.on_audio_segment = on_audio_segment
-        self.on_audio_detected = on_audio_detected
+        self.on_audio_chunk = on_audio_chunk
 
-        if mode == "command":
-            self.chunk_size = app_config.audio.command_chunk_size
-            self.energy_threshold = app_config.vad.command_energy_threshold
-            self.silent_chunks_for_end = app_config.vad.command_silent_chunks_for_end
-            self.max_duration = app_config.vad.command_max_recording_duration
-            self.pre_roll_chunks = app_config.vad.command_pre_roll_buffers
-            self.min_duration = app_config.vad.command_min_recording_duration
-            self.adaptive_margin_multiplier = app_config.vad.command_adaptive_margin_multiplier
-        else:
-            self.chunk_size = app_config.audio.chunk_size
-            self.energy_threshold = app_config.vad.dictation_energy_threshold
-            self.silent_chunks_for_end = app_config.vad.dictation_silent_chunks_for_end
-            self.max_duration = app_config.vad.dictation_max_recording_duration
-            self.pre_roll_chunks = app_config.vad.dictation_pre_roll_buffers
-            self.min_duration = app_config.vad.dictation_min_recording_duration
-            self.adaptive_margin_multiplier = app_config.vad.dictation_adaptive_margin_multiplier
-
+        # 30ms base unit at 16kHz = 480 samples
         self.sample_rate = app_config.audio.sample_rate
+        self.chunk_size = int(self.sample_rate * 0.03)  # 30ms chunks
         self.device = getattr(app_config.audio, "device", None)
-        self.silence_threshold = self.energy_threshold * app_config.vad.silence_threshold_multiplier
+
+        # Thread and stream state
         self._is_recording: bool = False
         self._is_active: bool = True
         self._thread: Optional[threading.Thread] = None
         self._stream: Optional[sd.InputStream] = None
         self._lock = threading.Lock()
-        self._noise_floor: float = app_config.vad.noise_floor_initial_value
-        self._noise_samples: list[float] = []
-        self._max_noise_samples: int = app_config.vad.max_noise_samples
 
         self.logger.debug(
-            f"AudioRecorder initialized for {mode} mode: chunk_size={self.chunk_size}samples, "
-            f"silent_chunks_for_end={self.silent_chunks_for_end}"
+            f"AudioRecorder initialized: chunk_size={self.chunk_size} samples (30ms), " f"sample_rate={self.sample_rate}Hz"
         )
 
-    def _calculate_energy(self, audio_chunk: np.ndarray) -> float:
-        """Calculate RMS energy of an audio chunk.
-
-        Computes root mean square energy normalized to [0, 1] range, handling both
-        int16 and float32 audio formats.
-
-        Args:
-            audio_chunk: NumPy array containing audio samples.
-
-        Returns:
-            RMS energy value as a float.
-        """
-        if audio_chunk.dtype == np.int16:
-            return np.sqrt(np.mean((audio_chunk.astype(np.float32) / 32768.0) ** 2))
-        return np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2))
-
-    def _update_noise_floor(self, energy: float) -> None:
-        """Update adaptive noise floor estimation from low-energy samples.
-
-        Collects energy samples below the initial threshold to estimate ambient noise
-        levels. Once sufficient samples are gathered, calculates the noise floor using
-        a percentile and adaptively adjusts energy and silence thresholds if needed.
-
-        Args:
-            energy: RMS energy value from a low-energy audio chunk.
-        """
-        if len(self._noise_samples) < self._max_noise_samples:
-            self._noise_samples.append(energy)
-
-            if len(self._noise_samples) == self._max_noise_samples:
-                self._noise_floor = np.percentile(self._noise_samples, self.app_config.vad.noise_floor_percentile)
-                adaptive_threshold = self._noise_floor * self.adaptive_margin_multiplier
-
-                if adaptive_threshold > self.energy_threshold * self.app_config.vad.adaptive_threshold_max_multiplier:
-                    old_threshold = self.energy_threshold
-                    self.energy_threshold = adaptive_threshold
-                    self.silence_threshold = self.energy_threshold * self.app_config.vad.adaptive_silence_threshold_multiplier
-                    self.logger.debug(f"Adapted thresholds: {old_threshold:.6f} -> {self.energy_threshold:.6f}")
-
     def _recording_thread(self) -> None:
-        """Main recording thread implementing the VAD state machine.
+        """Main recording loop - continuously streams audio chunks.
 
-        Continuously monitors audio input, detecting speech onset via energy thresholding,
-        collecting audio with pre-roll buffering, determining speech endpoints through
-        silence detection, and delivering complete segments via callback. Handles three
-        states: waiting for speech, recording active speech, and processing completed segment.
+        Reads audio frames at fixed intervals and invokes callback with raw bytes.
+        No buffering, no VAD, no state machine - pure streaming.
         """
         try:
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate, blocksize=self.chunk_size, channels=1, dtype="int16", device=self.device
             )
             self._stream.start()
-            self.logger.debug(f"{self.mode} recording started")
+            self.logger.debug("Continuous audio streaming started")
 
             while True:
                 with self._lock:
@@ -144,91 +76,26 @@ class AudioRecorder:
                     is_active = self._is_active
 
                 if not is_active:
+                    # Paused - sleep and skip
                     time.sleep(0.1)
                     continue
 
-                audio_buffer = []
-                pre_roll_buffer = []
-                speech_detected = False
+                try:
+                    # Read one chunk (30ms worth of audio)
+                    data, _ = self._stream.read(self.chunk_size)
+                    timestamp = time.time()
 
-                while True:
-                    with self._lock:
-                        if not self._is_recording or not self._is_active:
-                            break
+                    # Convert to bytes and invoke callback
+                    if self.on_audio_chunk:
+                        audio_bytes = data.tobytes()
+                        self.on_audio_chunk(audio_bytes, timestamp)
 
-                    if speech_detected:
-                        break
-
-                    try:
-                        data, _ = self._stream.read(self.chunk_size)
-                        energy = self._calculate_energy(data)
-
-                        pre_roll_buffer.append(data)
-                        if len(pre_roll_buffer) > self.pre_roll_chunks:
-                            pre_roll_buffer.pop(0)
-
-                        if energy <= self.energy_threshold and len(self._noise_samples) < self._max_noise_samples:
-                            self._update_noise_floor(energy)
-
-                        if energy > self.energy_threshold:
-                            speech_detected = True
-                            audio_buffer.extend(pre_roll_buffer)
-
-                            if self.mode == "command" and self.on_audio_detected:
-                                self.on_audio_detected()
-
-                    except (OSError, RuntimeError) as e:
-                        self.logger.error(f"Audio device error: {e}")
-                        return
-                    except Exception as e:
-                        self.logger.exception(f"Unexpected error reading audio: {e}")
-                        raise
-
-                if not speech_detected:
-                    continue
-
-                silent_chunks_count = 0
-                recording_start = time.time()
-                chunks_collected = 0
-
-                while True:
-                    with self._lock:
-                        if not self._is_recording or not self._is_active:
-                            break
-
-                    try:
-                        data, _ = self._stream.read(self.chunk_size)
-                        energy = self._calculate_energy(data)
-                        audio_buffer.append(data)
-                        chunks_collected += 1
-
-                        if energy < self.silence_threshold:
-                            silent_chunks_count += 1
-                            if silent_chunks_count >= self.silent_chunks_for_end:
-                                self.logger.debug(f"Silence detected: {silent_chunks_count} consecutive silent chunks")
-                                break
-                        else:
-                            silent_chunks_count = 0
-
-                        if time.time() - recording_start > self.max_duration:
-                            self.logger.debug(f"Max duration reached: {self.max_duration}s")
-                            break
-
-                    except (OSError, RuntimeError) as e:
-                        self.logger.error(f"Audio device error during recording: {e}")
-                        return
-                    except Exception as e:
-                        self.logger.exception(f"Unexpected error during recording: {e}")
-                        raise
-
-                if audio_buffer and self.on_audio_segment:
-                    audio_data = np.concatenate(audio_buffer)
-                    duration = len(audio_data) / self.sample_rate
-
-                    if duration >= self.min_duration:
-                        audio_bytes = audio_data.tobytes()
-                        self.logger.info(f"Segment captured: {duration:.3f}s, {chunks_collected} chunks")
-                        self.on_audio_segment(audio_bytes)
+                except (OSError, RuntimeError) as e:
+                    self.logger.error(f"Audio device error: {e}")
+                    return
+                except Exception as e:
+                    self.logger.exception(f"Unexpected error in recording loop: {e}")
+                    raise
 
         except Exception as e:
             self.logger.error(f"Recording thread error: {e}", exc_info=True)
@@ -236,30 +103,25 @@ class AudioRecorder:
             self._cleanup_stream()
 
     def _cleanup_stream(self) -> None:
-        """Clean up audio stream resources safely.
-
-        Stops and closes the sounddevice input stream if active, handling any errors
-        that may occur during cleanup to ensure resources are always released.
-        """
+        """Clean up audio stream resources safely."""
         if self._stream:
             try:
                 if hasattr(self._stream, "active") and self._stream.active:
                     self._stream.stop()
-                    self.logger.debug(f"{self.mode} stream stopped")
+                    self.logger.debug("Audio stream stopped")
 
                 self._stream.close()
-                self.logger.debug(f"{self.mode} stream closed")
+                self.logger.debug("Audio stream closed")
 
             except Exception as e:
-                self.logger.error(f"Error cleaning up {self.mode} audio stream: {e}", exc_info=True)
+                self.logger.error(f"Error cleaning up audio stream: {e}", exc_info=True)
             finally:
                 self._stream = None
-                self.logger.info(f"{self.mode} audio stream cleanup completed")
+                self.logger.info("Audio stream cleanup completed")
 
     def start(self) -> None:
-        """Start the recording thread and begin audio capture.
+        """Start the recording thread and begin streaming audio chunks.
 
-        Creates and starts the background recording thread if not already running.
         Thread-safe - multiple calls are ignored if already recording.
         """
         with self._lock:
@@ -272,8 +134,7 @@ class AudioRecorder:
     def stop(self) -> None:
         """Stop the recording thread and clean up audio resources.
 
-        Sets the stop flag and waits up to 5 seconds for the recording thread to
-        terminate. Cleans up the audio stream regardless of thread termination status.
+        Sets the stop flag and waits up to 5 seconds for thread termination.
         """
         with self._lock:
             if not self._is_recording:
@@ -283,18 +144,17 @@ class AudioRecorder:
         if self._thread:
             self._thread.join(timeout=5.0)
             if self._thread.is_alive():
-                self.logger.error(f"{self.mode} recording thread did not terminate after 5s timeout")
+                self.logger.error("Recording thread did not terminate after 5s timeout")
 
         self._cleanup_stream()
 
     def set_active(self, active: bool) -> None:
-        """Set the active state to enable or disable speech detection.
+        """Pause/resume audio streaming without stopping the thread.
 
-        When inactive, the recorder still runs but skips VAD processing, effectively
-        pausing speech detection without stopping the audio stream. Thread-safe.
+        When inactive, the recorder still runs but skips reading/processing audio.
 
         Args:
-            active: True to enable speech detection, False to pause it.
+            active: True to enable streaming, False to pause.
         """
         with self._lock:
             self._is_active = active
@@ -309,27 +169,10 @@ class AudioRecorder:
             return self._is_recording
 
     def is_active(self) -> bool:
-        """Check if speech detection is currently enabled.
+        """Check if audio streaming is currently enabled.
 
         Returns:
-            True if VAD processing is enabled, False if paused.
+            True if streaming is enabled, False if paused.
         """
         with self._lock:
             return self._is_active
-
-    def update_dictation_silent_chunks(self, chunks: int) -> None:
-        """Update the dictation silent chunks threshold dynamically during runtime.
-
-        Allows real-time adjustment of the silence detection sensitivity for dictation
-        mode, enabling users to adapt to their speaking pace. Only applies to dictation
-        mode recorders.
-
-        Args:
-            chunks: New number of consecutive silent chunks required to end recording.
-        """
-        if self.mode == "dictation":
-            with self._lock:
-                self.silent_chunks_for_end = chunks
-                self.logger.info(f"Updated dictation_silent_chunks_for_end to {chunks}")
-        else:
-            self.logger.warning(f"Attempted to update dictation_silent_chunks on {self.mode} mode recorder")

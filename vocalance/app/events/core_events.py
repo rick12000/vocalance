@@ -42,6 +42,25 @@ class DictationAudioSegmentReadyEvent(BaseEvent):
     priority: EventPriority = EventPriority.HIGH
 
 
+class AudioChunkEvent(BaseEvent):
+    """Continuous audio chunk stream from recorder (base unit: 30ms).
+
+    Published continuously by AudioRecorder at fixed intervals. Downstream
+    listeners (CommandAudioListener, DictationAudioListener) accumulate these
+    chunks and apply their own VAD logic and silence timeouts.
+
+    Attributes:
+        audio_chunk: Raw audio data for this chunk (numpy int16 format as bytes).
+        sample_rate: Sample rate of audio.
+        timestamp: Timestamp when chunk was captured.
+    """
+
+    audio_chunk: bytes
+    sample_rate: int
+    timestamp: float = Field(description="Timestamp when chunk was captured")
+    priority: EventPriority = EventPriority.CRITICAL  # High priority for real-time streaming
+
+
 class AudioDetectedEvent(BaseEvent):
     """Published immediately when audio above threshold is detected.
 

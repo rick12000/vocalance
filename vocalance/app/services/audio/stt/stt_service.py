@@ -36,8 +36,8 @@ class SpeechToTextService:
     Orchestrates two STT engines: Vosk (fast, offline) for command mode and Whisper
     (accurate, model-based) for dictation mode. Manages mode transitions, duplicate
     text filtering, stop trigger detection during dictation, and publishes recognized
-    text events. Handles concurrent audio processing from both command and dictation
-    recorders with proper synchronization.
+    text events. Processes audio segments from CommandAudioListener and DictationAudioListener
+    with proper synchronization and resource optimization.
 
     Attributes:
         vosk_engine: VoskSTT for fast command recognition.
@@ -232,11 +232,26 @@ class SpeechToTextService:
         Uses Whisper STT for high-accuracy transcription of longer dictation segments.
         Filters duplicates and publishes dictation text events with processing metrics.
 
+        **Optimization**: Skips Whisper processing if not in dictation mode to save resources.
+        DictationAudioListener emits events continuously, but Whisper (expensive) only runs
+        when dictation mode is active.
+
         Args:
             event_data: Event containing dictation audio segment and sample rate.
         """
         if not self._engines_initialized:
             logger.error("STT engines not initialized")
+            return
+
+        # Check if dictation mode is active - skip expensive Whisper processing if not
+        async with self._state_lock:
+            is_dictation_active = self._dictation_active
+
+        if not is_dictation_active:
+            logger.debug(
+                f"Skipping Whisper processing for dictation segment ({len(event_data.audio_bytes)} bytes) "
+                "- not in dictation mode"
+            )
             return
 
         await self.event_bus.publish(
