@@ -61,6 +61,7 @@ class ProtectedTermsValidator:
         protected.add(dictation.stop_trigger.lower().strip())
         protected.add(dictation.type_trigger.lower().strip())
         protected.add(dictation.smart_start_trigger.lower().strip())
+        protected.add(dictation.visual_start_trigger.lower().strip())
 
         try:
             marks_data = await self._storage.read(model_type=MarksData)

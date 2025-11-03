@@ -12,6 +12,8 @@ from vocalance.app.events.dictation_events import (
     SmartDictationStartedEvent,
     SmartDictationStoppedEvent,
     SmartDictationTextDisplayEvent,
+    VisualDictationStartedEvent,
+    VisualDictationStoppedEvent,
 )
 from vocalance.app.ui.controls.base_control import BaseController
 from vocalance.app.ui.utils.ui_thread_utils import schedule_ui_update
@@ -23,6 +25,7 @@ class DictationPopupMode(Enum):
     HIDDEN = "hidden"
     SIMPLE_LISTENING = "simple_listening"
     SMART_DICTATION = "smart_dictation"
+    VISUAL_DICTATION = "visual_dictation"
     LLM_PROCESSING = "llm_processing"
 
 
@@ -39,6 +42,8 @@ class DictationPopupController(BaseController):
                 (DictationStatusChangedEvent, self._handle_dictation_status_changed),
                 (SmartDictationStartedEvent, self._handle_smart_dictation_started),
                 (SmartDictationStoppedEvent, self._handle_smart_dictation_stopped),
+                (VisualDictationStartedEvent, self._handle_visual_dictation_started),
+                (VisualDictationStoppedEvent, self._handle_visual_dictation_stopped),
                 (LLMProcessingStartedEvent, self._handle_llm_processing_started),
                 (LLMProcessingCompletedEvent, self._handle_llm_processing_completed),
                 (LLMProcessingFailedEvent, self._handle_llm_processing_failed),
@@ -49,16 +54,17 @@ class DictationPopupController(BaseController):
         )
 
     async def _handle_dictation_status_changed(self, event_data) -> None:
-        """Handle normal dictation status changes (not smart dictation) - marshalled to UI thread"""
+        """Handle normal dictation status changes (not smart or visual dictation) - marshalled to UI thread"""
         if event_data.show_ui and event_data.is_active:
-            if event_data.mode != "smart":
+            if event_data.mode not in ("smart", "visual"):
                 self.current_mode = DictationPopupMode.SIMPLE_LISTENING
                 if self.view_callback:
                     schedule_ui_update(self.view_callback.show_simple_listening, event_data.mode, event_data.stop_command)
         else:
             if not event_data.is_active and (
                 self.current_mode == DictationPopupMode.SIMPLE_LISTENING
-                or self.current_mode in [DictationPopupMode.SMART_DICTATION, DictationPopupMode.LLM_PROCESSING]
+                or self.current_mode
+                in [DictationPopupMode.SMART_DICTATION, DictationPopupMode.VISUAL_DICTATION, DictationPopupMode.LLM_PROCESSING]
             ):
                 if self.view_callback:
                     schedule_ui_update(self.view_callback.hide_popup)
@@ -121,6 +127,18 @@ class DictationPopupController(BaseController):
         count = getattr(event_data, "count", 0)
         if count > 0 and self.view_callback:
             schedule_ui_update(self.view_callback.remove_dictation_characters, count)
+
+    async def _handle_visual_dictation_started(self, event_data) -> None:
+        """Show visual dictation popup - marshalled to UI thread"""
+        self.current_mode = DictationPopupMode.VISUAL_DICTATION
+        if self.view_callback:
+            schedule_ui_update(self.view_callback.show_visual_dictation)
+
+    async def _handle_visual_dictation_stopped(self, event_data) -> None:
+        """Hide popup immediately after visual dictation stops - marshalled to UI thread"""
+        if self.view_callback:
+            schedule_ui_update(self.view_callback.hide_popup)
+        self.current_mode = DictationPopupMode.HIDDEN
 
     def cleanup(self) -> None:
         """Clean up resources"""

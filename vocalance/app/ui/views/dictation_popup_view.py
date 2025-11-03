@@ -8,7 +8,7 @@ from typing import Optional
 import customtkinter as ctk
 
 from vocalance.app.ui import ui_theme
-from vocalance.app.ui.controls.dictation_popup_control import DictationPopupController, DictationPopupMode
+from vocalance.app.ui.controls.dictation_popup_control import DictationPopupController
 from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 from vocalance.app.ui.views.components.view_config import view_config
 
@@ -17,6 +17,8 @@ SIMPLE_WINDOW_WIDTH = 200
 SIMPLE_WINDOW_HEIGHT = 70
 SMART_WINDOW_WIDTH = 800
 SMART_WINDOW_HEIGHT = 550
+VISUAL_WINDOW_WIDTH = 400
+VISUAL_WINDOW_HEIGHT = 280
 WINDOW_MARGIN_X = 80
 WINDOW_MARGIN_Y_BOTTOM = 80
 
@@ -44,10 +46,11 @@ class DictationPopupView:
         self.popup_window = self._create_popup_window()
         self.simple_frame = self._create_simple_content()
         self.smart_frame = self._create_smart_content()
+        self.visual_frame = self._create_visual_content()
 
         self.popup_window.withdraw()
         self.is_visible = False
-        self.current_mode = DictationPopupMode.HIDDEN
+        self.current_mode = None  # Track which mode we're in for proper text box routing
 
         # Token batching for smooth UI updates (protected by lock)
         self._token_buffer = deque()
@@ -134,12 +137,38 @@ class DictationPopupView:
 
         return frame
 
+    def _create_visual_content(self) -> ctk.CTkFrame:
+        """Create visual dictation content (single box, no LLM)"""
+        frame = ctk.CTkFrame(self.popup_window, fg_color="transparent")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(1, weight=1)
+
+        # Dictation pane only (no LLM pane)
+        ctk.CTkLabel(frame, text="Dictation", font=(view_config.dictation_popup.font_family, 20, "bold")).grid(
+            row=0, column=0, padx=(10, 10), pady=5, sticky="w"
+        )
+        self.visual_dictation_box = ctk.CTkTextbox(
+            frame,
+            height=200,
+            width=380,
+            font=(view_config.dictation_popup.font_family, 13),
+            fg_color=ui_theme.theme.shape_colors.dark,
+            border_width=1,
+            border_color=ui_theme.theme.shape_colors.medium,
+        )
+        self.visual_dictation_box.grid(row=1, column=0, padx=(10, 10), pady=(0, 10), sticky="nsew")
+
+        return frame
+
     # Public API
     def show_simple_listening(self, mode: str, stop_command: Optional[str]) -> None:
         self._show_simple()
 
     def show_smart_dictation(self) -> None:
         self._show_smart()
+
+    def show_visual_dictation(self) -> None:
+        self._show_visual()
 
     def show_llm_processing(self) -> None:
         if self.is_visible:
@@ -150,10 +179,15 @@ class DictationPopupView:
 
     def append_dictation_text(self, text: str) -> None:
         """Append dictation text and force immediate UI update"""
-        if self.dictation_box and self.dictation_box.winfo_exists():
+        # Support both smart mode (dictation_box) and visual mode (visual_dictation_box)
+        if self.current_mode == "smart" and self.dictation_box and self.dictation_box.winfo_exists():
             self.dictation_box.insert("end", text)
             self.dictation_box.see("end")
             self.dictation_box.update_idletasks()
+        elif self.current_mode == "visual" and self.visual_dictation_box and self.visual_dictation_box.winfo_exists():
+            self.visual_dictation_box.insert("end", text)
+            self.visual_dictation_box.see("end")
+            self.visual_dictation_box.update_idletasks()
 
     def remove_dictation_characters(self, count: int) -> None:
         """Remove characters from end of dictation text"""
@@ -249,11 +283,22 @@ class DictationPopupView:
 
     def _show_smart(self):
         with self._ui_lock:
+            self.current_mode = "smart"
             self._hide_frames()
             self.smart_frame.pack(fill="both", expand=True, padx=10, pady=10)
             self.popup_window.geometry(f"{SMART_WINDOW_WIDTH}x{SMART_WINDOW_HEIGHT}")
             self._position_window(SMART_WINDOW_WIDTH, SMART_WINDOW_HEIGHT)
             self._clear_smart_content()
+            self._show_window()
+
+    def _show_visual(self):
+        with self._ui_lock:
+            self.current_mode = "visual"
+            self._hide_frames()
+            self.visual_frame.pack(fill="both", expand=True, padx=10, pady=10)
+            self.popup_window.geometry(f"{VISUAL_WINDOW_WIDTH}x{VISUAL_WINDOW_HEIGHT}")
+            self._position_window(VISUAL_WINDOW_WIDTH, VISUAL_WINDOW_HEIGHT)
+            self._clear_visual_content()
             self._show_window()
 
     def _show_window(self):
@@ -272,10 +317,12 @@ class DictationPopupView:
             if self.is_visible:
                 self.popup_window.withdraw()
                 self.is_visible = False
+                self.current_mode = None
 
     def _hide_frames(self):
         self.simple_frame.pack_forget()
         self.smart_frame.pack_forget()
+        self.visual_frame.pack_forget()
 
     def _clear_smart_content(self):
         """Clear smart content. Thread-safe buffer clearing."""
@@ -287,6 +334,10 @@ class DictationPopupView:
         self._last_token_end_index = None
         with self._ui_lock:
             self._token_buffer.clear()
+
+    def _clear_visual_content(self):
+        """Clear visual content."""
+        self.visual_dictation_box.delete("1.0", "end")
 
     def _position_window(self, width: int, height: int):
         self.parent_root.winfo_screenwidth()

@@ -12,6 +12,7 @@ from vocalance.app.config.command_types import (
     DictationStartCommand,
     DictationStopCommand,
     DictationTypeCommand,
+    DictationVisualStartCommand,
     ErrorResult,
     ExactMatchCommand,
     GridSelectCommand,
@@ -121,6 +122,7 @@ class CentralizedCommandParser:
         self._dictation_stop_trigger = self._app_config.dictation.stop_trigger.lower()
         self._dictation_type_trigger = self._app_config.dictation.type_trigger.lower()
         self._dictation_smart_trigger = self._app_config.dictation.smart_start_trigger.lower()
+        self._dictation_visual_trigger = self._app_config.dictation.visual_start_trigger.lower()
 
     def setup_subscriptions(self) -> None:
         """Setup event subscriptions for command parsing.
@@ -324,6 +326,9 @@ class CentralizedCommandParser:
         if normalized_text == self._dictation_smart_trigger:
             return DictationSmartStartCommand()
 
+        if normalized_text == self._dictation_visual_trigger:
+            return DictationVisualStartCommand()
+
         return NoMatchResult()
 
     def _parse_mark_commands(self, normalized_text: str) -> ParseResultType:
@@ -459,6 +464,7 @@ class CentralizedCommandParser:
             DictationStopCommand: DictationCommandParsedEvent,
             DictationTypeCommand: DictationCommandParsedEvent,
             DictationSmartStartCommand: DictationCommandParsedEvent,
+            DictationVisualStartCommand: DictationCommandParsedEvent,
             ExactMatchCommand: AutomationCommandParsedEvent,
             ParameterizedCommand: AutomationCommandParsedEvent,
             MarkCreateCommand: MarkCommandParsedEvent,

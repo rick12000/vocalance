@@ -82,6 +82,15 @@ class DictationSmartStartCommand(DictationCommand):
     """
 
 
+class DictationVisualStartCommand(DictationCommand):
+    """Command to start visual dictation mode with UI display but no LLM.
+
+    Activates dictation with accumulated text displayed in a popup UI,
+    similar to smart mode but without LLM processing. Text is pasted
+    directly when stopped.
+    """
+
+
 ActionType = Literal["hotkey", "key", "key_sequence", "click", "scroll"]
 
 
@@ -334,7 +343,9 @@ class SoundMapCommand(SoundCommand):
     command_phrase: str = Field(..., description="The command phrase to map to the sound")
 
 
-DictationCommandType = Union[DictationStartCommand, DictationStopCommand, DictationTypeCommand, DictationSmartStartCommand]
+DictationCommandType = Union[
+    DictationStartCommand, DictationStopCommand, DictationTypeCommand, DictationSmartStartCommand, DictationVisualStartCommand
+]
 
 AutomationCommandType = Union[ExactMatchCommand, ParameterizedCommand]
 

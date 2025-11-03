@@ -15,6 +15,7 @@ from vocalance.app.config.command_types import (
     DictationStartCommand,
     DictationStopCommand,
     DictationTypeCommand,
+    DictationVisualStartCommand,
 )
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.base_event import BaseEvent
@@ -33,6 +34,8 @@ from vocalance.app.events.dictation_events import (
     SmartDictationStartedEvent,
     SmartDictationStoppedEvent,
     SmartDictationTextDisplayEvent,
+    VisualDictationStartedEvent,
+    VisualDictationStoppedEvent,
 )
 from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
@@ -58,12 +61,14 @@ class DictationMode(Enum):
     STANDARD: Direct transcription without LLM processing.
     SMART: LLM-enhanced dictation with formatting and editing.
     TYPE: Direct typing of recognized text without formatting.
+    VISUAL: Accumulated dictation with UI display but no LLM processing.
     """
 
     INACTIVE = "inactive"
     STANDARD = "standard"
     SMART = "smart"
     TYPE = "type"
+    VISUAL = "visual"
 
 
 class DictationState(Enum):
@@ -335,6 +340,10 @@ class DictationCoordinator:
                 self._last_smart_dictation_text = display_text
 
                 await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
+            elif updated_session.mode == DictationMode.VISUAL:
+                # Visual mode: display text in UI without LLM processing
+                display_text = clean_dictation_text(text=cleaned_text, add_trailing_space=True)
+                await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
             else:
                 add_trailing_space = updated_session.mode != DictationMode.TYPE
                 await self.text_service.input_text(text=cleaned_text, add_trailing_space=add_trailing_space)
@@ -391,6 +400,8 @@ class DictationCoordinator:
                 await self._start_session(DictationMode.TYPE)
             elif isinstance(command, DictationSmartStartCommand):
                 await self._start_session(DictationMode.SMART)
+            elif isinstance(command, DictationVisualStartCommand):
+                await self._start_session(DictationMode.VISUAL)
 
         except Exception as e:
             logger.error(f"Command handling error: {e}", exc_info=True)
@@ -489,6 +500,9 @@ class DictationCoordinator:
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
 
+            if mode == DictationMode.VISUAL:
+                await self._publish_event(VisualDictationStartedEvent())
+
             if mode == DictationMode.TYPE:
                 self._type_silence_task = asyncio.create_task(self._monitor_type_silence())
                 logger.info("Started type dictation silence monitoring task")
@@ -531,11 +545,27 @@ class DictationCoordinator:
                     else:
                         self._current_session = None
                         self._set_state(DictationState.IDLE)
+                elif session.mode == DictationMode.VISUAL:
+                    # Visual mode: accumulate text and paste directly without LLM
+                    self._current_session = None
+                    self._set_state(DictationState.IDLE)
                 else:
                     self._current_session = None
                     self._set_state(DictationState.IDLE)
 
-            if session and session.mode == DictationMode.SMART and session.accumulated_text:
+            if session and session.mode == DictationMode.VISUAL:
+                # Visual mode: paste accumulated text if any, then finalize
+                if session.accumulated_text:
+                    logger.info(f"Publishing VisualDictationStoppedEvent with text: '{session.accumulated_text[:50]}...'")
+                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=session.accumulated_text))
+                    logger.info("VisualDictationStoppedEvent published - pasting accumulated text")
+                    await self.text_service.input_text(session.accumulated_text)
+                else:
+                    logger.info("Visual dictation stopped with no accumulated text")
+                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=""))
+                # Always finalize the session to return to command mode
+                await self._finalize_session(session)
+            elif session and session.mode == DictationMode.SMART and session.accumulated_text:
                 await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation processing"))
 
                 logger.info(f"Publishing SmartDictationStoppedEvent with text: '{session.accumulated_text[:50]}...'")
@@ -695,7 +725,13 @@ class DictationCoordinator:
             return ""
 
         cfg = self.config.dictation
-        triggers = {cfg.start_trigger.lower(), cfg.stop_trigger.lower(), cfg.type_trigger.lower(), cfg.smart_start_trigger.lower()}
+        triggers = {
+            cfg.start_trigger.lower(),
+            cfg.stop_trigger.lower(),
+            cfg.type_trigger.lower(),
+            cfg.smart_start_trigger.lower(),
+            cfg.visual_start_trigger.lower(),
+        }
 
         words = [w for w in text.split() if w.lower().strip('.,!?;:"()[]{}') not in triggers]
         return " ".join(words).strip()

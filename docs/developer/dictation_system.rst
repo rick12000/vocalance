@@ -1,7 +1,7 @@
 Dictation System
 =================
 
-Dictation is a core feature that converts continuous speech into typed text, with three distinct modes for different use cases. When the Command Parser identifies dictation commands ("dictate", "type", "smart dictate"), it routes them to the DictationCoordinator, which represents an alternative execution path parallel to automation commands.
+Dictation is a core feature that converts continuous speech into typed text, with four distinct modes for different use cases. When the Command Parser identifies dictation commands ("dictate", "type", "smart dictate", "visual dictate"), it routes them to the DictationCoordinator, which represents an alternative execution path parallel to automation commands.
 
 DictationCoordinator: The Orchestrator
 ---------------------------------------
@@ -11,7 +11,7 @@ The ``DictationCoordinator`` is a sophisticated state machine that manages all d
 Dictation Modes
 ~~~~~~~~~~~~~~~
 
-The system supports three dictation modes, each with different behavior:
+The system supports four dictation modes, each with different behavior:
 
 **1. STANDARD Mode** (trigger: "dictate"):
 
@@ -32,6 +32,14 @@ The system supports three dictation modes, each with different behavior:
 - LLM improves grammar, clarity, formatting per user-defined prompt
 - Displays preview text in real-time, types final enhanced version
 - Best for: Emails, documents, code - anything requiring polish
+
+**4. VISUAL Mode** (trigger: "visual dictate"):
+
+- Accumulates all spoken text during session with UI display
+- Shows dictation in a popup window (single box, no LLM pane)
+- When stopped, pastes accumulated text directly without LLM processing
+- Provides visual feedback like smart mode but with standard mode's backend flow
+- Best for: When you want to see what you're dictating without LLM overhead
 
 Dictation State Machine
 ~~~~~~~~~~~~~~~~~~~~~~~~

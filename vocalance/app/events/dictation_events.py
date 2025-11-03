@@ -19,7 +19,7 @@ class DictationStatusChangedEvent(BaseEvent):
     """
 
     is_active: bool = Field(description="Whether dictation is currently active")
-    mode: Literal["inactive", "standard", "type", "smart"] = Field(description="Current dictation mode")
+    mode: Literal["inactive", "standard", "type", "smart", "visual"] = Field(description="Current dictation mode")
     show_ui: bool = Field(default=False, description="Whether to show the dictation UI indicator")
     stop_command: Optional[str] = Field(default=None, description="The command to stop this dictation mode")
     priority: EventPriority = EventPriority.LOW
@@ -29,7 +29,7 @@ class DictationModeDisableOthersEvent(BaseEvent):
     """Event fired to disable other speech/sound processing during dictation"""
 
     dictation_mode_active: bool = Field(description="Whether dictation mode is active, disabling other processing")
-    dictation_mode: Literal["inactive", "standard", "type", "smart"]
+    dictation_mode: Literal["inactive", "standard", "type", "smart", "visual"]
     priority: EventPriority = EventPriority.CRITICAL
 
 
@@ -53,6 +53,21 @@ class SmartDictationStoppedEvent(BaseEvent):
 
     mode: Literal["smart"] = "smart"
     raw_text: str = Field(description="Raw text that was dictated before LLM processing")
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class VisualDictationStartedEvent(BaseEvent):
+    """Event fired when visual dictation mode is activated"""
+
+    mode: Literal["visual"] = "visual"
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class VisualDictationStoppedEvent(BaseEvent):
+    """Event fired when visual dictation mode is deactivated"""
+
+    mode: Literal["visual"] = "visual"
+    accumulated_text: str = Field(description="Accumulated text to be pasted")
     priority: EventPriority = EventPriority.NORMAL
 
 

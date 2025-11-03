@@ -184,6 +184,7 @@ class DictationConfig(BaseModel):
     stop_trigger: str = "amber"
     type_trigger: str = "type"
     smart_start_trigger: str = "smart green"
+    visual_start_trigger: str = "visual green"
 
     use_clipboard: bool = True
     typing_delay: float = 0.01
