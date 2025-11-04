@@ -460,7 +460,7 @@ class DictationCoordinator:
         """Route audio chunks to streaming buffer for smart/visual modes.
 
         Args:
-            event: AudioChunkEvent containing 30ms audio chunk.
+            event: AudioChunkEvent containing 50ms audio chunk.
         """
         try:
             with self._state_lock:

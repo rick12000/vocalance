@@ -57,8 +57,20 @@ class AutomationService:
     async def _handle_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:
         """Process and execute automation commands with cooldown and count handling.
 
+        CRITICAL: Creates background task to avoid blocking event bus.
+        Automation commands can take 50-500ms and must not block other events.
+
         Validates command parameters, checks cooldown status, executes through
         thread pool, and publishes execution status events.
+
+        Args:
+            event_data: Event containing the automation command to execute.
+        """
+        # Create background task to avoid blocking event bus
+        asyncio.create_task(self._execute_automation_command(event_data))
+
+    async def _execute_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:
+        """Background task for automation command execution - does not block event bus.
 
         Args:
             event_data: Event containing the automation command to execute.

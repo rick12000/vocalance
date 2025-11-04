@@ -131,11 +131,24 @@ class SoundService:
             return False
 
     async def _handle_audio_chunk(self, event_data: ProcessAudioChunkForSoundRecognitionEvent) -> None:
-        """Handle incoming audio chunks for recognition or training."""
+        """Handle incoming audio chunks for recognition or training (non-blocking).
+
+        Immediately creates a task to process the audio chunk, allowing the event bus
+        worker to continue processing other events without blocking.
+        """
         if not self.is_initialized:
             logger.debug("Service not initialized, ignoring audio chunk")
             return
 
+        # Create task immediately to avoid blocking event bus worker
+        asyncio.create_task(self._process_audio_chunk(event_data))
+
+    async def _process_audio_chunk(self, event_data: ProcessAudioChunkForSoundRecognitionEvent) -> None:
+        """Process audio chunk for recognition or training (CPU-intensive, runs in background).
+
+        This method runs as a background task to prevent blocking the event bus.
+        Uses thread pool executor for TensorFlow inference and librosa preprocessing.
+        """
         try:
             # Convert audio chunk to float32
             audio_float32 = self._preprocess_audio_chunk(audio_bytes=event_data.audio_chunk)
@@ -151,8 +164,11 @@ class SoundService:
                 await self._collect_training_sample(audio=audio_float32, sample_rate=sample_rate)
                 return
 
-            # Recognize sound
-            result = self.recognizer.recognize_sound(audio=audio_float32, sr=sample_rate)
+            # Recognize sound - run in thread pool to avoid blocking event loop
+            # This prevents "Slow handler" warnings since TensorFlow inference and
+            # preprocessing (librosa resampling, RMS analysis) are CPU-intensive
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, self.recognizer.recognize_sound, audio_float32, sample_rate)
 
             if result:
                 sound_label, confidence = result

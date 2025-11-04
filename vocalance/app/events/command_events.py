@@ -26,7 +26,7 @@ class BaseCommandEvent(BaseEvent):
 
     source: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
-    priority: EventPriority = EventPriority.NORMAL
+    priority: EventPriority = EventPriority.HIGH  # User commands should be processed promptly
 
 
 class DictationCommandParsedEvent(BaseCommandEvent):

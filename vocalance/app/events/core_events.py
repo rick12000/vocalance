@@ -43,7 +43,7 @@ class DictationAudioSegmentReadyEvent(BaseEvent):
 
 
 class AudioChunkEvent(BaseEvent):
-    """Continuous audio chunk stream from recorder (base unit: 30ms).
+    """Continuous audio chunk stream from recorder (base unit: 50ms).
 
     Published continuously by AudioRecorder at fixed intervals. Downstream
     listeners (CommandAudioListener, DictationAudioListener) accumulate these
@@ -75,14 +75,17 @@ class AudioDetectedEvent(BaseEvent):
 class ProcessAudioChunkForSoundRecognitionEvent(BaseEvent):
     """Audio chunk ready for sound recognition processing.
 
+    Rate-limited to 100ms intervals (10/sec) to balance responsiveness with CPU efficiency.
+    LOW priority ensures sound recognition doesn't interfere with command/dictation processing.
+
     Attributes:
-        audio_chunk: Audio data chunk.
+        audio_chunk: Audio data chunk (100ms at 50ms/chunk base rate).
         sample_rate: Sample rate of audio.
     """
 
     audio_chunk: bytes
     sample_rate: int = 16000
-    priority: EventPriority = EventPriority.HIGH
+    priority: EventPriority = EventPriority.LOW
 
 
 class TextRecognizedEvent(BaseEvent):
@@ -210,7 +213,7 @@ class MarkovPredictionFeedbackEvent(BaseEvent):
     actual_command: str = Field(description="The command that was actually recognized")
     was_correct: bool = Field(description="True if prediction matched actual command")
     source: str = Field(description="Source of actual command: 'stt' or 'sound'")
-    priority: EventPriority = EventPriority.NORMAL
+    priority: EventPriority = EventPriority.LOW  # Background training feedback
 
 
 class SettingsResponseEvent(BaseEvent):

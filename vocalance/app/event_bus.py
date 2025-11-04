@@ -5,7 +5,8 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Type
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from vocalance.app.events.base_event import BaseEvent, EventPriority
 
@@ -21,6 +22,9 @@ class EventBus:
     registration to prevent premature shutdown during important processes. Thread-safe subscriber
     management enables registration from any thread while processing occurs in the event loop.
 
+    Features thread pool executor for CPU-intensive handlers and backpressure management to
+    prevent queue bloating under load.
+
     Attributes:
         _subscribers: Dictionary mapping event types to lists of handler callables.
         _event_queue: Priority queue ordering events by priority and insertion time.
@@ -29,14 +33,24 @@ class EventBus:
         _critical_operations: Set of operation IDs preventing shutdown.
         _high_priority_sleep: Sleep duration between high-priority event processing.
         _low_priority_sleep: Sleep duration between normal/low-priority event processing.
+        _thread_pool: ThreadPoolExecutor for running CPU-intensive handlers.
+        _max_queue_size: Maximum queue size before backpressure kicks in.
     """
 
-    def __init__(self, high_priority_sleep: float = 0.001, low_priority_sleep: float = 0.01) -> None:
-        """Initialize the event bus with configurable processing delays.
+    def __init__(
+        self,
+        high_priority_sleep: float = 0.001,
+        low_priority_sleep: float = 0.01,
+        thread_pool_workers: int = 4,
+        max_queue_size: int = 200,
+    ) -> None:
+        """Initialize the event bus with configurable processing delays and thread pool.
 
         Args:
             high_priority_sleep: Seconds to sleep between high-priority events (default 0.001).
             low_priority_sleep: Seconds to sleep between normal/low-priority events (default 0.01).
+            thread_pool_workers: Number of worker threads for CPU-intensive handlers (default 4).
+            max_queue_size: Maximum queue size before applying backpressure (default 200).
         """
         self._subscribers: Dict[Type[BaseEvent], List[Callable[[BaseEvent], Any]]] = defaultdict(list)
         self._event_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
@@ -50,12 +64,21 @@ class EventBus:
         self._critical_ops_lock: asyncio.Lock = asyncio.Lock()
         self._subscribers_lock: threading.RLock = threading.RLock()
 
+        # Thread pool for CPU-intensive handlers
+        self._thread_pool: Optional[ThreadPoolExecutor] = ThreadPoolExecutor(
+            max_workers=thread_pool_workers, thread_name_prefix="EventBus-Worker"
+        )
+
+        # Backpressure management
+        self._max_queue_size: int = max_queue_size
+        self._events_dropped: int = 0
+
     async def publish(self, event: BaseEvent) -> None:
         """Publish an event to the priority queue for asynchronous processing.
 
         Validates event type, rejects events during shutdown, adds event to priority queue
-        with priority value and insertion counter for stable ordering, and logs warnings
-        when queue size exceeds thresholds indicating potential backlog issues.
+        with priority value and insertion counter for stable ordering. Implements backpressure
+        by dropping lowest-priority events when queue exceeds maximum size.
 
         Args:
             event: BaseEvent subclass instance to publish to subscribers.
@@ -71,13 +94,32 @@ class EventBus:
             logger.error(f"Event data must be a subclass of BaseEvent, got {type(event)}")
             return
 
+        queue_size = self._event_queue.qsize()
+
+        # Backpressure: Drop lowest-priority events when queue is full
+        if queue_size >= self._max_queue_size:
+            # Only drop LOW and NORMAL priority events, never CRITICAL or HIGH
+            if event.priority >= EventPriority.NORMAL:
+                self._events_dropped += 1
+                logger.warning(
+                    f"Queue full ({queue_size}/{self._max_queue_size}) - dropping {type(event).__name__} "
+                    f"(priority={event.priority}, total_dropped={self._events_dropped})"
+                )
+                return
+            else:
+                # Critical/High priority: log error but allow (queue may grow beyond limit)
+                logger.error(
+                    f"Queue full ({queue_size}/{self._max_queue_size}) but forcing {type(event).__name__} "
+                    f"(priority={event.priority}) - system overloaded!"
+                )
+
         await self._event_queue.put((event.priority, next(self._counter), event))
 
-        queue_size = self._event_queue.qsize()
-        if queue_size > 50:
-            logger.warning(f"Event queue size is large: {queue_size} events")
-        elif queue_size > 100:
-            logger.error(f"Event queue size is critical: {queue_size} events - system may be overloaded")
+        # Progressive warning levels
+        if queue_size > self._max_queue_size * 0.75:
+            logger.warning(f"Event queue at 75% capacity: {queue_size}/{self._max_queue_size} events")
+        elif queue_size > self._max_queue_size * 0.5:
+            logger.info(f"Event queue at 50% capacity: {queue_size}/{self._max_queue_size} events")
 
     def subscribe(self, event_type: Type[BaseEvent], handler: Callable[[BaseEvent], Any]) -> None:
         """Subscribe a handler to receive events of a specific type.
@@ -125,39 +167,65 @@ class EventBus:
                 event_type = type(event)
                 handler_found = False
 
+                # Optimize: only copy handlers for matching event types
+                # Create shallow copy of handler list to prevent race conditions
+                handlers_to_call = []
                 with self._subscribers_lock:
-                    current_subscribers = {event_type: list(handlers) for event_type, handlers in self._subscribers.items()}
+                    for subscribed_type, handlers in self._subscribers.items():
+                        if isinstance(event, subscribed_type):
+                            handler_found = True
+                            # Create a copy of the handlers list to avoid modification during iteration
+                            handlers_to_call.extend(list(handlers))
 
-                for subscribed_type, handlers in current_subscribers.items():
-                    if isinstance(event, subscribed_type):
-                        handler_found = True
-                        for handler in handlers:
-                            try:
-                                handler_start = time.monotonic()
-                                if asyncio.iscoroutinefunction(handler):
-                                    await handler(event)
-                                else:
-                                    handler(event)
+                # Execute handlers outside lock for better concurrency
+                for handler in handlers_to_call:
+                    try:
+                        handler_start = time.monotonic()
+                        if asyncio.iscoroutinefunction(handler):
+                            await handler(event)
+                        else:
+                            handler(event)
 
-                                handler_time = time.monotonic() - handler_start
-                                if handler_time > 0.1:
-                                    logger.warning(
-                                        f"Slow handler {handler.__name__ if hasattr(handler, '__name__') else handler} for event '{event_type.__name__}': {handler_time:.4f}s"
-                                    )
+                        handler_time = time.monotonic() - handler_start
+                        if handler_time > 0.1:
+                            logger.warning(
+                                f"Slow handler {handler.__name__ if hasattr(handler, '__name__') else handler} for event '{event_type.__name__}': {handler_time:.4f}s"
+                            )
 
-                            except Exception as e:
-                                handler_name = handler.__name__ if hasattr(handler, "__name__") else str(handler)
-                                logger.error(
-                                    f"Error in handler {handler_name} for event '{event_type.__name__}': {e}", exc_info=True
-                                )
+                    except Exception as e:
+                        handler_name = handler.__name__ if hasattr(handler, "__name__") else str(handler)
+                        logger.error(f"Error in handler {handler_name} for event '{event_type.__name__}': {e}", exc_info=True)
 
                 if not handler_found:
                     logger.debug(f"No handlers registered for event '{event_type.__name__}'")
 
                 self._event_queue.task_done()
 
-                sleep_duration = self._low_priority_sleep if priority >= EventPriority.NORMAL else self._high_priority_sleep
-                await asyncio.sleep(sleep_duration)
+                # Adaptive sleep based on queue depth for optimal throughput vs CPU usage
+                # Critical priority: skip sleep entirely for maximum responsiveness
+                queue_depth = self._event_queue.qsize()
+
+                if priority == EventPriority.CRITICAL:
+                    # Fast path: no sleep for critical events
+                    await asyncio.sleep(0)
+                elif queue_depth == 0:
+                    # Queue empty: sleep to reduce CPU usage
+                    sleep_duration = self._low_priority_sleep if priority >= EventPriority.NORMAL else self._high_priority_sleep
+                    await asyncio.sleep(sleep_duration)
+                elif queue_depth < 10:
+                    # Light load: minimal sleep
+                    await asyncio.sleep(0)
+                elif queue_depth < 50:
+                    # Moderate load: very short sleep
+                    await asyncio.sleep(0.001)
+                elif queue_depth < 100:
+                    # Heavy load: short sleep
+                    await asyncio.sleep(0.005)
+                else:
+                    # Critical load: longer sleep + warning
+                    await asyncio.sleep(0.01)
+                    if queue_depth > self._max_queue_size * 0.9:
+                        logger.warning(f"Event queue depth critical: {queue_depth} events")
 
                 async with self._state_lock:
                     is_shutting_down = self._is_shutting_down
@@ -191,6 +259,30 @@ class EventBus:
             logger.debug("Event bus worker started")
         else:
             logger.debug("Event bus worker already running")
+
+    async def run_in_thread_pool(self, func: Callable, *args, **kwargs) -> Any:
+        """Run a CPU-intensive function in the thread pool executor.
+
+        Helper method for handlers that need to perform blocking CPU-intensive work
+        without blocking the event loop. Automatically handles loop acquisition and
+        exception propagation.
+
+        Args:
+            func: Callable to execute in thread pool.
+            *args: Positional arguments for func.
+            **kwargs: Keyword arguments for func.
+
+        Returns:
+            Result from func execution.
+
+        Example:
+            result = await event_bus.run_in_thread_pool(expensive_computation, data)
+        """
+        if self._thread_pool is None:
+            raise RuntimeError("Thread pool has been shutdown")
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._thread_pool, lambda: func(*args, **kwargs))
 
     async def stop_worker(self) -> None:
         """Stop the event processing worker and clean up all subscribers.
@@ -229,16 +321,24 @@ class EventBus:
             self._subscribers.clear()
         logger.debug("All event subscribers cleared")
 
+        # Shutdown thread pool
+        if self._thread_pool is not None:
+            logger.debug("Shutting down thread pool executor")
+            self._thread_pool.shutdown(wait=True, cancel_futures=False)
+            self._thread_pool = None
+            logger.debug("Thread pool shutdown complete")
+
     async def get_stats(self) -> Dict[str, Any]:
         """Get current event bus statistics for monitoring and debugging.
 
         Collects comprehensive metrics including queue size, subscriber counts per event type,
-        worker task status, shutdown state, and active critical operations. Useful for
-        diagnosing event processing issues and monitoring system health.
+        worker task status, shutdown state, active critical operations, backpressure stats,
+        and thread pool status. Useful for diagnosing event processing issues and monitoring
+        system health.
 
         Returns:
-            Dictionary with keys: queue_size, subscribers, worker_status, is_shutting_down,
-            critical_operations.
+            Dictionary with keys: queue_size, max_queue_size, queue_utilization, events_dropped,
+            subscribers, worker_status, is_shutting_down, critical_operations, thread_pool_alive.
         """
         worker_status = "running"
         if self._worker_task is None:
@@ -259,12 +359,18 @@ class EventBus:
         with self._subscribers_lock:
             subscribers = {event.__name__: len(handlers) for event, handlers in self._subscribers.items()}
 
+        queue_size = self._event_queue.qsize()
+
         return {
-            "queue_size": self._event_queue.qsize(),
+            "queue_size": queue_size,
+            "max_queue_size": self._max_queue_size,
+            "queue_utilization": f"{(queue_size / self._max_queue_size * 100):.1f}%",
+            "events_dropped": self._events_dropped,
             "subscribers": subscribers,
             "worker_status": worker_status,
             "is_shutting_down": is_shutting_down,
             "critical_operations": critical_ops,
+            "thread_pool_alive": self._thread_pool is not None,
         }
 
     async def register_critical_operation(self, operation_id: str) -> None:

@@ -80,6 +80,7 @@ class DictationPopupView:
         popup.wm_attributes("-toolwindow", True)
         popup.overrideredirect(True)  # No title bar - prevents focus stealing
         popup.resizable(False, False)
+        popup.attributes("-alpha", 0.9)  # Semi-transparent (90% opacity)
         popup.configure(fg_color=ui_theme.theme.shape_colors.darkest)
 
         # Prevent window from taking focus

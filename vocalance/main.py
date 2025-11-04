@@ -22,6 +22,7 @@ from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.automation_service import AutomationService
 from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
 from vocalance.app.services.command_management_service import CommandManagementService
+from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
 from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
 from vocalance.app.services.grid.grid_service import GridService
 from vocalance.app.services.mark_service import MarkService
@@ -286,6 +287,9 @@ class FastServiceInitializer:
             storage = self.services["storage"]
             action_map_provider = self.services["action_map_provider"]
 
+        # Create unified deduplicator for all command sources (Vosk, sound, Markov)
+        deduplicator = EventDeduplicator(window_ms=self.config.command_parser.duplicate_detection_window_ms)
+
         async def init_audio() -> None:
             if progress_tracker:
                 progress_tracker.update_sub_step(sub_step_name="Starting audio capture...")
@@ -341,6 +345,7 @@ class FastServiceInitializer:
                 storage=storage,
                 action_map_provider=action_map_provider,
                 history_manager=history_manager,
+                deduplicator=deduplicator,
             )
             await centralized_parser.initialize()
 

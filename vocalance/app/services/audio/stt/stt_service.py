@@ -14,12 +14,10 @@ from vocalance.app.events.core_events import (
     CommandTextRecognizedEvent,
     DictationAudioSegmentReadyEvent,
     DictationTextRecognizedEvent,
-    ProcessAudioChunkForSoundRecognitionEvent,
     STTProcessingCompletedEvent,
     STTProcessingStartedEvent,
 )
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
-from vocalance.app.services.audio.stt.stt_utils import DuplicateTextFilter
 from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
 from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
 
@@ -35,19 +33,23 @@ class SpeechToTextService:
     """Dual-engine speech-to-text service with mode-specific processing.
 
     Orchestrates two STT engines: Vosk (fast, offline) for command mode and Whisper
-    (accurate, model-based) for dictation mode. Manages mode transitions, duplicate
-    text filtering, stop trigger detection during dictation, and publishes recognized
-    text events. Processes audio segments from CommandAudioListener and DictationAudioListener
-    with proper synchronization and resource optimization.
+    (accurate, model-based) for dictation mode. Manages mode transitions, stop trigger
+    detection during dictation, and publishes recognized text events. Processes audio
+    segments from CommandAudioListener and DictationAudioListener with proper
+    synchronization and resource optimization. Deduplication is handled downstream
+    by CentralizedCommandParser and DictationCoordinator.
 
     Attributes:
         vosk_engine: VoskSTT for fast command recognition.
         whisper_engine: WhisperSTT for accurate dictation transcription.
         _dictation_active: Flag indicating if dictation mode is currently active.
-        _duplicate_filter: Filters duplicate transcription results.
     """
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        config: GlobalAppConfig,
+    ) -> None:
         """Initialize STT service with configuration and event bus.
 
         Args:
@@ -63,7 +65,6 @@ class SpeechToTextService:
         self.vosk_engine: Optional[VoskSTT] = None
         self.whisper_engine: Optional[WhisperSTT] = None
         self._engines_initialized: bool = False
-        self._duplicate_filter = DuplicateTextFilter(cache_size=5, duplicate_threshold_ms=1000)
         self._stop_trigger = config.dictation.stop_trigger
 
         # Streaming context management for smart/visual modes
@@ -165,23 +166,24 @@ class SpeechToTextService:
         await self.event_bus.publish(event)
         logger.info(f"Published {type(event).__name__}: '{text}' from {engine}")
 
-    async def _publish_sound_recognition_event(self, audio_bytes: bytes, sample_rate: int) -> None:
-        """Publish audio to sound recognition when no speech is detected.
-
-        Args:
-            audio_bytes: Raw audio data to process for sound recognition.
-            sample_rate: Sample rate of the audio.
-        """
-        sound_event = ProcessAudioChunkForSoundRecognitionEvent(audio_chunk=audio_bytes, sample_rate=sample_rate)
-        await self.event_bus.publish(sound_event)
-        logger.debug(f"Published sound recognition event for {len(audio_bytes)} bytes")
-
     async def _handle_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent) -> None:
         """Process command audio with mode-aware behavior.
+
+        CRITICAL: Creates background task to avoid blocking event bus.
+        STT processing takes 50-200ms and must not block other events.
 
         In command mode: runs full Vosk recognition and publishes results or forwards
         to sound recognition. In dictation mode: only checks for stop trigger words
         and ignores other commands to avoid interrupting dictation flow.
+
+        Args:
+            event_data: Event containing command audio segment and sample rate.
+        """
+        # Create background task to avoid blocking event bus
+        asyncio.create_task(self._process_command_audio_segment(event_data))
+
+    async def _process_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent) -> None:
+        """Background task for command audio processing - does not block event bus.
 
         Args:
             event_data: Event containing command audio segment and sample rate.
@@ -217,16 +219,8 @@ class SpeechToTextService:
         processing_time = (time.time() - processing_start) * 1000
 
         if recognized_text and recognized_text.strip():
-            if not await self._duplicate_filter.is_duplicate(recognized_text):
-                await self._publish_recognition_result(recognized_text, processing_time, "vosk", STTMode.COMMAND)
-        else:
-            # Only publish sound recognition when NOT in dictation mode
-            # During dictation, we're not listening for commands/sounds, so skip to reduce event queue load
-            async with self._state_lock:
-                is_dictation_active = self._dictation_active
-
-            if not is_dictation_active:
-                await self._publish_sound_recognition_event(event_data.audio_bytes, event_data.sample_rate)
+            # No deduplication in STT - let CentralizedCommandParser handle it
+            await self._publish_recognition_result(recognized_text, processing_time, "vosk", STTMode.COMMAND)
 
         await self.event_bus.publish(
             STTProcessingCompletedEvent(
@@ -240,12 +234,24 @@ class SpeechToTextService:
     async def _handle_dictation_audio_segment(self, event_data: DictationAudioSegmentReadyEvent) -> None:
         """Process dictation audio using Whisper engine for accuracy.
 
+        CRITICAL: Creates background task to avoid blocking event bus.
+        Whisper processing takes 200-1000ms and must not block other events.
+
         Uses Whisper STT for high-accuracy transcription of longer dictation segments.
         Filters duplicates and publishes dictation text events with processing metrics.
 
         **Optimization**: Skips Whisper processing if not in dictation mode to save resources.
         DictationAudioListener emits events continuously, but Whisper (expensive) only runs
         when dictation mode is active.
+
+        Args:
+            event_data: Event containing dictation audio segment and sample rate.
+        """
+        # Create background task to avoid blocking event bus
+        asyncio.create_task(self._process_dictation_audio_segment(event_data))
+
+    async def _process_dictation_audio_segment(self, event_data: DictationAudioSegmentReadyEvent) -> None:
+        """Background task for dictation audio processing - does not block event bus.
 
         Args:
             event_data: Event containing dictation audio segment and sample rate.
@@ -273,8 +279,8 @@ class SpeechToTextService:
         processing_time = (time.time() - processing_start) * 1000
 
         if recognized_text and recognized_text.strip():
-            if not await self._duplicate_filter.is_duplicate(recognized_text):
-                await self._publish_recognition_result(recognized_text, processing_time, "whisper", STTMode.DICTATION)
+            # No deduplication in STT - let DictationCoordinator handle it
+            await self._publish_recognition_result(recognized_text, processing_time, "whisper", STTMode.DICTATION)
 
         await self.event_bus.publish(
             STTProcessingCompletedEvent(
@@ -393,10 +399,6 @@ class SpeechToTextService:
             await self.whisper_engine.shutdown()
             del self.whisper_engine
             self.whisper_engine = None
-
-        if hasattr(self, "_duplicate_filter") and self._duplicate_filter is not None:
-            del self._duplicate_filter
-            self._duplicate_filter = None
 
         gc.collect()
         logger.info("STT service shutdown complete")

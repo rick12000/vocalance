@@ -1,7 +1,6 @@
 import inspect
 import logging
-import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import pyautogui
 
@@ -57,6 +56,7 @@ from vocalance.app.events.sound_events import (
 )
 from vocalance.app.services.command_action_map_provider import CommandActionMapProvider
 from vocalance.app.services.command_history_manager import CommandHistoryManager
+from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.number_parser import parse_number
 
@@ -64,18 +64,19 @@ logger = logging.getLogger(__name__)
 
 
 class CentralizedCommandParser:
-    """Centralized text-to-command parser with sound mapping and prediction deduplication.
+    """Centralized text-to-command parser with sound mapping and unified deduplication.
 
     Parses voice/text input through hierarchical command parsers (dictation, mark, grid,
-    automation), maps custom sounds to commands, handles Markov prediction deduplication,
-    and maintains command history for prediction training. Processing order: dictation
-    commands > mark commands > grid commands > sound-mapped commands > automation commands.
+    automation), maps custom sounds to commands, handles unified event deduplication
+    across Vosk, sound, and Markov sources, and maintains command history for prediction
+    training. Processing order: dictation commands > mark commands > grid commands >
+    sound-mapped commands > automation commands.
 
     Attributes:
         _action_map_provider: Provides automation command action map.
         _history_manager: Manages command history for Markov prediction.
         _sound_to_command_mapping: Dict mapping sound labels to command phrases.
-        _recent_predictions: Dict tracking recent predictions for deduplication.
+        _deduplicator: EventDeduplicator for unified command event deduplication.
     """
 
     def __init__(
@@ -85,6 +86,7 @@ class CentralizedCommandParser:
         storage: StorageService,
         action_map_provider: CommandActionMapProvider,
         history_manager: CommandHistoryManager,
+        deduplicator: Optional[EventDeduplicator] = None,
     ) -> None:
         """Initialize parser with dependencies and configuration.
 
@@ -94,6 +96,7 @@ class CentralizedCommandParser:
             storage: Storage service for persistent data.
             action_map_provider: Provider for automation command action map.
             history_manager: Manager for command history tracking.
+            deduplicator: EventDeduplicator for command deduplication (created if None).
         """
         self._event_bus: EventBus = event_bus
         self._app_config: GlobalAppConfig = app_config
@@ -102,11 +105,11 @@ class CentralizedCommandParser:
         self._history_manager: CommandHistoryManager = history_manager
         self._sound_to_command_mapping: Dict[str, str] = {}
         self._cache_config_data()
-        self._last_text: Optional[str] = None
-        self._last_text_time: float = 0.0
-        self._duplicate_interval: float = app_config.command_parser.duplicate_detection_interval
-        self._recent_predictions: Dict[float, Tuple[str, float]] = {}
-        self._prediction_window: float = app_config.command_parser.prediction_deduplication_window
+
+        # Use provided deduplicator or create new one
+        if deduplicator is None:
+            deduplicator = EventDeduplicator(window_ms=app_config.command_parser.duplicate_detection_window_ms)
+        self._deduplicator = deduplicator
 
         logger.debug("CentralizedCommandParser initialized")
 
@@ -171,7 +174,8 @@ class CentralizedCommandParser:
 
         if command_text:
             logger.info(f"Sound '{sound_label}' → command: '{command_text}'")
-            await self._process_recognized_command(command_text=command_text, source="sound", timestamp=time.time())
+            # Process through unified deduplication and history tracking pipeline
+            await self._process_text_input_with_history(text=command_text, source="sound")
         else:
             logger.warning(f"No command mapping found for sound: {sound_label}")
 
@@ -210,15 +214,16 @@ class CentralizedCommandParser:
         return isinstance(parse_result, BaseCommand)
 
     async def _process_text_input(self, text: str, source: Optional[str] = None) -> None:
-        """Process text input through the parsing pipeline"""
-        # Duplicate detection
-        current_time = time.time()
-        if text == self._last_text and current_time - self._last_text_time < self._duplicate_interval:
-            logger.debug(f"Suppressing duplicate text: '{text}'")
-            return
+        """Process text input through the parsing pipeline with unified deduplication.
 
-        self._last_text = text
-        self._last_text_time = current_time
+        Args:
+            text: Text to process.
+            source: Source of the text (stt, sound, markov, etc.).
+        """
+        # Check for duplicate using unified deduplicator
+        if self._deduplicator.should_deduplicate(text, source=source or "unknown"):
+            logger.debug(f"Suppressing duplicate text: '{text}' from {source}")
+            return
 
         logger.info(f"Processing text input: '{text}' from source: {source}")
 
@@ -226,6 +231,7 @@ class CentralizedCommandParser:
 
         if isinstance(parse_result, BaseCommand):
             await self._publish_command_event(parse_result, source)
+            self._deduplicator.record_event(text, source=source or "unknown")
         elif isinstance(parse_result, NoMatchResult):
             await self._event_bus.publish(
                 CommandNoMatchEvent(source=source, attempted_parsers=["dictation", "mark", "grid", "automation"])
@@ -244,14 +250,10 @@ class CentralizedCommandParser:
             text: Text to process
             source: Source of the text (stt, sound, markov, etc.)
         """
-        # Duplicate detection
-        current_time = time.time()
-        if text == self._last_text and current_time - self._last_text_time < self._duplicate_interval:
-            logger.debug(f"Suppressing duplicate text: '{text}'")
+        # Check for duplicate using unified deduplicator
+        if self._deduplicator.should_deduplicate(text, source=source or "unknown"):
+            logger.debug(f"Suppressing duplicate text: '{text}' from {source}")
             return
-
-        self._last_text = text
-        self._last_text_time = current_time
 
         logger.info(f"Processing text input: '{text}' from source: {source}")
 
@@ -261,6 +263,7 @@ class CentralizedCommandParser:
             # Valid command - record to history and execute
             await self._history_manager.record_command(command=text, source=source)
             await self._publish_command_event(parse_result, source)
+            self._deduplicator.record_event(text, source=source or "unknown")
             logger.debug(f"Recorded valid command to history: '{text}' (source={source})")
         elif isinstance(parse_result, NoMatchResult):
             logger.debug(f"Not recording to history - no match: '{text}' (source={source})")
@@ -495,102 +498,29 @@ class CentralizedCommandParser:
     # ============================================================================
 
     async def _handle_command_text_recognized(self, event: CommandTextRecognizedEvent) -> None:
-        """Handle STT recognized text - route to unified processing"""
+        """Handle STT recognized text - route to unified processing with history tracking"""
         command_text = event.text
-        await self._process_recognized_command(command_text=command_text, source="stt", timestamp=time.time())
+        # Process through unified deduplication and history tracking pipeline
+        await self._process_text_input_with_history(text=command_text, source="stt")
 
     # ============================================================================
     # MARKOV PREDICTION HANDLING
     # ============================================================================
 
     async def _handle_markov_prediction(self, event: MarkovPredictionEvent) -> None:
-        """Handle Markov predictions by executing immediately and storing for deduplication.
+        """Handle Markov predictions by executing immediately with unified deduplication.
 
-        Executes predicted commands before STT completes for ultra-low latency,
-        stores predictions in deduplication window for comparison with actual STT results.
+        Executes predicted commands before STT completes for ultra-low latency.
+        Deduplication against actual STT results is handled by the unified EventDeduplicator.
 
         Args:
             event: Markov prediction event with predicted command and confidence
         """
         predicted_command = event.predicted_command
-        current_time = time.time()
-
         logger.info(f"Markov prediction received: '{predicted_command}' (confidence={event.confidence:.2%})")
 
-        self._recent_predictions[current_time] = (predicted_command, current_time)
-        self._clean_old_predictions(current_time)
-
+        # Process through unified deduplication pipeline
         await self._process_text_input(text=predicted_command, source="markov")
-
-    def _clean_old_predictions(self, current_time: float) -> None:
-        """Remove predictions outside the deduplication window."""
-        cutoff = current_time - self._prediction_window
-        to_remove = [ts for ts in self._recent_predictions if ts < cutoff]
-        for ts in to_remove:
-            del self._recent_predictions[ts]
-
-    def _find_recent_prediction(self, cmd_time: float) -> Optional[Tuple[str, float]]:
-        """Find recent prediction within deduplication window.
-
-        Args:
-            cmd_time: Timestamp of command recognition
-
-        Returns:
-            Tuple of (predicted_command, prediction_time) if found, None otherwise
-        """
-        for pred_time, (pred_cmd, _) in self._recent_predictions.items():
-            if cmd_time - pred_time < self._prediction_window:
-                return (pred_cmd, pred_time)
-        return None
-
-    # ============================================================================
-    # UNIFIED COMMAND PROCESSING (STT + SOUND)
-    # ============================================================================
-
-    async def _process_recognized_command(self, command_text: str, source: str, timestamp: float) -> None:
-        """Process recognized commands with Markov deduplication and history tracking.
-
-        Checks for recent Markov predictions to avoid duplicate execution, sends
-        prediction feedback, records ONLY VALID commands to history, and executes if not duplicate.
-
-        Args:
-            command_text: The final command text to process
-            source: Source of recognition ("stt" or "sound")
-            timestamp: When the command was recognized
-        """
-        recent_pred = self._find_recent_prediction(timestamp)
-
-        if recent_pred:
-            predicted_cmd, pred_time = recent_pred
-            was_correct = command_text.lower().strip() == predicted_cmd.lower().strip()
-
-            await self._send_markov_feedback(predicted=predicted_cmd, actual=command_text, was_correct=was_correct, source=source)
-
-            # Only record if command is valid (will be checked in _process_text_input_with_history)
-            is_valid = await self._is_valid_command(command_text)
-            if is_valid:
-                await self._history_manager.record_command(command=command_text, source=source)
-                logger.info(
-                    f"Skipping duplicate: Markov predicted '{predicted_cmd}', "
-                    f"{source} recognized '{command_text}' "
-                    f"({'CORRECT' if was_correct else 'INCORRECT'}) - recorded to history"
-                )
-            else:
-                logger.info(
-                    f"Skipping duplicate: Markov predicted '{predicted_cmd}', "
-                    f"{source} recognized '{command_text}' "
-                    f"({'CORRECT' if was_correct else 'INCORRECT'}) - NOT recorded (invalid command)"
-                )
-
-            if pred_time in self._recent_predictions:
-                del self._recent_predictions[pred_time]
-
-            return
-
-        logger.debug(f"No recent Markov prediction found for {source} command: '{command_text}'")
-
-        # Process and record only if valid
-        await self._process_text_input_with_history(text=command_text, source=source)
 
     async def _send_markov_feedback(self, predicted: str, actual: str, was_correct: bool, source: str) -> None:
         """Send feedback to Markov predictor about prediction accuracy.

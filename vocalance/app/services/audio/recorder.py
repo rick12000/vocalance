@@ -11,7 +11,7 @@ from vocalance.app.config.app_config import GlobalAppConfig
 class AudioRecorder:
     """Simple continuous audio chunk recorder.
 
-    Captures audio from microphone at a fixed chunk size (30ms base unit) and
+    Captures audio from microphone at a fixed chunk size (50ms base unit) and
     continuously streams chunks via callback. No VAD logic - just pure streaming.
     Downstream listeners handle VAD, buffering, and segment detection.
 
@@ -19,7 +19,7 @@ class AudioRecorder:
     listeners with different parameters (command, dictation, sound recognition, etc).
 
     Attributes:
-        chunk_size: Audio chunk size in samples (30ms base unit = 480 samples at 16kHz).
+        chunk_size: Audio chunk size in samples (50ms base unit = 800 samples at 16kHz).
         sample_rate: Audio sample rate in Hz (default 16000).
         device: Audio input device ID (None = system default).
     """
@@ -40,9 +40,9 @@ class AudioRecorder:
         self.app_config = app_config
         self.on_audio_chunk = on_audio_chunk
 
-        # 30ms base unit at 16kHz = 480 samples
+        # 50ms base unit at 16kHz = 800 samples
         self.sample_rate = app_config.audio.sample_rate
-        self.chunk_size = int(self.sample_rate * 0.03)  # 30ms chunks
+        self.chunk_size = int(self.sample_rate * 0.05)  # 50ms chunks
         self.device = getattr(app_config.audio, "device", None)
 
         # Thread and stream state
@@ -53,7 +53,7 @@ class AudioRecorder:
         self._lock = threading.Lock()
 
         self.logger.debug(
-            f"AudioRecorder initialized: chunk_size={self.chunk_size} samples (30ms), " f"sample_rate={self.sample_rate}Hz"
+            f"AudioRecorder initialized: chunk_size={self.chunk_size} samples (50ms), " f"sample_rate={self.sample_rate}Hz"
         )
 
     def _recording_thread(self) -> None:
@@ -81,7 +81,7 @@ class AudioRecorder:
                     continue
 
                 try:
-                    # Read one chunk (30ms worth of audio)
+                    # Read one chunk (50ms worth of audio)
                     data, _ = self._stream.read(self.chunk_size)
                     timestamp = time.time()
 

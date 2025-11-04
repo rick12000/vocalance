@@ -46,22 +46,6 @@ class STTConfig(BaseModel):
 
     sample_rate: int = 16000
 
-    command_debounce_interval: float = Field(
-        default=0.02, description="Ultra-aggressive debounce for command mode (20ms for real-time response)."
-    )
-    command_duplicate_text_interval: float = Field(
-        default=0.2, description="Very short duplicate suppression for commands (200ms)."
-    )
-    command_max_segment_duration_sec: float = Field(default=3, description="Short max duration for fast command execution.")
-
-    dictation_debounce_interval: float = Field(default=0.1, description="Reduced debounce for better dictation responsiveness.")
-    dictation_duplicate_text_interval: float = Field(
-        default=4.0, description="Extended duplicate suppression to catch phrase repetitions - increased from 3.0s."
-    )
-    dictation_max_segment_duration_sec: float = Field(
-        default=30.0, description="Extended max duration for longer dictation segments - increased from 15.0s."
-    )
-
 
 class SoundRecognizerConfig(BaseModel):
     """Sound recognizer configuration using ESC-50 for non-target sounds.
@@ -129,9 +113,6 @@ class MarkConfig(BaseModel):
     """
 
     triggers: MarkTriggersConfig = MarkTriggersConfig()
-    visualization_duration_seconds: int = Field(
-        default=15, description="Duration in seconds for mark visualization overlay before auto-hide."
-    )
     shutdown_grace_period_seconds: float = Field(
         default=0.1, description="Time to wait for pending writes during service shutdown"
     )
@@ -286,43 +267,34 @@ class VADConfig(BaseModel):
     estimation for robust speech detection in varying acoustic environments.
     """
 
-    energy_threshold: float = Field(default=0.006, description="Base energy threshold for speech detection.")
-    max_recording_duration: float = Field(default=4.0, description="Maximum recording duration in seconds.")
-    pre_roll_buffers: int = Field(default=2, description="Number of audio chunks to buffer before speech detection.")
-
-    continuation_energy_threshold: float = Field(default=0.002, description="Threshold for detecting speech continuation.")
     noise_floor_estimation: bool = Field(default=True, description="Enable automatic noise floor estimation.")
 
-    command_energy_threshold: float = Field(default=0.002, description="Energy threshold for command mode speech detection.")
+    command_energy_threshold: float = Field(
+        default=0.0008,
+        description="Energy threshold for command mode speech detection - further lowered for more sensitive detection.",
+    )
     command_silent_chunks_for_end: int = Field(
         default=3,
-        description="Number of consecutive silent chunks to end recording in command mode (3 chunks = 180ms at 60ms/chunk).",
+        description="Number of consecutive silent chunks to end recording in command mode (3 chunks = 150ms at 50ms/chunk).",
     )
     command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")
-    command_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for command mode (240ms at 60ms chunks).")
+    command_pre_roll_buffers: int = Field(
+        default=5, description="Pre-roll buffers for command mode (250ms at 50ms chunks) - captures word attack."
+    )
 
     dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
     dictation_silent_chunks_for_end: int = Field(
-        default=40,
-        description="Number of consecutive silent chunks to end recording in dictation mode (40 chunks = 800ms at 20ms/chunk).",
+        default=16,
+        description="Number of consecutive silent chunks to end recording in dictation mode (16 chunks = 800ms at 50ms/chunk).",
     )
     dictation_max_recording_duration: float = Field(default=30.0, description="Maximum recording duration for dictation mode.")
-    dictation_pre_roll_buffers: int = Field(default=8, description="Pre-roll buffers for dictation mode (160ms at 20ms/chunk).")
-
-    training_energy_threshold: float = Field(default=0.003, description="Energy threshold for training sample collection.")
-    training_silent_chunks_for_end: int = Field(
-        default=40, description="Number of consecutive silent chunks to end training recording (40 chunks = 800ms)."
-    )
-    training_max_wait_for_sound_duration: float = Field(
-        default=10.0, description="Maximum time to wait for sound during training."
-    )
-    training_pre_roll_buffers: int = Field(default=4, description="Pre-roll buffers for training sample collection.")
+    dictation_pre_roll_buffers: int = Field(default=5, description="Pre-roll buffers for dictation mode (250ms at 50ms/chunk).")
 
     silence_threshold_multiplier: float = Field(
         default=0.35, description="Multiplier for silence threshold relative to energy threshold"
     )
     command_adaptive_margin_multiplier: float = Field(
-        default=3.0, description="Multiplier for adaptive noise floor in command mode"
+        default=3.5, description="Multiplier for adaptive noise floor in command mode - increased for lower threshold robustness."
     )
     dictation_adaptive_margin_multiplier: float = Field(
         default=2.5, description="Multiplier for adaptive noise floor in dictation mode"
@@ -383,10 +355,8 @@ class MarkovPredictorConfig(BaseModel):
 class CommandParserConfig(BaseModel):
     """Configuration for centralized command parser behavior."""
 
-    duplicate_detection_interval: float = Field(default=1.0, description="Interval in seconds to detect duplicate text input")
-
-    prediction_deduplication_window: float = Field(
-        default=1.0, description="Time window in seconds to match Markov predictions with STT results"
+    duplicate_detection_window_ms: float = Field(
+        default=600, description="Time window in milliseconds for command deduplication across Vosk, sound, and Markov sources"
     )
 
 
