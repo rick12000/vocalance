@@ -157,10 +157,9 @@ class CommandAudioListener:
     async def _finalize_segment(self) -> None:
         """Finalize current recording and emit CommandAudioSegmentReadyEvent.
 
-        Intelligently trims excess trailing silent chunks beyond the silence threshold,
-        then pads to a minimum duration for Vosk acoustic model stability. This ensures
-        consistent segment lengths which reduces language model hallucinations like
-        "the left" instead of "left". Preserves inter-word pause for multi-word commands.
+        Preserves natural leading and trailing silence for optimal Vosk recognition.
+        Leading silence is captured via pre-roll buffer, trailing silence is preserved
+        as detected by the silence timeout threshold.
         """
         if not self._audio_buffer:
             self._reset_state()
@@ -172,30 +171,9 @@ class CommandAudioListener:
             self._reset_state()
             return
 
-        # Trim excess silent chunks beyond the threshold
-        # Keep only the required silence chunks for inter-word pause context
-        excess_silent = self._consecutive_silent_chunks - self.silent_chunks_for_end
-        if excess_silent > 0:
-            trimmed_buffer = self._audio_buffer[:-excess_silent]
-            logger.debug(
-                f"Command: Trimmed {excess_silent} excess silent chunks, keeping {self.silent_chunks_for_end} for inter-word pause"
-            )
-        else:
-            trimmed_buffer = self._audio_buffer
-
-        # Pad with silence to ensure minimum duration for Vosk reliability
-        # Vosk needs ~500ms (10 chunks) minimum for stable acoustic modeling
-        # This prevents language model hallucinations on short utterances
-        min_chunks_for_vosk = 10  # 500ms at 50ms/chunk
-        if len(trimmed_buffer) < min_chunks_for_vosk:
-            silence_pad_needed = min_chunks_for_vosk - len(trimmed_buffer)
-            # Create silence chunk matching the audio format (int16 zeros)
-            silence_chunk = np.zeros(800, dtype=np.int16)  # 800 samples = 50ms at 16kHz
-            for _ in range(silence_pad_needed):
-                trimmed_buffer.append(silence_chunk)
-            logger.debug(
-                f"Command: Padded {silence_pad_needed} silence chunks to reach {min_chunks_for_vosk} chunks (500ms) for Vosk stability"
-            )
+        # Preserve all audio including natural trailing silence
+        # No trimming of trailing silence - let Vosk handle natural audio patterns
+        trimmed_buffer = self._audio_buffer
 
         # Concatenate buffer and convert to bytes
         audio_data = np.concatenate(trimmed_buffer)
