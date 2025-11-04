@@ -229,13 +229,22 @@ class SoundService:
         return True
 
     async def _collect_training_sample(self, audio: np.ndarray, sample_rate: int) -> None:
-        """Collect a training sample - thread-safe."""
+        """Collect a training sample with identical preprocessing as recognition - thread-safe."""
         with self._training_lock:
             if not self._training_active:
                 logger.debug("Training not active, ignoring sample")
                 return
 
-            self._training_samples.append((audio.copy(), sample_rate))
+            # NOTE: Apply same preprocessing as recognition to ensure feature alignment
+            try:
+                preprocessed = self.recognizer.preprocessor.preprocess_audio(audio=audio.copy(), sr=sample_rate)
+                # Store preprocessed audio at target sample rate
+                self._training_samples.append((preprocessed, self.recognizer.target_sr))
+                logger.debug(f"Training sample preprocessed: {len(preprocessed)} samples at {self.recognizer.target_sr}Hz")
+            except Exception as e:
+                logger.error(f"Failed to preprocess training sample: {e}")
+                return
+
             sample_count = len(self._training_samples)
             target = self._target_samples
             label = self._current_training_label

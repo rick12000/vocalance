@@ -46,6 +46,8 @@ class AudioPreprocessor:
         self.frame_length = config.frame_length
         self.hop_length = config.hop_length
         self.normalization_level = config.normalization_level
+        # Flag to indicate if audio is already VAD-segmented (skip silence trimming)
+        self.skip_silence_trimming = True  # VAD already segments properly
 
     def preprocess_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """Essential preprocessing pipeline: resample, trim silence, normalize.
@@ -83,15 +85,31 @@ class AudioPreprocessor:
                 logger.error(f"Resample failed: sr={sr}, target={self.target_sr}, audio_shape={audio.shape}, error={e}")
                 raise ValueError(f"Failed to resample audio: {e}")
 
-        audio = self._trim_silence(audio=audio)
+        # OPTIMIZATION: Skip silence trimming for VAD-segmented audio
+        # The SoundAudioListener already performs energy-based onset/offset detection,
+        # so additional trimming creates a double-filtering effect and may remove
+        # important transient characteristics. Pre-roll buffer also captures onset.
+        if not self.skip_silence_trimming:
+            audio = self._trim_silence(audio=audio)
 
         duration = len(audio) / self.target_sr
+
+        # IMPROVED DURATION NORMALIZATION: Use symmetric padding and center cropping
+        # This preserves sound characteristics better than left-aligned operations
         if duration < self.min_sound_duration:
             target_samples = int(self.min_sound_duration * self.target_sr)
-            audio = np.pad(audio, (0, target_samples - len(audio)), mode="constant")
+            pad_total = target_samples - len(audio)
+            # Symmetric padding: add silence equally on both sides
+            pad_left = pad_total // 2
+            pad_right = pad_total - pad_left
+            audio = np.pad(audio, (pad_left, pad_right), mode="constant")
+            logger.debug(f"Padded audio symmetrically: {pad_left} left, {pad_right} right")
         elif duration > self.max_sound_duration:
             target_samples = int(self.max_sound_duration * self.target_sr)
-            audio = audio[:target_samples]
+            # Center crop: extract middle portion to preserve main sound content
+            start_idx = (len(audio) - target_samples) // 2
+            audio = audio[start_idx : start_idx + target_samples]
+            logger.debug(f"Center-cropped audio from sample {start_idx} to {start_idx + target_samples}")
 
         peak = np.max(np.abs(audio))
         if peak > 0:
@@ -487,31 +505,41 @@ class SoundRecognizer:
             logger.debug(f"Recognition failed: similarity {best_similarity:.3f} < threshold {self.confidence_threshold}")
             return None
 
-        # Voting - prioritize custom sounds over ESC-50
-        custom_labels = [label for label in top_labels if not label.startswith("esc50_")]
+        # FIXED VOTING LOGIC: Count votes against ALL neighbors, not just custom sounds
+        # This prevents misleadingly high vote ratios when ESC-50 sounds dominate the k-NN
+        all_votes = Counter(top_labels)
+        total_votes = len(top_labels)
 
-        if not custom_labels:
+        # Get best custom sound
+        custom_votes = {k: v for k, v in all_votes.items() if not k.startswith("esc50_")}
+
+        if not custom_votes:
             logger.debug("Only background sounds detected")
             return None
 
-        # Simple majority voting among custom sounds
-        votes = Counter(custom_labels)
-        majority_label, vote_count = votes.most_common(1)[0]
-        vote_ratio = vote_count / len(custom_labels)
+        # Get the custom sound with most votes
+        best_custom_label, custom_vote_count = max(custom_votes.items(), key=lambda x: x[1])
+
+        # Calculate vote ratio against ALL neighbors (not just custom ones)
+        vote_ratio = custom_vote_count / total_votes
 
         # Debug logging
-        logger.debug(f"Recognition debug: top_labels={top_labels}, custom_labels={custom_labels}")
-        logger.debug(f"Votes: {votes}, majority: {majority_label}, ratio: {vote_ratio:.3f}")
+        logger.debug(f"Recognition debug: top_labels={top_labels}")
+        logger.debug(
+            f"All votes: {all_votes}, best custom: {best_custom_label}, votes: {custom_vote_count}/{total_votes}, ratio: {vote_ratio:.3f}"
+        )
 
         if vote_ratio >= self.vote_threshold:
             # Calculate confidence as average similarity of majority votes
-            majority_indices = [i for i, label in enumerate(top_labels) if label == majority_label]
+            majority_indices = [i for i, label in enumerate(top_labels) if label == best_custom_label]
             confidence = np.mean([top_similarities[i] for i in majority_indices])
 
-            logger.info(f"Sound recognized: '{majority_label}' (confidence: {confidence:.3f})")
-            return majority_label, confidence
+            logger.info(
+                f"Sound recognized: '{best_custom_label}' (confidence: {confidence:.3f}, votes: {custom_vote_count}/{total_votes})"
+            )
+            return best_custom_label, confidence
 
-        logger.debug(f"Insufficient vote alignment: {vote_ratio:.2f}")
+        logger.debug(f"Insufficient vote alignment: {vote_ratio:.2f} (need {self.vote_threshold})")
         return None
 
     def _extract_embedding(self, audio: np.ndarray, sr: int) -> Optional[np.ndarray]:

@@ -454,6 +454,7 @@ class SoundAudioListener:
         self.silent_chunks_for_end = 2  # 100ms of silence to end sound segment
         self.min_duration_chunks = 2  # 100ms minimum sound duration
         self.max_duration_chunks = 20  # 1000ms maximum to prevent memory buildup
+        self.pre_roll_chunks = 2  # 100ms pre-roll to capture sound attack/onset
 
         # Adaptive noise floor
         self.adaptive_margin_multiplier = config.vad.command_adaptive_margin_multiplier
@@ -462,6 +463,7 @@ class SoundAudioListener:
         self._max_noise_samples = config.vad.max_noise_samples
 
         # Buffering state (protected by _state_lock)
+        self._pre_roll_buffer = []  # NEW: Pre-roll buffer for capturing sound onset
         self._audio_buffer = []
         self._is_recording = False
         self._consecutive_silent_chunks = 0
@@ -475,7 +477,8 @@ class SoundAudioListener:
         logger.debug(
             f"SoundAudioListener initialized with VAD: "
             f"silent_chunks={self.silent_chunks_for_end} (~{self.silent_chunks_for_end * 50}ms), "
-            f"min_duration={self.min_duration_chunks} chunks (~{self.min_duration_chunks * 50}ms)"
+            f"min_duration={self.min_duration_chunks} chunks (~{self.min_duration_chunks * 50}ms), "
+            f"pre_roll={self.pre_roll_chunks} chunks (~{self.pre_roll_chunks * 50}ms)"
         )
 
     def setup_subscriptions(self) -> None:
@@ -504,8 +507,9 @@ class SoundAudioListener:
             try:
                 # Skip if dictation is active (don't interfere with dictation processing)
                 if self._dictation_active:
-                    if self._audio_buffer:
+                    if self._audio_buffer or self._pre_roll_buffer:
                         self._audio_buffer.clear()
+                        self._pre_roll_buffer.clear()
                         self._is_recording = False
                         self._consecutive_silent_chunks = 0
                         logger.debug("Sound: Cleared buffer due to dictation mode activation")
@@ -517,12 +521,21 @@ class SoundAudioListener:
 
                 if not self._is_recording:
                     # STATE: Waiting for sound
+                    # Maintain pre-roll buffer to capture sound onset/attack
+                    self._pre_roll_buffer.append(chunk)
+                    if len(self._pre_roll_buffer) > self.pre_roll_chunks:
+                        self._pre_roll_buffer.pop(0)
+
                     # Check for sound onset (above energy threshold)
                     if energy > self.energy_threshold:
                         self._is_recording = True
+                        # Include pre-roll buffer to capture sound attack
+                        self._audio_buffer.extend(self._pre_roll_buffer)
                         self._audio_buffer.append(chunk)
                         self._consecutive_silent_chunks = 0
-                        logger.debug(f"Sound: Detected sound onset (energy: {energy:.6f})")
+                        logger.debug(
+                            f"Sound: Detected sound onset (energy: {energy:.6f}), included {len(self._pre_roll_buffer)} pre-roll chunks"
+                        )
                 else:
                     # STATE: Recording active sound
                     self._audio_buffer.append(chunk)
@@ -576,6 +589,7 @@ class SoundAudioListener:
     def _reset_state(self) -> None:
         """Reset buffering state for next segment."""
         self._audio_buffer.clear()
+        self._pre_roll_buffer.clear()
         self._is_recording = False
         self._consecutive_silent_chunks = 0
 
