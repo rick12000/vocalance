@@ -15,20 +15,16 @@ logger = logging.getLogger(__name__)
 class AudioConfig(BaseModel):
     """Configuration for audio capture settings and chunk sizing.
 
-    Controls sample rate, chunk sizes for different modes (command vs dictation),
-    audio format, and device selection for the audio service.
+    Controls sample rate, audio format, and device selection for the audio service.
+    Audio chunk size is fixed at 50ms (800 samples at 16kHz) for all modes.
     """
 
     sample_rate: int = 16000
-    chunk_size: int = Field(320, description="Audio chunk size for command mode.")
     channels: int = 1
     dtype: Literal["int16", "float32", "int32"] = Field(
         "int16", description="Data type of audio samples (e.g., 'int16', 'float32')."
     )
     device: Optional[int] = None
-    command_chunk_size: int = Field(
-        default=960, description="Ultra-optimized chunk size for maximum short-word performance - 60ms at 16kHz."
-    )
 
 
 class STTConfig(BaseModel):
@@ -279,7 +275,8 @@ class VADConfig(BaseModel):
     )
     command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")
     command_pre_roll_buffers: int = Field(
-        default=5, description="Pre-roll buffers for command mode (250ms at 50ms chunks) - captures word attack."
+        default=4,
+        description="Pre-roll buffers for command mode (200ms at 50ms chunks) - captures full word attack including initial consonants.",
     )
 
     dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
@@ -291,7 +288,7 @@ class VADConfig(BaseModel):
     dictation_pre_roll_buffers: int = Field(default=5, description="Pre-roll buffers for dictation mode (250ms at 50ms/chunk).")
 
     silence_threshold_multiplier: float = Field(
-        default=0.35, description="Multiplier for silence threshold relative to energy threshold"
+        default=0.55, description="Multiplier for silence threshold relative to energy threshold"
     )
     command_adaptive_margin_multiplier: float = Field(
         default=3.5, description="Multiplier for adaptive noise floor in command mode - increased for lower threshold robustness."
@@ -303,7 +300,7 @@ class VADConfig(BaseModel):
         default=2.0, description="Maximum multiplier before applying adaptive threshold"
     )
     adaptive_silence_threshold_multiplier: float = Field(
-        default=0.4, description="Adjustment factor for silence threshold after adaptation"
+        default=0.6, description="Adjustment factor for silence threshold after adaptation"
     )
 
     command_min_recording_duration: float = Field(

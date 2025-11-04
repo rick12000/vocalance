@@ -86,8 +86,8 @@ The recorder adapts its behavior based on mode, trading off latency for accuracy
      - Command Mode
      - Dictation Mode
    * - Chunk Size
-     - 960 samples (60ms)
-     - 320 samples (20ms)
+     - 800 samples (50ms)
+     - 800 samples (50ms)
    * - Energy Threshold
      - 0.002 RMS
      - 0.0035 RMS

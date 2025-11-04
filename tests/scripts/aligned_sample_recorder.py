@@ -46,18 +46,16 @@ class AlignedSampleRecorder:
 
         if self.mode == "command":
             self.logger.info(
-                f"Command mode config: chunk_size={self.config.audio.command_chunk_size}, "
                 f"energy_threshold={self.config.vad.command_energy_threshold}, "
-                f"silence_timeout={self.config.vad.command_silence_timeout}s"
+                f"silent_chunks_for_end={self.config.vad.command_silent_chunks_for_end} (~{self.config.vad.command_silent_chunks_for_end * 50}ms)"
             )
         else:
             self.logger.info(
-                f"Dictation mode config: chunk_size={self.config.audio.chunk_size}, "
                 f"energy_threshold={self.config.vad.dictation_energy_threshold}, "
-                f"silence_timeout={self.config.vad.dictation_silence_timeout}s"
+                f"silent_chunks_for_end={self.config.vad.dictation_silent_chunks_for_end} (~{self.config.vad.dictation_silent_chunks_for_end * 50}ms)"
             )
 
-        self.recorder = AudioRecorder(app_config=self.config, mode=self.mode, on_audio_segment=self._on_audio_segment)
+        self.recorder = AudioRecorder(app_config=self.config, on_audio_chunk=self._on_audio_segment)
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
