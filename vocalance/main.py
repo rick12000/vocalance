@@ -406,6 +406,14 @@ class FastServiceInitializer:
         await init_dictation()
         self._check_cancellation()
 
+        # Inject STT service reference into dictation coordinator for streaming
+        with self._services_lock:
+            stt_service = self.services.get("stt")
+            dictation = self.services.get("dictation")
+            if stt_service and dictation:
+                dictation.set_stt_service(stt_service)
+                logger.debug("STT service reference injected into dictation coordinator")
+
         await init_markov_predictor()
 
         self._register_services_with_settings_coordinator()

@@ -198,6 +198,92 @@ class DictationPopupView:
                 self.dictation_box.see("end")
                 self.dictation_box.update_idletasks()
 
+    def display_partial_text(self, text: str, segment_id: str) -> None:
+        """Display partial (unstable) text in gray for streaming dictation.
+
+        Partial text is shown in gray to indicate it may still change.
+        When the same segment becomes final, this text is replaced.
+
+        Args:
+            text: Partial transcription text.
+            segment_id: Unique identifier for this text segment.
+        """
+        text_box = None
+        if self.current_mode == "smart" and self.dictation_box and self.dictation_box.winfo_exists():
+            text_box = self.dictation_box
+        elif self.current_mode == "visual" and self.visual_dictation_box and self.visual_dictation_box.winfo_exists():
+            text_box = self.visual_dictation_box
+
+        if not text_box:
+            return
+
+        # Remove any existing partial text with same segment_id
+        try:
+            text_box.tag_delete(f"partial_{segment_id}")
+        except Exception:
+            pass
+
+        # Remove any existing partial text (there should only be one at a time)
+        try:
+            ranges = text_box.tag_ranges("partial")
+            if ranges:
+                text_box.delete(ranges[0], ranges[1])
+        except Exception:
+            pass
+
+        # Insert new partial text at end
+        start_index = text_box.index("end-1c")
+        text_box.insert("end", text)
+        end_index = text_box.index("end-1c")
+
+        # Tag as partial with gray color
+        text_box.tag_add("partial", start_index, end_index)
+        text_box.tag_add(f"partial_{segment_id}", start_index, end_index)
+        text_box.tag_config("partial", foreground="#888888")  # Gray color
+
+        text_box.see("end")
+        text_box.update_idletasks()
+
+    def display_final_text(self, text: str, segment_id: str) -> None:
+        """Display final (stable) text in white for streaming dictation.
+
+        Final text replaces any partial text with the same segment_id and
+        is shown in white to indicate it will no longer change.
+
+        Args:
+            text: Final transcription text.
+            segment_id: Unique identifier for this text segment.
+        """
+        text_box = None
+        if self.current_mode == "smart" and self.dictation_box and self.dictation_box.winfo_exists():
+            text_box = self.dictation_box
+        elif self.current_mode == "visual" and self.visual_dictation_box and self.visual_dictation_box.winfo_exists():
+            text_box = self.visual_dictation_box
+
+        if not text_box:
+            return
+
+        # Remove partial text with same segment_id
+        try:
+            ranges = text_box.tag_ranges(f"partial_{segment_id}")
+            if ranges:
+                text_box.delete(ranges[0], ranges[1])
+            text_box.tag_delete(f"partial_{segment_id}")
+        except Exception:
+            pass
+
+        # Also remove any generic partial tag
+        try:
+            text_box.tag_delete("partial")
+        except Exception:
+            pass
+
+        # Insert final text (white color is default, no special tag needed)
+        if text:
+            text_box.insert("end", text + " ")
+            text_box.see("end")
+            text_box.update_idletasks()
+
     def append_llm_token(self, token: str) -> None:
         """Append LLM token with smart batching for smooth 60fps updates. Thread-safe."""
         logging.debug(f"VIEW: append_llm_token called with: '{token}'")

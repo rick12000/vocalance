@@ -20,16 +20,18 @@ from vocalance.app.config.command_types import (
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.base_event import BaseEvent
 from vocalance.app.events.command_events import DictationCommandParsedEvent
-from vocalance.app.events.core_events import DictationTextRecognizedEvent
+from vocalance.app.events.core_events import AudioChunkEvent, DictationTextRecognizedEvent
 from vocalance.app.events.dictation_events import (
     AudioModeChangeRequestEvent,
     DictationModeDisableOthersEvent,
     DictationStatusChangedEvent,
+    FinalDictationTextEvent,
     LLMProcessingCompletedEvent,
     LLMProcessingFailedEvent,
     LLMProcessingReadyEvent,
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
+    PartialDictationTextEvent,
     SmartDictationRemoveCharactersEvent,
     SmartDictationStartedEvent,
     SmartDictationStoppedEvent,
@@ -48,6 +50,7 @@ from vocalance.app.services.audio.dictation_handling.text_input_service import (
     should_lowercase_current_start,
     should_remove_previous_period,
 )
+from vocalance.app.services.audio.streaming_audio_buffer import StreamingAudioBuffer
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
 
@@ -192,6 +195,20 @@ class DictationCoordinator:
         # Track last text for smart dictation window concatenation logic
         self._last_smart_dictation_text: Optional[str] = None
 
+        # Streaming dictation state for smart/visual modes (WhisperLive approach)
+        self._streaming_buffer: Optional[StreamingAudioBuffer] = None
+        self._streaming_task: Optional[asyncio.Task] = None
+        self._streaming_segment_id: str = ""
+        self._streaming_finalized_text: str = ""
+
+        # Same-output detection (WhisperLive approach)
+        self._streaming_current_out: str = ""  # Current incomplete segment text
+        self._streaming_prev_out: str = ""  # Previous incomplete segment text
+        self._streaming_same_output_count: int = 0  # Repetition counter
+        self._streaming_end_time_for_same_output: Optional[float] = None  # Timestamp when repetition started
+
+        self._stt_service = None  # Will be injected via set_stt_service
+
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
 
@@ -204,6 +221,15 @@ class DictationCoordinator:
 
     def is_active(self) -> bool:
         return self.active_mode != DictationMode.INACTIVE
+
+    def set_stt_service(self, stt_service) -> None:
+        """Set STT service reference for streaming dictation.
+
+        Args:
+            stt_service: SpeechToTextService instance for streaming recognition.
+        """
+        self._stt_service = stt_service
+        logger.debug("STT service reference set for streaming dictation")
 
     def _should_apply_formatting(self, mode: DictationMode) -> bool:
         """
@@ -266,11 +292,13 @@ class DictationCoordinator:
     def setup_subscriptions(self) -> None:
         """Set up event subscriptions for dictation coordinator.
 
-        Subscribes to dictation text, command parsed events, LLM events, and
-        agentic prompt ready events for comprehensive dictation workflow management.
+        Subscribes to dictation text, command parsed events, LLM events,
+        audio chunks for streaming, and agentic prompt ready events for
+        comprehensive dictation workflow management.
         """
         subscriptions = [
             (DictationTextRecognizedEvent, self._handle_dictation_text),
+            (AudioChunkEvent, self._handle_audio_chunk_for_streaming),
             (LLMProcessingCompletedEvent, self._handle_llm_completed),
             (LLMProcessingFailedEvent, self._handle_llm_failed),
             (DictationCommandParsedEvent, self._handle_dictation_command),
@@ -295,6 +323,11 @@ class DictationCoordinator:
                     return
 
                 if self._current_state != DictationState.RECORDING:
+                    return
+
+                # Skip smart/visual modes - they use streaming flow
+                if session.mode in (DictationMode.SMART, DictationMode.VISUAL):
+                    logger.debug(f"Skipping VAD-based text for streaming mode: {session.mode.value}")
                     return
 
             cleaned_text = self._clean_text(text)
@@ -423,6 +456,360 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"LLM processing ready handling error: {e}", exc_info=True)
 
+    async def _handle_audio_chunk_for_streaming(self, event: AudioChunkEvent) -> None:
+        """Route audio chunks to streaming buffer for smart/visual modes.
+
+        Args:
+            event: AudioChunkEvent containing 30ms audio chunk.
+        """
+        try:
+            with self._state_lock:
+                session = self._current_session
+                buffer = self._streaming_buffer
+
+            # Only process if we're in streaming mode (smart/visual) and have a buffer
+            if not session or not buffer:
+                return
+
+            if session.mode not in (DictationMode.SMART, DictationMode.VISUAL):
+                return
+
+            # Add chunk to streaming buffer
+            import numpy as np
+
+            chunk_np = np.frombuffer(event.audio_chunk, dtype=np.int16)
+            await buffer.add_chunk(chunk_np)
+
+        except Exception as e:
+            logger.error(f"Error handling audio chunk for streaming: {e}", exc_info=True)
+
+    async def _streaming_transcription_loop(self) -> None:
+        """500ms streaming transcription loop with WhisperLive segment-based logic.
+
+        Uses segment timestamps from Whisper to:
+        - Finalize complete segments immediately (white text)
+        - Track incomplete segment for same-output detection (gray text)
+        - Advance timestamp after EVERY transcription using segment.end times
+        """
+        try:
+            logger.info("Starting streaming transcription loop (500ms interval with segment timestamps)")
+
+            while True:
+                await asyncio.sleep(0.5)  # 500ms interval
+
+                with self._state_lock:
+                    session = self._current_session
+                    buffer = self._streaming_buffer
+
+                    if not session or not buffer:
+                        logger.debug("Streaming loop: No session or buffer, exiting")
+                        break
+
+                    if session.mode not in (DictationMode.SMART, DictationMode.VISUAL):
+                        logger.debug("Streaming loop: Not in streaming mode, exiting")
+                        break
+
+                # Get UNTRANSCRIBED audio from buffer (offset-based)
+                audio_result = await buffer.get_audio_for_transcription()
+
+                if not audio_result:
+                    # No untranscribed audio available
+                    continue
+
+                audio_bytes, duration = audio_result
+
+                if duration < 1.0:
+                    # Not enough untranscribed audio yet (minimum 1 second)
+                    continue
+
+                # Check for silence timeout (2+ seconds without new audio chunks)
+                last_chunk_time = buffer.get_last_chunk_time()
+                silence_duration = time.time() - last_chunk_time
+
+                if silence_duration > 2.0:
+                    # Finalize any pending incomplete segment before silence
+                    if self._streaming_current_out and self._streaming_same_output_count < 3:
+                        logger.debug(f"Silence detected ({silence_duration:.1f}s), finalizing pending text")
+                        await self._finalize_incomplete_segment()
+                    # Continue loop but don't transcribe silence
+                    continue
+
+                # Perform streaming recognition - returns segments with timestamps
+                if not self._stt_service:
+                    logger.warning("STT service not set, cannot perform streaming recognition")
+                    continue
+
+                segments, confidence = await self._stt_service.recognize_streaming(
+                    audio_bytes=audio_bytes, sample_rate=self.config.audio.sample_rate
+                )
+
+                if not segments:
+                    # No speech detected - don't advance, wait for actual transcription
+                    # (WhisperLive approach: prevents skipping over speech Whisper temporarily missed)
+                    continue
+
+                logger.debug(f"Received {len(segments)} segments (confidence: {confidence:.3f})")
+
+                # Track offset for timestamp advancement (offset into current audio chunk)
+                offset = None
+
+                # Process complete segments (all except last if multiple segments)
+                if len(segments) > 1:
+                    for seg in segments[:-1]:
+                        if seg["completed"]:
+                            # Strip overlap and finalize immediately
+                            text = self._strip_overlap(seg["text"])
+                            if text:
+                                await self._finalize_completed_segment(text, seg["end"])
+                            # Use min(duration, seg["end"]) for offset (WhisperLive pattern)
+                            offset = min(duration, seg["end"])
+                            # Reset segment ID after finalizing completed segment
+                            self._streaming_segment_id = ""
+
+                # Process last segment (may be incomplete)
+                last_seg = segments[-1]
+                self._streaming_current_out = last_seg["text"]
+
+                # Same-output detection (compare RAW text, not stripped)
+                if self._streaming_current_out.strip() == self._streaming_prev_out.strip() and self._streaming_current_out:
+                    self._streaming_same_output_count += 1
+
+                    # Capture end time when repetition first starts
+                    if self._streaming_end_time_for_same_output is None:
+                        self._streaming_end_time_for_same_output = last_seg["end"]
+
+                    await asyncio.sleep(0.1)  # Brief wait for voice activity
+                else:
+                    self._streaming_same_output_count = 0
+                    self._streaming_end_time_for_same_output = None
+
+                # If same output repeated 3+ times, finalize it
+                if self._streaming_same_output_count >= 3:
+                    text = self._strip_overlap(self._streaming_current_out)
+                    if text:
+                        await self._finalize_completed_segment(text, self._streaming_end_time_for_same_output)
+
+                    self._streaming_current_out = ""
+                    # Use min(duration, end_time) for offset (WhisperLive pattern)
+                    offset = min(duration, self._streaming_end_time_for_same_output)
+                    self._streaming_same_output_count = 0
+                    self._streaming_end_time_for_same_output = None
+                    # Reset segment ID after finalization
+                    self._streaming_segment_id = ""
+                else:
+                    # Emit as partial (gray text) ONLY IF CHANGED
+                    if self._streaming_current_out != self._streaming_prev_out:
+                        self._streaming_prev_out = self._streaming_current_out
+                        text = self._strip_overlap(self._streaming_current_out)
+
+                        if text:
+                            segment_id = self._streaming_segment_id or str(uuid.uuid4())
+                            self._streaming_segment_id = segment_id
+
+                            await self._publish_event(PartialDictationTextEvent(text=text, segment_id=segment_id))
+                            logger.debug(f"Partial text ({self._streaming_same_output_count}/3): '{text[:50]}...'")
+                    else:
+                        self._streaming_prev_out = self._streaming_current_out
+
+                # CRITICAL: Advance timestamp after EVERY transcription
+                if offset is not None:
+                    await buffer.advance_timestamp(offset)
+                    logger.debug(f"Advanced timestamp_offset by {offset:.2f}s (of {duration:.2f}s chunk)")
+
+        except asyncio.CancelledError:
+            logger.info("Streaming transcription loop cancelled")
+        except Exception as e:
+            logger.error(f"Error in streaming transcription loop: {e}", exc_info=True)
+
+    async def _finalize_completed_segment(self, text: str, end_time: float) -> None:
+        """Finalize a completed segment (white text).
+
+        Args:
+            text: Segment text (already stripped of overlap).
+            end_time: Segment end timestamp for offset advancement.
+        """
+        if not text:
+            return
+
+        # Use existing segment ID if available (to match partial text), or generate new one
+        segment_id = self._streaming_segment_id or str(uuid.uuid4())
+
+        # Emit final event
+        await self._publish_event(FinalDictationTextEvent(text=text, segment_id=segment_id))
+
+        logger.info(f"Finalized completed segment: '{text}' (end: {end_time:.2f}s)")
+
+        # Add to STT context for future predictions
+        if self._stt_service:
+            await self._stt_service.add_finalized_segment(text)
+
+        # Update finalized text accumulator
+        if self._streaming_finalized_text:
+            self._streaming_finalized_text += " " + text
+        else:
+            self._streaming_finalized_text = text
+
+    async def _finalize_incomplete_segment(self) -> None:
+        """Finalize pending incomplete segment (due to silence or stop).
+
+        Finalizes the current_out text that hasn't reached threshold yet.
+        """
+        if not self._streaming_current_out:
+            return
+
+        text = self._strip_overlap(self._streaming_current_out)
+        if not text:
+            return
+
+        # Generate segment ID (reuse if exists)
+        segment_id = self._streaming_segment_id or str(uuid.uuid4())
+
+        # Emit final event
+        await self._publish_event(FinalDictationTextEvent(text=text, segment_id=segment_id))
+
+        logger.info(f"Finalized incomplete segment: '{text}'")
+
+        # Add to STT context
+        if self._stt_service:
+            await self._stt_service.add_finalized_segment(text)
+
+        # Update finalized text accumulator
+        if self._streaming_finalized_text:
+            self._streaming_finalized_text += " " + text
+        else:
+            self._streaming_finalized_text = text
+
+        # Reset state
+        self._streaming_current_out = ""
+        self._streaming_prev_out = ""
+        self._streaming_same_output_count = 0
+        self._streaming_segment_id = ""
+
+    def _strip_overlap(self, text: str) -> str:
+        """Strip overlapping prefix that matches finalized text.
+
+        Args:
+            text: New predicted text that may overlap with finalized text.
+
+        Returns:
+            Text with overlapping prefix removed.
+        """
+        if not self._streaming_finalized_text or not text:
+            return text
+
+        # Simple word-level overlap detection
+        finalized_words = self._streaming_finalized_text.lower().split()
+        text_words = text.split()
+        text_words_lower = [w.lower() for w in text_words]
+
+        # Find longest matching suffix of finalized that matches prefix of new text
+        max_overlap = min(len(finalized_words), len(text_words))
+        overlap_length = 0
+
+        for i in range(1, max_overlap + 1):
+            # Check if last i words of finalized match first i words of new text
+            if finalized_words[-i:] == text_words_lower[:i]:
+                overlap_length = i
+
+        if overlap_length > 0:
+            # Remove overlapping prefix
+            remaining_words = text_words[overlap_length:]
+            result = " ".join(remaining_words)
+            if result:
+                logger.debug(f"Stripped {overlap_length} overlapping words from start of prediction")
+                return result
+            else:
+                # Entire prediction was overlap - return empty to avoid duplication
+                logger.debug("Entire prediction was overlap with finalized text")
+                return ""
+
+        return text
+
+    async def _stop_streaming_mode(self, session: DictationSession) -> None:
+        """Stop streaming dictation mode and handle finalization.
+
+        Args:
+            session: Current dictation session.
+        """
+        try:
+            # Cancel streaming task
+            if self._streaming_task and not self._streaming_task.done():
+                self._streaming_task.cancel()
+                try:
+                    await self._streaming_task
+                except asyncio.CancelledError:
+                    pass
+                self._streaming_task = None
+
+            # Finalize any remaining incomplete segment
+            if self._streaming_current_out:
+                await self._finalize_incomplete_segment()
+
+            # Get all finalized text
+            final_text = self._streaming_finalized_text
+
+            # Clean up streaming state
+            if self._streaming_buffer:
+                await self._streaming_buffer.clear()
+                self._streaming_buffer = None
+
+            self._streaming_finalized_text = ""
+            self._streaming_segment_id = ""
+            self._streaming_current_out = ""
+            self._streaming_prev_out = ""
+            self._streaming_same_output_count = 0
+            self._streaming_end_time_for_same_output = None
+
+            # Update session state
+            with self._state_lock:
+                if session.mode == DictationMode.SMART and final_text:
+                    # Smart mode: process through LLM
+                    self._set_state(DictationState.PROCESSING_LLM)
+
+                    agentic_prompt = self.agentic_service.get_current_prompt() or "Fix grammar and improve clarity."
+                    llm_session_id = str(uuid.uuid4())
+                    self._pending_llm_session = LLMSession(
+                        session_id=llm_session_id,
+                        raw_text=final_text,
+                        agentic_prompt=agentic_prompt,
+                    )
+                else:
+                    # Visual mode or no text: finalize directly
+                    self._current_session = None
+                    self._set_state(DictationState.IDLE)
+
+            # Emit stop events
+            if session.mode == DictationMode.SMART and final_text:
+                await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation processing"))
+                await self._publish_event(SmartDictationStoppedEvent(raw_text=final_text))
+                await self._publish_event(
+                    LLMProcessingStartedEvent(
+                        raw_text=final_text,
+                        agentic_prompt=self._pending_llm_session.agentic_prompt,
+                        session_id=self._pending_llm_session.session_id,
+                    )
+                )
+            elif session.mode == DictationMode.SMART:
+                # No text accumulated, just end session
+                await self._end_smart_session()
+            elif session.mode == DictationMode.VISUAL:
+                # Visual mode: paste accumulated text
+                if final_text:
+                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=final_text))
+                    await self.text_service.input_text(final_text)
+                else:
+                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=""))
+                await self._finalize_session(session)
+
+            logger.info(f"Streaming {session.mode.value} mode stopped, finalized text: {len(final_text)} chars")
+
+        except Exception as e:
+            logger.error(f"Error stopping streaming mode: {e}", exc_info=True)
+            # Ensure cleanup even on error
+            with self._state_lock:
+                self._current_session = None
+                self._set_state(DictationState.IDLE)
+
     async def _monitor_type_silence(self) -> None:
         """Monitor silence timeout for TYPE dictation mode with safety limits"""
         try:
@@ -497,6 +884,24 @@ class DictationCoordinator:
             await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
 
+            # Initialize streaming for smart/visual modes
+            if mode in (DictationMode.SMART, DictationMode.VISUAL):
+                self._streaming_buffer = StreamingAudioBuffer(sample_rate=self.config.audio.sample_rate)
+                self._streaming_finalized_text = ""
+                self._streaming_segment_id = ""
+                self._streaming_current_out = ""
+                self._streaming_prev_out = ""
+                self._streaming_same_output_count = 0
+                self._streaming_end_time_for_same_output = None
+
+                # Clear STT context for fresh session
+                if self._stt_service:
+                    await self._stt_service.clear_streaming_context()
+
+                # Start streaming loop
+                self._streaming_task = asyncio.create_task(self._streaming_transcription_loop())
+                logger.info(f"Initialized streaming dictation for {mode.value} mode")
+
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
 
@@ -530,6 +935,11 @@ class DictationCoordinator:
 
                 if session.mode == DictationMode.TYPE:
                     self._cancel_type_silence_task()
+
+                # Stop streaming for smart/visual modes
+                if session.mode in (DictationMode.SMART, DictationMode.VISUAL):
+                    await self._stop_streaming_mode(session)
+                    return  # Early return - streaming modes handle their own finalization
 
                 if session.mode == DictationMode.SMART:
                     if session.accumulated_text:
@@ -782,6 +1192,17 @@ class DictationCoordinator:
             # Cancel type silence task
             self._cancel_type_silence_task()
 
+            # Cancel streaming task if active
+            if self._streaming_task and not self._streaming_task.done():
+                logger.info("Cancelling active streaming task")
+                self._streaming_task.cancel()
+                try:
+                    await self._streaming_task
+                except asyncio.CancelledError:
+                    logger.info("Streaming task cancelled")
+                except Exception as e:
+                    logger.warning(f"Error cancelling streaming task: {e}")
+
             # Cancel LLM processing task if active
             if self._llm_processing_task and not self._llm_processing_task.done():
                 logger.info("Cancelling active LLM processing task")
@@ -793,8 +1214,13 @@ class DictationCoordinator:
                 except Exception as e:
                     logger.warning(f"Error cancelling LLM task: {e}")
 
-            # Stop streaming thread
+            # Stop streaming thread (for LLM tokens)
             self._stop_streaming()
+
+            # Clean up streaming buffer
+            if self._streaming_buffer:
+                await self._streaming_buffer.clear()
+                self._streaming_buffer = None
 
             # Stop current session if active (checked atomically above)
             if has_active_session:

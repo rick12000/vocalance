@@ -3,11 +3,13 @@ from enum import Enum
 
 from vocalance.app.events.dictation_events import (
     DictationStatusChangedEvent,
+    FinalDictationTextEvent,
     LLMProcessingCompletedEvent,
     LLMProcessingFailedEvent,
     LLMProcessingReadyEvent,
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
+    PartialDictationTextEvent,
     SmartDictationRemoveCharactersEvent,
     SmartDictationStartedEvent,
     SmartDictationStoppedEvent,
@@ -50,6 +52,8 @@ class DictationPopupController(BaseController):
                 (LLMTokenGeneratedEvent, self._handle_llm_token_generated),
                 (SmartDictationTextDisplayEvent, self._handle_smart_dictation_text_display),
                 (SmartDictationRemoveCharactersEvent, self._handle_smart_dictation_remove_characters),
+                (PartialDictationTextEvent, self._handle_partial_dictation_text),
+                (FinalDictationTextEvent, self._handle_final_dictation_text),
             ]
         )
 
@@ -139,6 +143,20 @@ class DictationPopupController(BaseController):
         if self.view_callback:
             schedule_ui_update(self.view_callback.hide_popup)
         self.current_mode = DictationPopupMode.HIDDEN
+
+    async def _handle_partial_dictation_text(self, event_data) -> None:
+        """Display partial (unstable) dictation text in gray - marshalled to UI thread"""
+        text = getattr(event_data, "text", "")
+        segment_id = getattr(event_data, "segment_id", "")
+        if text and self.view_callback:
+            schedule_ui_update(self.view_callback.display_partial_text, text, segment_id)
+
+    async def _handle_final_dictation_text(self, event_data) -> None:
+        """Display final (stable) dictation text in white - marshalled to UI thread"""
+        text = getattr(event_data, "text", "")
+        segment_id = getattr(event_data, "segment_id", "")
+        if text and self.view_callback:
+            schedule_ui_update(self.view_callback.display_final_text, text, segment_id)
 
     def cleanup(self) -> None:
         """Clean up resources"""

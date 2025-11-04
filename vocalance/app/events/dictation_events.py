@@ -149,3 +149,37 @@ class AgenticPromptActionRequest(BaseEvent):
     text: Optional[str] = None
     prompt_id: Optional[str] = None
     priority: EventPriority = EventPriority.NORMAL
+
+
+class PartialDictationTextEvent(BaseEvent):
+    """Event fired for partial (unstable) streaming dictation text.
+
+    Emitted during streaming dictation (smart/visual modes) when text prediction
+    is still being refined. UI should display this as gray/tentative text that
+    may change with subsequent predictions.
+
+    Attributes:
+        text: Partial transcription text that may still change.
+        segment_id: Unique identifier for this text segment.
+    """
+
+    text: str = Field(description="Partial transcription text (unstable)")
+    segment_id: str = Field(description="Unique segment identifier for tracking updates")
+    priority: EventPriority = EventPriority.HIGH
+
+
+class FinalDictationTextEvent(BaseEvent):
+    """Event fired for finalized streaming dictation text.
+
+    Emitted during streaming dictation (smart/visual modes) when text prediction
+    has stabilized (3+ consecutive identical predictions). UI should display this
+    as white/permanent text that will no longer be edited.
+
+    Attributes:
+        text: Final transcription text that will not change.
+        segment_id: Unique identifier for this finalized segment.
+    """
+
+    text: str = Field(description="Final transcription text (stable)")
+    segment_id: str = Field(description="Unique segment identifier")
+    priority: EventPriority = EventPriority.HIGH

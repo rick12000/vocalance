@@ -3,8 +3,9 @@ import gc
 import logging
 import threading
 import time
+from collections import deque
 from enum import Enum
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
@@ -64,6 +65,10 @@ class SpeechToTextService:
         self._engines_initialized: bool = False
         self._duplicate_filter = DuplicateTextFilter(cache_size=5, duplicate_threshold_ms=1000)
         self._stop_trigger = config.dictation.stop_trigger
+
+        # Streaming context management for smart/visual modes
+        self._context_segments: deque = deque(maxlen=10)  # Keep last 10 segments for context
+        self._context_lock = asyncio.Lock()
 
         logger.debug(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
 
@@ -215,7 +220,13 @@ class SpeechToTextService:
             if not await self._duplicate_filter.is_duplicate(recognized_text):
                 await self._publish_recognition_result(recognized_text, processing_time, "vosk", STTMode.COMMAND)
         else:
-            await self._publish_sound_recognition_event(event_data.audio_bytes, event_data.sample_rate)
+            # Only publish sound recognition when NOT in dictation mode
+            # During dictation, we're not listening for commands/sounds, so skip to reduce event queue load
+            async with self._state_lock:
+                is_dictation_active = self._dictation_active
+
+            if not is_dictation_active:
+                await self._publish_sound_recognition_event(event_data.audio_bytes, event_data.sample_rate)
 
         await self.event_bus.publish(
             STTProcessingCompletedEvent(
@@ -308,6 +319,61 @@ class SpeechToTextService:
                 logger.info("STT service now in DICTATION mode - command audio will only check for stop trigger")
             else:
                 logger.info("STT service now in COMMAND mode - normal command processing enabled")
+
+    async def recognize_streaming(self, audio_bytes: bytes, sample_rate: int) -> Tuple[List[dict], float]:
+        """Perform streaming recognition with segment timestamps.
+
+        Used by streaming dictation modes (smart/visual) for continuous transcription
+        with overlapping audio chunks. Returns segments with timestamps for precise
+        offset tracking.
+
+        Args:
+            audio_bytes: Raw audio data to transcribe.
+            sample_rate: Sample rate of the audio.
+
+        Returns:
+            Tuple of (segments_list, confidence_score) where segments_list contains:
+            [{"text": str, "start": float, "end": float, "completed": bool}, ...]
+        """
+        if not self._engines_initialized or not self.whisper_engine:
+            logger.error("STT engines not initialized")
+            return [], 0.0
+
+        # Get context segments for initial_prompt
+        async with self._context_lock:
+            context_list = list(self._context_segments)
+
+        # Call Whisper streaming method - returns segments with timestamps
+        segments, confidence = await self.whisper_engine.recognize_streaming(
+            audio_bytes=audio_bytes, context_segments=context_list, sample_rate=sample_rate
+        )
+
+        # DON'T add to context here - let coordinator add only completed/finalized segments
+
+        return segments, confidence
+
+    async def add_finalized_segment(self, text: str) -> None:
+        """Add a finalized segment to the streaming context.
+
+        Should only be called with final (stable) text to prevent context pollution.
+
+        Args:
+            text: Finalized text segment to add to context.
+        """
+        if text and text.strip():
+            async with self._context_lock:
+                self._context_segments.append(text.strip())
+            logger.debug(f"Added finalized segment to context: '{text[:30]}...'")
+
+    async def clear_streaming_context(self) -> None:
+        """Clear streaming context segments.
+
+        Should be called when starting a new streaming dictation session
+        to avoid context pollution from previous sessions.
+        """
+        async with self._context_lock:
+            self._context_segments.clear()
+            logger.debug("Streaming context cleared")
 
     async def shutdown(self) -> None:
         """Shutdown STT service and release all engine resources.
