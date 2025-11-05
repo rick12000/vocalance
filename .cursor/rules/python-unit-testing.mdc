@@ -1,9 +1,6 @@
 ---
-description:
-globs:
 alwaysApply: false
 ---
-
 # Testing Guidelines
 
 - Use pytest for all testing, use unittest for mocking.

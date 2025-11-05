@@ -618,3 +618,113 @@ def mock_command_history_manager():
     manager.get_full_history = AsyncMock(return_value=[])
     manager.shutdown = AsyncMock(return_value=True)
     return manager
+
+
+@pytest.fixture
+def sample_audio_chunks():
+    """Generate realistic 50ms audio chunks in int16 format."""
+    import numpy as np
+
+    chunks = {
+        "speech": np.random.randint(-5000, 5000, size=800, dtype=np.int16),
+        "silence": np.random.randint(-50, 50, size=800, dtype=np.int16),
+        "noise": np.random.randint(-200, 200, size=800, dtype=np.int16),
+    }
+    return chunks
+
+
+@pytest.fixture
+def speech_energy_chunk():
+    """Generate chunk with energy above typical threshold."""
+    import numpy as np
+
+    return np.random.randint(-8000, 8000, size=800, dtype=np.int16)
+
+
+@pytest.fixture
+def silence_chunk():
+    """Generate chunk with energy below typical threshold."""
+    import numpy as np
+
+    return np.random.randint(-30, 30, size=800, dtype=np.int16)
+
+
+@pytest.fixture
+def mock_audio_recorder():
+    """Mock AudioRecorder with controllable callback."""
+    recorder = Mock()
+    recorder.start = Mock()
+    recorder.stop = Mock()
+    recorder.set_active = Mock()
+    recorder.is_recording = Mock(return_value=False)
+    recorder.is_active = Mock(return_value=True)
+    recorder.sample_rate = 16000
+    recorder.chunk_size = 800
+    recorder.on_audio_chunk = None
+    return recorder
+
+
+@pytest.fixture
+def mock_command_listener():
+    """Mock CommandAudioListener."""
+    listener = Mock()
+    listener.setup_subscriptions = Mock()
+    listener._handle_audio_chunk = AsyncMock()
+    return listener
+
+
+@pytest.fixture
+def mock_dictation_listener():
+    """Mock DictationAudioListener."""
+    listener = Mock()
+    listener.setup_subscriptions = Mock()
+    listener._handle_audio_chunk = AsyncMock()
+    listener.update_silent_chunks_threshold = AsyncMock()
+    return listener
+
+
+@pytest.fixture
+def mock_sound_listener():
+    """Mock SoundAudioListener."""
+    listener = Mock()
+    listener.setup_subscriptions = Mock()
+    listener._handle_audio_chunk = AsyncMock()
+    return listener
+
+
+@pytest.fixture
+def mock_audio_service():
+    """Mock AudioService with all listeners."""
+    service = Mock()
+    service.init_listeners = Mock()
+    service.setup_subscriptions = Mock()
+    service.start_processing = Mock()
+    service.stop_processing = Mock()
+    service.shutdown = AsyncMock()
+    service.on_dictation_silent_chunks_updated = AsyncMock()
+    return service
+
+
+@pytest.fixture
+def mock_streaming_buffer():
+    """Mock StreamingAudioBuffer."""
+    buffer = Mock()
+    buffer.add_chunk = AsyncMock()
+    buffer.get_audio_for_transcription = AsyncMock(return_value=(b"\x00" * 1600, 0.1))
+    buffer.advance_timestamp = AsyncMock()
+    buffer.get_timestamp_offset = AsyncMock(return_value=0.0)
+    buffer.get_untranscribed_duration = AsyncMock(return_value=0.0)
+    buffer.clear = AsyncMock()
+    buffer.get_last_chunk_time = Mock(return_value=0.0)
+    buffer.get_stats = Mock(
+        return_value={
+            "buffer_duration_seconds": 0.0,
+            "sample_count": 0,
+            "max_buffer_samples": 720000,
+            "timestamp_offset": 0.0,
+            "frames_offset": 0.0,
+            "total_chunks_added": 0,
+            "last_chunk_time": 0.0,
+        }
+    )
+    return buffer

@@ -61,6 +61,9 @@ async def test_dictation_audio_processing(stt_service_with_mocked_engines, dicta
     service = stt_service_with_mocked_engines
     event_bus = service.event_bus
 
+    # Set service to dictation mode
+    service._dictation_active = True
+
     captured_events = []
 
     async def capture_event(event):
@@ -164,16 +167,22 @@ async def test_duplicate_text_filtering(stt_service_with_mocked_engines, command
     event = CommandAudioSegmentReadyEvent(audio_bytes=command_audio_bytes, sample_rate=16000)
 
     await event_bus.publish(event)
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.1)
     await event_bus.publish(event)
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.1)
 
-    assert len(captured_events) == 1
+    # STT service doesn't do duplicate filtering - CentralizedCommandParser handles it
+    # So we expect 2 events
+    assert len(captured_events) == 2
 
 
 @pytest.mark.asyncio
-async def test_empty_text_triggers_sound_recognition(stt_service_with_mocked_engines, command_audio_bytes):
-    """Test that empty recognition triggers sound recognition event."""
+async def test_empty_text_does_not_trigger_sound_recognition_from_stt(stt_service_with_mocked_engines, command_audio_bytes):
+    """Test that empty recognition does NOT trigger sound recognition from STT service.
+
+    Empty text forwarding is handled directly by the sound audio listener, not the STT service.
+    This prevents duplicate events.
+    """
     service = stt_service_with_mocked_engines
     event_bus = service.event_bus
 
@@ -192,5 +201,21 @@ async def test_empty_text_triggers_sound_recognition(stt_service_with_mocked_eng
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    assert len(captured_events) == 1
-    assert captured_events[0].audio_chunk == command_audio_bytes
+    # STT service should NOT forward empty text to sound recognition
+    assert len(captured_events) == 0
+
+
+@pytest.mark.asyncio
+async def test_context_segments_management(stt_service_with_mocked_engines, dictation_audio_bytes):
+    """Test that context segments are managed with maxlen of 10."""
+    service = stt_service_with_mocked_engines
+    event_bus = service.event_bus
+
+    for i in range(15):
+        service.whisper_engine.recognize = AsyncMock(return_value=f"segment {i}")
+        event = DictationAudioSegmentReadyEvent(audio_bytes=dictation_audio_bytes, sample_rate=16000)
+        await event_bus.publish(event)
+        await asyncio.sleep(0.05)
+
+    async with service._context_lock:
+        assert len(service._context_segments) <= 10

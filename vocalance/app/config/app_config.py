@@ -366,7 +366,7 @@ class AutomationServiceConfig(BaseModel):
         default=0.25, description="Delay in seconds between individual key presses in a key sequence"
     )
 
-    scroll_total_clicks: int = Field(default=400, description="Total number of scroll clicks for animated scrolling")
+    scroll_total_clicks: int = Field(default=600, description="Total number of scroll clicks for animated scrolling")
     scroll_animation_steps: int = Field(default=20, description="Number of animation steps for scrolling")
     scroll_animation_delay_seconds: float = Field(default=0.01, description="Delay between scroll animation steps in seconds")
 
