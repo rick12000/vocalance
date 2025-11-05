@@ -18,11 +18,13 @@ For general information, features, or download instructions, please visit `vocal
    :hidden:
 
    developer/introduction
-   developer/audio_processing
+   developer/audio_capture_and_listeners
+   developer/speech_and_sound_recognition
    developer/command_parsing
+   developer/command_execution_services
    developer/dictation_system
-   developer/command_execution
-   developer/infrastructure
+   developer/user_interface
+   developer/event_bus_and_infrastructure
 
 .. toctree::
    :maxdepth: 1

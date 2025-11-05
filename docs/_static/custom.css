@@ -348,7 +348,7 @@ code {
 }
 
 /* ===================================================================
-   Tables
+   Tables - Uniform Dark Grey Background
    ================================================================== */
 
 .wy-table-responsive table {
@@ -378,10 +378,125 @@ code {
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--gray-300);
   color: var(--gray-800);
+  background: var(--gray-200) !important;
+}
+
+.wy-table-responsive table tr {
+  background: var(--gray-200) !important;
 }
 
 .wy-table-responsive table tr:hover {
-  background: var(--gray-100);
+  background: var(--gray-100) !important;
+}
+
+.wy-table-responsive table tr:hover td {
+  background: var(--gray-100) !important;
+}
+
+/* Uniform row styling - override alternating colors */
+.uniform-rows .row-odd,
+.uniform-rows .row-even,
+.uniform-rows tr:nth-child(odd),
+.uniform-rows tr:nth-child(even),
+.uniform-rows table tr,
+.uniform-rows tbody tr,
+.uniform-rows tbody tr:nth-child(odd),
+.uniform-rows tbody tr:nth-child(even) {
+  background: var(--gray-200) !important;
+}
+
+.uniform-rows .row-odd:hover,
+.uniform-rows .row-even:hover,
+.uniform-rows tr:nth-child(odd):hover,
+.uniform-rows tr:nth-child(even):hover,
+.uniform-rows table tr:hover,
+.uniform-rows tbody tr:hover,
+.uniform-rows tbody tr:nth-child(odd):hover,
+.uniform-rows tbody tr:nth-child(even):hover {
+  background: var(--gray-100) !important;
+}
+
+/* More specific override for list-table rows */
+.wy-table-responsive .uniform-rows tbody tr,
+.wy-table-responsive .uniform-rows tbody tr:nth-child(odd),
+.wy-table-responsive .uniform-rows tbody tr:nth-child(even),
+.wy-table-responsive .uniform-rows tr,
+.wy-table-responsive .uniform-rows tr:nth-child(odd),
+.wy-table-responsive .uniform-rows tr:nth-child(even) {
+  background: var(--gray-200) !important;
+}
+
+.wy-table-responsive .uniform-rows tbody tr:hover,
+.wy-table-responsive .uniform-rows tbody tr:nth-child(odd):hover,
+.wy-table-responsive .uniform-rows tbody tr:nth-child(even):hover,
+.wy-table-responsive .uniform-rows tr:hover,
+.wy-table-responsive .uniform-rows tr:nth-child(odd):hover,
+.wy-table-responsive .uniform-rows tr:nth-child(even):hover {
+  background: var(--gray-100) !important;
+}
+
+/* Nuclear option - force all table rows in uniform-rows to have same background */
+table.uniform-rows tr,
+.uniform-rows tr,
+.uniform-rows tbody tr,
+.uniform-rows table tr,
+.uniform-rows tr.row-odd,
+.uniform-rows tr.row-even,
+.uniform-rows tbody tr.row-odd,
+.uniform-rows tbody tr.row-even {
+  background-color: var(--gray-200) !important;
+  background: var(--gray-200) !important;
+}
+
+table.uniform-rows tr:hover,
+.uniform-rows tr:hover,
+.uniform-rows tbody tr:hover,
+.uniform-rows table tr:hover,
+.uniform-rows tr.row-odd:hover,
+.uniform-rows tr.row-even:hover,
+.uniform-rows tbody tr.row-odd:hover,
+.uniform-rows tbody tr.row-even:hover {
+  background-color: var(--gray-100) !important;
+  background: var(--gray-100) !important;
+}
+
+/* Last resort - target any element inside uniform-rows tables */
+.uniform-rows * {
+  background-color: inherit !important;
+}
+
+/* Force all td elements in uniform-rows tables to inherit background */
+.uniform-rows td,
+.uniform-rows th {
+  background-color: inherit !important;
+  background: inherit !important;
+}
+
+/* Ultimate override - remove all alternating backgrounds */
+.uniform-rows,
+.uniform-rows table,
+.uniform-rows tbody,
+.uniform-rows tr,
+.uniform-rows td,
+.uniform-rows th {
+  background-color: var(--gray-200) !important;
+  background: var(--gray-200) !important;
+}
+
+.uniform-rows tr:hover,
+.uniform-rows td:hover,
+.uniform-rows th:hover {
+  background-color: var(--gray-100) !important;
+  background: var(--gray-100) !important;
+}
+
+/* Block any theme-specific alternating row rules */
+.uniform-rows tr:nth-child(2n),
+.uniform-rows tr:nth-child(2n+1),
+.uniform-rows tbody tr:nth-child(2n),
+.uniform-rows tbody tr:nth-child(2n+1) {
+  background-color: var(--gray-200) !important;
+  background: var(--gray-200) !important;
 }
 
 /* ===================================================================

@@ -15,52 +15,58 @@ Omitting as much detail as possible, the diagram below shows how Vocalance goes 
 .. mermaid::
 
    flowchart TD
-       A[Microphone Input] --> B[AudioRecorder VAD]
-       B --> C[Speech Detection]
-       C --> D[AudioService]
+       A[Microphone Input] --> B[AudioRecorder]
+       B --> C[AudioChunkEvent<br/>50ms chunks]
 
-       D --> E{Current Mode?}
-       E -->|Command Mode| F[Command Recorder Active]
-       E -->|Dictation Mode| G[Both Recorders Active]
+       C --> D[CommandAudioListener]
+       C --> E[DictationAudioListener]
+       C --> F[SoundAudioListener]
 
-       F --> H[CommandAudioSegmentReady Event]
-       G --> I[DictationAudioSegmentReady Event]
-       G --> J[CommandAudioSegmentReady Event<br/>for stop words]
+       D --> G[CommandAudioSegmentReadyEvent]
+       E --> H[DictationAudioSegmentReadyEvent]
+       F --> I[ProcessAudioChunkForSoundRecognitionEvent]
 
-       H --> K[SpeechToTextService]
-       I --> K
-       J --> K
+       G --> J[SpeechToTextService]
+       H --> J
 
-       K --> L{Engine Selection}
-       L -->|Command Audio| M[Vosk Engine]
-       L -->|Dictation Audio| N[Whisper Engine]
-       L -->|Empty Result| O[SoundService]
+       J --> K{Engine Selection}
+       K -->|Command Audio| L[Vosk Engine]
+       K -->|Dictation Audio| M[Whisper Engine]
 
-       M --> P[CommandTextRecognized Event]
-       N --> Q[DictationTextRecognized Event]
-       O --> R[CustomSoundRecognized Event]
+       L --> N[CommandTextRecognizedEvent]
+       M --> O[DictationTextRecognizedEvent]
 
-       P --> S[CentralizedCommandParser]
-       Q --> T[DictationCoordinator]
-       R --> S
+       I --> P[SoundService]
+       P --> Q{Training Active?}
+       Q -->|Yes| R[Collect Training Sample]
+       Q -->|No| S[Sound Recognition]
+       S --> T[CustomSoundRecognizedEvent]
 
-       S --> U{Command Type?}
-       U -->|Automation| V[AutomationService]
-       U -->|Mark| W[MarkService]
-       U -->|Grid| X[GridService]
-       U -->|Dictation| T
+       N --> U[CentralizedCommandParser]
+       O --> V[DictationCoordinator]
+       T --> U
 
-       V --> Y[pyautogui execution]
-       W --> Z[Mouse jump]
-       X --> AA[Grid UI display]
-       T --> AB[Text output]
+       U --> W{Command Type?}
+       W -->|Automation| X[AutomationService]
+       W -->|Mark| Y[MarkService]
+       W -->|Grid| Z[GridService]
+       W -->|Dictation| V
+
+       X --> AA[pyautogui execution]
+       Y --> AB[Mouse jump]
+       Z --> AC[Grid UI display]
+       V --> AD[Text output]
 
 The general pattern is:
 
-- The user speaks into the microphone
-- Vocalance captures the audio and converts it to text
-- The text is parsed into a command
-- The command is executed to carry out some action on the computer
+- The AudioRecorder continuously captures raw audio at 16kHz and publishes 50ms chunks
+- Three independent listeners subscribe to these chunks and apply their own Voice Activity Detection (VAD)
+- Each listener buffers chunks according to its own parameters (command mode: ~150ms silence timeout, dictation mode: ~800ms, sound: ~100ms)
+- When silence timeout is reached, each listener publishes a segment-ready event
+- SpeechToTextService processes command and dictation segments with appropriate engines (Vosk/Whisper)
+- SoundAudioListener publishes directly to SoundService, bypassing STT
+- CentralizedCommandParser receives text from both STT and sound recognition, maps sounds to commands, and publishes parsed commands
+- AutomationService executes commands, MarkService handles marks, GridService displays grids, and DictationCoordinator outputs dictated text
 
 Event-Driven Architecture
 ===========================
@@ -72,70 +78,132 @@ How It Works: A Concrete Example
 
 Let's trace through exactly what happens when you say "click" into the microphone. We'll follow the event flow shown in the sequence diagram below, connecting each step to the specific events and services.
 
-**1. Audio Capture and Speech Detection**
+**1. Audio Capture and Continuous Streaming**
 
-When you speak "click", the AudioService is already listening through its command recorder. The AudioRecorder uses Voice Activity Detection (VAD) to detect when you start speaking, captures the audio segment, and immediately publishes a ``CommandAudioSegmentReadyEvent`` to the EventBus:
-
-.. code-block:: python
-
-   # AudioService publishes the captured audio
-   event = CommandAudioSegmentReadyEvent(
-       audio_bytes=audio_bytes,
-       sample_rate=16000
-   )
-   await event_bus.publish(event)
-
-This corresponds to the "CommandAudioSegmentReady Event" shown in the diagram flowing from AudioService to SpeechToTextService.
-
-**2. Speech-to-Text Recognition**
-
-The SpeechToTextService is subscribed to ``CommandAudioSegmentReadyEvent``. It receives the audio and uses the Vosk engine (optimized for fast, offline command recognition) to convert the speech to text:
+The AudioService starts the AudioRecorder, which continuously captures audio at 16kHz sample rate
+and publishes an ``AudioChunkEvent`` for every 50ms of audio. The recorder has no VAD logic—it
+simply streams raw audio chunks for downstream listeners to process:
 
 .. code-block:: python
 
-   # SpeechToTextService receives the audio event
+   # AudioRecorder captures and publishes 50ms chunks continuously
+   while recording:
+       audio_chunk = stream.read(800_samples)  # 50ms at 16kHz
+       event = AudioChunkEvent(
+           audio_chunk=audio_chunk.tobytes(),
+           sample_rate=16000,
+           timestamp=time.time()
+       )
+       await event_bus.publish(event)
+
+**2. Parallel Audio Segment Detection**
+
+Three independent listeners subscribe to ``AudioChunkEvent`` and process the same audio stream
+in parallel, each with their own VAD parameters and silence timeouts:
+
+- **CommandAudioListener**: Low-latency (~150ms silence timeout) for responsive command detection
+- **DictationAudioListener**: Longer timeout (~800ms) tolerant of natural pauses in speech
+- **SoundAudioListener**: Quick detection (~100ms) for brief sound recognition
+
+Each listener maintains its own buffer and publishes a segment-ready event when speech/sound is
+detected followed by the configured silence timeout:
+
+.. code-block:: python
+
+   # CommandAudioListener processes AudioChunkEvent with command-specific VAD
+   @event_bus.subscribe(AudioChunkEvent)
+   async def _handle_audio_chunk(self, event):
+       # Calculate energy and apply VAD logic
+       chunk = np.frombuffer(event.audio_chunk, dtype=np.int16)
+       energy = self._calculate_energy(chunk)
+
+       # Buffer chunks until silence timeout
+       if energy > threshold and not self._is_recording:
+           self._is_recording = True
+           self._audio_buffer.append(chunk)
+       elif energy < silence_threshold:
+           self._consecutive_silent_chunks += 1
+
+           # Publish when silence timeout reached
+           if self._consecutive_silent_chunks >= 3:  # 150ms
+               event = CommandAudioSegmentReadyEvent(
+                   audio_bytes=concatenated_audio.tobytes(),
+                   sample_rate=16000
+               )
+               await event_bus.publish(event)
+
+**3. Speech-to-Text Processing**
+
+The SpeechToTextService subscribes to ``CommandAudioSegmentReadyEvent`` and ``DictationAudioSegmentReadyEvent``.
+For command segments, it uses the fast Vosk engine; for dictation segments, it uses the accurate Whisper engine:
+
+.. code-block:: python
+
+   # SpeechToTextService receives audio segments and uses appropriate engine
    @event_bus.subscribe(CommandAudioSegmentReadyEvent)
    async def _handle_command_audio_segment(self, event):
-       # Use Vosk for fast command recognition
-       text = await self.vosk_engine.recognize(event.audio_bytes)
+       # In command mode: run full Vosk recognition
+       # In dictation mode: check only for stop trigger words
+       text = await self.vosk_engine.recognize(event.audio_bytes, event.sample_rate)
 
-       # Publish the recognized text
        text_event = CommandTextRecognizedEvent(
-           text=text,  # "click"
+           text=text,
            engine="vosk",
            mode="command"
        )
        await self.event_bus.publish(text_event)
 
-The text "click" is now published as a ``CommandTextRecognizedEvent``, which matches the event flowing from SpeechToTextService to CentralizedCommandParser in the diagram.
+**4. Sound Recognition Processing**
 
-**3. Command Parsing and Classification**
-
-The CentralizedCommandParser receives the ``CommandTextRecognizedEvent`` and parses the text through its hierarchical command system. It checks if "click" matches any known automation commands by looking up the action map:
+The SoundAudioListener publishes ``ProcessAudioChunkForSoundRecognitionEvent`` directly to the
+SoundService, bypassing STT entirely. The SoundService recognizes trained sounds or collects
+training samples without involvement from the speech-to-text pipeline:
 
 .. code-block:: python
 
-   # CentralizedCommandParser handles text recognition
+   # SoundAudioListener publishes audio chunks for sound recognition
+   event = ProcessAudioChunkForSoundRecognitionEvent(
+       audio_chunk=audio_bytes,
+       sample_rate=16000
+   )
+   await event_bus.publish(event)
+
+   # SoundService processes independently
+   @event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent)
+   async def _handle_audio_chunk(self, event):
+       if training_active:
+           await self._collect_training_sample(event.audio_chunk)
+       else:
+           result = await self.recognizer.recognize_sound(event.audio_chunk)
+           if result:
+               await event_bus.publish(CustomSoundRecognizedEvent(...))
+
+**5. Command Parsing and Execution**
+
+The CentralizedCommandParser receives recognized text from both ``CommandTextRecognizedEvent`` and
+``CustomSoundRecognizedEvent``. For sound events, it looks up any mapped command phrase, then
+processes all text through the unified command hierarchy:
+
+.. code-block:: python
+
+   # CentralizedCommandParser handles text from both STT and sound recognition
    @event_bus.subscribe(CommandTextRecognizedEvent)
    async def _handle_command_text_recognized(self, event):
-       # Parse "click" through the command hierarchy
        command = await self._parse_text(event.text)
+       await event_bus.publish(AutomationCommandParsedEvent(command=command))
 
-       # For "click", this returns an ExactMatchCommand
-       # with action_type="click" and action_value=""
+   @event_bus.subscribe(CustomSoundRecognizedEvent)
+   async def _handle_custom_sound_recognized(self, event):
+       # Get mapped command for this sound
+       command_text = self._sound_to_command_mapping.get(event.label)
+       if command_text:
+           command = await self._parse_text(command_text)
+           await event_bus.publish(AutomationCommandParsedEvent(command=command))
 
-       # Publish the parsed command
-       parsed_event = AutomationCommandParsedEvent(
-           command=command,
-           source="stt"
-       )
-       await self.event_bus.publish(parsed_event)
+**6. Command Execution**
 
-This creates an ``AutomationCommandParsedEvent`` that flows to the AutomationService, as shown in the diagram.
-
-**4. Command Execution**
-
-Finally, the AutomationService receives the ``AutomationCommandParsedEvent`` and executes the command using pyautogui:
+Finally, the AutomationService receives the ``AutomationCommandParsedEvent`` and executes
+the command using pyautogui:
 
 .. code-block:: python
 
@@ -143,24 +211,20 @@ Finally, the AutomationService receives the ``AutomationCommandParsedEvent`` and
    @event_bus.subscribe(AutomationCommandParsedEvent)
    async def _handle_automation_command(self, event):
        command = event.command
-
-       # For a "click" command, execute mouse click
        if command.action_type == ActionType.CLICK:
            success = await self._execute_command(
                ActionType.CLICK,
-               command.action_value,
-               count=getattr(command, 'count', 1)
+               command.action_value
            )
 
        # Publish execution status
        status_event = CommandExecutedStatusEvent(
            command=command.__dict__,
-           success=success,
-           source=event.source
+           success=success
        )
        await event_bus.publish(status_event)
 
-The mouse click happens here! This completes the full event flow from microphone input to computer action.
+The mouse click happens here, completing the event flow from microphone to computer action.
 
 The Event Flow
 ---------------
@@ -170,19 +234,42 @@ Notice the pattern: each service does its job and publishes an event when done. 
 .. mermaid::
 
    sequenceDiagram
-       participant Audio as AudioService
+       participant Recorder as AudioRecorder
        participant Bus as EventBus
+       participant CmdListener as CommandAudioListener
+       participant SoundListener as SoundAudioListener
        participant STT as SpeechToTextService
+       participant SoundSvc as SoundService
        participant Parser as CentralizedCommandParser
        participant Automation as AutomationService
 
-       Note over Audio,Automation: User says "click"
-       Audio->>Bus: CommandAudioSegmentReadyEvent<br/>audio_bytes, sample_rate=16000
-       Bus->>STT: (delivers event)
+       Note over Recorder,Automation: User says "click"
+
+       Recorder->>Bus: AudioChunkEvent 50ms chunk #1
+       Bus->>CmdListener: (delivers event)
+       Bus->>SoundListener: (delivers event)
+
+       Recorder->>Bus: AudioChunkEvent 50ms chunk #2
+       Bus->>CmdListener: (delivers event)
+       Bus->>SoundListener: (delivers event)
+
+       Recorder->>Bus: AudioChunkEvent 50ms chunk #3<br/>(silence detected)
+       Bus->>CmdListener: (delivers event)
+       Bus->>SoundListener: (delivers event)
+
+       CmdListener->>Bus: CommandAudioSegmentReadyEvent<br/>audio_bytes, sample_rate=16000
+       SoundListener->>Bus: ProcessAudioChunkForSoundRecognitionEvent<br/>audio_bytes, sample_rate=16000
+
+       Bus->>STT: (delivers CommandAudioSegmentReadyEvent)
+       Bus->>SoundSvc: (delivers ProcessAudioChunkForSoundRecognitionEvent)
+
        STT->>Bus: CommandTextRecognizedEvent<br/>text="click", engine="vosk"
-       Bus->>Parser: (delivers event)
+       SoundSvc->>Bus: (no match for sound recognition)
+
+       Bus->>Parser: (delivers CommandTextRecognizedEvent)
        Parser->>Bus: AutomationCommandParsedEvent<br/>command=ExactMatchCommand("click")
-       Bus->>Automation: (delivers event)
+
+       Bus->>Automation: (delivers AutomationCommandParsedEvent)
        Automation->>Automation: pyautogui.click()<br/>🖱️ Mouse click executed!
 
 This architecture makes the system:
