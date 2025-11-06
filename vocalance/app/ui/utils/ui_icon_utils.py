@@ -33,22 +33,44 @@ def _get_icon_path() -> Optional[str]:
 
 def configure_dpi_awareness():
     """
-    Configure Windows DPI awareness for icon display.
+    Configure Windows DPI awareness for proper screen dimension reporting.
 
-    For CustomTkinter applications, NO explicit DPI awareness gives the best
-    icon quality. CustomTkinter handles its own DPI scaling internally, and
-    setting explicit DPI awareness conflicts with iconbitmap() rendering.
+    Sets Per-Monitor V2 DPI awareness so that winfo_screenwidth()/height()
+    return actual physical pixel dimensions, not scaled values. This is critical
+    for accurate window positioning and overlay placement.
 
-    This function intentionally does nothing to allow Windows default behavior.
+    CRITICAL: This MUST be called before creating any Tkinter windows.
     """
     global _DPI_AWARENESS_DEACTIVATED
     if _DPI_AWARENESS_DEACTIVATED or sys.platform != "win32":
         return
 
-    # DO NOT set any DPI awareness
-    # CustomTkinter + iconbitmap() works best with default Windows DPI handling
-    logger.debug("Using default Windows DPI handling for optimal icon quality")
-    _DPI_AWARENESS_DEACTIVATED = True
+    try:
+        # Try Per-Monitor V2 DPI awareness (Windows 10 1703+)
+        # This gives correct screen dimensions while still scaling content properly
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE_V2
+        logger.debug("Set Per-Monitor V2 DPI awareness")
+        _DPI_AWARENESS_DEACTIVATED = True
+        return
+    except Exception:
+        pass
+
+    try:
+        # Fallback: Per-Monitor DPI awareness (Windows 8.1+)
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_PER_MONITOR_DPI_AWARE
+        logger.debug("Set Per-Monitor DPI awareness")
+        _DPI_AWARENESS_DEACTIVATED = True
+        return
+    except Exception:
+        pass
+
+    try:
+        # Last resort: System DPI awareness (Windows Vista+)
+        ctypes.windll.user32.SetProcessDPIAware()
+        logger.debug("Set System DPI awareness")
+        _DPI_AWARENESS_DEACTIVATED = True
+    except Exception as e:
+        logger.debug(f"Could not set DPI awareness: {e}")
 
 
 # Backward compatibility alias

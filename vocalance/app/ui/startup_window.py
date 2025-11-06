@@ -366,6 +366,19 @@ class StartupWindow:
                 self._icon_after_ids.clear()
 
                 if self.window:
+                    # Destroy any lingering Windows tooltips before closing
+                    try:
+                        import ctypes
+
+                        hwnd = self.window.winfo_id()
+                        # Send WM_MOUSELEAVE to force tooltip destruction
+                        WM_MOUSELEAVE = 0x02A3
+                        ctypes.windll.user32.SendMessageW(hwnd, WM_MOUSELEAVE, 0, 0)
+                        # Process the message
+                        self.window.update_idletasks()
+                    except Exception:
+                        pass
+
                     self.window.destroy()
                     self.window = None
                 self.logger.info("Startup window closed")

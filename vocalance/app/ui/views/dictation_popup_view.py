@@ -62,6 +62,12 @@ class DictationPopupView:
         self._last_token_start_index = None
         self._last_token_end_index = None
 
+        # Spinner animation state (similar to startup window)
+        self.is_animating = False
+        self.animation_frame = 0
+        self.animation_frames = ["|", "/", "-", "\\"]
+        self.animation_after_id = None
+
         logging.info("Simplified DictationPopupView initialized")
 
     def _create_popup_window(self) -> ctk.CTkToplevel:
@@ -90,16 +96,40 @@ class DictationPopupView:
         return popup
 
     def _create_simple_content(self) -> ctk.CTkFrame:
-        """Create simple listening indicator"""
+        """Create simple listening indicator with spinner animation"""
         frame = ctk.CTkFrame(self.popup_window, fg_color=ui_theme.theme.shape_colors.darkest)
 
-        self.simple_label = ctk.CTkLabel(
-            frame,
-            text="Listening...",
+        # Status container (centered text + spinner)
+        status_frame = ctk.CTkFrame(frame, fg_color="transparent", corner_radius=0)
+        status_frame.pack(pady=10, padx=10)
+        status_frame.grid_columnconfigure(0, weight=1)  # Left expand
+        status_frame.grid_columnconfigure(1, weight=0)  # Text (fixed)
+        status_frame.grid_columnconfigure(2, weight=0)  # Spinner (fixed)
+        status_frame.grid_columnconfigure(3, weight=1)  # Right expand
+
+        # Text label (Listening)
+        self.simple_text_label = ctk.CTkLabel(
+            status_frame,
+            text="Listening",
             font=(view_config.dictation_popup.font_family, 12),
             text_color=ui_theme.theme.text_colors.light,
+            justify="center",
+            anchor="center",
         )
-        self.simple_label.pack(pady=10)
+        self.simple_text_label.grid(row=0, column=1, padx=(0, 10), sticky="e")
+
+        # Spinner label (uses monospace font from theme)
+        monospace_font = ui_theme.theme.font_family.get_monospace_font()
+        self.simple_spinner_label = ctk.CTkLabel(
+            status_frame,
+            text="\\",
+            font=(monospace_font, 12),
+            text_color=ui_theme.theme.text_colors.light,
+            justify="center",
+            anchor="w",
+            width=15,
+        )
+        self.simple_spinner_label.grid(row=0, column=2, sticky="w")
 
         return frame
 
@@ -367,6 +397,7 @@ class DictationPopupView:
             self.popup_window.geometry(f"{SIMPLE_WINDOW_WIDTH}x{SIMPLE_WINDOW_HEIGHT}")
             self._position_window(SIMPLE_WINDOW_WIDTH, SIMPLE_WINDOW_HEIGHT)
             self._show_window()
+            self._start_animation()
 
     def _show_smart(self):
         with self._ui_lock:
@@ -402,6 +433,7 @@ class DictationPopupView:
     def _hide(self):
         with self._ui_lock:
             if self.is_visible:
+                self._stop_animation()
                 self.popup_window.withdraw()
                 self.is_visible = False
                 self.current_mode = None
@@ -431,10 +463,51 @@ class DictationPopupView:
         screen_height = self.parent_root.winfo_screenheight()
 
         x = WINDOW_MARGIN_X
-        # Position higher up on screen (35% from top instead of 50% center)
-        y = int(screen_height * 0.35 - height // 2) if height >= 200 else screen_height - height - WINDOW_MARGIN_Y_BOTTOM
+        # Position high enough to avoid taskbar - place in lower third of screen
+        y = int(screen_height * 0.85)
 
         self.popup_window.geometry(f"+{x}+{y}")
+
+    def _start_animation(self) -> None:
+        """Begin spinner animation for simple mode."""
+        if self.is_animating or not self.popup_window or not self.popup_window.winfo_exists():
+            return
+
+        self._stop_animation()
+        self.is_animating = True
+        self.animation_frame = 0
+
+        self._update_animation_frame()
+
+    def _update_animation_frame(self) -> None:
+        """Cycle to next spinner frame."""
+        if not self.is_animating or not self.popup_window or not self.popup_window.winfo_exists() or not self.simple_spinner_label:
+            return
+
+        try:
+            self.simple_spinner_label.configure(text=self.animation_frames[self.animation_frame])
+            self.animation_frame = (self.animation_frame + 1) % len(self.animation_frames)
+
+            if self.popup_window and self.is_animating:
+                self.animation_after_id = self.popup_window.after(100, self._update_animation_frame)
+
+        except Exception as e:
+            logging.debug(f"Error updating spinner animation: {e}")
+            self.is_animating = False
+
+    def _stop_animation(self) -> None:
+        """Stop spinner animation."""
+        self.is_animating = False
+
+        if self.simple_spinner_label and self.simple_spinner_label.winfo_exists():
+            self.simple_spinner_label.configure(text="")
+
+        if self.animation_after_id and self.popup_window:
+            try:
+                self.popup_window.after_cancel(self.animation_after_id)
+            except Exception:
+                pass
+            self.animation_after_id = None
 
     def _reinforce_icon(self) -> None:
         """Reinforce the icon setting to prevent CustomTkinter override."""

@@ -8,35 +8,23 @@ import signal
 import threading
 import time
 import tkinter as tk
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import customtkinter as ctk
 
+# Only import what's needed immediately for startup; heavy service imports are deferred
 from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load_app_config
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
-from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
-from vocalance.app.services.audio.simple_audio_service import AudioService
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
-from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
-from vocalance.app.services.automation_service import AutomationService
-from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
-from vocalance.app.services.command_management_service import CommandManagementService
-from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
-from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
-from vocalance.app.services.grid.grid_service import GridService
-from vocalance.app.services.mark_service import MarkService
-from vocalance.app.services.markov_command_predictor import MarkovCommandService
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
-from vocalance.app.services.storage.settings_service import SettingsService
-from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
-from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.ui import ui_theme
-from vocalance.app.ui.main_window import AppControlRoom
 from vocalance.app.ui.startup_window import StartupProgressTracker, StartupWindow
-from vocalance.app.ui.utils.font_service import FontService
 from vocalance.app.ui.utils.ui_icon_utils import configure_dpi_awareness, initialize_windows_taskbar_icon, set_window_icon_robust
 from vocalance.app.ui.utils.ui_thread_utils import initialize_ui_scheduler
+
+# Type-checking only imports (don't trigger loading at runtime)
+if TYPE_CHECKING:
+    from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +169,10 @@ class FastServiceInitializer:
         Creates GridService for click grid overlay functionality and AutomationService
         for executing keyboard/mouse automation commands.
         """
+        # DEFERRED IMPORT: Only import when actually initializing
+        from vocalance.app.services.automation_service import AutomationService
+        from vocalance.app.services.grid.grid_service import GridService
+
         with self._services_lock:
             self.services["grid"] = GridService(event_bus=self.event_bus, config=self.config)
             self.services["automation"] = AutomationService(event_bus=self.event_bus, app_config=self.config)
@@ -195,6 +187,14 @@ class FastServiceInitializer:
         Args:
             progress_tracker: Optional tracker for reporting progress to the startup UI.
         """
+        # DEFERRED IMPORT: Storage services
+        from vocalance.app.services.command_management_service import CommandManagementService
+        from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
+        from vocalance.app.services.mark_service import MarkService
+        from vocalance.app.services.storage.settings_service import SettingsService
+        from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
+        from vocalance.app.services.storage.storage_service import StorageService
+
         with self._services_lock:
             self.services["storage"] = StorageService(config=self.config)
             storage = self.services["storage"]
@@ -283,6 +283,13 @@ class FastServiceInitializer:
         Args:
             progress_tracker: Optional tracker for reporting progress and estimated times to UI.
         """
+        # Import lightweight services first (no TensorFlow dependency)
+        from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
+        from vocalance.app.services.audio.simple_audio_service import AudioService
+        from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
+        from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
+        from vocalance.app.services.markov_command_predictor import MarkovCommandService
+
         with self._services_lock:
             storage = self.services["storage"]
             action_map_provider = self.services["action_map_provider"]
@@ -300,16 +307,26 @@ class FastServiceInitializer:
                 self.services["audio"] = audio
 
         async def init_sound() -> None:
+            """Initialize sound service with non-blocking TensorFlow import."""
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Loading sound recognition")
 
-            sound_service = SoundService(event_bus=self.event_bus, config=self.config, storage=storage)
+            # CRITICAL: Import SoundService in thread pool to avoid blocking event loop
+            # TensorFlow import takes 6+ seconds and blocks everything if done in main thread
+            def _import_and_create_sound_service():
+                from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
+
+                return SoundService(event_bus=self.event_bus, config=self.config, storage=storage)
+
+            # Run the blocking import in a thread pool
+            sound_service = await asyncio.to_thread(_import_and_create_sound_service)
             await sound_service.initialize()
 
             with self._services_lock:
                 self.services["sound_service"] = sound_service
 
         async def init_stt() -> None:
+            """Initialize STT service with non-blocking imports."""
             if progress_tracker:
                 whisper_models_dir = os.path.join(self.config.storage.user_data_root, "whisper_models")
                 whisper_model_name = self.config.stt.whisper_model
@@ -326,7 +343,13 @@ class FastServiceInitializer:
                 )
                 progress_tracker.update_status_animated(status=status_message)
 
-            stt = SpeechToTextService(event_bus=self.event_bus, config=self.config)
+            # Import STT service in thread pool (may have heavy dependencies)
+            def _import_and_create_stt_service():
+                from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
+
+                return SpeechToTextService(event_bus=self.event_bus, config=self.config)
+
+            stt = await asyncio.to_thread(_import_and_create_stt_service)
             await stt.initialize_engines(shutdown_coordinator=self.shutdown_coordinator)
 
             with self._services_lock:
@@ -447,7 +470,7 @@ class FastServiceInitializer:
 
         logger.debug("Services registered with settings coordinator")
 
-    async def _background_llm_init(self, dictation: DictationCoordinator) -> None:
+    async def _background_llm_init(self, dictation: "DictationCoordinator") -> None:
         """Initialize LLM model in background after application startup completes.
 
         Delays initialization by 2 seconds to avoid blocking startup, then initializes
@@ -504,6 +527,10 @@ class FastServiceInitializer:
         the main AppControlRoom window that hosts all UI controls and views. Links
         the settings service and mark service to the control room.
         """
+        # DEFERRED IMPORT: UI components
+        from vocalance.app.ui.main_window import AppControlRoom
+        from vocalance.app.ui.utils.font_service import FontService
+
         font_service = FontService(self.config.asset_paths)
         font_service.load_fonts()
         ui_theme.theme.font_family.set_font_service(font_service=font_service)
@@ -611,13 +638,13 @@ def _create_main_window(app_config: GlobalAppConfig) -> ctk.CTk:
     # Withdraw immediately to prevent CustomTkinter from showing with default icon
     app_tk_root.withdraw()
 
-    # CRITICAL: Set icon after withdraw but before any update_idletasks
-    # This prevents CustomTkinter's icon handling from interfering
-    set_window_icon_robust(window=app_tk_root)
-
+    # Set initial size
     app_tk_root.geometry(f"{ui_theme.theme.dimensions.main_window_width}x{ui_theme.theme.dimensions.main_window_height}")
     app_tk_root.minsize(ui_theme.theme.dimensions.main_window_min_width, ui_theme.theme.dimensions.main_window_min_height)
     app_tk_root.resizable(False, False)
+
+    # Realize the window geometry while still withdrawn for accurate screen metrics
+    app_tk_root.update_idletasks()
 
     initialize_ui_scheduler(root_window=app_tk_root)
 
@@ -726,17 +753,16 @@ async def main() -> None:
     shutdown_coordinator: Optional[ShutdownCoordinator] = None
 
     try:
+        # FAST PATH: Only do minimal work before showing startup window
         app_info = AppInfoConfig()
         app_config = load_app_config(app_info=app_info)
         if hasattr(app_config, "__post_init__"):
             app_config.__post_init__()
 
-        if not _validate_critical_assets(app_config=app_config):
-            return
-
         setup_logging(config=app_config.logging)
         os.makedirs(app_config.storage.user_data_root, exist_ok=True)
 
+        # Create infrastructure and window
         event_bus, gui_event_loop, gui_thread = _setup_infrastructure(app_config=app_config)
         app_tk_root = _create_main_window(app_config=app_config)
 
@@ -748,6 +774,7 @@ async def main() -> None:
         )
         _setup_signal_handlers(shutdown_coordinator=shutdown_coordinator)
 
+        # Show startup window
         startup_window = StartupWindow(
             logger=logging.getLogger("StartupWindow"),
             main_root=app_tk_root,
@@ -755,8 +782,18 @@ async def main() -> None:
             shutdown_coordinator=shutdown_coordinator,
         )
         startup_window.show()
-        app_tk_root.update_idletasks()
-        app_tk_root.update()
+
+        # Process UI events to make window appear
+        for _ in range(3):
+            app_tk_root.update_idletasks()
+            app_tk_root.update()
+
+        # Validate critical assets
+        if not _validate_critical_assets(app_config=app_config):
+            startup_window.update_progress(0.0, "Critical assets missing. Please check logs.", animate=False)
+            await asyncio.sleep(3)
+            startup_window.close()
+            return
 
         progress_tracker = StartupProgressTracker(startup_window=startup_window, total_steps=4)
         service_initializer = FastServiceInitializer(
@@ -821,14 +858,15 @@ async def main() -> None:
             except Exception as e:
                 logger.warning(f"Could not position main window: {e}")
 
-        position_main_window()
-
         # Set icon RIGHT BEFORE showing window - this is the critical moment
         # CustomTkinter's icon handling happens during visibility changes
         set_window_icon_robust(window=app_tk_root)
 
         app_tk_root.deiconify()
         app_tk_root.lift()
+
+        # Position window NOW that it's realized and screen metrics are valid
+        position_main_window()
 
         # Reinforce icon immediately after showing (CustomTkinter may reset it)
         app_tk_root.after(1, lambda: set_window_icon_robust(window=app_tk_root))
