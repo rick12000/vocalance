@@ -63,13 +63,26 @@ class DictationController(BaseController):
         self.publish_event(event)
         self.notify_status("Prompt selection updated.")
 
+    def is_default_prompt(self, prompt_id: str) -> bool:
+        """Check if a prompt is the default prompt."""
+        for prompt_data in self.prompts:
+            if prompt_data.get("id") == prompt_id:
+                return prompt_data.get("is_default", False)
+        return False
+
     def delete_prompt(self, prompt_id: str) -> bool:
         """Delete a prompt."""
         prompt_name = "Unknown"
+        is_default = False
         for prompt_data in self.prompts:
             if prompt_data.get("id") == prompt_id:
                 prompt_name = prompt_data.get("name", "Unknown")
+                is_default = prompt_data.get("is_default", False)
                 break
+
+        if is_default:
+            self.notify_status("The default prompt cannot be deleted.", True)
+            return False
 
         event = AgenticPromptActionRequest(action="delete_prompt", prompt_id=prompt_id)
         self.publish_event(event)
@@ -84,6 +97,10 @@ class DictationController(BaseController):
 
         if not text.strip():
             self.notify_status("Please enter prompt instructions.", True)
+            return False
+
+        if self.is_default_prompt(prompt_id):
+            self.notify_status("The default prompt cannot be edited.", True)
             return False
 
         event = AgenticPromptActionRequest(action="edit_prompt", prompt_id=prompt_id, name=name, text=text)

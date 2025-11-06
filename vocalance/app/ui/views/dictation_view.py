@@ -149,6 +149,11 @@ class DictationView(ViewHelper):
 
     def _edit_prompt(self, prompt_data: Dict[str, Any]) -> None:
         """Edit prompt with simplified dialog"""
+        # Check if this is the default prompt
+        if prompt_data.get("is_default", False):
+            self.show_info("Cannot Edit Default Prompt", "The default prompt cannot be edited.")
+            return
+
         dialog = ctk.CTkToplevel(self.root_window)
         dialog.title(f"Edit: {prompt_data.get('name', 'Unnamed')}")
         dialog.transient(self.root_window)
@@ -219,6 +224,11 @@ class DictationView(ViewHelper):
 
     def _delete_prompt(self, prompt_id: str) -> None:
         """Delete prompt"""
+        # Check if this is the default prompt
+        if self.controller.is_default_prompt(prompt_id):
+            self.show_info("Cannot Delete Default Prompt", "The default prompt cannot be deleted.")
+            return
+
         self.controller.delete_prompt(prompt_id)
 
     # Simplified callback methods

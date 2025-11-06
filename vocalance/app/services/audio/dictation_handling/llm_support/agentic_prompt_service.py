@@ -98,8 +98,9 @@ class AgenticPromptService:
 
             prompt = self.prompts[prompt_id]
 
-            if prompt.is_default and len(self.prompts) == 1:
-                logger.warning("Cannot delete only remaining prompt")
+            # Prevent deletion of default prompt
+            if prompt.is_default:
+                logger.warning("Cannot delete default prompt")
                 return False
 
             if self.current_prompt_id == prompt_id:
@@ -121,6 +122,12 @@ class AgenticPromptService:
                 return False
 
             prompt = self.prompts[prompt_id]
+
+            # Prevent editing of default prompt
+            if prompt.is_default:
+                logger.warning("Cannot edit default prompt")
+                return False
+
             prompt.name = name.strip()
             prompt.text = text.strip()
 
