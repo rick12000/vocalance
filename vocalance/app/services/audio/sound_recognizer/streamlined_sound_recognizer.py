@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
@@ -187,6 +188,9 @@ class SoundRecognizer:
         self._model_lock = RLock()
         self._shutdown_event = asyncio.Event()
 
+        # Thread pool for blocking I/O (single worker ensures sequential, non-concurrent saves)
+        self._file_io_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sound-file-io")
+
         self.target_sr = self.config.target_sample_rate
         self.confidence_threshold = self.config.confidence_threshold
         self.k_neighbors = self.config.k_neighbors
@@ -284,8 +288,39 @@ class SoundRecognizer:
             with self._model_lock:
                 self.mappings = {}
 
+    def _save_model_files_sync(self, embeddings: np.ndarray, labels: List[str], scaler_obj: StandardScaler) -> bool:
+        """Synchronously save model files (runs in thread pool executor).
+
+        This method performs blocking I/O and should only be called via run_in_executor
+        to avoid blocking the event loop during sound training.
+
+        Args:
+            embeddings: Embeddings array to save.
+            labels: Labels list to save.
+            scaler_obj: StandardScaler object to save.
+
+        Returns:
+            True if all files saved successfully, False otherwise.
+        """
+        try:
+            np.save(os.path.join(self.model_path, "embeddings.npy"), embeddings)
+            joblib.dump(labels, os.path.join(self.model_path, "labels.joblib"))
+            joblib.dump(scaler_obj, os.path.join(self.model_path, "scaler.joblib"))
+            logger.debug(f"Saved model files: {len(embeddings)} embeddings, {len(labels)} labels")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save model files: {e}", exc_info=True)
+            return False
+
     async def _save_model_data_async(self) -> bool:
-        """Save model data asynchronously."""
+        """Save model data asynchronously without blocking the event loop.
+
+        Offloads blocking I/O to thread pool executor. Returns control to event loop
+        immediately, allowing UI to remain responsive during training completion.
+
+        Returns:
+            True if all data saved successfully, False otherwise.
+        """
         try:
             with self._model_lock:
                 embeddings = self.embeddings.copy()
@@ -293,25 +328,18 @@ class SoundRecognizer:
                 scaler_obj = self.scaler
                 mappings = self.mappings.copy()
 
-            # Save numpy and joblib files
-            np.save(os.path.join(self.model_path, "embeddings.npy"), embeddings)
-            joblib.dump(labels, os.path.join(self.model_path, "labels.joblib"))
-            joblib.dump(scaler_obj, os.path.join(self.model_path, "scaler.joblib"))
+            # Offload blocking file I/O to thread pool (non-blocking to event loop)
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(
+                self._file_io_executor, self._save_model_files_sync, embeddings, labels, scaler_obj
+            )
 
-            logger.debug("Saved embeddings, labels, and scaler")
-
-            # Save mappings through storage service
-            try:
-                mappings_data = SoundMappingsData(mappings=mappings)
-                success = await self._storage.write(data=mappings_data)
-                if success:
-                    logger.debug("Successfully saved sound mappings to storage")
-                else:
-                    logger.warning("Failed to save sound mappings to storage")
-                return success
-            except Exception as e:
-                logger.error(f"Error saving sound mappings: {e}")
+            if not success:
                 return False
+
+            # Save mappings through storage service (already async)
+            mappings_data = SoundMappingsData(mappings=mappings)
+            return await self._storage.write(data=mappings_data)
 
         except Exception as e:
             logger.error(f"Failed to save model data: {e}", exc_info=True)
@@ -652,73 +680,73 @@ class SoundRecognizer:
             logger.error(f"Training failed: {e}", exc_info=True)
             return False
 
-    async def _add_esc50_samples(self) -> None:
-        """Add ESC-50 samples as negative examples."""
-        if not os.path.exists(self.external_sounds_path):
-            logger.debug("No external sounds path found, skipping ESC-50 samples")
-            return
+    def _extract_esc50_embeddings_sync(self) -> Tuple[List[np.ndarray], List[str]]:
+        """Synchronously extract ESC-50 embeddings (runs in thread pool executor).
 
-        esc50_files = [f for f in os.listdir(self.external_sounds_path) if f.startswith("esc50_") and f.endswith(".wav")]
+        Performs blocking I/O and YAMNet inference. Should only be called via
+        run_in_executor to avoid blocking the event loop.
 
-        if not esc50_files:
-            logger.debug("No ESC-50 files found, skipping negative examples")
-            return
+        Returns:
+            Tuple of (embeddings list, labels list) for ESC-50 files.
+        """
+        try:
+            esc50_files = [f for f in os.listdir(self.external_sounds_path) if f.startswith("esc50_") and f.endswith(".wav")]
+            if not esc50_files:
+                return [], []
 
-        # Limit total ESC-50 samples
-        esc50_files = esc50_files[: self.max_total_esc50]
+            esc50_embeddings = []
+            esc50_labels = []
 
-        esc50_embeddings = []
-        esc50_labels = []
+            for wav_file in esc50_files[: self.max_total_esc50]:
+                try:
+                    audio_data = sf.read(os.path.join(self.external_sounds_path, wav_file))
+                    if not isinstance(audio_data, tuple) or len(audio_data) != 2:
+                        continue
 
-        for wav_file in esc50_files:
-            try:
-                audio_data = sf.read(os.path.join(self.external_sounds_path, wav_file))
-
-                # soundfile.read() returns (audio, sr) tuple
-                if isinstance(audio_data, tuple) and len(audio_data) == 2:
                     audio, sr = audio_data
-                else:
-                    logger.warning(f"Unexpected format from soundfile.read() for {wav_file}")
+                    if not isinstance(audio, np.ndarray) or len(audio) == 0:
+                        continue
+                    if not isinstance(sr, (int, np.integer)) or sr <= 0:
+                        continue
+
+                    embedding = self._extract_embedding(audio=audio, sr=sr)
+                    if embedding is not None:
+                        esc50_embeddings.append(embedding)
+                        category = wav_file.split("_")[1]
+                        esc50_labels.append(f"esc50_{category}")
+                except Exception:
                     continue
 
-                # Validate audio format
-                if not isinstance(audio, np.ndarray):
-                    logger.warning(f"Audio from {wav_file} is not numpy array, skipping")
-                    continue
+            return esc50_embeddings, esc50_labels
+        except Exception as e:
+            logger.warning(f"Failed to extract ESC-50 embeddings: {e}")
+            return [], []
 
-                if len(audio) == 0:
-                    logger.warning(f"Audio from {wav_file} is empty, skipping")
-                    continue
+    async def _add_esc50_samples(self) -> None:
+        """Add ESC-50 samples as negative examples without blocking event loop.
 
-                if not isinstance(sr, (int, np.integer)) or sr <= 0:
-                    logger.warning(f"Invalid sample rate {sr} from {wav_file}, skipping")
-                    continue
+        Offloads I/O and inference to thread pool executor.
+        """
+        if not os.path.exists(self.external_sounds_path):
+            return
 
-                embedding = self._extract_embedding(audio=audio, sr=sr)
+        try:
+            loop = asyncio.get_event_loop()
+            esc50_embeddings, esc50_labels = await loop.run_in_executor(
+                self._file_io_executor, self._extract_esc50_embeddings_sync
+            )
 
-                if embedding is not None:
-                    esc50_embeddings.append(embedding)
-                    # Extract category from filename
-                    category = wav_file.split("_")[1]  # esc50_category_file.wav
-                    esc50_labels.append(f"esc50_{category}")
+            if not esc50_embeddings:
+                return
 
-            except (FileNotFoundError, ValueError, TypeError) as e:
-                logger.warning(f"Failed to read/validate ESC-50 file {wav_file}: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to process ESC-50 file {wav_file}: {e}")
-
-        if esc50_embeddings:
             with self._model_lock:
-                # Add ESC-50 embeddings
                 self.embeddings = np.vstack([self.embeddings, esc50_embeddings])
                 self.labels.extend(esc50_labels)
-
-                # Retrain scaler
                 self.scaler.fit(self.embeddings)
 
             logger.info(f"Added {len(esc50_embeddings)} ESC-50 negative examples")
-        else:
-            logger.debug("No valid ESC-50 embeddings extracted")
+        except Exception as e:
+            logger.warning(f"Failed to add ESC-50 samples: {e}")
 
     async def set_mapping(self, sound_label: str, command: str) -> bool:
         """Set command mapping for a sound and persist to storage - thread-safe.
@@ -895,6 +923,18 @@ class SoundRecognizer:
 
             # Signal shutdown
             self._shutdown_event.set()
+
+            # Shutdown thread pool executor for file I/O
+            if self._file_io_executor is not None:
+                try:
+                    # Wait for any pending file I/O operations to complete (max 5 seconds)
+                    loop = asyncio.get_event_loop()
+                    await asyncio.wait_for(loop.run_in_executor(None, self._file_io_executor.shutdown, True), timeout=5.0)
+                    logger.debug("File I/O executor shutdown complete")
+                except asyncio.TimeoutError:
+                    logger.warning("File I/O executor shutdown timed out, forcing shutdown")
+                except Exception as e:
+                    logger.warning(f"Error during executor shutdown: {e}")
 
             # Clear TensorFlow model and free GPU/CPU memory
             if self.yamnet_model is not None:

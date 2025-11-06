@@ -270,12 +270,12 @@ class VADConfig(BaseModel):
         description="Energy threshold for command mode speech detection - further lowered for more sensitive detection.",
     )
     command_silent_chunks_for_end: int = Field(
-        default=5,
+        default=4,
         description="Number of consecutive silent chunks to end recording in command mode (4 chunks = 200ms at 50ms/chunk).",
     )
     command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")
     command_pre_roll_buffers: int = Field(
-        default=5,
+        default=4,
         description="Pre-roll buffers for command mode (200ms at 50ms chunks) - captures full word attack including initial consonants.",
     )
 
