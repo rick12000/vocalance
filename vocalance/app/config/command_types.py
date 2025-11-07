@@ -259,13 +259,15 @@ class GridShowCommand(GridCommand):
     """Command to display the numbered grid overlay on screen.
 
     Shows a configurable grid of numbered cells covering the screen, with optional
-    specification of cell count.
+    specification of cell count and click mode.
 
     Attributes:
         num_rects: Optional number of grid cells to display (uses default if None).
+        click_mode: Whether to click ("click") or just hover ("hover") on cell selection.
     """
 
     num_rects: Optional[int] = Field(default=None, description="Number of rectangles to show")
+    click_mode: str = Field(default="click", description="Mode: 'click' to click cell, 'hover' to move mouse only")
 
 
 class GridSelectCommand(GridCommand):

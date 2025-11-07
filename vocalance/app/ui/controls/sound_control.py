@@ -220,7 +220,7 @@ class SoundController(BaseController):
         """Get grid trigger words from config."""
         try:
             config = GlobalAppConfig()
-            return [config.grid.show_grid_phrase]
+            return [config.grid.show_grid_phrase, config.grid.hover_grid_phrase]
         except Exception as e:
             self.logger.error(f"Error getting grid trigger words: {e}")
             return []

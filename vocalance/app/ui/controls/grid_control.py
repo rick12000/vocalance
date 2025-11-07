@@ -78,10 +78,10 @@ class GridController(BaseController):
 
     # --- Direct Grid View Methods ---
 
-    def show_grid_overlay(self, num_rects: Optional[int] = None) -> None:
+    def show_grid_overlay(self, num_rects: Optional[int] = None, click_mode: str = "click") -> None:
         """Directly show the grid overlay via view."""
         if self.grid_view:
-            self.grid_view.show(num_rects)
+            self.grid_view.show(num_rects, click_mode)
         else:
             self.logger.error("Cannot show grid overlay: grid view not set")
 
@@ -101,10 +101,10 @@ class GridController(BaseController):
         """Check if grid overlay is currently active."""
         return self.grid_view.is_active() if self.grid_view else False
 
-    def handle_grid_selection(self, selection_key: str) -> bool:
+    def handle_grid_selection(self, selection_key: str, click_mode: str = "click") -> bool:
         """Handle grid cell selection via view."""
         if self.grid_view:
-            return self.grid_view.handle_selection(selection_key)
+            return self.grid_view.handle_selection(selection_key, click_mode)
         else:
             self.logger.error("Cannot handle grid selection: grid view not set")
             return False
@@ -144,7 +144,9 @@ class GridController(BaseController):
         if event_data.rows and event_data.cols:
             num_rects = event_data.rows * event_data.cols
 
-        self.show_grid_overlay(num_rects)
+        # Pass click_mode to grid view
+        click_mode = getattr(event_data, "click_mode", "click")
+        self.show_grid_overlay(num_rects, click_mode)
 
     async def _handle_hide_grid_request(self, event_data) -> None:
         """Handle request to hide the grid."""
@@ -160,7 +162,9 @@ class GridController(BaseController):
             self.logger.error(f"Grid view not set, cannot click cell {event_data.cell_label}")
             return
 
-        self.handle_grid_selection(event_data.cell_label)
+        # Get click_mode from event
+        click_mode = getattr(event_data, "click_mode", "click")
+        self.handle_grid_selection(event_data.cell_label, click_mode)
 
     async def _handle_click_logged(self, event_data) -> None:
         """Handle click logged event to refresh grid if visible. Thread-safe."""

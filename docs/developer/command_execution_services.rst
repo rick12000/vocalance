@@ -131,22 +131,27 @@ When visualization is active, a background task monitors cursor position every 5
 GridService
 ============
 
-The ``GridService`` displays an overlay grid that divides the screen into numbered cells. You can select cells by voice to click precise locations without using the mouse.
+The ``GridService`` displays an overlay grid that divides the screen into numbered cells. You can select cells by voice to click or hover over precise locations without using the mouse.
 
 Displaying the Grid
 -------------------
 
-When you say "show grid", the service calculates optimal grid dimensions and displays the overlay:
+The grid supports two modes: **click mode** (default) and **hover mode**.
+
+When you say "**go**", the service displays the grid in click mode:
 
 .. code-block:: python
 
    if isinstance(command, GridShowCommand):
        num_rects = command.num_rects or self._config.grid.default_rect_count
        rows, cols = self._calculate_grid_dimensions(num_rects)
+       click_mode = command.click_mode  # "click" or "hover"
 
-       show_event = ShowGridRequestEventData(rows=rows, cols=cols)
+       show_event = ShowGridRequestEventData(rows=rows, cols=cols, click_mode=click_mode)
        self.event_publisher.publish(show_event)
        await self._publish_visibility_event(True, rows, cols)
+
+When you say "**hover**", the grid displays in hover mode instead. In hover mode, selecting a cell moves the mouse without clicking.
 
 The service optimizes dimensions to minimize aspect ratio distortion:
 
@@ -154,29 +159,42 @@ The service optimizes dimensions to minimize aspect ratio distortion:
 - 50 cells → 8 columns × 7 rows (near-square)
 - 100 cells → 10 columns × 10 rows (square)
 
-Cell Selection and Clicking
-----------------------------
+Both grid phrases support optional cell counts: "go 100" or "hover 50".
 
-Once displayed, you can select cells by voice. When you say "c5", the service verifies the grid is visible and sends a click request to the UI:
+Cell Selection: Click vs Hover Modes
+--------------------------------------
+
+Once displayed, you can select cells by voice. The behavior depends on which trigger phrase you used:
+
+**Click Mode** (triggered by "go"): When you say a number, the mouse moves to that cell and clicks.
+
+**Hover Mode** (triggered by "hover"): When you say a number, the mouse only moves to that cell without clicking.
+
+The service tracks the current mode and applies it when processing cell selections:
 
 .. code-block:: python
 
    elif isinstance(command, GridSelectCommand):
        async with self._state_lock:
            is_visible = self._visible
+           if not is_visible:
+               return
+           click_mode = self._current_click_mode  # Stored from GridShowCommand
 
-       if not is_visible:
-           self._publish_command_status(command_type, False, "Grid not visible")
-           return
-
-       click_event = ClickGridCellRequestEventData(cell_label=str(command.selected_number))
+       click_event = ClickGridCellRequestEventData(
+           cell_label=str(command.selected_number),
+           click_mode=click_mode
+       )
        self.event_publisher.publish(click_event)
 
-       self._publish_command_status(
-           command_type,
-           True,
-           f"Grid cell {command.selected_number} selected",
-           {"selected_number": command.selected_number},
+The view layer (GridView) respects the click_mode:
+
+.. code-block:: python
+
+   if click_mode == "hover":
+       pyautogui.moveTo(center_x, center_y)  # Only move mouse
+   else:
+       pyautogui.click(center_x, center_y)  # Move and click
        )
 
 **Cell selection**: Cells are identified by number (1, 2, 3, etc.). The service sends the cell number to the UI, which calculates the cell center and clicks. The grid auto-hides after a successful click.

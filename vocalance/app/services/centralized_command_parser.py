@@ -116,6 +116,7 @@ class CentralizedCommandParser:
     def _cache_config_data(self) -> None:
         """Cache frequently accessed configuration values."""
         self._grid_show_phrase = self._app_config.grid.show_grid_phrase.lower()
+        self._grid_hover_phrase = self._app_config.grid.hover_grid_phrase.lower()
         self._mark_create_prefix = self._app_config.mark.triggers.create_mark.lower()
         self._mark_delete_prefix = self._app_config.mark.triggers.delete_mark.lower()
         self._mark_visualize_phrases = [p.lower() for p in self._app_config.mark.triggers.visualize_marks]
@@ -374,15 +375,29 @@ class CentralizedCommandParser:
         if not words:
             return NoMatchResult()
 
+        # Check for "go" (click mode)
         if normalized_text.startswith(self._grid_show_phrase):
             if normalized_text == self._grid_show_phrase:
-                return GridShowCommand(num_rects=None)
+                return GridShowCommand(num_rects=None, click_mode="click")
 
             after_trigger = normalized_text[len(self._grid_show_phrase) :].strip()
             if after_trigger:
                 parsed_num = parse_number(text=after_trigger)
                 if parsed_num is not None and parsed_num > 0:
-                    return GridShowCommand(num_rects=parsed_num)
+                    return GridShowCommand(num_rects=parsed_num, click_mode="click")
+                else:
+                    return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
+
+        # Check for "hover" (hover mode)
+        if normalized_text.startswith(self._grid_hover_phrase):
+            if normalized_text == self._grid_hover_phrase:
+                return GridShowCommand(num_rects=None, click_mode="hover")
+
+            after_trigger = normalized_text[len(self._grid_hover_phrase) :].strip()
+            if after_trigger:
+                parsed_num = parse_number(text=after_trigger)
+                if parsed_num is not None and parsed_num > 0:
+                    return GridShowCommand(num_rects=parsed_num, click_mode="hover")
                 else:
                     return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
 

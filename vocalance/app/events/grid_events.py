@@ -11,6 +11,7 @@ class ShowGridRequestEventData(BaseEvent):
 
     rows: Optional[int] = None
     cols: Optional[int] = None
+    click_mode: str = "click"  # "click" or "hover"
     priority: EventPriority = EventPriority.NORMAL
 
 
@@ -24,6 +25,7 @@ class ClickGridCellRequestEventData(BaseEvent):
     """Request to click a specific grid cell."""
 
     cell_label: str = Field(description="The label of the grid cell to click (e.g., 'A1', 'C5').")
+    click_mode: str = "click"  # "click" or "hover"
     priority: EventPriority = EventPriority.NORMAL
 
 

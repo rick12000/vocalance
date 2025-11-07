@@ -48,6 +48,7 @@ class ProtectedTermsValidator:
         protected.update(phrase.lower().strip() for phrase in AutomationCommandRegistry.get_protected_phrases())
 
         protected.add(self._config.grid.show_grid_phrase.lower().strip())
+        protected.add(self._config.grid.hover_grid_phrase.lower().strip())
 
         # Add integers 1-10 as protected terms to prevent conflicts with grid selections
         protected.update(str(i) for i in range(1, 11))

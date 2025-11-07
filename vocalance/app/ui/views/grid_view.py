@@ -57,6 +57,7 @@ class GridView:
         self._cached_clicks: List[Dict[str, Any]] = []
         self._click_cache_timestamp: float = 0.0
         self._cache_loaded = False
+        self._current_click_mode: str = "click"  # Track current click mode ("click" or "hover")
 
         self.overlay_window: Optional[tk.Toplevel] = None
         self.canvas: Optional[tk.Canvas] = None
@@ -322,12 +323,16 @@ class GridView:
         )
         return rect_definitions, rect_w, rect_h
 
-    def show(self, num_rects: Optional[int] = None) -> None:
+    def show(self, num_rects: Optional[int] = None, click_mode: str = "click") -> None:
         """Show the grid overlay."""
-        self.logger.info(f"[GridView] show() called with num_rects={num_rects}")
+        self.logger.info(f"[GridView] show() called with num_rects={num_rects}, click_mode={click_mode}")
         if not self.root:
             self.logger.error("[GridView] Cannot show grid: Tk root not available")
             return
+
+        # Store click_mode for later use
+        with self._state_lock:
+            self._current_click_mode = click_mode
 
         self._schedule_in_tk_thread(self._show_tkinter_elements, num_rects)
 
@@ -459,9 +464,9 @@ class GridView:
                 self._is_active = False
             return False
 
-    def handle_selection(self, selection_key: str) -> bool:
+    def handle_selection(self, selection_key: str, click_mode: str = "click") -> bool:
         """Handle grid cell selection. Thread-safe."""
-        self.logger.info(f"[GridView] handle_selection called with selection_key='{selection_key}'")
+        self.logger.info(f"[GridView] handle_selection called with selection_key='{selection_key}', click_mode='{click_mode}'")
         self.logger.debug(f"[GridView] Grid active: {self.is_active()}, Root available: {self.root is not None}")
 
         with self._state_lock:
@@ -494,21 +499,28 @@ class GridView:
 
         try:
             # Hide grid first to prevent interference
-            self.logger.debug("[GridView] Hiding grid before click")
+            self.logger.debug("[GridView] Hiding grid before action")
             self.hide()
 
-            # Small delay to ensure grid is fully hidden before clicking
+            # Small delay to ensure grid is fully hidden
             time.sleep(0.1)
 
-            # Perform click
-            self.logger.debug(f"[GridView] Performing click at ({center_x}, {center_y})")
-            pyautogui.click(center_x, center_y)
+            # Perform action based on click_mode
+            if click_mode == "hover":
+                # Only move mouse, don't click
+                self.logger.debug(f"[GridView] Moving mouse to ({center_x}, {center_y}) (hover mode)")
+                pyautogui.moveTo(center_x, center_y)
+                self.logger.info(f"[GridView] Grid cell {selected_number} hovered at ({center_x}, {center_y})")
+            else:
+                # Click mode (default)
+                self.logger.debug(f"[GridView] Performing click at ({center_x}, {center_y}) (click mode)")
+                pyautogui.click(center_x, center_y)
 
-            # Log click event
-            event_data = PerformMouseClickEventData(x=int(center_x), y=int(center_y), source="grid_selection")
-            self.event_publisher.publish(event_data)
+                # Log click event only for click mode
+                event_data = PerformMouseClickEventData(x=int(center_x), y=int(center_y), source="grid_selection")
+                self.event_publisher.publish(event_data)
 
-            self.logger.info(f"[GridView] Grid cell {selected_number} clicked at ({center_x}, {center_y})")
+                self.logger.info(f"[GridView] Grid cell {selected_number} clicked at ({center_x}, {center_y})")
 
             # Notify controller of successful selection
             if self.controller_callback:

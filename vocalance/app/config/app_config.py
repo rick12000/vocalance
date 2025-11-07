@@ -132,6 +132,7 @@ class GridConfig(BaseModel):
     )
 
     show_grid_phrase: str = "go"
+    hover_grid_phrase: str = "hover"
     select_cell_phrase: str = "select"
 
 

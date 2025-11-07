@@ -38,6 +38,7 @@ class GridService:
         self._event_bus = event_bus
         self._config = config
         self._visible: bool = False
+        self._current_click_mode: str = "click"  # Track current click mode
         self._state_lock = asyncio.Lock()
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="GridService")
@@ -81,12 +82,23 @@ class GridService:
         if isinstance(command, GridShowCommand):
             num_rects = command.num_rects or self._config.grid.default_rect_count
             rows, cols = self._calculate_grid_dimensions(num_rects)
+            click_mode = command.click_mode  # Get click_mode from command
 
-            show_event = ShowGridRequestEventData(rows=rows, cols=cols)
+            # Store click_mode in state for later cell selections
+            async with self._state_lock:
+                self._current_click_mode = click_mode
+
+            show_event = ShowGridRequestEventData(rows=rows, cols=cols, click_mode=click_mode)
             self.event_publisher.publish(show_event)
             await self._publish_visibility_event(True, rows, cols)
 
-            self._publish_command_status(command_type, True, f"Grid shown with {num_rects} cells", {"num_rects": num_rects})
+            mode_desc = "hover mode" if click_mode == "hover" else "click mode"
+            self._publish_command_status(
+                command_type,
+                True,
+                f"Grid shown with {num_rects} cells in {mode_desc}",
+                {"num_rects": num_rects, "click_mode": click_mode},
+            )
 
         elif isinstance(command, GridSelectCommand):
             async with self._state_lock:
@@ -96,14 +108,19 @@ class GridService:
                 self._publish_command_status(command_type, False, "Grid not visible")
                 return
 
-            click_event = ClickGridCellRequestEventData(cell_label=str(command.selected_number))
+            # Get the click_mode from the most recent GridShowCommand (stored in state)
+            async with self._state_lock:
+                click_mode = self._current_click_mode
+
+            click_event = ClickGridCellRequestEventData(cell_label=str(command.selected_number), click_mode=click_mode)
             self.event_publisher.publish(click_event)
 
+            action_desc = "hovered" if click_mode == "hover" else "selected"
             self._publish_command_status(
                 command_type,
                 True,
-                f"Grid cell {command.selected_number} selected",
-                {"selected_number": command.selected_number},
+                f"Grid cell {command.selected_number} {action_desc}",
+                {"selected_number": command.selected_number, "click_mode": click_mode},
             )
 
         else:
