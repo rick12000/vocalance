@@ -67,7 +67,7 @@ class CommandAudioListener:
         self._is_recording = False
         self._consecutive_silent_chunks = 0
         self._speech_detected_timestamp = None
-        self._first_speech_in_session = True
+        self._first_speech_in_buffer = True
 
         # Async lock for state protection (event handlers are async)
         self._state_lock = asyncio.Lock()
@@ -122,11 +122,11 @@ class CommandAudioListener:
                         self._audio_buffer.append(chunk)
                         self._consecutive_silent_chunks = 0
 
-                        # Emit AudioDetectedEvent for Markov prediction (only first in session)
-                        if self._first_speech_in_session:
+                        # Emit AudioDetectedEvent for Markov prediction (once per audio segment)
+                        if self._first_speech_in_buffer:
                             audio_detected_event = AudioDetectedEvent(timestamp=event.timestamp)
                             await self.event_bus.publish(audio_detected_event)
-                            self._first_speech_in_session = False
+                            self._first_speech_in_buffer = False
 
                         logger.debug("Command: Speech detected, started recording")
 
@@ -193,6 +193,7 @@ class CommandAudioListener:
         self._is_recording = False
         self._consecutive_silent_chunks = 0
         self._speech_detected_timestamp = None
+        self._first_speech_in_buffer = True
 
     def _calculate_energy(self, chunk: np.ndarray) -> float:
         """Calculate RMS energy of audio chunk.

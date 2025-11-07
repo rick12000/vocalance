@@ -123,12 +123,18 @@ class SettingsController(BaseController):
             return f"{name} must be a valid number"
         return None
 
-    def validate_markov_settings(self, confidence_threshold: str) -> List[str]:
+    def validate_markov_settings(self, enabled: str = None, confidence_threshold: str = None) -> List[str]:
         """Validate Markov input fields and return list of errors"""
         errors = []
-        error = self._validate_threshold(confidence_threshold, "Markov Confidence Threshold")
-        if error:
-            errors.append(error)
+
+        if enabled is not None and enabled not in ["Yes", "No"]:
+            errors.append("Enable must be either 'Yes' or 'No'")
+
+        if confidence_threshold is not None:
+            error = self._validate_threshold(confidence_threshold, "Markov Confidence Threshold")
+            if error:
+                errors.append(error)
+
         return errors
 
     def validate_sound_settings(self, confidence_threshold: str, vote_threshold: str) -> List[str]:
@@ -180,7 +186,9 @@ class SettingsController(BaseController):
     async def _save_settings_async(self, settings_updates: Dict[str, Any], success_msg: str, category: str):
         """Unified async save method. Thread-safe."""
         try:
+            self.logger.info(f"Calling update_multiple_settings for {category} with: {settings_updates}")
             success = await self.settings_service.update_multiple_settings(settings_updates)
+            self.logger.info(f"update_multiple_settings returned: {success}")
 
             if success:
                 settings = await self.settings_service.get_effective_settings()
@@ -189,10 +197,11 @@ class SettingsController(BaseController):
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_save_success, success_msg)
             else:
+                self.logger.error(f"Failed to save {category} settings - update_multiple_settings returned False")
                 if self.view_callback:
                     self.schedule_ui_update(self.view_callback.on_save_error, f"Failed to save {category} settings")
         except Exception as e:
-            self.logger.error(f"Error in async {category} save: {e}")
+            self.logger.error(f"Error in async {category} save: {e}", exc_info=True)
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_save_error, f"Save error: {e}")
 
@@ -267,15 +276,26 @@ class SettingsController(BaseController):
             category="Grid",
         )
 
-    def save_markov_settings(self, confidence_threshold: str) -> bool:
+    def save_markov_settings(self, enabled: str, confidence_threshold: str) -> bool:
         """Save Markov settings through the settings service"""
-        validation_errors = self.validate_markov_settings(confidence_threshold=confidence_threshold)
+        self.logger.info(f"Saving Markov settings: enabled='{enabled}', confidence_threshold='{confidence_threshold}'")
+
+        validation_errors = self.validate_markov_settings(enabled=enabled, confidence_threshold=confidence_threshold)
         if validation_errors:
+            self.logger.warning(f"Markov settings validation failed: {validation_errors}")
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
             return False
 
-        settings_updates = {"markov_predictor.confidence_threshold": float(confidence_threshold)}
+        # Convert "Yes"/"No" dropdown value to boolean
+        enabled_bool = enabled == "Yes"
+
+        settings_updates = {
+            "markov_predictor.enabled": enabled_bool,
+            "markov_predictor.confidence_threshold": float(confidence_threshold),
+        }
+        self.logger.info(f"Markov settings updates: {settings_updates}")
+
         return self._save_settings_generic(
             settings_updates=settings_updates,
             success_msg="Markov settings saved successfully!\n\nChanges take effect immediately.",
@@ -331,7 +351,7 @@ class SettingsController(BaseController):
 
     def reset_markov_to_defaults(self) -> bool:
         """Reset Markov settings to default values"""
-        return self._reset_settings_generic(["markov_predictor.confidence_threshold"], "Markov")
+        return self._reset_settings_generic(["markov_predictor.enabled", "markov_predictor.confidence_threshold"], "Markov")
 
     def reset_sound_to_defaults(self) -> bool:
         """Reset Sound Recognizer settings to default values"""

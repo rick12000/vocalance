@@ -251,7 +251,7 @@ Each command type has a corresponding event. Downstream services listen for thes
 The Markov Prediction System
 =============================
 
-The ``MarkovCommandService`` predicts your next command based on patterns in your recent command history. By recognizing what you're likely to do next, it can execute commands before you finish speaking.
+The ``MarkovCommandService`` predicts your next command based on patterns in your recent command history. By recognizing what you're likely to do next, it can execute commands before you finish speaking. This provides ultra-low latency execution (~30-50ms) compared to waiting for STT (~400-600ms).
 
 The system has two distinct phases: training, which learns patterns from history, and inference, which uses those patterns to make real-time predictions.
 
@@ -260,13 +260,13 @@ Training Phase: Building the Prediction Model
 
 At startup, the system analyzes your command history to build a statistical model. This model captures patterns in what commands typically follow each other.
 
-**Multi-order analysis**: The system maintains three separate Markov chains, each looking at different time windows:
+**Multi-order analysis**: The system maintains three separate Markov chains (orders 2, 3, 4), each with configurable training windows:
 
-- **4th-order chains**: 14 days, up to 200 commands (long-term patterns)
-- **3rd-order chains**: 7 days, up to 150 commands (medium-term patterns)
-- **2nd-order chains**: 3 days, up to 100 commands (recent patterns)
+- **4th-order chains**: Up to 1500 commands, up to 60 days (captures long-term patterns)
+- **3rd-order chains**: Up to 1000 commands, up to 21 days (medium-term patterns)
+- **2nd-order chains**: Up to 500 commands, up to 7 days (recent patterns)
 
-Longer windows reveal stable behavioral trends. Shorter windows adapt quickly if your workflow changes temporarily.
+Each order requires a minimum transition frequency before a prediction is considered valid (configurable: order 2→2, order 3→5, order 4→10). Longer windows reveal stable behavioral trends. Shorter windows adapt quickly if your workflow changes temporarily.
 
 **Building the statistics**: The model extracts command sequences from your history and counts transitions:
 
@@ -296,59 +296,100 @@ Once trained, the model is ready to predict what you'll do next and execute comm
        participant Audio as AudioListener
        participant Markov as MarkovPredictor
        participant Parser as CommandParser
+       participant Dedup as Deduplicator
        participant Exec as ExecutionService
 
-       Note over U,Exec: Established pattern: show grid → c5
+       Note over U,Exec: Pattern: show grid → c5 (85% confidence)
 
        U->>Audio: Starts speaking
-       Audio->>Markov: Audio detected
-       Markov->>Markov: Check history:<br/>Last: show grid
-       Markov->>Markov: Predict: c5 (67% confident)
-       Markov->>Parser: Predicted command
-       Parser->>Exec: Execute c5
+       Audio->>Markov: AudioDetectedEvent
+       Markov->>Markov: Check: enabled & history >= 2
+       Markov->>Markov: Predict: c5 (85% confident)
+       Markov->>Parser: MarkovPredictionEvent
 
-       Note over U,Exec: Cell selected before speech finishes!
+       par Parallel Processing
+           Parser->>Dedup: Record: c5 (markov source)
+           Dedup->>Exec: Execute c5 (MARKOV)
+       end
 
-       U->>Parser: c5 (recognized text)
-       Parser->>Parser: Already executed
+       Note over U,Exec: Command executes immediately!
 
-The predictor executes immediately. When speech recognition finishes, the system compares the actual command to the prediction. If they match, the command runs once (not twice). If they differ, the actual command is executed.
+       rect rgb(200, 220, 255)
+           Note over U,Exec: ~30-50ms: Markov execution
+           Note over U,Exec: ~400-600ms: STT processing
+       end
 
-**Pattern specificity**: The system uses the most specific pattern available:
+       U->>Parser: c5 (STT recognized)
+       Parser->>Dedup: Check: should_deduplicate(c5, stt)?
+       Dedup-->>Parser: YES - already executed by Markov
+       Parser->>Markov: Feedback: prediction CORRECT
+       Markov->>Markov: Confirm prediction
+
+If prediction matches actual command, deduplication prevents duplicate execution. If they differ, the actual command executes (prediction was wrong). Feedback is always sent to update command history and manage cooldown.
+
+**Pattern specificity and backoff**: The system uses the most specific pattern available through a backoff strategy:
 
 .. code-block:: python
 
-   async def _predict_next_command(self):
-       for order in [4, 3, 2]:
-           context = tuple(self._command_history[-(order-1):])
+   def _predict_next_command(self) -> Optional[Tuple[str, float, int]]:
+       for order in range(max_order, min_order - 1, -1):  # 4 → 3 → 2
+           if len(self._command_history) < order:
+               continue
 
-           if context in self._transition_counts[order]:
-               counts = self._transition_counts[order][context]
-               total = sum(counts.values())
+           context = tuple(list(self._command_history)[-order:])
 
-               next_cmd, count = counts.most_common(1)[0]
-               confidence = count / total
+           if context not in self._transition_counts[order]:
+               continue
 
-               if confidence >= self._min_confidence:
-                   return next_cmd, confidence
+           transitions = self._transition_counts[order][context]
+           total_count = sum(transitions.values())
 
-       return None, 0.0
+           min_freq = self._markov_config.min_command_frequency.get(order, 2)
+           valid_transitions = {
+               cmd: count for cmd, count in transitions.items()
+               if count >= min_freq
+           }
 
-The algorithm tries 4-command patterns first, then 3-command, then 2-command. It stops at the first pattern with sufficient confidence. This prioritizes longer, more specific patterns.
+           if not valid_transitions:
+               continue
+
+           most_common_cmd, count = max(valid_transitions.items(), key=lambda x: x[1])
+           confidence = count / total_count
+
+           if confidence >= confidence_threshold:
+               return (most_common_cmd, confidence, order)
+
+       return None
+
+The algorithm tries 4-command patterns first, then 3-command, then 2-command. It stops at the first pattern with sufficient confidence **and** transition frequency. This prioritizes longer, more specific patterns while ensuring transitions are statistically significant.
 
 Adapting Through Feedback
 ---------------------------
 
-When predictions are wrong, the system learns and adjusts:
+When predictions are wrong, the system learns and adjusts. All commands (correct predictions, incorrect predictions, and STT/sound commands) update the in-memory history:
 
 .. code-block:: python
 
    async def _handle_prediction_feedback(self, event):
-       if not event.correct:
-           self._cooldown_remaining += 3  # Skip next 3 predictions
-           logger.info(f"Prediction incorrect")
+       actual_command = event.actual_command
+       was_correct = event.was_correct
 
-A wrong prediction increases a cooldown counter. While counting down, predictions are skipped entirely. This prevents a series of bad guesses from degrading the experience. As correct predictions accumulate, the cooldown decrements, and predictions resume.
+       # Handle incorrect predictions by entering cooldown
+       if event.predicted_command != actual_command and was_correct is False:
+           self._cooldown_remaining = self._config.incorrect_prediction_cooldown
+           logger.warning(f"Markov prediction incorrect...")
+       elif event.predicted_command == actual_command and was_correct:
+           logger.info(f"Markov prediction correct...")
+
+       # Decrement cooldown on every command execution
+       if self._cooldown_remaining > 0:
+           self._cooldown_remaining -= 1
+
+       # Always update command history with actual command
+       self._command_history.append(actual_command)
+
+An incorrect prediction enters a configurable cooldown (default: skip 1 command). While in cooldown, predictions are skipped entirely. This prevents a series of bad guesses from degrading the experience. The cooldown decrements on every executed command, and predictions resume when the counter reaches zero. Crucially, only **actual** commands (from STT/sound) update the training history, not predictions.
+
 
 Critical Exception: Dictation Mode
 -----------------------------------
@@ -377,7 +418,7 @@ Why? Because the only way to get back to command mode is to say "stop dictation"
 
 .. code-block:: python
 
-   async def _handle_audio_detected(self, event):
+   async def _handle_audio_detected_fast_track(self, event):
        if self._dictation_active:
            return  # Skip prediction during dictation
 

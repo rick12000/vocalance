@@ -33,6 +33,7 @@ class SettingsView(ctk.CTkFrame):
         self.llm_context_length_var = ctk.StringVar()
         self.llm_max_tokens_var = ctk.StringVar()
         self.grid_default_cells_var = ctk.StringVar()
+        self.markov_enabled_var = ctk.StringVar(value="No")  # Default to disabled
         self.markov_confidence_var = ctk.StringVar()
         self.sound_confidence_var = ctk.StringVar()
         self.sound_vote_var = ctk.StringVar()
@@ -52,7 +53,8 @@ class SettingsView(ctk.CTkFrame):
             parent: Parent frame
             title: Section title
             section_index: Index of this section (for grid positioning)
-            fields: List of (label, variable, description) tuples
+            fields: List of (label, variable, description) or (label, variable, description, options) tuples
+                   If 4th element (options) is provided, creates a dropdown instead of entry
             save_command: Save button command
             reset_command: Reset button command
             is_last_section: If True, no divider line is drawn below this section
@@ -72,8 +74,16 @@ class SettingsView(ctk.CTkFrame):
             sticky="w",
         )
 
-        for idx, (label_text, variable, description) in enumerate(fields):
+        for idx, field in enumerate(fields):
             current_row = base_row + 1 + idx
+
+            # Support both 3-tuple (entry) and 4-tuple (dropdown)
+            if len(field) == 4:
+                label_text, variable, description, options = field
+                is_dropdown = True
+            else:
+                label_text, variable, description = field
+                is_dropdown = False
 
             label = ThemedLabel(parent, text=label_text, bold=True)
             label.grid(
@@ -84,16 +94,40 @@ class SettingsView(ctk.CTkFrame):
                 sticky="w",
             )
 
-            entry = ThemedEntry(parent, textvariable=variable)
-            entry.grid(
-                row=current_row,
-                column=1,
-                padx=(0, ui_theme.theme.spacing.medium),
-                pady=ui_theme.theme.spacing.small,
-                sticky="ew",
-            )
-            # Store entry widget reference for focus management
-            self._entry_widgets.append(entry)
+            if is_dropdown:
+                # Create dropdown with consistent styling matching page theme
+                dropdown = ctk.CTkComboBox(
+                    parent,
+                    variable=variable,
+                    values=options,
+                    state="readonly",
+                    fg_color=ui_theme.theme.shape_colors.darkest,  # Match page background
+                    border_color=ui_theme.theme.shape_colors.medium,
+                    button_color=ui_theme.theme.shape_colors.medium,
+                    button_hover_color=ui_theme.theme.shape_colors.lightest,
+                    dropdown_fg_color=ui_theme.theme.shape_colors.darkest,  # Match page background
+                    dropdown_hover_color=ui_theme.theme.shape_colors.medium,
+                    text_color=ui_theme.theme.text_colors.light,
+                    width=200,
+                )
+                dropdown.grid(
+                    row=current_row,
+                    column=1,
+                    padx=(0, ui_theme.theme.spacing.medium),
+                    pady=ui_theme.theme.spacing.small,
+                    sticky="ew",
+                )
+            else:
+                entry = ThemedEntry(parent, textvariable=variable)
+                entry.grid(
+                    row=current_row,
+                    column=1,
+                    padx=(0, ui_theme.theme.spacing.medium),
+                    pady=ui_theme.theme.spacing.small,
+                    sticky="ew",
+                )
+                # Store entry widget reference for focus management
+                self._entry_widgets.append(entry)
 
             info_button = PrimaryButton(parent, text="Info", command=lambda desc=description: self._show_info_dialog(desc))
             info_button.grid(
@@ -232,10 +266,16 @@ class SettingsView(ctk.CTkFrame):
             2,
             [
                 (
+                    "Enable:",
+                    self.markov_enabled_var,
+                    "Enable or disable Markov chain command prediction. When enabled, commands are predicted and executed before speech recognition completes for ultra-low latency.",
+                    ["No", "Yes"],
+                ),
+                (
                     "Prediction Confidence:",
                     self.markov_confidence_var,
                     "Threshold for Markov model to execute predicted commands. At 0.95: 95% correct. At 1.0: almost never wrong, but rarely triggers.",
-                )
+                ),
             ],
             self._save_markov_settings,
             self._reset_markov_to_defaults,
@@ -349,7 +389,9 @@ class SettingsView(ctk.CTkFrame):
                 self.grid_default_cells_var.set(str(grid_settings.get("default_rect_count", 500)))
 
                 markov_settings = settings.get("markov_predictor", {})
-                self.markov_confidence_var.set(str(markov_settings.get("confidence_threshold", 1.0)))
+                markov_enabled = markov_settings.get("enabled", False)
+                self.markov_enabled_var.set("Yes" if markov_enabled else "No")
+                self.markov_confidence_var.set(str(markov_settings.get("confidence_threshold", 0.85)))
 
                 sound_settings = settings.get("sound_recognizer", {})
                 self.sound_confidence_var.set(str(sound_settings.get("confidence_threshold", 0.15)))
@@ -396,7 +438,7 @@ class SettingsView(ctk.CTkFrame):
 
     def _save_markov_settings(self):
         """Save Markov settings through controller"""
-        self.controller.save_markov_settings(self.markov_confidence_var.get())
+        self.controller.save_markov_settings(self.markov_enabled_var.get(), self.markov_confidence_var.get())
 
     def _reset_markov_to_defaults(self):
         """Reset Markov settings to defaults through controller"""

@@ -104,6 +104,7 @@ class CentralizedCommandParser:
         self._action_map_provider: CommandActionMapProvider = action_map_provider
         self._history_manager: CommandHistoryManager = history_manager
         self._sound_to_command_mapping: Dict[str, str] = {}
+        self._pending_markov_prediction: Optional[str] = None
         self._cache_config_data()
 
         # Use provided deduplicator or create new one
@@ -164,29 +165,51 @@ class CentralizedCommandParser:
             return False
 
     async def _handle_custom_sound_recognized(self, event_data: CustomSoundRecognizedEvent) -> None:
+        """Handle custom sound recognition and map to commands with Markov feedback.
+
+        Args:
+            event_data: Sound recognition event with label and optional mapped command.
+        """
         sound_label = event_data.label
 
-        # Get mapped command (use event's mapped_command if available, otherwise check our mapping)
-        command_text = None
-        if event_data.mapped_command:
-            command_text = event_data.mapped_command
-        elif sound_label in self._sound_to_command_mapping:
-            command_text = self._sound_to_command_mapping[sound_label]
+        # Get mapped command (use event's mapped_command if available, otherwise check local mapping)
+        command_text = event_data.mapped_command or self._sound_to_command_mapping.get(sound_label)
 
         if command_text:
-            logger.info(f"Sound '{sound_label}' → command: '{command_text}'")
+            # Check for pending Markov prediction and send feedback
+            if self._pending_markov_prediction is not None:
+                was_correct = self._pending_markov_prediction.lower() == command_text.lower()
+                await self._send_markov_feedback(
+                    predicted=self._pending_markov_prediction, actual=command_text, was_correct=was_correct, source="sound"
+                )
+                self._pending_markov_prediction = None
+
+                # Suppress sound command if Markov prediction already executed
+                return
+
+            # No pending prediction - send feedback to update history only
+            await self._send_markov_feedback(predicted=None, actual=command_text, was_correct=True, source="sound")
+
             # Process through unified deduplication and history tracking pipeline
             await self._process_text_input_with_history(text=command_text, source="sound")
         else:
             logger.warning(f"No command mapping found for sound: {sound_label}")
 
     async def _handle_sound_mapping_updated(self, event_data: SoundToCommandMappingUpdatedEvent) -> None:
-        """Handle sound mapping updates"""
+        """Handle sound mapping updates.
+
+        Args:
+            event_data: Sound mapping update event.
+        """
         self._sound_to_command_mapping[event_data.sound_label] = event_data.command_phrase
         logger.info(f"Updated sound mapping: '{event_data.sound_label}' -> '{event_data.command_phrase}'")
 
     async def _handle_sound_mappings_response(self, event_data: SoundMappingsResponseEvent) -> None:
-        """Handle sound mappings response from sound service"""
+        """Handle sound mappings response from sound service.
+
+        Args:
+            event_data: Sound mappings response event.
+        """
         self._sound_to_command_mapping = event_data.mappings
         logger.info(f"Updated sound mappings with {len(self._sound_to_command_mapping)} entries")
 
@@ -195,21 +218,29 @@ class CentralizedCommandParser:
     # ============================================================================
 
     async def _handle_process_command_phrase(self, event_data: ProcessCommandPhraseEvent) -> None:
-        """Handle command phrase processing requests"""
+        """Handle command phrase processing requests.
+
+        Args:
+            event_data: Command phrase processing request event.
+        """
         await self._process_text_input(event_data.phrase, source=event_data.source)
 
     async def _handle_command_mappings_updated(self, event_data) -> None:
-        """Handle custom command mappings updates"""
+        """Handle custom command mappings updates.
+
+        Args:
+            event_data: Command mappings update event.
+        """
         logger.info("Received command mappings update")
 
     async def _is_valid_command(self, text: str) -> bool:
         """Check if text is a valid command without executing it.
 
         Args:
-            text: Text to validate
+            text: Text to validate.
 
         Returns:
-            True if text parses to a valid command, False otherwise
+            True if text parses to a valid command, False otherwise.
         """
         parse_result = await self._parse_text(text)
         return isinstance(parse_result, BaseCommand)
@@ -217,21 +248,22 @@ class CentralizedCommandParser:
     async def _process_text_input(self, text: str, source: Optional[str] = None) -> None:
         """Process text input through the parsing pipeline with unified deduplication.
 
+        Markov predictions skip deduplication checks and always execute when fired.
+        STT and sound sources are checked for deduplication to prevent accidental repeats.
+
         Args:
             text: Text to process.
             source: Source of the text (stt, sound, markov, etc.).
         """
-        # Check for duplicate using unified deduplicator
-        if self._deduplicator.should_deduplicate(text, source=source or "unknown"):
-            logger.debug(f"Suppressing duplicate text: '{text}' from {source}")
+        # Markov predictions skip deduplication check (always execute if fired)
+        if source != "markov" and self._deduplicator.should_deduplicate(text, source=source or "unknown"):
             return
-
-        logger.info(f"Processing text input: '{text}' from source: {source}")
 
         parse_result = await self._parse_text(text)
 
         if isinstance(parse_result, BaseCommand):
             await self._publish_command_event(parse_result, source)
+            # Record event for deduplication (including Markov predictions)
             self._deduplicator.record_event(text, source=source or "unknown")
         elif isinstance(parse_result, NoMatchResult):
             await self._event_bus.publish(
@@ -248,15 +280,12 @@ class CentralizedCommandParser:
         """Process text input and record to history only if it's a valid command.
 
         Args:
-            text: Text to process
-            source: Source of the text (stt, sound, markov, etc.)
+            text: Text to process.
+            source: Source of the text (stt, sound, markov, etc.).
         """
         # Check for duplicate using unified deduplicator
         if self._deduplicator.should_deduplicate(text, source=source or "unknown"):
-            logger.debug(f"Suppressing duplicate text: '{text}' from {source}")
             return
-
-        logger.info(f"Processing text input: '{text}' from source: {source}")
 
         parse_result = await self._parse_text(text)
 
@@ -265,14 +294,11 @@ class CentralizedCommandParser:
             await self._history_manager.record_command(command=text, source=source)
             await self._publish_command_event(parse_result, source)
             self._deduplicator.record_event(text, source=source or "unknown")
-            logger.debug(f"Recorded valid command to history: '{text}' (source={source})")
         elif isinstance(parse_result, NoMatchResult):
-            logger.debug(f"Not recording to history - no match: '{text}' (source={source})")
             await self._event_bus.publish(
                 CommandNoMatchEvent(source=source, attempted_parsers=["dictation", "mark", "grid", "automation"])
             )
         elif isinstance(parse_result, ErrorResult):
-            logger.debug(f"Not recording to history - parse error: '{text}' (source={source})")
             await self._event_bus.publish(
                 CommandParseErrorEvent(
                     source=source, error_message=parse_result.error_message, attempted_parser="CentralizedCommandParser"
@@ -286,10 +312,10 @@ class CentralizedCommandParser:
         execute commands in order, returning the first successful match.
 
         Args:
-            text: Normalized lowercase text to parse
+            text: Normalized lowercase text to parse.
 
         Returns:
-            Parsed command object, NoMatchResult, or ErrorResult
+            Parsed command object, NoMatchResult, or ErrorResult.
         """
         normalized_text = text.lower().strip()
 
@@ -316,7 +342,14 @@ class CentralizedCommandParser:
         return NoMatchResult()
 
     def _parse_dictation_commands(self, normalized_text: str) -> ParseResultType:
-        """Parse dictation commands"""
+        """Parse dictation commands.
+
+        Args:
+            normalized_text: Normalized lowercase text.
+
+        Returns:
+            Parsed dictation command or NoMatchResult.
+        """
         # Check for specific dictation triggers
         if normalized_text == self._dictation_start_trigger:
             return DictationStartCommand()
@@ -336,7 +369,14 @@ class CentralizedCommandParser:
         return NoMatchResult()
 
     def _parse_mark_commands(self, normalized_text: str) -> ParseResultType:
-        """Parse mark commands"""
+        """Parse mark commands.
+
+        Args:
+            normalized_text: Normalized lowercase text.
+
+        Returns:
+            Parsed mark command or NoMatchResult.
+        """
         words = normalized_text.split()
 
         if not words:
@@ -369,7 +409,14 @@ class CentralizedCommandParser:
         return NoMatchResult()
 
     async def _parse_grid_commands(self, normalized_text: str) -> ParseResultType:
-        """Parse grid commands"""
+        """Parse grid commands.
+
+        Args:
+            normalized_text: Normalized lowercase text.
+
+        Returns:
+            Parsed grid command or NoMatchResult.
+        """
         words = normalized_text.split()
 
         if not words:
@@ -418,7 +465,14 @@ class CentralizedCommandParser:
         return NoMatchResult()
 
     async def _parse_automation_commands(self, normalized_text: str) -> ParseResultType:
-        """Parse automation commands (exact match and parameterized)"""
+        """Parse automation commands (exact match and parameterized).
+
+        Args:
+            normalized_text: Normalized lowercase text.
+
+        Returns:
+            Parsed automation command or NoMatchResult.
+        """
         words = normalized_text.split()
 
         if not words:
@@ -463,7 +517,14 @@ class CentralizedCommandParser:
         return NoMatchResult()
 
     def _parse_mark_execute_fallback(self, normalized_text: str) -> ParseResultType:
-        """Parse mark execute commands as fallback for single words"""
+        """Parse mark execute commands as fallback for single words.
+
+        Args:
+            normalized_text: Normalized lowercase text.
+
+        Returns:
+            Parsed mark execute command or NoMatchResult.
+        """
         words = normalized_text.split()
 
         # Only consider single words as potential mark execute commands
@@ -473,7 +534,12 @@ class CentralizedCommandParser:
         return NoMatchResult()
 
     async def _publish_command_event(self, command: BaseCommand, source: Optional[str]) -> None:
-        """Publish specific command events based on command type"""
+        """Publish specific command events based on command type.
+
+        Args:
+            command: Parsed command object.
+            source: Source of the command.
+        """
         base_kwargs = {"source": source}
 
         # Map command types to event classes
@@ -513,8 +579,27 @@ class CentralizedCommandParser:
     # ============================================================================
 
     async def _handle_command_text_recognized(self, event: CommandTextRecognizedEvent) -> None:
-        """Handle STT recognized text - route to unified processing with history tracking"""
+        """Handle STT recognized text with Markov feedback and history tracking.
+
+        Args:
+            event: STT command text recognition event.
+        """
         command_text = event.text
+
+        # Check for pending Markov prediction and send feedback
+        if self._pending_markov_prediction is not None:
+            was_correct = self._pending_markov_prediction.lower() == command_text.lower()
+            await self._send_markov_feedback(
+                predicted=self._pending_markov_prediction, actual=command_text, was_correct=was_correct, source="stt"
+            )
+            self._pending_markov_prediction = None
+
+            # Suppress STT command if Markov prediction already executed
+            return
+
+        # No pending prediction - send feedback to update history only
+        await self._send_markov_feedback(predicted=None, actual=command_text, was_correct=True, source="stt")
+
         # Process through unified deduplication and history tracking pipeline
         await self._process_text_input_with_history(text=command_text, source="stt")
 
@@ -523,37 +608,43 @@ class CentralizedCommandParser:
     # ============================================================================
 
     async def _handle_markov_prediction(self, event: MarkovPredictionEvent) -> None:
-        """Handle Markov predictions by executing immediately with unified deduplication.
+        """Handle Markov predictions by executing immediately for ultra-low latency.
 
-        Executes predicted commands before STT completes for ultra-low latency.
-        Deduplication against actual STT results is handled by the unified EventDeduplicator.
+        Executes predicted commands before STT completes. Stores prediction for later
+        verification against STT result to manage cooldown and history.
 
         Args:
-            event: Markov prediction event with predicted command and confidence
+            event: Markov prediction event with predicted command and confidence.
         """
         predicted_command = event.predicted_command
-        logger.info(f"Markov prediction received: '{predicted_command}' (confidence={event.confidence:.2%})")
 
-        # Process through unified deduplication pipeline
+        # Store prediction for later verification against STT result
+        self._pending_markov_prediction = predicted_command
+
+        # Process immediately (not recorded to history - only STT commands update history)
         await self._process_text_input(text=predicted_command, source="markov")
 
-    async def _send_markov_feedback(self, predicted: str, actual: str, was_correct: bool, source: str) -> None:
-        """Send feedback to Markov predictor about prediction accuracy.
+    async def _send_markov_feedback(self, predicted: Optional[str], actual: str, was_correct: bool, source: str) -> None:
+        """Send feedback to Markov predictor about prediction accuracy or for history update.
 
         Args:
-            predicted: The predicted command
-            actual: The actual recognized command
-            was_correct: Whether prediction matched actual
-            source: Source of actual command ("stt" or "sound")
+            predicted: The predicted command (None if no prediction was made).
+            actual: The actual recognized command.
+            was_correct: Whether prediction matched actual.
+            source: Source of actual command ("stt" or "sound").
         """
+        # For feedback event, use actual command as predicted if there was no prediction
+        predicted_for_event = predicted if predicted is not None else actual
+
         feedback = MarkovPredictionFeedbackEvent(
-            predicted_command=predicted, actual_command=actual, was_correct=was_correct, source=source
+            predicted_command=predicted_for_event, actual_command=actual, was_correct=was_correct, source=source
         )
         await self._event_bus.publish(feedback)
 
-        logger.info(
-            f"Markov feedback: {source} '{actual}' vs prediction '{predicted}' - " f"{'CORRECT' if was_correct else 'INCORRECT'}"
-        )
+        # Only log when there was an actual prediction
+        if predicted is not None:
+            status = "correct" if was_correct else "incorrect"
+            logger.info(f"Markov prediction {status}: predicted '{predicted}', actual '{actual}' ({source})")
 
     async def shutdown(self) -> None:
         """Shutdown parser and persist accumulated command history to storage.

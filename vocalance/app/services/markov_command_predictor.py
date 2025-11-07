@@ -59,6 +59,7 @@ class MarkovCommandService:
         """
         try:
             await self._train_model()
+            await self._seed_command_history()
             return True
         except Exception as e:
             logger.error(f"Failed to initialize predictor: {e}", exc_info=True)
@@ -89,6 +90,27 @@ class MarkovCommandService:
 
         except Exception as e:
             logger.error(f"Error training model: {e}", exc_info=True)
+
+    async def _seed_command_history(self) -> None:
+        """Seed in-memory command history with recent commands for immediate prediction capability.
+
+        Loads the most recent max_order commands from storage to populate the prediction
+        context window, enabling predictions to work immediately after startup instead of
+        requiring feedback events to build up the history first.
+        """
+        try:
+            history_data = await self._storage.read(model_type=CommandHistoryData)
+            if history_data and history_data.history:
+                recent_commands = [entry.command for entry in history_data.history[-self._markov_config.max_order :]]
+
+                for cmd in recent_commands:
+                    self._command_history.append(cmd)
+
+                logger.info(f"Seeded command history with {len(recent_commands)} recent commands")
+            else:
+                logger.debug("No command history available to seed predictor context")
+        except Exception as e:
+            logger.error(f"Failed to seed command history (predictions will build up over time): {e}")
 
     async def _train_order(self, order: int) -> None:
         """Train a specific order Markov chain.
@@ -183,33 +205,25 @@ class MarkovCommandService:
         "stop dictation" predictions from interrupting active dictation sessions.
 
         Args:
-            event: Audio detection event from recorder
+            event: Audio detection event from recorder.
         """
         try:
             current_time = time.time()
+            time_since_last = current_time - self._last_prediction_time
 
-            # Cooldown to prevent spam
-            if current_time - self._last_prediction_time < self._prediction_cooldown:
+            # Time-based cooldown to prevent prediction spam
+            if time_since_last < self._prediction_cooldown:
                 return
 
-            if not self._markov_config.enabled:
+            # Check if predictor is enabled and conditions are met
+            if not self._markov_config.enabled or self._dictation_active or self._cooldown_remaining > 0:
                 return
 
-            # CRITICAL: Do not predict during dictation mode
-            # Prevents: "dictate" → immediate "stop dictation" prediction → interrupted dictation
-            if self._dictation_active:
-                logger.debug("Skipping Markov prediction - dictation mode active")
-                return
-
-            # Check if we're in cooldown from incorrect prediction
-            if self._cooldown_remaining > 0:
-                logger.debug(f"Skipping Markov (cooldown: {self._cooldown_remaining} commands remaining)")
-                return
-
+            # Ensure model is trained and sufficient history exists
             if not self._model_trained or len(self._command_history) < self._markov_config.min_order:
                 return
 
-            # Backoff prediction using context
+            # Attempt backoff prediction using command history context
             prediction = self._predict_next_command()
 
             if prediction:
@@ -217,11 +231,9 @@ class MarkovCommandService:
 
                 if confidence >= self._markov_config.confidence_threshold:
                     self._last_prediction_time = current_time
-
-                    # Store prediction for feedback verification
                     self._pending_prediction = (predicted_cmd, confidence)
 
-                    logger.info(f"ULTRA-FAST (order-{order}): '{predicted_cmd}' (confidence={confidence:.2%})")
+                    logger.info(f"Markov prediction (order-{order}): '{predicted_cmd}' (confidence={confidence:.2%})")
 
                     await self._event_bus.publish(
                         MarkovPredictionEvent(
@@ -230,33 +242,37 @@ class MarkovCommandService:
                     )
 
         except Exception as e:
-            logger.error(f"Error in fast-track handling: {e}", exc_info=True)
+            logger.error(f"Error in Markov prediction handler: {e}", exc_info=True)
 
     async def _handle_prediction_feedback(self, event: MarkovPredictionFeedbackEvent) -> None:
         """Process prediction accuracy feedback and manage cooldown.
 
         Updates in-memory command history with actual executed command and enters
-        cooldown mode on incorrect predictions to maintain accuracy.
+        cooldown mode on incorrect predictions to maintain accuracy. Decrements
+        cooldown counter on each command execution.
 
         Args:
-            event: Feedback event with prediction accuracy and actual command
+            event: Feedback event with prediction accuracy and actual command.
         """
         try:
             actual_command = event.actual_command
             was_correct = event.was_correct
-            source = event.source
 
-            if was_correct:
-                logger.info(f"Markov prediction CORRECT (verified by {source}): '{event.predicted_command}'")
-            else:
+            # Handle incorrect predictions by entering cooldown mode
+            if event.predicted_command != actual_command and was_correct is False:
                 logger.warning(
-                    f"Markov prediction INCORRECT (verified by {source}): "
-                    f"predicted '{event.predicted_command}', actual '{actual_command}' - entering cooldown"
+                    f"Markov prediction incorrect: predicted '{event.predicted_command}', "
+                    f"actual '{actual_command}' - entering cooldown"
                 )
-                # Enter cooldown mode
                 self._cooldown_remaining = self._markov_config.incorrect_prediction_cooldown
+            elif event.predicted_command == actual_command and was_correct:
+                logger.info(f"Markov prediction correct: '{event.predicted_command}'")
 
-            # Update in-memory command history (for model predictions)
+            # Decrement cooldown on every command execution (if currently in cooldown)
+            if self._cooldown_remaining > 0:
+                self._cooldown_remaining -= 1
+
+            # Update in-memory command history with actual command for future predictions
             self._command_history.append(actual_command)
 
         except Exception as e:
@@ -266,16 +282,15 @@ class MarkovCommandService:
         """Predict next command using backoff from highest to lowest order.
 
         Attempts prediction starting at max_order, falling back to lower orders if
-        no valid transitions found, returns first match above minimum frequency.
+        no valid transitions found. Returns first match above minimum frequency threshold.
 
         Returns:
-            Tuple of (predicted_command, confidence, order_used) or None if no prediction
+            Tuple of (predicted_command, confidence, order_used) or None if no prediction available.
         """
         for order in range(self._markov_config.max_order, self._markov_config.min_order - 1, -1):
             if len(self._command_history) < order:
                 continue
 
-            # Get context of length 'order'
             context = tuple(list(self._command_history)[-order:])
 
             if context not in self._transition_counts[order]:
@@ -287,8 +302,6 @@ class MarkovCommandService:
                 continue
 
             total_count = sum(transitions.values())
-
-            # Get order-specific minimum frequency
             min_freq = self._markov_config.min_command_frequency.get(order, 2)
             valid_transitions = {cmd: count for cmd, count in transitions.items() if count >= min_freq}
 
@@ -298,7 +311,6 @@ class MarkovCommandService:
             # Found valid prediction at this order
             most_common_cmd = max(valid_transitions.items(), key=lambda x: x[1])
             predicted_cmd, count = most_common_cmd
-
             confidence = count / total_count
 
             return (predicted_cmd, confidence, order)
@@ -306,7 +318,11 @@ class MarkovCommandService:
         return None
 
     async def retrain(self) -> bool:
-        """Manually trigger model retraining"""
+        """Manually trigger model retraining.
+
+        Returns:
+            True if retraining succeeded, False otherwise.
+        """
         try:
             await self._train_model()
             return True
@@ -314,17 +330,26 @@ class MarkovCommandService:
             logger.error(f"Error during retraining: {e}", exc_info=True)
             return False
 
+    def on_enabled_updated(self, enabled: bool) -> None:
+        """Handle real-time enabled setting update from settings.
+
+        Args:
+            enabled: New enabled state.
+        """
+        self._markov_config.enabled = enabled
+        logger.info(f"Markov predictor {'enabled' if enabled else 'disabled'}")
+
     def on_confidence_threshold_updated(self, threshold: float) -> None:
         """Handle real-time confidence threshold update from settings.
 
         Args:
-            threshold: New confidence threshold value (0.0 to 1.0)
+            threshold: New confidence threshold value (0.0 to 1.0).
         """
-        old_threshold = self._markov_config.confidence_threshold
         self._markov_config.confidence_threshold = threshold
-        logger.info(f"Markov predictor confidence threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
+        logger.info(f"Markov confidence threshold updated to {threshold:.2%}")
 
     async def shutdown(self) -> None:
+        """Shutdown predictor and cleanup resources."""
         try:
             logger.info("Markov predictor shutdown complete")
         except Exception as e:

@@ -328,7 +328,7 @@ class MarkovPredictorConfig(BaseModel):
 
     enabled: bool = Field(default=False, description="Enable Markov chain command prediction")
 
-    confidence_threshold: float = Field(default=1.0, description="Minimum probability threshold for prediction (0.0-1.0)")
+    confidence_threshold: float = Field(default=0.85, description="Minimum probability threshold for prediction (0.0-1.0)")
 
     training_window_commands: Dict[int, int] = Field(
         default_factory=lambda: {2: 500, 3: 1000, 4: 1500},

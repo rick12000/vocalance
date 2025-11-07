@@ -509,7 +509,13 @@ class FastServiceInitializer:
             for service_name in services_to_activate:
                 service = self.services.get(service_name)
                 if service and hasattr(service, "setup_subscriptions"):
+                    logger.debug(f"Calling setup_subscriptions on {service_name}")
                     service.setup_subscriptions()
+                else:
+                    if not service:
+                        logger.warning(f"Service {service_name} not found in services dict")
+                    elif not hasattr(service, "setup_subscriptions"):
+                        logger.warning(f"Service {service_name} does not have setup_subscriptions method")
 
             audio_service = self.services.get("audio")
             if audio_service:

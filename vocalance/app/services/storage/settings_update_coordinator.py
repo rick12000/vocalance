@@ -93,6 +93,7 @@ class SettingsUpdateCoordinator:
     async def _propagate_to_services(self, updated_settings: Dict[str, Any]) -> None:
         """Propagate real-time settings to registered services"""
         propagation_map = {
+            "markov_predictor.enabled": ("markov_predictor", "on_enabled_updated"),
             "markov_predictor.confidence_threshold": ("markov_predictor", "on_confidence_threshold_updated"),
             "sound_recognizer.confidence_threshold": ("sound_recognizer", "on_confidence_threshold_updated"),
             "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),

@@ -38,11 +38,13 @@ class SettingsService:
         "vad.dictation_silent_chunks_for_end",
         "vad.command_silent_chunks_for_end",
         "audio.device",
+        "markov_predictor.enabled",
         "markov_predictor.confidence_threshold",
     }
 
     # Settings that update in real-time (default is restart required)
     REAL_TIME_SETTINGS = {
+        "markov_predictor.enabled",
         "markov_predictor.confidence_threshold",
         "sound_recognizer.confidence_threshold",
         "sound_recognizer.vote_threshold",
