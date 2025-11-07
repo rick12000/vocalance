@@ -309,7 +309,20 @@ class FastServiceInitializer:
         async def init_sound() -> None:
             """Initialize sound service with non-blocking TensorFlow import."""
             if progress_tracker:
-                progress_tracker.update_status_animated(status="Loading sound recognition")
+                # Check if YamNet model already exists in app directory
+                yamnet_app_path = os.path.join(self.config.storage.sound_model_dir, "yamnet")
+                yamnet_exists = (
+                    os.path.exists(yamnet_app_path)
+                    and os.path.exists(os.path.join(yamnet_app_path, "saved_model.pb"))
+                    and os.path.exists(os.path.join(yamnet_app_path, "variables"))
+                )
+
+                status_message = (
+                    "Loading YAMNet model. This should take 1-2 minutes on first use."
+                    if not yamnet_exists
+                    else "Initializing sound recognition"
+                )
+                progress_tracker.update_status_animated(status=status_message)
 
             # CRITICAL: Import SoundService in thread pool to avoid blocking event loop
             # TensorFlow import takes 6+ seconds and blocks everything if done in main thread
