@@ -266,8 +266,12 @@ class VADConfig(BaseModel):
     noise_floor_estimation: bool = Field(default=True, description="Enable automatic noise floor estimation.")
 
     command_energy_threshold: float = Field(
-        default=0.0008,
+        default=0.0005,
         description="Energy threshold for command mode speech detection - further lowered for more sensitive detection.",
+    )
+    sound_energy_threshold: float = Field(
+        default=0.001,
+        description="Energy threshold for sound recognition - optimized for detecting various sound types.",
     )
     command_silent_chunks_for_end: int = Field(
         default=4,
@@ -275,7 +279,7 @@ class VADConfig(BaseModel):
     )
     command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")
     command_pre_roll_buffers: int = Field(
-        default=4,
+        default=8,
         description="Pre-roll buffers for command mode (200ms at 50ms chunks) - captures full word attack including initial consonants.",
     )
 
@@ -288,10 +292,13 @@ class VADConfig(BaseModel):
     dictation_pre_roll_buffers: int = Field(default=5, description="Pre-roll buffers for dictation mode (250ms at 50ms/chunk).")
 
     silence_threshold_multiplier: float = Field(
-        default=0.55, description="Multiplier for silence threshold relative to energy threshold"
+        default=0.45, description="Multiplier for silence threshold relative to energy threshold"
     )
     command_adaptive_margin_multiplier: float = Field(
         default=3.5, description="Multiplier for adaptive noise floor in command mode - increased for lower threshold robustness."
+    )
+    sound_adaptive_margin_multiplier: float = Field(
+        default=3.0, description="Multiplier for adaptive noise floor in sound recognition mode"
     )
     dictation_adaptive_margin_multiplier: float = Field(
         default=2.5, description="Multiplier for adaptive noise floor in dictation mode"
@@ -300,7 +307,7 @@ class VADConfig(BaseModel):
         default=2.0, description="Maximum multiplier before applying adaptive threshold"
     )
     adaptive_silence_threshold_multiplier: float = Field(
-        default=0.6, description="Adjustment factor for silence threshold after adaptation"
+        default=0.65, description="Adjustment factor for silence threshold after adaptation"
     )
 
     command_min_recording_duration: float = Field(

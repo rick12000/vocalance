@@ -49,6 +49,9 @@ class ProtectedTermsValidator:
 
         protected.add(self._config.grid.show_grid_phrase.lower().strip())
 
+        # Add integers 1-10 as protected terms to prevent conflicts with grid selections
+        protected.update(str(i) for i in range(1, 11))
+
         mark_triggers = self._config.mark.triggers
         protected.add(mark_triggers.create_mark.lower().strip())
         protected.add(mark_triggers.delete_mark.lower().strip())

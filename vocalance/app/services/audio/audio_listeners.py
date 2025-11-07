@@ -459,8 +459,8 @@ class SoundAudioListener:
         self.config = config
         self.sample_rate = config.audio.sample_rate
 
-        # VAD parameters (using command thresholds as baseline for sound detection)
-        self.energy_threshold = config.vad.command_energy_threshold
+        # VAD parameters (using sound-specific thresholds for optimal sound detection)
+        self.energy_threshold = config.vad.sound_energy_threshold
         self.silence_threshold = self.energy_threshold * config.vad.silence_threshold_multiplier
         self.silent_chunks_for_end = 2  # 100ms of silence to end sound segment
         self.min_duration_chunks = 2  # 100ms minimum sound duration
@@ -468,7 +468,7 @@ class SoundAudioListener:
         self.pre_roll_chunks = 2  # 100ms pre-roll to capture sound attack/onset
 
         # Adaptive noise floor
-        self.adaptive_margin_multiplier = config.vad.command_adaptive_margin_multiplier
+        self.adaptive_margin_multiplier = config.vad.sound_adaptive_margin_multiplier
         self._noise_floor = config.vad.noise_floor_initial_value
         self._noise_samples = []
         self._max_noise_samples = config.vad.max_noise_samples

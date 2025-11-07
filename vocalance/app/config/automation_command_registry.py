@@ -13,7 +13,7 @@ class AutomationCommandRegistry:
 
     DEFAULT_COMMANDS: List[AutomationCommand] = [
         ExactMatchCommand(
-            command_key="web new",
+            command_key="web open",
             action_type="hotkey",
             action_value="ctrl+t",
             short_description="New Tab",
