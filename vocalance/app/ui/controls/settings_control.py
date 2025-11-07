@@ -7,20 +7,13 @@ from vocalance.app.ui.controls.base_control import BaseController
 
 
 class SettingsController(BaseController):
-    """
-    Simplified settings controller that works directly with SettingsService.
-
-    Thread Safety:
-    - _cached_settings protected by inherited _state_lock
-    - Event handlers run in GUI event loop thread
-    - UI updates marshalled to main thread via schedule_ui_update
-    """
+    """Simplified settings controller that works directly with SettingsService."""
 
     def __init__(self, event_bus, event_loop, logger, config: GlobalAppConfig, settings_service=None):
         super().__init__(event_bus, event_loop, logger, "SettingsController")
         self.config = config
         self.settings_service = settings_service
-        self._cached_settings = None  # Protected by _state_lock
+        self._cached_settings = None
 
         self.subscribe_to_events(
             [
@@ -40,7 +33,7 @@ class SettingsController(BaseController):
             asyncio.run_coroutine_threadsafe(self._get_settings_async(), self.event_loop)
 
     async def _get_settings_async(self):
-        """Async method to get settings and cache them. Thread-safe."""
+        """Async method to get settings and cache them."""
         try:
             if self.settings_service:
                 settings = await self.settings_service.get_effective_settings()
@@ -52,14 +45,14 @@ class SettingsController(BaseController):
             self.logger.error(f"Error getting settings: {e}")
 
     def _handle_settings_response(self, event):
-        """Handle settings response from the service. Thread-safe."""
+        """Handle settings response from the service."""
         with self._state_lock:
             self._cached_settings = event.settings
         if self.view_callback:
             self.schedule_ui_update(self.view_callback.on_settings_updated)
 
     def load_current_settings(self) -> Dict[str, Any]:
-        """Load current effective settings from cache or return defaults. Thread-safe."""
+        """Load current effective settings from cache or return defaults."""
         with self._state_lock:
             if self._cached_settings:
                 return self._cached_settings
@@ -184,7 +177,7 @@ class SettingsController(BaseController):
             return False
 
     async def _save_settings_async(self, settings_updates: Dict[str, Any], success_msg: str, category: str):
-        """Unified async save method. Thread-safe."""
+        """Unified async save method."""
         try:
             self.logger.info(f"Calling update_multiple_settings for {category} with: {settings_updates}")
             success = await self.settings_service.update_multiple_settings(settings_updates)
@@ -223,7 +216,7 @@ class SettingsController(BaseController):
             return False
 
     async def _reset_settings_async(self, settings_list: List[str], category: str):
-        """Unified async reset method. Thread-safe."""
+        """Unified async reset method."""
         try:
             success = True
             for setting in settings_list:

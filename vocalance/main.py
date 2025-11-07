@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import customtkinter as ctk
 
-# Only import what's needed immediately for startup; heavy service imports are deferred
 from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load_app_config
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
@@ -22,7 +21,6 @@ from vocalance.app.ui.startup_window import StartupProgressTracker, StartupWindo
 from vocalance.app.ui.utils.ui_icon_utils import configure_dpi_awareness, initialize_windows_taskbar_icon, set_window_icon_robust
 from vocalance.app.ui.utils.ui_thread_utils import initialize_ui_scheduler
 
-# Type-checking only imports (don't trigger loading at runtime)
 if TYPE_CHECKING:
     from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
 
@@ -169,7 +167,6 @@ class FastServiceInitializer:
         Creates GridService for click grid overlay functionality and AutomationService
         for executing keyboard/mouse automation commands.
         """
-        # DEFERRED IMPORT: Only import when actually initializing
         from vocalance.app.services.automation_service import AutomationService
         from vocalance.app.services.grid.grid_service import GridService
 
@@ -187,7 +184,6 @@ class FastServiceInitializer:
         Args:
             progress_tracker: Optional tracker for reporting progress to the startup UI.
         """
-        # DEFERRED IMPORT: Storage services
         from vocalance.app.services.command_management_service import CommandManagementService
         from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
         from vocalance.app.services.mark_service import MarkService
@@ -283,7 +279,6 @@ class FastServiceInitializer:
         Args:
             progress_tracker: Optional tracker for reporting progress and estimated times to UI.
         """
-        # Import lightweight services first (no TensorFlow dependency)
         from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
         from vocalance.app.services.audio.simple_audio_service import AudioService
         from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
@@ -324,14 +319,11 @@ class FastServiceInitializer:
                 )
                 progress_tracker.update_status_animated(status=status_message)
 
-            # CRITICAL: Import SoundService in thread pool to avoid blocking event loop
-            # TensorFlow import takes 6+ seconds and blocks everything if done in main thread
             def _import_and_create_sound_service():
                 from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
 
                 return SoundService(event_bus=self.event_bus, config=self.config, storage=storage)
 
-            # Run the blocking import in a thread pool
             sound_service = await asyncio.to_thread(_import_and_create_sound_service)
             await sound_service.initialize()
 
@@ -356,7 +348,6 @@ class FastServiceInitializer:
                 )
                 progress_tracker.update_status_animated(status=status_message)
 
-            # Import STT service in thread pool (may have heavy dependencies)
             def _import_and_create_stt_service():
                 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 
@@ -640,9 +631,6 @@ def _create_main_window(app_config: GlobalAppConfig) -> ctk.CTk:
     Returns:
         Configured CustomTkinter root window ready for content.
     """
-    # CRITICAL: Configure DPI awareness FIRST to prevent blurry icons
-    # This must happen before any window creation
-    # Sets Per-Monitor V2 DPI awareness for crisp icons at all DPI levels
     configure_dpi_awareness()
 
     initialize_windows_taskbar_icon()
@@ -772,7 +760,6 @@ async def main() -> None:
     shutdown_coordinator: Optional[ShutdownCoordinator] = None
 
     try:
-        # FAST PATH: Only do minimal work before showing startup window
         app_info = AppInfoConfig()
         app_config = load_app_config(app_info=app_info)
         if hasattr(app_config, "__post_init__"):
@@ -802,7 +789,6 @@ async def main() -> None:
         )
         startup_window.show()
 
-        # Process UI events to make window appear
         for _ in range(3):
             app_tk_root.update_idletasks()
             app_tk_root.update()
@@ -877,17 +863,13 @@ async def main() -> None:
             except Exception as e:
                 logger.warning(f"Could not position main window: {e}")
 
-        # Set icon RIGHT BEFORE showing window - this is the critical moment
-        # CustomTkinter's icon handling happens during visibility changes
         set_window_icon_robust(window=app_tk_root)
 
         app_tk_root.deiconify()
         app_tk_root.lift()
 
-        # Position window NOW that it's realized and screen metrics are valid
         position_main_window()
 
-        # Reinforce icon immediately after showing (CustomTkinter may reset it)
         app_tk_root.after(1, lambda: set_window_icon_robust(window=app_tk_root))
         app_tk_root.after(10, lambda: set_window_icon_robust(window=app_tk_root))
         app_tk_root.after(50, lambda: set_window_icon_robust(window=app_tk_root))
