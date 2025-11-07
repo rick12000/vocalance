@@ -18,6 +18,7 @@ class SettingsUpdateCoordinator:
     - sound_recognizer.vote_threshold
     - grid.default_rect_count
     - vad.dictation_silent_chunks_for_end
+    - vad.command_silent_chunks_for_end
 
     Other settings (LLM, audio device) require app restart.
 
@@ -95,6 +96,7 @@ class SettingsUpdateCoordinator:
             "sound_recognizer.confidence_threshold": ("sound_recognizer", "on_confidence_threshold_updated"),
             "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),
             "vad.dictation_silent_chunks_for_end": ("audio", "on_dictation_silent_chunks_updated"),
+            "vad.command_silent_chunks_for_end": ("audio", "on_command_silent_chunks_updated"),
         }
 
         for setting_path, value in updated_settings.items():
@@ -110,13 +112,13 @@ class SettingsUpdateCoordinator:
                 if service and hasattr(service, method_name):
                     method = getattr(service, method_name)
                     if "threshold" in method_name:
-                        method(threshold=value)
+                        await method(threshold=value)
                     elif "count" in method_name:
-                        method(count=value)
+                        await method(count=value)
                     elif "chunks" in method_name:
-                        method(chunks=value)
+                        await method(chunks=value)
                     else:
-                        method(value)
+                        await method(value)
                 else:
                     logger.warning(f"Service '{service_name}' not registered or method '{method_name}' not found")
             else:

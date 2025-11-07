@@ -37,6 +37,7 @@ class SettingsView(ctk.CTkFrame):
         self.sound_confidence_var = ctk.StringVar()
         self.sound_vote_var = ctk.StringVar()
         self.dictation_silent_chunks_var = ctk.StringVar()
+        self.command_silent_chunks_var = ctk.StringVar()
 
         self._build_tab_ui()
         self._load_current_settings()
@@ -262,17 +263,22 @@ class SettingsView(ctk.CTkFrame):
 
         self._create_settings_section(
             scrollable_frame,
-            "Dictation Settings",
+            "Voice Settings",
             4,
             [
                 (
-                    "Max Silent Chunks:",
+                    "Max Silent Dictation Chunks:",
                     self.dictation_silent_chunks_var,
-                    "Number of consecutive silent audio chunks before an audio segment is transcribed. Increase this if you want to talk for longer before seeing the transcription (helps with formatting and punctuation). 1 chunk ≈ 20ms",
-                )
+                    "Number of consecutive silent audio chunks before a dictation segment is transcribed. Increase this if you want to talk for longer before seeing the transcription (helps with formatting and punctuation). 1 chunk = 50ms",
+                ),
+                (
+                    "Max Silent Command Chunks:",
+                    self.command_silent_chunks_var,
+                    "Number of consecutive silent audio chunks before a command segment is processed. Increase this if commands are being cut off too early. 1 chunk = 50ms",
+                ),
             ],
-            self._save_dictation_settings,
-            self._reset_dictation_to_defaults,
+            self._save_voice_settings,
+            self._reset_voice_to_defaults,
             is_last_section=True,
         )
 
@@ -350,7 +356,8 @@ class SettingsView(ctk.CTkFrame):
                 self.sound_vote_var.set(str(sound_settings.get("vote_threshold", 0.35)))
 
                 vad_settings = settings.get("vad", {})
-                self.dictation_silent_chunks_var.set(str(vad_settings.get("dictation_silent_chunks_for_end", 40)))
+                self.dictation_silent_chunks_var.set(str(vad_settings.get("dictation_silent_chunks_for_end", 16)))
+                self.command_silent_chunks_var.set(str(vad_settings.get("command_silent_chunks_for_end", 4)))
             else:
                 # Set error state if settings could not be loaded
                 for var in [
@@ -361,6 +368,7 @@ class SettingsView(ctk.CTkFrame):
                     self.sound_confidence_var,
                     self.sound_vote_var,
                     self.dictation_silent_chunks_var,
+                    self.command_silent_chunks_var,
                 ]:
                     if isinstance(var, ctk.StringVar):
                         var.set("Error")
@@ -407,17 +415,17 @@ class SettingsView(ctk.CTkFrame):
         ):
             self.controller.reset_sound_to_defaults()
 
-    def _save_dictation_settings(self):
-        """Save Dictation settings through controller"""
-        self.controller.save_dictation_settings(self.dictation_silent_chunks_var.get())
+    def _save_voice_settings(self):
+        """Save Voice settings through controller"""
+        self.controller.save_voice_settings(self.dictation_silent_chunks_var.get(), self.command_silent_chunks_var.get())
 
-    def _reset_dictation_to_defaults(self):
-        """Reset Dictation settings to defaults through controller"""
+    def _reset_voice_to_defaults(self):
+        """Reset Voice settings to defaults through controller"""
         if messagebox.askyesno(
-            "Are you sure you want to reset Dictation settings to defaults?",
+            "Are you sure you want to reset Voice settings to defaults?",
             parent=self.root_window,
         ):
-            self.controller.reset_dictation_to_defaults()
+            self.controller.reset_voice_to_defaults()
 
     def refresh_settings(self):
         """Refresh settings display"""

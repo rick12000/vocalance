@@ -80,7 +80,10 @@ class SettingsController(BaseController):
                 "confidence_threshold": self.config.sound_recognizer.confidence_threshold,
                 "vote_threshold": self.config.sound_recognizer.vote_threshold,
             },
-            "vad": {"dictation_silent_chunks_for_end": self.config.vad.dictation_silent_chunks_for_end},
+            "vad": {
+                "dictation_silent_chunks_for_end": self.config.vad.dictation_silent_chunks_for_end,
+                "command_silent_chunks_for_end": self.config.vad.command_silent_chunks_for_end,
+            },
         }
 
     # Validation methods
@@ -139,15 +142,22 @@ class SettingsController(BaseController):
             errors.append(error)
         return errors
 
-    def validate_dictation_settings(self, silent_chunks: str) -> List[str]:
-        """Validate Dictation input fields and return list of errors"""
+    def validate_voice_settings(self, dictation_silent_chunks: str, command_silent_chunks: str) -> List[str]:
+        """Validate Voice input fields and return list of errors"""
         errors = []
         try:
-            silent_chunks_int = int(silent_chunks)
-            if silent_chunks_int < 1 or silent_chunks_int > 1000:
-                errors.append("Silent Chunks for End must be between 1 and 1000")
+            dictation_chunks = int(dictation_silent_chunks)
+            if dictation_chunks < 1 or dictation_chunks > 1000:
+                errors.append("Dictation Silent Chunks must be between 1 and 1000")
         except ValueError:
-            errors.append("Silent Chunks for End must be a valid integer")
+            errors.append("Dictation Silent Chunks must be a valid integer")
+
+        try:
+            command_chunks = int(command_silent_chunks)
+            if command_chunks < 1 or command_chunks > 1000:
+                errors.append("Command Silent Chunks must be between 1 and 1000")
+        except ValueError:
+            errors.append("Command Silent Chunks must be a valid integer")
         return errors
 
     # Generic save method
@@ -290,19 +300,24 @@ class SettingsController(BaseController):
             category="Sound Recognizer",
         )
 
-    def save_dictation_settings(self, silent_chunks: str) -> bool:
-        """Save Dictation settings through the settings service"""
-        validation_errors = self.validate_dictation_settings(silent_chunks=silent_chunks)
+    def save_voice_settings(self, dictation_silent_chunks: str, command_silent_chunks: str) -> bool:
+        """Save Voice settings through the settings service"""
+        validation_errors = self.validate_voice_settings(
+            dictation_silent_chunks=dictation_silent_chunks, command_silent_chunks=command_silent_chunks
+        )
         if validation_errors:
             if self.view_callback:
                 self.schedule_ui_update(self.view_callback.on_validation_error, "Invalid Input", "\n".join(validation_errors))
             return False
 
-        settings_updates = {"vad.dictation_silent_chunks_for_end": int(silent_chunks)}
+        settings_updates = {
+            "vad.dictation_silent_chunks_for_end": int(dictation_silent_chunks),
+            "vad.command_silent_chunks_for_end": int(command_silent_chunks),
+        }
         return self._save_settings_generic(
             settings_updates=settings_updates,
-            success_msg="Dictation settings saved successfully!\n\nChanges take effect immediately.",
-            category="Dictation",
+            success_msg="Voice settings saved successfully!\n\nChanges take effect immediately.",
+            category="Voice",
         )
 
     # Public reset methods
@@ -324,6 +339,6 @@ class SettingsController(BaseController):
             ["sound_recognizer.confidence_threshold", "sound_recognizer.vote_threshold"], "Sound Recognizer"
         )
 
-    def reset_dictation_to_defaults(self) -> bool:
-        """Reset Dictation settings to default values"""
-        return self._reset_settings_generic(["vad.dictation_silent_chunks_for_end"], "Dictation")
+    def reset_voice_to_defaults(self) -> bool:
+        """Reset Voice settings to default values"""
+        return self._reset_settings_generic(["vad.dictation_silent_chunks_for_end", "vad.command_silent_chunks_for_end"], "Voice")

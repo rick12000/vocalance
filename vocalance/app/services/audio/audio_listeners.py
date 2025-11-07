@@ -226,6 +226,19 @@ class CommandAudioListener:
                     self.silence_threshold = self.energy_threshold * self.config.vad.adaptive_silence_threshold_multiplier
                     logger.debug(f"Command: Adapted energy threshold: {old_threshold:.6f} -> {self.energy_threshold:.6f}")
 
+    async def update_silent_chunks_threshold(self, chunks: int) -> None:
+        """Update command silent chunks threshold dynamically during runtime.
+
+        Allows real-time adjustment of silence detection sensitivity.
+        Thread-safe: Acquires state lock for atomic update.
+
+        Args:
+            chunks: New number of consecutive silent chunks required to end recording.
+        """
+        async with self._state_lock:
+            self.silent_chunks_for_end = chunks
+            logger.info(f"Command: Updated silent_chunks_for_end to {chunks} (~{chunks * 50}ms)")
+
 
 class DictationAudioListener:
     """Listens to AudioChunkEvents and accumulates them for dictation recognition.

@@ -236,3 +236,20 @@ class AudioService:
             logger.info(f"Updated dictation silent chunks to {chunks}")
         else:
             logger.warning("Dictation listener not initialized, cannot update silent chunks")
+
+    async def on_command_silent_chunks_updated(self, chunks: int) -> None:
+        """Update command silent chunks threshold dynamically during runtime.
+
+        Allows real-time adjustment of silence detection sensitivity in command mode,
+        forwarding the update to the command listener instance.
+
+        Thread-safe: Delegates to listener's async method with lock protection.
+
+        Args:
+            chunks: New number of consecutive silent chunks required to end recording.
+        """
+        if self._command_listener:
+            await self._command_listener.update_silent_chunks_threshold(chunks)
+            logger.info(f"Updated command silent chunks to {chunks}")
+        else:
+            logger.warning("Command listener not initialized, cannot update silent chunks")

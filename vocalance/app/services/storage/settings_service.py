@@ -36,6 +36,7 @@ class SettingsService:
         "sound_recognizer.vote_threshold",
         "vad.energy_threshold",
         "vad.dictation_silent_chunks_for_end",
+        "vad.command_silent_chunks_for_end",
         "audio.device",
         "markov_predictor.confidence_threshold",
     }
@@ -47,6 +48,7 @@ class SettingsService:
         "sound_recognizer.vote_threshold",
         "grid.default_rect_count",
         "vad.dictation_silent_chunks_for_end",
+        "vad.command_silent_chunks_for_end",
     }
 
     def __init__(
@@ -119,6 +121,7 @@ class SettingsService:
                 "vad": {
                     "energy_threshold": self._get_default_value("vad.energy_threshold"),
                     "dictation_silent_chunks_for_end": self._get_default_value("vad.dictation_silent_chunks_for_end"),
+                    "command_silent_chunks_for_end": self._get_default_value("vad.command_silent_chunks_for_end"),
                 },
                 "audio": {
                     "device": self._get_default_value("audio.device"),
@@ -254,6 +257,8 @@ class SettingsService:
             "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
             "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
             "vad.energy_threshold": lambda v: isinstance(v, (int, float)) and v >= 0,
+            "vad.dictation_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
+            "vad.command_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
             "audio.device": lambda v: v is None or isinstance(v, int),
         }
 
