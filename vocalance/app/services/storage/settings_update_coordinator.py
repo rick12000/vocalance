@@ -1,3 +1,4 @@
+import inspect
 import logging
 from typing import Any, Dict
 
@@ -111,14 +112,26 @@ class SettingsUpdateCoordinator:
 
                 if service and hasattr(service, method_name):
                     method = getattr(service, method_name)
-                    if "threshold" in method_name:
-                        await method(threshold=value)
-                    elif "count" in method_name:
-                        await method(count=value)
-                    elif "chunks" in method_name:
-                        await method(chunks=value)
+                    if inspect.iscoroutinefunction(method):
+                        # Async method - await it
+                        if "threshold" in method_name:
+                            await method(threshold=value)
+                        elif "count" in method_name:
+                            await method(count=value)
+                        elif "chunks" in method_name:
+                            await method(chunks=value)
+                        else:
+                            await method(value)
                     else:
-                        await method(value)
+                        # Sync method - call directly
+                        if "threshold" in method_name:
+                            method(threshold=value)
+                        elif "count" in method_name:
+                            method(count=value)
+                        elif "chunks" in method_name:
+                            method(chunks=value)
+                        else:
+                            method(value)
                 else:
                     logger.warning(f"Service '{service_name}' not registered or method '{method_name}' not found")
             else:
