@@ -3,33 +3,46 @@ repos:
     rev: v3.4.0
     hooks:
     -   id: trailing-whitespace
+        exclude: ^NOTICE\.txt$
     -   id: end-of-file-fixer
+        exclude: ^NOTICE\.txt$
     -   id: check-yaml
+        exclude: ^NOTICE\.txt$
     -   id: check-added-large-files
+        exclude: ^NOTICE\.txt$
         args: ['--maxkb=10000']  # Allow larger files for models
     -   id: debug-statements
+        exclude: ^NOTICE\.txt$
     -   id: detect-private-key
+        exclude: ^NOTICE\.txt$
     -   id: check-merge-conflict
+        exclude: ^NOTICE\.txt$
     -   id: check-json
+        exclude: ^NOTICE\.txt$
     -   id: pretty-format-json
+        exclude: ^NOTICE\.txt$
         args: ['--autofix']
 -   repo: https://github.com/psf/black
     rev: 22.10.0
     hooks:
     -   id: black
+        exclude: ^NOTICE\.txt$
         args: ['--line-length=131']
 -   repo: https://github.com/PyCQA/flake8
     rev: 7.0.0
     hooks:
     -   id: flake8
+        exclude: ^NOTICE\.txt$
         args: ['--max-line-length=131', '--ignore=E203,W503,E501']
 -   repo: https://github.com/PyCQA/autoflake
     rev: v2.2.0
     hooks:
     -   id: autoflake
+        exclude: ^NOTICE\.txt$
         args: ["--remove-all-unused-imports", "--remove-unused-variables", "--in-place"]
 -   repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
     -   id: isort
+        exclude: ^NOTICE\.txt$
         args: ["--profile", "black", "--line-length=131"]
