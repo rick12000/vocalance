@@ -544,7 +544,10 @@ class SidebarIconButton(ctk.CTkFrame):
 
             if icon_path.exists():
                 # Transform the icon with theme color
-                pil_image = transform_monochrome_icon(str(icon_path), theme.icon_properties.color, (icon_size, icon_size))
+                # force_all_pixels=True prevents luminance-based alpha reduction for light-colored source icons
+                pil_image = transform_monochrome_icon(
+                    str(icon_path), theme.icon_properties.color, (icon_size, icon_size), force_all_pixels=True
+                )
 
                 if pil_image:
                     # Use CTkImage for proper HiDPI scaling
@@ -624,7 +627,10 @@ class SidebarIconButton(ctk.CTkFrame):
             icon_path = Path(self._asset_paths_config.icons_dir) / self.icon_filename
 
             if icon_path.exists():
-                pil_image = transform_monochrome_icon(str(icon_path), color, (self.icon_size, self.icon_size))
+                # force_all_pixels=True prevents luminance-based alpha reduction for light-colored source icons
+                pil_image = transform_monochrome_icon(
+                    str(icon_path), color, (self.icon_size, self.icon_size), force_all_pixels=True
+                )
 
                 if pil_image:
                     # Use CTkImage for proper HiDPI scaling

@@ -131,11 +131,11 @@ class ButtonText(BaseModel):
 class SidebarIcons(BaseModel):
     """Sidebar icon configuration"""
 
-    marks: str = "circle-center-icon.png"
-    sounds: str = "microphone-icon.png"
-    commands: str = "speaking-bubbles-black-icon.png"
-    dictation: str = "neural-network-black-icon.png"
-    settings: str = "settings-icon.png"
+    marks: str = "bookmark_flag_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"
+    sounds: str = "mic_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"
+    commands: str = "voice_selection_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"
+    dictation: str = "network_intelligence_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"
+    settings: str = "settings_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"
 
 
 class HeaderLayout(BaseModel):
@@ -480,7 +480,7 @@ class EntryFieldStyling(BaseModel):
 class IconProperties(BaseModel):
     """Icon styling properties"""
 
-    width_percentage: float = 0.35
+    width_percentage: float = 0.42
     color: str = ShapeColors().medium
     icon_text_spacing: int = 5
 
