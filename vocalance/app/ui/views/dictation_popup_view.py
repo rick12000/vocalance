@@ -10,6 +10,7 @@ import customtkinter as ctk
 from vocalance.app.ui import ui_theme
 from vocalance.app.ui.controls.dictation_popup_control import DictationPopupController
 from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from vocalance.app.ui.utils.window_positioning import position_toplevel_window
 from vocalance.app.ui.views.components.view_config import view_config
 
 # Constants
@@ -394,9 +395,8 @@ class DictationPopupView:
         with self._ui_lock:
             self._hide_frames()
             self.simple_frame.pack(fill="both", expand=True, padx=10, pady=10)
-            self.popup_window.geometry(f"{SIMPLE_WINDOW_WIDTH}x{SIMPLE_WINDOW_HEIGHT}")
-            self._position_window(SIMPLE_WINDOW_WIDTH, SIMPLE_WINDOW_HEIGHT)
             self._show_window()
+            self._position_window(SIMPLE_WINDOW_WIDTH, SIMPLE_WINDOW_HEIGHT, position_type="bottom_left")
             self._start_animation()
 
     def _show_smart(self):
@@ -404,20 +404,18 @@ class DictationPopupView:
             self.current_mode = "smart"
             self._hide_frames()
             self.smart_frame.pack(fill="both", expand=True, padx=10, pady=10)
-            self.popup_window.geometry(f"{SMART_WINDOW_WIDTH}x{SMART_WINDOW_HEIGHT}")
-            self._position_window(SMART_WINDOW_WIDTH, SMART_WINDOW_HEIGHT)
             self._clear_smart_content()
             self._show_window()
+            self._position_window(SMART_WINDOW_WIDTH, SMART_WINDOW_HEIGHT, position_type="center_left")
 
     def _show_visual(self):
         with self._ui_lock:
             self.current_mode = "visual"
             self._hide_frames()
             self.visual_frame.pack(fill="both", expand=True, padx=10, pady=10)
-            self.popup_window.geometry(f"{VISUAL_WINDOW_WIDTH}x{VISUAL_WINDOW_HEIGHT}")
-            self._position_window(VISUAL_WINDOW_WIDTH, VISUAL_WINDOW_HEIGHT)
             self._clear_visual_content()
             self._show_window()
+            self._position_window(VISUAL_WINDOW_WIDTH, VISUAL_WINDOW_HEIGHT, position_type="center_left")
 
     def _show_window(self):
         if not self.is_visible:
@@ -458,15 +456,15 @@ class DictationPopupView:
         """Clear visual content."""
         self.visual_dictation_box.delete("1.0", "end")
 
-    def _position_window(self, width: int, height: int):
-        self.parent_root.winfo_screenwidth()
-        screen_height = self.parent_root.winfo_screenheight()
-
-        x = WINDOW_MARGIN_X
-        # Position high enough to avoid taskbar - place in lower third of screen
-        y = int(screen_height * 0.85)
-
-        self.popup_window.geometry(f"+{x}+{y}")
+    def _position_window(self, width: int, height: int, position_type: str = "center_left"):
+        """Position popup using unified positioning service."""
+        position_toplevel_window(
+            window=self.popup_window,
+            width=width,
+            height=height,
+            position_type=position_type,
+            parent=None,  # Screen-relative positioning
+        )
 
     def _start_animation(self) -> None:
         """Begin spinner animation for simple mode."""
