@@ -266,6 +266,18 @@ class SidebarLayout(BaseModel):
     logo_padding_top: int = 0
     logo_padding_bottom: int = 30  # Increased to 20px for more space below the logo
 
+    @property
+    def top_spacing(self) -> int:
+        """Calculate top spacing to match header frame top padding.
+
+        This ensures the sidebar top spacing equals the distance from
+        window top to header frame border, maintaining visual alignment
+        and consistent spacing across different screen resolutions.
+        """
+        # Get header layout to access frame padding
+        header_layout = HeaderLayout()
+        return header_layout.frame_padding_top
+
     # Button configuration - increased padding for better spacing
     button_padding_left: int = 15  # Increased from 5
     button_padding_right: int = 15  # Increased from 5

@@ -218,7 +218,7 @@ class AppControlRoom:
         )
         self.sidebar.grid_propagate(False)
 
-        self.sidebar.grid_rowconfigure(0, weight=0, minsize=50)
+        self.sidebar.grid_rowconfigure(0, weight=0, minsize=sidebar_config.top_spacing)
         self.sidebar.grid_rowconfigure(1, weight=1)
         self.sidebar.grid_rowconfigure(2, weight=0)
         self.sidebar.grid_columnconfigure(0, weight=1)

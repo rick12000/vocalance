@@ -310,7 +310,7 @@ class TwoColumnTabLayout(TransparentFrame):
             row=0,
             column=1,
             sticky="nsew",
-            padx=(half_inner_spacing, theme.two_box_layout.outer_padding_right),
+            padx=(half_inner_spacing, theme.two_box_layout.outer_padding_right + 5),
             pady=(theme.two_box_layout.outer_padding_top, theme.two_box_layout.outer_padding_bottom),
         )
 
@@ -341,12 +341,12 @@ class TwoColumnTabLayout(TransparentFrame):
         )
 
         self.left_content = TransparentFrame(self.left_box)
-        self.left_content.grid(row=1, column=0, sticky="nsew", padx=1, pady=(0, theme.two_box_layout.last_element_bottom_padding))
+        self.left_content.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, theme.two_box_layout.last_element_bottom_padding))
         self.left_content.grid_rowconfigure(0, weight=1)
         self.left_content.grid_columnconfigure(0, weight=1)
 
         self.right_content = TransparentFrame(self.right_box)
-        self.right_content.grid(row=1, column=0, sticky="nsew", padx=1, pady=(0, theme.two_box_layout.last_element_bottom_padding))
+        self.right_content.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, theme.two_box_layout.last_element_bottom_padding))
         self.right_content.grid_rowconfigure(0, weight=1)
         self.right_content.grid_columnconfigure(0, weight=1)
 
