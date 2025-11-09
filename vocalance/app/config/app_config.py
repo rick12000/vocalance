@@ -52,7 +52,7 @@ class SoundRecognizerConfig(BaseModel):
     """
 
     target_sample_rate: int = Field(16000, description="Target sample rate for YAMNet (do not change)")
-    energy_threshold: float = Field(0.001, description="Minimum audio energy for processing")
+    energy_threshold: float = Field(0.005, description="Minimum audio energy for processing")
 
     confidence_threshold: float = Field(0.15, description="Minimum similarity for recognition (optimized for enhanced features)")
     k_neighbors: int = Field(7, description="Number of neighbors for k-NN voting (increased for better discrimination)")
