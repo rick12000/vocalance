@@ -5,7 +5,8 @@ from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
 # Get the directory containing the spec file
 spec_dir = Path(os.path.abspath(os.path.dirname(sys.argv[0])))
-vocalance_dir = spec_dir / 'vocalance'
+project_root = spec_dir.parent
+vocalance_dir = project_root / 'vocalance'
 
 # Collect all llama_cpp dependencies including shared libraries
 llama_datas, llama_binaries, llama_hiddenimports = collect_all('llama_cpp')
@@ -13,8 +14,8 @@ vosk_datas, vosk_binaries, vosk_hiddenimports = collect_all('vosk')
 soundfile_datas, soundfile_binaries, soundfile_hiddenimports = collect_all('soundfile')
 
 a = Analysis(
-    ['vocalance.py'],
-    pathex=[str(vocalance_dir)],
+    [str(project_root / 'vocalance.py')],
+    pathex=[str(project_root)],
     binaries=llama_binaries + vosk_binaries + soundfile_binaries,
     datas=[
         (str(vocalance_dir / 'app' / 'assets'), 'vocalance/app/assets'),

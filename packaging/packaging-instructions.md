@@ -4,7 +4,7 @@
 
 From the project root directory, run:
 ```bash
-pyinstaller vocalance.spec
+pyinstaller packaging/vocalance.spec
 ```
 
 The packaged application will be in `dist/vocalance/`. Run `vocalance.exe` to start.
