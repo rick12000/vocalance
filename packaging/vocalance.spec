@@ -14,10 +14,33 @@ vosk_datas, vosk_binaries, vosk_hiddenimports = collect_all('vosk')
 soundfile_datas, soundfile_binaries, soundfile_hiddenimports = collect_all('soundfile')
 tensorflow_datas, tensorflow_binaries, tensorflow_hiddenimports = collect_all('tensorflow')
 
+# Collect all DLLs from conda environment's Library/bin directory
+# TensorFlow and other native dependencies require these runtime libraries
+# Determine conda environment bin directory
+if hasattr(sys, 'base_prefix'):
+    conda_env_bin = Path(sys.base_prefix) / 'Library' / 'bin'
+else:
+    conda_env_bin = Path(sys.executable).parent.parent / 'Library' / 'bin'
+
+extra_binaries = []
+if conda_env_bin.exists():
+    print(f"Collecting DLLs from conda environment: {conda_env_bin}")
+    # Get all DLL files, excluding Windows API forwarding DLLs (api-ms-*.dll)
+    dll_files = [f for f in conda_env_bin.glob('*.dll') if not f.name.startswith('api-ms-')]
+    
+    for dll_path in dll_files:
+        extra_binaries.append((str(dll_path), '.'))
+        print(f"  Adding: {dll_path.name}")
+    
+    print(f"Total conda environment DLLs bundled: {len(extra_binaries)}")
+else:
+    print(f"WARNING: Conda environment bin directory not found at {conda_env_bin}")
+    print("TensorFlow and other native dependencies may not work correctly!")
+
 a = Analysis(
     [str(project_root / 'vocalance.py')],
     pathex=[str(project_root)],
-    binaries=llama_binaries + vosk_binaries + soundfile_binaries + tensorflow_binaries,
+    binaries=llama_binaries + vosk_binaries + soundfile_binaries + tensorflow_binaries + extra_binaries,
     datas=[
         (str(vocalance_dir / 'app' / 'assets'), 'vocalance/app/assets'),
     ] + llama_datas + vosk_datas + soundfile_datas + tensorflow_datas,
