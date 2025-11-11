@@ -5,6 +5,11 @@ from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
 # Get the directory containing the spec file
 spec_dir = Path(os.path.abspath(os.path.dirname(sys.argv[0])))
+
+# Add packaging directory to path for imports
+sys.path.insert(0, str(spec_dir))
+
+from pyinstaller_hook_filter import filter_binaries
 project_root = spec_dir.parent
 vocalance_dir = project_root / 'vocalance'
 
@@ -46,6 +51,9 @@ a = Analysis(
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+
+# Filter proprietary binaries from the Analysis object (catches all packages, not just explicit ones)
+a.binaries = filter_binaries(a.binaries)
 
 exe = EXE(
     pyz,

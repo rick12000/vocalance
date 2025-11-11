@@ -30,8 +30,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 LicenseFile=C:\Users\ricca\vocalance\LICENSE.txt
-; Remove the following line to run in administrative install mode (install for all users).
-PrivilegesRequired=lowest
+; CRITICAL: Require admin for VC++ Redistributable to install to System32
+PrivilegesRequired=admin
 OutputDir=C:\Users\ricca\vocalance\inst
 OutputBaseFilename=Vocalance
 SetupIconFile=C:\Users\ricca\vocalance\vocalance\app\assets\logo\icon.ico
@@ -45,6 +45,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+; VC++ Redistributable (required for numpy, scipy, and other C extensions)
+Source: "C:\Users\ricca\vocalance\packaging\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+; Application executable and libraries
 Source: "C:\Users\ricca\vocalance\dist\vocalance\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\Users\ricca\vocalance\dist\vocalance\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
@@ -54,5 +57,9 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; CRITICAL: Install VC++ Redistributable FIRST with admin privileges
+; This must complete before the app launches
+Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /passive /norestart"; StatusMsg: "Installing Visual C++ Runtime (required)..."; Flags: waituntilterminated
+; Launch the application after VC++ installation completes
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
