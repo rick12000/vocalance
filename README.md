@@ -14,20 +14,20 @@
 
 Vocalance offers hands free control of your computer, enabling you to switch tabs, move on screen, dictate anywhere and much more!
 
-## 🚀 Getting Started
+## 🚀 Website
 
-To download Vocalance and find out more about what it can do, refer to the [official website](https://vocalance.com):
+To find out more about what Vocalance can do, including detailed instructions and guides, refer to the [official website](https://vocalance.com):
 
 <div style="width:100%; display:flex; justify-content:center;">
   <img src="vocalance/app/assets/repo/website_prompt.png" alt="Vocalance Logo" style="width:100%; max-width:1000px; height:auto;"/>
 </div>
 
 
-## 💻 Build from Source
+## 💻 Installation
 
-If you prefer to run Vocalance directly from the source code in this repository, rather than running it as an executable, follow the instructions below.
+Vocalance can be set up entirely from the source code in this repository. To do so, follow the instructions below:
 
-### Installation Steps
+### Steps
 
 1. **Clone the repository:**
    ```bash
@@ -53,12 +53,13 @@ If you prefer to run Vocalance directly from the source code in this repository,
 
 The application will start up and download any required models (like speech recognition models) on first run. This may take several minutes depending on your internet connection.
 
-On follow up runs, skip the `pip install .` step.
+On follow up runs, skip the `pip install .` step and just run the application.
 
 ## 🔧 System Requirements
 
 - **Operating System**: Windows 10/11 (macOS and Linux support planned)
-- **Memory**: 2GB RAM
+- **RAM**: 2GB RAM
+- **Disk**: 5GB
 - **Hardware**: It is **strongly** recommended to purchase a reasonably good headset or microphone to improve Vocalance outputs and recognition, but it will still work without this.
 
 ## 🤝 Contributing
