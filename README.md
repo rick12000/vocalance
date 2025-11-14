@@ -4,9 +4,9 @@
 
 <!-- TODO: update links: -->
 <div align="center">
-  <a href="https://vocalance.readthedocs.io/en/latest/getting_started.html">Website</a> |
-  <a href="https://vocalance.readthedocs.io/en/latest/basic_usage.html">Demo</a> |
-  <a href="https://vocalance.readthedocs.io/en/latest/api_reference.html">User Guide</a>
+  <a href="https://vocalance.com">Website</a> |
+  <a href="https://vocalance.readthedocs.io/en/latest/developer/introduction.html">Documentation</a> |
+  <a href="https://vocalance.readthedocs.io/en/latest/contact.html">Contact</a>
 </div>
 
 
@@ -34,9 +34,9 @@ Vocalance can be set up entirely from the source code in this repository. To do 
    git clone https://github.com/rick12000/vocalance.git
    ```
 
-2. **Create a Python 3.11 environment using your environment manager of choice. Then with that environment activated:**
+2. **Create a Python 3.11.0 environment using your environment manager of choice. Then with that environment activated:**
 
-    - **Go to repository directory:**
+    - **Go to the repository directory:**
       ```bash
       cd vocalance
       ```
@@ -53,7 +53,7 @@ Vocalance can be set up entirely from the source code in this repository. To do 
 
 The application will start up and download any required models (like speech recognition models) on first run. This may take several minutes depending on your internet connection.
 
-On follow up runs, skip the `pip install .` step and just run the application.
+On follow up runs, skip the `pip install .` step and just run the application (in the environment you created earlier).
 
 ## 🔧 System Requirements
 
@@ -70,6 +70,18 @@ Reach out at vocalance.contact@gmail.com with title **"Contribution"** if:
 - You want to add an original or pre-approved feature.
 
 For now, contributions will be handled on an ad-hoc basis, but in future contribution guidelines will be set up depending on the number of contributors.
+
+## 📚 Technical Documentation
+
+If you want to find out more about Vocalance's architecture, refer to the technical documentation pages:
+
+- **[Developer Introduction](https://vocalance.readthedocs.io/en/latest/developer/introduction.html)** - Brief overview of the main architecture and component flow
+- **[Audio Processing](https://vocalance.readthedocs.io/en/latest/developer/audio_capture_and_listeners.html)** - Audio capture and speech recognition
+- **[Command System](https://vocalance.readthedocs.io/en/latest/developer/command_parsing.html)** - Command parsing and execution
+- **[Dictation](https://vocalance.readthedocs.io/en/latest/developer/dictation_system.html)** - Transcription and formatting
+- **[User Interface](https://vocalance.readthedocs.io/en/latest/developer/user_interface.html)** - UI components and interactions
+- **[Infrastructure](https://vocalance.readthedocs.io/en/latest/developer/event_bus_and_infrastructure.html)** - Event bus and service communication
+
 
 ## 📈 Upcoming Features
 
