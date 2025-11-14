@@ -871,6 +871,10 @@ class DictationCoordinator:
                 if mode == DictationMode.SMART:
                     self._last_smart_dictation_text = None
 
+                # Reset text service session to prevent continuation logic from incorrectly lowercasing
+                # the first text of a new session. This preserves Whisper's native capitalization.
+                self.text_service.reset_session()
+
                 self._current_session = DictationSession(
                     session_id=session_id,
                     mode=mode,

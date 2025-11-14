@@ -302,9 +302,10 @@ class DictationAudioListener:
         )
 
     def setup_subscriptions(self) -> None:
-        """Subscribe to AudioChunkEvent for processing."""
+        """Subscribe to AudioChunkEvent and DictationModeDisableOthersEvent for processing."""
         self.event_bus.subscribe(event_type=AudioChunkEvent, handler=self._handle_audio_chunk)
-        logger.debug("DictationAudioListener subscribed to AudioChunkEvent")
+        self.event_bus.subscribe(event_type=DictationModeDisableOthersEvent, handler=self._handle_dictation_mode_change)
+        logger.debug("DictationAudioListener subscribed to AudioChunkEvent and DictationModeDisableOthersEvent")
 
     async def _handle_audio_chunk(self, event: AudioChunkEvent) -> None:
         """Process incoming audio chunk and apply VAD logic.
@@ -367,6 +368,24 @@ class DictationAudioListener:
 
             except Exception as e:
                 logger.error(f"Error handling audio chunk in DictationAudioListener: {e}", exc_info=True)
+
+    async def _handle_dictation_mode_change(self, event: DictationModeDisableOthersEvent) -> None:
+        """Clear pre-trigger audio when dictation mode activates.
+        
+        When dictation is activated, clear all accumulated audio buffers to ensure only
+        audio spoken AFTER the activation trigger is transcribed. This prevents pre-trigger
+        words from being included in the dictation output.
+
+        Args:
+            event: Event containing dictation mode activation state.
+        """
+        async with self._state_lock:
+            if event.dictation_mode_active:
+                # Clear all buffers when entering dictation mode
+                self._reset_state()
+                # Also explicitly clear pre-roll buffer to ensure no stale pre-trigger audio
+                self._pre_roll_buffer.clear()
+                logger.debug("DictationAudioListener: Cleared buffers on dictation activation - pre-trigger audio discarded")
 
     async def _finalize_segment(self) -> None:
         """Finalize current recording and emit DictationAudioSegmentReadyEvent."""

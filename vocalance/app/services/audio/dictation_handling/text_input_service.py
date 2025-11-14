@@ -178,6 +178,16 @@ class TextInputService:
             logger.error(f"Initialization error: {e}", exc_info=True)
             return False
 
+    def reset_session(self) -> None:
+        """Reset session state to prevent continuation logic from applying to new sessions.
+        
+        When a new dictation session starts, reset last_text so that the first text pasted
+        won't be incorrectly treated as a continuation of previous text, which would cause
+        it to be lowercased. This preserves Whisper's native capitalization.
+        """
+        self.last_text = None
+        logger.debug("TextInputService session reset - continuation logic will not apply to next paste")
+
     async def input_text(self, text: str, add_trailing_space: bool = True) -> bool:
         if not text:
             return False

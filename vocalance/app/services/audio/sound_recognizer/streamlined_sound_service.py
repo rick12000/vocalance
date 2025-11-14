@@ -229,10 +229,23 @@ class SoundService:
         return True
 
     async def _collect_training_sample(self, audio: np.ndarray, sample_rate: int) -> None:
-        """Collect a training sample with identical preprocessing as recognition - thread-safe."""
+        """Collect a training sample with identical preprocessing as recognition - thread-safe.
+        
+        Stops accepting samples once the target number is reached to prevent
+        over-collection. Auto-finalizes training when target is hit.
+        """
         with self._training_lock:
             if not self._training_active:
                 logger.debug("Training not active, ignoring sample")
+                return
+
+            # CRITICAL: Prevent collecting more samples than requested
+            # Check before collecting to stop immediately at target
+            sample_count = len(self._training_samples)
+            target = self._target_samples
+            
+            if sample_count >= target:
+                logger.debug(f"Target samples reached ({sample_count}/{target}), ignoring additional sample")
                 return
 
             # NOTE: Apply same preprocessing as recognition to ensure feature alignment
@@ -246,12 +259,11 @@ class SoundService:
                 return
 
             sample_count = len(self._training_samples)
-            target = self._target_samples
             label = self._current_training_label
 
         logger.info(f"Collected training sample {sample_count}/{target} for '{label}'")
 
-        # Publish progress event
+        # Publish progress event - only mark as last if we've EXACTLY reached the target
         is_last = sample_count >= target
         await self.event_bus.publish(
             SoundTrainingProgressEvent(
@@ -263,7 +275,8 @@ class SoundService:
         )
 
         # Auto-finish training after collecting enough samples
-        if sample_count >= target:
+        if is_last:
+            logger.info(f"Target samples reached ({sample_count}/{target}), auto-finalizing training")
             await self.finish_training()
 
     async def finish_training(self) -> bool:

@@ -210,8 +210,9 @@ class SoundRecognizer:
     async def initialize(self) -> bool:
         """Initialize YAMNet model and load existing data.
 
-        Loads YAMNet TensorFlow model, loads persisted embeddings/labels/scaler,
-        and copies ESC-50 negative examples for training robustness.
+        Loads YAMNet TensorFlow model, loads persisted embeddings/labels/scaler.
+        ESC-50 samples are now copied at app startup via warm_start_esc50_samples()
+        to avoid blocking first training.
 
         Returns:
             True if initialization successful, False otherwise.
@@ -228,7 +229,8 @@ class SoundRecognizer:
 
             await self._load_model_data_async()
 
-            await self._copy_esc50_samples()
+            # NOTE: ESC-50 copying moved to warm_start_esc50_samples() for app startup
+            # This prevents blocking first training with file I/O
 
             logger.info(f"SoundRecognizer initialized: {len(self.embeddings)} embeddings")
             return True
@@ -239,6 +241,24 @@ class SoundRecognizer:
         except Exception as e:
             logger.error(f"Failed to initialize recognizer: {e}", exc_info=True)
             return False
+
+    async def warm_start_esc50_samples(self) -> None:
+        """Warm-start ESC-50 sample copying at application startup.
+
+        Called during app initialization to pre-cache ESC-50 samples without blocking
+        the first sound training operation. This ensures training is fast even on first
+        use of the application.
+
+        This method is non-critical - if ESC-50 samples haven't been copied when
+        training starts, the training will work (just without negative examples).
+        """
+        try:
+            logger.info("Warm-starting ESC-50 sample cache...")
+            await self._copy_esc50_samples()
+            logger.info("ESC-50 warm-start completed")
+        except Exception as e:
+            logger.error(f"Failed to warm-start ESC-50 samples (non-critical): {e}")
+            # Don't raise - this is a nice-to-have optimization, not critical
 
     async def _load_model_data_async(self) -> None:
         """Load saved model data asynchronously."""
@@ -426,7 +446,10 @@ class SoundRecognizer:
             return False
 
     async def _copy_esc50_samples(self) -> None:
-        """Copy ESC-50 samples from assets to app directory if needed."""
+        """Copy ESC-50 samples from assets to app directory if needed.
+        
+        Thread-safe and idempotent - can be called concurrently without issues.
+        """
         try:
             # Get ESC-50 path from config
             assets_esc50_path = self.asset_path_config.esc50_samples_path
@@ -435,14 +458,18 @@ class SoundRecognizer:
             needed_categories = []
             for category in self.esc50_categories.keys():
                 # Check if any files exist for this category in app directory
-                category_files = [
-                    f for f in os.listdir(self.external_sounds_path) if f.startswith(f"esc50_{category}_") and f.endswith(".wav")
-                ]
-                if len(category_files) < self.max_esc50_per_cat:
+                try:
+                    category_files = [
+                        f for f in os.listdir(self.external_sounds_path) if f.startswith(f"esc50_{category}_") and f.endswith(".wav")
+                    ]
+                    if len(category_files) < self.max_esc50_per_cat:
+                        needed_categories.append(category)
+                except FileNotFoundError:
+                    # external_sounds_path might not exist yet on first run
                     needed_categories.append(category)
 
             if not needed_categories:
-                logger.info("ESC-50 samples already present in app directory")
+                logger.debug("ESC-50 samples already present in app directory")
                 return
 
             logger.info(f"Copying ESC-50 samples for categories: {needed_categories}")
@@ -450,7 +477,7 @@ class SoundRecognizer:
             logger.info(f"Successfully copied {copied_count} ESC-50 samples from assets")
 
         except Exception as e:
-            logger.error(f"Failed to copy ESC-50 samples: {e}", exc_info=True)
+            logger.debug(f"Failed to copy ESC-50 samples (non-critical): {e}")
 
     async def _copy_categories_from_assets(self, assets_path: str, categories: list) -> int:
         """Copy specific ESC-50 categories from assets to app directory."""

@@ -429,6 +429,21 @@ class FastServiceInitializer:
         await init_sound()
         self._check_cancellation()
 
+        # Warm-start ESC-50 sample cache in background (non-blocking)
+        # This ensures fast training even on first use
+        async def init_esc50_warmstart() -> None:
+            """Warm-start ESC-50 samples in background without blocking other initialization."""
+            try:
+                with self._services_lock:
+                    sound_service = self.services.get("sound_service")
+                if sound_service:
+                    await sound_service.recognizer.warm_start_esc50_samples()
+            except Exception as e:
+                logger.warning(f"ESC-50 warm-start failed (non-critical): {e}")
+
+        # Don't await - run in background
+        asyncio.create_task(init_esc50_warmstart())
+
         await init_stt()
         self._check_cancellation()
 
