@@ -54,6 +54,21 @@ class WhisperSTT:
         self._no_speech_threshold = (
             config.stt.whisper_no_speech_threshold if hasattr(config.stt, "whisper_no_speech_threshold") else 0.6
         )
+        
+        # Quality thresholds to prevent hallucinations at the source
+        # compression_ratio_threshold: Detects repetitive/garbled output (hallucinations have high compression)
+        # logprob_threshold: Filters low-confidence predictions (hallucinations have low log probability)
+        self._compression_ratio_threshold = (
+            config.stt.whisper_compression_ratio_threshold 
+            if hasattr(config.stt, "whisper_compression_ratio_threshold") 
+            else 2.4  # faster-whisper default, reject segments with compression_ratio > 2.4
+        )
+        self._logprob_threshold = (
+            config.stt.whisper_logprob_threshold
+            if hasattr(config.stt, "whisper_logprob_threshold")
+            else -1.0  # Reject segments with avg_logprob < -1.0 (low confidence)
+        )
+        
         self._compute_type = "int8"
 
         self._max_retries = config.stt.whisper_max_retries
@@ -298,6 +313,20 @@ class WhisperSTT:
                 logger.debug(f"Skipping segment with high no_speech_prob: {no_speech_prob:.3f}")
                 continue
 
+            # CRITICAL: Filter hallucinations at source using Whisper's quality metrics
+            # Check avg_logprob - hallucinations typically have very low log probability
+            avg_logprob = seg.avg_logprob if hasattr(seg, "avg_logprob") else 0.0
+            if avg_logprob < self._logprob_threshold:
+                logger.debug(f"Skipping low-confidence segment: avg_logprob={avg_logprob:.3f} < {self._logprob_threshold}")
+                continue
+
+            # Check compression_ratio - hallucinations often have high compression ratio
+            # (the model is repeating itself or outputting gibberish)
+            compression_ratio = seg.compression_ratio if hasattr(seg, "compression_ratio") else 0.0
+            if compression_ratio > self._compression_ratio_threshold:
+                logger.debug(f"Skipping repetitive segment: compression_ratio={compression_ratio:.2f} > {self._compression_ratio_threshold}")
+                continue
+
             text = seg.text.strip()
             if not text:
                 continue
@@ -314,6 +343,8 @@ class WhisperSTT:
                     "end": seg.end,
                     "completed": False,  # Will mark all but last as completed
                     "no_speech_prob": no_speech_prob,
+                    "avg_logprob": avg_logprob,
+                    "compression_ratio": compression_ratio,
                 }
             )
 
