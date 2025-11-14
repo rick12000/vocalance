@@ -180,7 +180,7 @@ class SettingsView(ctk.CTkFrame):
         # Outer container with border and padding from parent
         container_frame = ctk.CTkFrame(
             self,
-            fg_color=ui_theme.theme.shape_colors.dark,
+            fg_color=ui_theme.theme.shape_colors.darkest,
             corner_radius=ui_theme.theme.two_box_layout.box_corner_radius,
             border_width=1,
             border_color=ui_theme.theme.shape_colors.medium,

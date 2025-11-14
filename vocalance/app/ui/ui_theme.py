@@ -69,11 +69,11 @@ class ShapeColors(BaseModel):
 
     accent: str = "#b4c7c6"
     accent_minus: str = "#9dabaa"
-    lightest: str = "#5c5c5c"
-    light: str = "#3f3f3f"
-    medium: str = "#303030"
-    dark: str = "#161616"
-    darkest: str = "#121212"
+    lightest: str = "#515151"
+    light: str = "#404040"
+    medium: str = "#323232"
+    dark: str = "#181818"
+    darkest: str = "#111111"
 
 
 class AccentColors(BaseModel):
@@ -181,8 +181,8 @@ class HeaderLayout(BaseModel):
 
     @property
     def border_color(self) -> str:
-        """Border color - shape_colors.light"""
-        return ShapeColors().lightest
+        """Border color - shape_colors.darkest"""
+        return ShapeColors().medium
 
     @property
     def frame_padding_left(self) -> int:
@@ -248,8 +248,8 @@ class SidebarLayout(BaseModel):
 
     @property
     def border_color(self) -> str:
-        """Border color - shape_colors.lightest"""
-        return ShapeColors().lightest
+        """Border color - shape_colors.darkest"""
+        return ShapeColors().medium
 
     border_side: str = "right"  # Which side to show border on
 
@@ -323,7 +323,7 @@ class TwoBoxLayout(BaseModel):
     @property
     def box_background_color(self) -> str:
         """Box background color - shape_colors.dark"""
-        return ShapeColors().dark
+        return ShapeColors().darkest
 
     # Box border configuration
     box_border_width: int = 1
@@ -426,7 +426,7 @@ class TileLayout(BaseModel):
     @property
     def border_color(self) -> str:
         """Border color - shape_colors.lightest"""
-        return ShapeColors().lightest
+        return ShapeColors().medium
 
 
 class ListLayout(BaseModel):
@@ -459,8 +459,8 @@ class ListLayout(BaseModel):
 class LogoProperties(BaseModel):
     """Logo styling properties"""
 
-    full_logo_filename: str = "grey_red_icon_full_size.png"
-    icon_logo_filename: str = "grey_red_icon_full_size.png"
+    full_logo_filename: str = "grey_icon_full_size.png"
+    icon_logo_filename: str = "grey_icon_full_size.png"
 
     # Monochrome conversion toggles
     full_logo_apply_monochrome: bool = False

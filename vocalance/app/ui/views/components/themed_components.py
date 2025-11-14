@@ -206,7 +206,7 @@ class ThemedScrollableFrame(ctk.CTkScrollableFrame):
     def __init__(self, parent, **kwargs):
         # Set default attributes - no borders for clean list appearance, using shape colors directly
         default_kwargs = {
-            "fg_color": theme.shape_colors.dark,  # Use shape_colors.dark for content boxes
+            "fg_color": theme.shape_colors.darkest,  # Use shape_colors.darkest for content boxes
             "corner_radius": theme.two_box_layout.box_corner_radius,
             "border_width": 0,  # No border for clean appearance
             "scrollbar_button_color": theme.shape_colors.light,

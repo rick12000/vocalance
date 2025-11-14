@@ -526,7 +526,7 @@ class AssetPathsConfig(BaseModel):
             Path to icon logo image or None.
         """
         if self.logo_dir:
-            icon_path: Path = Path(self.logo_dir) / "grey_red_icon_full_size.png"
+            icon_path: Path = Path(self.logo_dir) / "grey_icon_full_size.png"
             return str(icon_path)
         return None
 
