@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from faster_whisper import WhisperModel
+from faster_whisper.transcribe import Segment
 
 from vocalance.app.config.app_config import GlobalAppConfig
 
@@ -166,8 +167,42 @@ class WhisperSTT:
         audio_np = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         return audio_np
 
+    def _is_segment_quality_acceptable(self, segment: Segment) -> bool:
+        """Check if a segment meets quality thresholds and is not a hallucination.
+
+        Filters segments that are likely hallucinations based on:
+        - no_speech_prob: High probability indicates silence/noise
+        - avg_logprob: Low probability indicates uncertain/garbled predictions
+        - compression_ratio: High ratio indicates repetitive/gibberish output
+
+        Args:
+            segment: Faster-whisper Segment object with quality metrics.
+
+        Returns:
+            True if segment is acceptable, False if it should be filtered out.
+        """
+        # Check if segment is mostly silence or noise
+        if segment.no_speech_prob > self._no_speech_threshold:
+            logger.debug(f"Skipping silent segment: no_speech_prob={segment.no_speech_prob:.3f}")
+            return False
+
+        # Check if segment has low confidence (likely hallucination)
+        if segment.avg_logprob < self._logprob_threshold:
+            logger.debug(f"Skipping low-confidence segment: avg_logprob={segment.avg_logprob:.3f}")
+            return False
+
+        # Check if segment has high compression ratio (repetitive/gibberish)
+        if segment.compression_ratio > self._compression_ratio_threshold:
+            logger.debug(f"Skipping repetitive segment: compression_ratio={segment.compression_ratio:.2f}")
+            return False
+
+        return True
+
     def _extract_text_from_segments(self, segments: List[Any]) -> Tuple[str, float]:
-        """Extract and combine text from Whisper segments with confidence scoring.
+        """Extract and combine text from Whisper segments with confidence scoring and quality filtering.
+
+        Filters out low-quality segments that indicate hallucinations from non-verbal sounds,
+        blowing into microphone, etc. Uses Whisper's native quality metrics.
 
         Args:
             segments: List of Whisper segment objects from transcription.
@@ -184,14 +219,16 @@ class WhisperSTT:
             if not segment_text:
                 continue
 
+            # Filter hallucinations using quality metrics
+            if not self._is_segment_quality_acceptable(segment):
+                continue
+
             segment_count += 1
             all_text_parts.append(segment_text)
 
-            if hasattr(segment, "avg_logprob") and segment.avg_logprob is not None:
-                confidence = min(1.0, max(0.0, (segment.avg_logprob + 1.0) / 1.0))
-                total_confidence += confidence
-            else:
-                total_confidence += 0.8
+            # Calculate confidence from log probability
+            confidence = min(1.0, max(0.0, (segment.avg_logprob + 1.0) / 1.0))
+            total_confidence += confidence
 
         combined_text = " ".join(all_text_parts).strip()
         avg_confidence = total_confidence / max(1, segment_count)
@@ -306,25 +343,8 @@ class WhisperSTT:
         confidence_scores = []
 
         for seg in segments_iter:
-            # Filter out segments with high no_speech probability (silence/noise)
-            # WhisperLive uses 0.45 threshold - segments above this are likely silence
-            no_speech_prob = seg.no_speech_prob if hasattr(seg, "no_speech_prob") else 0.0
-            if no_speech_prob > self._no_speech_threshold:
-                logger.debug(f"Skipping segment with high no_speech_prob: {no_speech_prob:.3f}")
-                continue
-
-            # CRITICAL: Filter hallucinations at source using Whisper's quality metrics
-            # Check avg_logprob - hallucinations typically have very low log probability
-            avg_logprob = seg.avg_logprob if hasattr(seg, "avg_logprob") else 0.0
-            if avg_logprob < self._logprob_threshold:
-                logger.debug(f"Skipping low-confidence segment: avg_logprob={avg_logprob:.3f} < {self._logprob_threshold}")
-                continue
-
-            # Check compression_ratio - hallucinations often have high compression ratio
-            # (the model is repeating itself or outputting gibberish)
-            compression_ratio = seg.compression_ratio if hasattr(seg, "compression_ratio") else 0.0
-            if compression_ratio > self._compression_ratio_threshold:
-                logger.debug(f"Skipping repetitive segment: compression_ratio={compression_ratio:.2f} > {self._compression_ratio_threshold}")
+            # Filter hallucinations using quality metrics
+            if not self._is_segment_quality_acceptable(seg):
                 continue
 
             text = seg.text.strip()
@@ -342,14 +362,14 @@ class WhisperSTT:
                     "start": seg.start,
                     "end": seg.end,
                     "completed": False,  # Will mark all but last as completed
-                    "no_speech_prob": no_speech_prob,
-                    "avg_logprob": avg_logprob,
-                    "compression_ratio": compression_ratio,
+                    "no_speech_prob": seg.no_speech_prob,
+                    "avg_logprob": seg.avg_logprob,
+                    "compression_ratio": seg.compression_ratio,
                 }
             )
 
             # Track confidence (use inverse of no_speech_prob as proxy)
-            confidence_scores.append(1.0 - no_speech_prob)
+            confidence_scores.append(1.0 - seg.no_speech_prob)
 
         recognition_time = time.time() - recognition_start
 
