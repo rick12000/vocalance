@@ -677,8 +677,9 @@ def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> None:
     """Setup signal handlers for graceful shutdown on SIGINT and SIGTERM.
 
     Registers handlers that request shutdown through the coordinator and start a
-    fallback force-exit thread that terminates the process after 5 seconds if
-    graceful shutdown fails to complete.
+    fallback force-exit thread that terminates the process after 30 seconds if
+    graceful shutdown fails to complete. The extended timeout allows time for
+    resource cleanup operations (e.g., model unloading, event bus stopping).
 
     Args:
         shutdown_coordinator: Coordinator managing the shutdown sequence.
@@ -689,7 +690,7 @@ def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> None:
         shutdown_coordinator.request_shutdown(reason=f"Received system signal {signum}", source="signal_handler")
 
         def force_exit() -> None:
-            time.sleep(5)
+            time.sleep(30)
             logger.error("Force exiting due to shutdown timeout")
             os._exit(1)
 
