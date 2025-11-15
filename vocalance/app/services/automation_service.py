@@ -1,0 +1,284 @@
+import asyncio
+import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Dict, Optional
+
+import pyautogui
+
+from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.config.command_types import ActionType, BaseCommand, ParameterizedCommand
+from vocalance.app.event_bus import EventBus
+from vocalance.app.events.command_events import AutomationCommandParsedEvent
+from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
+from vocalance.app.events.core_events import CommandExecutedStatusEvent
+
+logger = logging.getLogger(__name__)
+
+
+class AutomationService:
+    """Service for executing automation commands with cooldown management.
+
+    Processes automation commands through pyautogui, manages execution timing
+    with per-command cooldowns, and provides async-safe execution with status
+    reporting through the event bus. Uses thread pool executor to avoid blocking
+    the async event loop during pyautogui operations.
+
+    Attributes:
+        _thread_pool: ThreadPoolExecutor for executing pyautogui calls.
+        _execution_lock: Async lock preventing concurrent command execution.
+        _cooldown_timers: Dict tracking last execution time per command key.
+    """
+
+    def __init__(self, event_bus: EventBus, app_config: GlobalAppConfig) -> None:
+        """Initialize automation service with event bus and configuration.
+
+        Args:
+            event_bus: EventBus for pub/sub messaging.
+            app_config: Global application configuration.
+        """
+        self._event_bus: EventBus = event_bus
+        self._app_config: GlobalAppConfig = app_config
+        self._thread_pool: ThreadPoolExecutor = ThreadPoolExecutor(
+            max_workers=app_config.automation_service.thread_pool_max_workers
+        )
+        self._execution_lock: asyncio.Lock = asyncio.Lock()
+        self._cooldown_lock: asyncio.Lock = asyncio.Lock()
+        self._cooldown_timers: Dict[str, float] = {}
+
+        logger.debug("AutomationService initialized")
+
+    def setup_subscriptions(self) -> None:
+        """Setup event subscriptions for automation commands."""
+        self._event_bus.subscribe(event_type=AutomationCommandParsedEvent, handler=self._handle_automation_command)
+        self._event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=self._handle_command_mappings_updated)
+        logger.debug("AutomationService subscriptions set up")
+
+    async def _handle_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:
+        """Process and execute automation commands with cooldown and count handling.
+
+        CRITICAL: Creates background task to avoid blocking event bus.
+        Automation commands can take 50-500ms and must not block other events.
+
+        Validates command parameters, checks cooldown status, executes through
+        thread pool, and publishes execution status events.
+
+        Args:
+            event_data: Event containing the automation command to execute.
+        """
+        # Create background task to avoid blocking event bus
+        asyncio.create_task(self._execute_automation_command(event_data))
+
+    async def _execute_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:
+        """Background task for automation command execution - does not block event bus.
+
+        Args:
+            event_data: Event containing the automation command to execute.
+        """
+        command = event_data.command
+        count = getattr(command, "count", 1)
+
+        if isinstance(command, ParameterizedCommand) and count <= 0:
+            await self._publish_status(command, event_data.source, False, f"Invalid repeat count: {count}")
+            return
+
+        if not await self._check_cooldown(command.command_key):
+            await self._publish_status(command, event_data.source, False, f"Command '{command.command_key}' is on cooldown")
+            return
+
+        success = await self._execute_command(command.action_type, command.action_value, count)
+
+        if success:
+            async with self._cooldown_lock:
+                self._cooldown_timers[command.command_key] = time.time()
+
+        count_text = f" {count} times" if count > 1 else ""
+        status = "successfully" if success else "failed"
+        message = f"Command '{command.command_key}' executed{count_text} {status}"
+        await self._publish_status(command, event_data.source, success, message)
+
+    async def _execute_command(self, action_type: ActionType, action_value: str, count: int = 1) -> bool:
+        """Execute automation action in thread pool.
+
+        Creates action function from type and value, then executes in thread pool
+        to avoid blocking the event loop.
+
+        Args:
+            action_type: Type of automation action (hotkey, key, click, scroll, etc.).
+            action_value: Value/parameter for the action.
+            count: Number of times to repeat the action.
+
+        Returns:
+            True if execution succeeded, False otherwise.
+        """
+        action_function = self._create_action_function(action_type, action_value)
+        if not action_function:
+            return False
+
+        if not self._execution_lock.locked():
+            async with self._execution_lock:
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(self._thread_pool, lambda: self._execute_action(action_function, count))
+        else:
+            logger.warning("Could not acquire execution lock - another command in progress")
+            return False
+
+    def _execute_action(self, action_function: Callable[[], None], count: int) -> bool:
+        """Execute action function multiple times.
+
+        Args:
+            action_function: Function to execute.
+            count: Number of repetitions.
+
+        Returns:
+            True if successful.
+        """
+        for _ in range(count):
+            action_function()
+        return True
+
+    def _create_action_function(self, action_type: ActionType, action_value: str) -> Optional[Callable[[], None]]:
+        """Create pyautogui action function from action type and value.
+
+        Maps action types to corresponding pyautogui function calls with proper
+        parameter handling for hotkeys, key sequences, clicks, and scrolls.
+
+        Args:
+            action_type: Type of automation action.
+            action_value: Value/parameter for the action.
+
+        Returns:
+            Callable function that executes the action, or None if invalid.
+        """
+        if action_type == "hotkey":
+            keys = [key.strip() for key in action_value.replace(" ", "+").split("+")]
+            return lambda: pyautogui.hotkey(*keys)
+
+        elif action_type == "key":
+            return lambda: pyautogui.press(action_value)
+
+        elif action_type == "key_sequence":
+            key_list = [key.strip() for key in action_value.split(",")]
+            return lambda: self._execute_key_sequence(key_list)
+
+        elif action_type == "click":
+            click_actions = {
+                "click": lambda: pyautogui.click(button="left"),
+                "left_click": lambda: pyautogui.click(button="left"),
+                "right_click": lambda: pyautogui.click(button="right"),
+                "double_click": pyautogui.doubleClick,
+                "triple_click": pyautogui.tripleClick,
+            }
+            return click_actions.get(action_value)
+
+        elif action_type == "scroll":
+
+            def scroll_up():
+                self._execute_animated_scroll("up")
+
+            def scroll_down():
+                self._execute_animated_scroll("down")
+
+            scroll_directions = {
+                "up": scroll_up,
+                "down": scroll_down,
+            }
+            return scroll_directions.get(action_value)
+
+        return None
+
+    def _execute_key_sequence(self, key_list: list[str]) -> None:
+        """Execute a sequence of key presses with delay between them.
+
+        Args:
+            key_list: List of key combinations to press.
+        """
+        for key_combination in key_list:
+            if "+" in key_combination:
+                keys = [k.strip() for k in key_combination.split("+")]
+                pyautogui.hotkey(*keys)
+            else:
+                pyautogui.press(key_combination.strip())
+            time.sleep(self._app_config.automation_service.key_sequence_delay_seconds)
+
+    def _execute_animated_scroll(self, direction: str) -> None:
+        """Execute animated scrolling with multiple steps and delays.
+
+        Args:
+            direction: "up" for scrolling up, "down" for scrolling down.
+        """
+        total_clicks = self._app_config.automation_service.scroll_total_clicks
+        animation_steps = self._app_config.automation_service.scroll_animation_steps
+        animation_delay = self._app_config.automation_service.scroll_animation_delay_seconds
+
+        # Determine scroll direction multiplier
+        direction_multiplier = 1 if direction == "up" else -1
+
+        # Calculate base clicks per step and remainder
+        clicks_per_step = total_clicks // animation_steps
+        remainder_clicks = total_clicks % animation_steps
+
+        for step in range(animation_steps):
+            # Add one extra click for remainder steps
+            step_clicks = clicks_per_step
+            if step < remainder_clicks:
+                step_clicks += 1
+
+            # Perform the scroll
+            pyautogui.scroll(step_clicks * direction_multiplier)
+
+            # Add delay between steps (except for the last step)
+            if step < animation_steps - 1:
+                time.sleep(animation_delay)
+
+    async def _check_cooldown(self, command_key: str) -> bool:
+        """Check if command is off cooldown.
+
+        Args:
+            command_key: Command identifier.
+
+        Returns:
+            True if cooldown period has elapsed, False otherwise.
+        """
+        current_time = time.time()
+        async with self._cooldown_lock:
+            last_execution = self._cooldown_timers.get(command_key, 0)
+        cooldown_period = self._app_config.automation_cooldown_seconds
+        return current_time - last_execution >= cooldown_period
+
+    async def _publish_status(self, command: BaseCommand, source: Optional[str], success: bool, message: str) -> None:
+        """Publish command execution status event.
+
+        Args:
+            command: Executed command.
+            source: Source of the command.
+            success: Whether execution succeeded.
+            message: Status message.
+        """
+        status_event = CommandExecutedStatusEvent(
+            command={
+                "command_key": command.command_key,
+                "action_type": command.action_type,
+                "action_value": command.action_value,
+            },
+            success=success,
+            message=message,
+            source=source,
+        )
+        await self._event_bus.publish(status_event)
+
+    async def _handle_command_mappings_updated(self, event_data: CommandMappingsUpdatedEvent) -> None:
+        """Handle command mappings update by clearing cooldown timers.
+
+        Args:
+            event_data: Event containing updated mappings.
+        """
+        async with self._cooldown_lock:
+            self._cooldown_timers.clear()
+        logger.debug("Cleared automation command cooldown timers after mappings update")
+
+    async def shutdown(self) -> None:
+        """Shutdown the automation service and cleanup resources."""
+        if self._thread_pool:
+            self._thread_pool.shutdown(wait=True)
+        logger.debug("AutomationService shutdown")

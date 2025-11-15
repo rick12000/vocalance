@@ -1,0 +1,254 @@
+import tkinter as tk
+from typing import Any, Dict, List
+
+import customtkinter as ctk
+
+from vocalance.app.ui.controls.dictation_control import DictationController
+from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
+from vocalance.app.ui.utils.window_positioning import center_window_on_parent
+from vocalance.app.ui.views.components.base_view import ViewHelper
+from vocalance.app.ui.views.components.form_builder import FormBuilder
+from vocalance.app.ui.views.components.list_builder import ButtonType, ListBuilder, ListItemColumn
+from vocalance.app.ui.views.components.themed_components import ThemedFrame, TwoColumnTabLayout
+from vocalance.app.ui.views.components.view_config import view_config
+
+
+class DictationView(ViewHelper):
+    """Simplified dictation view using base components and form builder"""
+
+    def __init__(self, parent, controller: DictationController, root_window=None):
+        super().__init__(parent, controller, root_window)
+        self.selected_prompt_var = tk.StringVar()
+        self._setup_ui()
+        self.controller.refresh_prompts()
+
+    def _setup_ui(self) -> None:
+        """Setup the main UI layout"""
+        self.setup_main_layout()
+
+        self.layout = TwoColumnTabLayout(self, "Add Custom Prompt", "Manage Prompts")
+        self.layout.grid(row=0, column=0, sticky="nsew")
+
+        self._setup_add_prompt_form()
+        self._setup_manage_prompts_panel()
+
+    def _setup_add_prompt_form(self) -> None:
+        """Setup the add prompt form using form builder"""
+        container = self.layout.left_content
+        form_builder = FormBuilder()
+        form_builder.setup_form_grid(container)
+
+        self.title_label, self.title_entry = form_builder.create_labeled_entry(container, "Prompt Title:", "e.g. Email Formatting")
+
+        self.prompt_label, self.prompt_textbox = form_builder.create_labeled_textbox(
+            container,
+            "Prompt Instructions:",
+            "e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' Adopt a professional tone and style.",
+            height=130,
+        )
+
+        def on_textbox_click(event):
+            current_text = self.prompt_textbox.get("1.0", "end-1c")
+            if current_text.startswith("e.g. "):
+                self.prompt_textbox.delete("1.0", "end")
+
+        self.prompt_textbox.bind("<Button-1>", on_textbox_click)
+
+        form_builder.create_button_row(
+            container,
+            [{"text": view_config.theme.button_text.add_prompt, "command": self._add_prompt, "type": "primary", "compact": False}],
+        )
+
+    def _setup_manage_prompts_panel(self) -> None:
+        """Setup the manage prompts panel"""
+        container = self.layout.right_content
+        container.grid_rowconfigure(0, weight=1)
+        container.grid_columnconfigure(0, weight=1)
+
+        self.prompts_container = ListBuilder.create_scrollable_list_container(
+            container,
+            row=0,
+            column=0,
+            pady=(0, view_config.theme.two_box_layout.last_element_bottom_padding),
+        )
+
+    def _add_prompt(self) -> None:
+        """Add a new prompt with validation"""
+        title = self.title_entry.get().strip()
+        prompt_text = self.prompt_textbox.get("1.0", "end-1c").strip()
+
+        if prompt_text.startswith("e.g. "):
+            prompt_text = ""
+
+        if not title:
+            form_builder = FormBuilder()
+            form_builder.show_temporary_message(self.layout.left_content, "Please enter a title for the prompt.")
+            return
+
+        if not prompt_text:
+            form_builder = FormBuilder()
+            form_builder.show_temporary_message(self.layout.left_content, "Please enter prompt instructions.")
+            return
+
+        if self.controller.add_prompt(title, prompt_text):
+            self.clear_form_fields(self.title_entry, self.prompt_textbox)
+            example_text = "e.g. Convert informal speech to professional writing while preserving all key information and maintaining clarity."
+            self.prompt_textbox.insert("1.0", example_text)
+
+    def display_prompts(self, prompts: List[Dict[str, Any]]) -> None:
+        """Display prompts using simplified tile creation"""
+        ListBuilder.display_items(
+            container=self.prompts_container,
+            items=prompts,
+            create_item_callback=self._create_prompt_tile,
+        )
+
+    def _create_prompt_tile(self, prompt_data: Dict[str, Any], row_idx: int) -> None:
+        """Create a simplified prompt tile with 4-column layout using ListBuilder"""
+
+        def on_radio_select():
+            self.selected_prompt_var.set(prompt_data["id"])
+            self.controller.select_prompt(prompt_data["id"])
+
+        def create_radio(parent: ctk.CTkFrame) -> ctk.CTkRadioButton:
+            """Factory function to create the radio button"""
+            return ctk.CTkRadioButton(
+                parent,
+                text="",
+                width=24,
+                variable=self.selected_prompt_var,
+                value=prompt_data["id"],
+                command=on_radio_select,
+                fg_color=view_config.theme.shape_colors.light,
+                hover_color=view_config.theme.shape_colors.lightest,
+                border_width_checked=4,
+                border_width_unchecked=2,
+            )
+
+        ListBuilder.create_list_item(
+            container=self.prompts_container,
+            row_index=row_idx,
+            columns=[
+                ListItemColumn.widget(widget_factory=create_radio, weight=0),
+                ListItemColumn.label(text=prompt_data.get("name", "Unnamed"), weight=1),
+                ListItemColumn.button(
+                    text=view_config.theme.button_text.edit,
+                    command=lambda: self._edit_prompt(prompt_data),
+                    button_type=ButtonType.PRIMARY,
+                ),
+                ListItemColumn.button(
+                    text=view_config.theme.button_text.delete,
+                    command=lambda: self._delete_prompt(prompt_data["id"]),
+                    button_type=ButtonType.DANGER,
+                ),
+            ],
+        )
+
+        if prompt_data.get("is_current", False):
+            self.selected_prompt_var.set(prompt_data["id"])
+
+    def _edit_prompt(self, prompt_data: Dict[str, Any]) -> None:
+        """Edit prompt with simplified dialog"""
+        # Check if this is the default prompt
+        if prompt_data.get("is_default", False):
+            self.show_info("Cannot Edit Default Prompt", "The default prompt cannot be edited.")
+            return
+
+        dialog = ctk.CTkToplevel(self.root_window)
+        dialog.title(f"Edit: {prompt_data.get('name', 'Unnamed')}")
+        dialog.transient(self.root_window)
+        dialog.grab_set()
+        dialog.configure(fg_color=view_config.theme.shape_colors.darkest)
+        dialog.minsize(
+            view_config.theme.dimensions.dictation_view_dialog_width, view_config.theme.dimensions.dictation_view_dialog_min_height
+        )
+
+        # Set icon immediately
+        try:
+            set_window_icon_robust(dialog)
+        except Exception:
+            pass
+
+        # Reinforce icon after dialog is displayed to prevent CustomTkinter override
+        dialog.after(50, lambda: self._reinforce_icon(dialog))
+        dialog.after(200, lambda: self._reinforce_icon(dialog))
+
+        main_frame = ThemedFrame(dialog, fg_color=view_config.theme.shape_colors.dark)
+        main_frame.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=view_config.theme.two_box_layout.inner_content_padx,
+            pady=view_config.theme.two_box_layout.inner_content_padx,
+        )
+
+        dialog.grid_columnconfigure(0, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
+
+        form_builder = FormBuilder()
+        title_label, title_entry = form_builder.create_labeled_entry(
+            main_frame, "Prompt Title:", default_value=prompt_data.get("name", "")
+        )
+
+        prompt_label, prompt_textbox = form_builder.create_labeled_textbox(
+            main_frame, "Prompt Instructions:", height=200, text_color=view_config.theme.text_colors.light
+        )
+        prompt_textbox.insert("1.0", prompt_data.get("text", ""))
+
+        def save_changes():
+            new_name = title_entry.get().strip()
+            new_text = prompt_textbox.get("1.0", "end-1c").strip()
+
+            if not new_name:
+                form_builder.show_temporary_message(main_frame, "Please enter a title for the prompt")
+                return
+
+            if not new_text:
+                form_builder.show_temporary_message(main_frame, "Please enter instructions for the prompt")
+                return
+
+            if self.controller.edit_prompt(prompt_data["id"], new_name, new_text):
+                dialog.destroy()
+            else:
+                form_builder.show_temporary_message(main_frame, "Failed to update prompt")
+
+        form_builder.create_button_row(
+            main_frame,
+            [
+                {"text": view_config.theme.button_text.save_changes, "command": save_changes, "type": "primary", "compact": False},
+                {"text": view_config.theme.button_text.cancel, "command": dialog.destroy, "type": "danger", "compact": False},
+            ],
+        )
+
+        center_window_on_parent(dialog, self.root_window)
+
+    def _delete_prompt(self, prompt_id: str) -> None:
+        """Delete prompt"""
+        # Check if this is the default prompt
+        if self.controller.is_default_prompt(prompt_id):
+            self.show_info("Cannot Delete Default Prompt", "The default prompt cannot be deleted.")
+            return
+
+        self.controller.delete_prompt(prompt_id)
+
+    # Simplified callback methods
+    def on_prompts_updated(self, prompts: List[Dict[str, Any]]) -> None:
+        """Handle prompts list updated"""
+        self.display_prompts(prompts)
+
+    def on_current_prompt_updated(self, prompt_id: str) -> None:
+        """Handle current prompt updated"""
+        self.display_prompts(self.controller.get_prompts())
+
+    def on_status_update(self, message: str, is_error: bool = False) -> None:
+        """Handle status updates - now simplified"""
+        super().on_status_update(message, is_error)
+
+    def _reinforce_icon(self, dialog) -> None:
+        """Reinforce the icon setting to prevent CustomTkinter override."""
+        if dialog and dialog.winfo_exists():
+            try:
+                set_window_icon_robust(dialog)
+                dialog.update_idletasks()
+            except Exception:
+                pass

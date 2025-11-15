@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocalance"
+version = "0.0.1"
+description = "Voice command assistant"
+readme = "README.md"
+authors = [
+    {name = "Riccardo Doyle", email = "r.doyle.edu@gmail.com"}
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+dependencies = [
+    "vosk==0.3.45",
+    "sounddevice==0.5.3",
+    "librosa==0.11.0",
+    "soundfile==0.13.1",
+    "numpy==2.3.4",
+    "faster-whisper==1.2.1",
+    "llama-cpp-python==0.3.16",
+    "scikit-learn==1.7.2",
+    "joblib==1.5.2",
+    "tensorflow-cpu==2.20.0",
+    "customtkinter==5.2.2",
+    "Pillow==12.0.0",
+    "PyAutoGUI==0.9.54",
+    "pyperclip==1.11.0",
+    "pydantic==2.12.4",
+    "PyYAML==6.0.3",
+    "huggingface_hub==1.1.2"
+]
+
+[project.urls]
+Homepage = "https://github.com/rick12000/vocalance"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-timeout>=2.1.0",
+    "pre-commit>=3.4.0",
+    "black>=22.10.0",
+    "flake8>=7.0.0",
+    "sphinx>=8.1.0",
+    "sphinx-rtd-theme>=2.0.0",
+    "myst-parser>=3.0.0",
+    "sphinx-autobuild>=2021.3.14",
+    "sphinxcontrib-mermaid>=0.9.2",
+    "pyinstaller>=5.0.0"
+]
+docs = [
+    "sphinx>=8.1.0",
+    "sphinx-rtd-theme>=2.0.0",
+    "myst-parser>=3.0.0",
+    "sphinx-copybutton>=0.5.2",
+    "sphinxcontrib-mermaid>=0.9.2",
+    "linkify-it-py>=2.0.0",
+    "sphinx-autobuild>=2024.2.4"
+]
+
+[tool.setuptools]
+packages = {find = {exclude = ["tests*", "examples*", "docs*", "build*", "cache*", "dist*", "*.egg-info*"]}}
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["assets/**/*", "app/assets/**/*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "memory: Memory leak detection tests",
+    "slow: Slow tests (models, heavy operations)",
+    "stress: Stress tests under high load",
+    "integration: Integration tests",
+    "unit: Unit tests"
+]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--disable-warnings"
+]

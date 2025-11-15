@@ -1,0 +1,28 @@
+# Python cache
+__pycache__/
+*.pyc
+
+qwen*
+
+# User-specific data
+deprecated_spots.json
+
+# Virtual environment
+venv/
+.venv/
+
+# IDE/Editor specific files
+.vscode/
+.idea/
+
+# PyInstaller build artifacts
+build/
+dist/
+
+# Egg info
+*.egg-info/
+
+/cache
+
+_build/
+inst/
