@@ -213,15 +213,27 @@ Produced by Whisper when dictation text is recognized. Emitted only when dictati
 Produced by SoundService when a trained custom sound is recognized with sufficient confidence and vote agreement. ESC-50 background sounds are never emitted. The ``CentralizedCommandParser`` subscribes, optionally maps the sound label to a command phrase, and processes it as a command.
 
 Event Routing Summary
-~~~~~~~~~~~~~~~~~~~~~
+=====================
 
-================================= ============ ======================== =======================
-Event                            Source       Route                   Purpose
-================================= ============ ======================== =======================
-``CommandTextRecognizedEvent``   Vosk         CentralizedCommandParser Parse voice commands
-``DictationTextRecognizedEvent``  Whisper     DictationCoordinator    Insert dictated text
-``CustomSoundRecognizedEvent``   SoundService CentralizedCommandParser Execute sound-triggered commands
-================================= ============ ======================== =======================
+.. list-table::
+   :header-rows: 1
+
+   * - Event
+     - Source
+     - Route
+     - Purpose
+   * - ``CommandTextRecognizedEvent``
+     - Vosk
+     - CentralizedCommandParser
+     - Parse voice commands
+   * - ``DictationTextRecognizedEvent``
+     - Whisper
+     - DictationCoordinator
+     - Insert dictated text
+   * - ``CustomSoundRecognizedEvent``
+     - SoundService
+     - CentralizedCommandParser
+     - Execute sound-triggered commands
 
 What Happens Next
 ==================

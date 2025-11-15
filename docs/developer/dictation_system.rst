@@ -406,29 +406,29 @@ Agentic Prompt System
 
 The ``AgenticPromptService`` generates prompts that instruct the LLM to format text AND issue editing commands:
 
-```
-You are a text formatting assistant. Format the following dictation:
+.. code-block:: text
 
-Raw text: "hello world this is a test period new line goodbye"
+   You are a text formatting assistant. Format the following dictation:
 
-Instructions:
-- Add proper punctuation and capitalization
-- When you need to edit previous text, use commands:
-  - REMOVE:N - removes last N characters
-  - NEWLINE - inserts line break
-  - END - signals completion
+   Raw text: "hello world this is a test period new line goodbye"
 
-Output formatted text with embedded commands as needed.
-```
+   Instructions:
+   - Add proper punctuation and capitalization
+   - When you need to edit previous text, use commands:
+     - REMOVE:N - removes last N characters
+     - NEWLINE - inserts line break
+     - END - signals completion
+
+   Output formatted text with embedded commands as needed.
 
 The LLM output might be:
 
-```
-Hello world, this is a test.
-NEWLINE
-Goodbye!
-END
-```
+.. code-block:: text
+
+   Hello world, this is a test.
+   NEWLINE
+   Goodbye!
+   END
 
 The coordinator parses this output and executes commands in real-time:
 
