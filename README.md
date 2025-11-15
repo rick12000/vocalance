@@ -55,6 +55,8 @@ The application will start up and download any required models (like speech reco
 
 On follow up runs, skip the `pip install .` step and just run the application (in the environment you created earlier).
 
+If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html).
+
 ## 🔧 System Requirements
 
 - **Operating System**: Windows 10/11 (macOS and Linux support planned)
