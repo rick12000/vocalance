@@ -18,10 +18,14 @@ def test_extract_text_from_segments_combines_text(whisper_stt_instance):
     mock_segment1 = Mock()
     mock_segment1.text = "hello"
     mock_segment1.avg_logprob = -0.5
+    mock_segment1.no_speech_prob = 0.1
+    mock_segment1.compression_ratio = 1.5
 
     mock_segment2 = Mock()
     mock_segment2.text = "world"
     mock_segment2.avg_logprob = -0.3
+    mock_segment2.no_speech_prob = 0.1
+    mock_segment2.compression_ratio = 1.5
 
     text, confidence = whisper_stt_instance._extract_text_from_segments([mock_segment1, mock_segment2])
 
@@ -33,10 +37,14 @@ def test_extract_text_from_segments_skips_empty_segments(whisper_stt_instance):
     mock_segment1 = Mock()
     mock_segment1.text = "hello"
     mock_segment1.avg_logprob = -0.5
+    mock_segment1.no_speech_prob = 0.1
+    mock_segment1.compression_ratio = 1.5
 
     mock_segment2 = Mock()
     mock_segment2.text = "   "
     mock_segment2.avg_logprob = -0.3
+    mock_segment2.no_speech_prob = 0.1
+    mock_segment2.compression_ratio = 1.5
 
     text, confidence = whisper_stt_instance._extract_text_from_segments([mock_segment1, mock_segment2])
 
@@ -47,6 +55,8 @@ def test_extract_text_from_segments_handles_missing_logprob(whisper_stt_instance
     mock_segment = Mock()
     mock_segment.text = "hello"
     mock_segment.avg_logprob = None
+    mock_segment.no_speech_prob = 0.1
+    mock_segment.compression_ratio = 1.5
 
     text, confidence = whisper_stt_instance._extract_text_from_segments([mock_segment])
 
@@ -74,6 +84,8 @@ def test_recognize_processes_valid_audio(whisper_stt_instance, mock_whisper_mode
     mock_segment = Mock()
     mock_segment.text = "hello world"
     mock_segment.avg_logprob = -0.5
+    mock_segment.no_speech_prob = 0.1
+    mock_segment.compression_ratio = 1.5
 
     mock_info = Mock()
     mock_whisper_model.transcribe.return_value = ([mock_segment], mock_info)
@@ -137,6 +149,8 @@ def test_recognize_warns_on_sample_rate_mismatch(whisper_stt_instance, mock_whis
     mock_segment = Mock()
     mock_segment.text = "test"
     mock_segment.avg_logprob = -0.5
+    mock_segment.no_speech_prob = 0.1
+    mock_segment.compression_ratio = 1.5
 
     mock_info = Mock()
     mock_whisper_model.transcribe.return_value = ([mock_segment], mock_info)

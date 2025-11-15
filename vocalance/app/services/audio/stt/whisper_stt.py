@@ -187,7 +187,7 @@ class WhisperSTT:
             return False
 
         # Check if segment has low confidence (likely hallucination)
-        if segment.avg_logprob < self._logprob_threshold:
+        if segment.avg_logprob is not None and segment.avg_logprob < self._logprob_threshold:
             logger.debug(f"Skipping low-confidence segment: avg_logprob={segment.avg_logprob:.3f}")
             return False
 
@@ -226,8 +226,11 @@ class WhisperSTT:
             segment_count += 1
             all_text_parts.append(segment_text)
 
-            # Calculate confidence from log probability
-            confidence = min(1.0, max(0.0, (segment.avg_logprob + 1.0) / 1.0))
+            # Calculate confidence from log probability (default to 0.8 if None)
+            if segment.avg_logprob is not None:
+                confidence = min(1.0, max(0.0, (segment.avg_logprob + 1.0) / 1.0))
+            else:
+                confidence = 0.8  # Default confidence when logprob is not available
             total_confidence += confidence
 
         combined_text = " ".join(all_text_parts).strip()

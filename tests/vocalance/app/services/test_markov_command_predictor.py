@@ -176,16 +176,18 @@ async def test_feedback_updates_command_history(markov_service, mock_storage):
 
 @pytest.mark.asyncio
 async def test_incorrect_prediction_triggers_cooldown(markov_service, mock_storage, app_config):
-    """Test incorrect predictions trigger cooldown period."""
+    """Test incorrect predictions trigger cooldown period (decremented immediately on each feedback)."""
     mock_storage.read.return_value = CommandHistoryData(history=[])
     await markov_service.initialize()
 
-    # Incorrect prediction
+    # Incorrect prediction - sets cooldown and then decrements it once
     feedback = MarkovPredictionFeedbackEvent(predicted_command="copy", actual_command="paste", was_correct=False, source="stt")
     await markov_service._handle_prediction_feedback(feedback)
 
-    # Should enter cooldown
-    assert markov_service._cooldown_remaining == app_config.markov_predictor.incorrect_prediction_cooldown
+    # Cooldown is set to config value, then decremented by 1 in same call
+    # So it should be config value - 1
+    expected_cooldown = app_config.markov_predictor.incorrect_prediction_cooldown - 1
+    assert markov_service._cooldown_remaining == expected_cooldown
 
 
 @pytest.mark.asyncio

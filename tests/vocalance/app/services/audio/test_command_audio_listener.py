@@ -199,7 +199,7 @@ async def test_state_reset_after_segment(command_listener, speech_chunk, silence
 
 @pytest.mark.asyncio
 async def test_audio_detected_event_once_per_session(command_listener, speech_chunk, silence_chunk, event_bus):
-    """Test that AudioDetectedEvent is emitted only once per recording session."""
+    """Test that AudioDetectedEvent is emitted once per recording session (on speech onset)."""
     command_listener.setup_subscriptions()
     await event_bus.start_worker()
 
@@ -210,7 +210,12 @@ async def test_audio_detected_event_once_per_session(command_listener, speech_ch
 
     event_bus.subscribe(AudioDetectedEvent, capture_audio_detected)
 
-    # Start recording with speech
+    # Start recording with speech - should emit event
+    event = create_audio_event(speech_chunk)
+    await command_listener._handle_audio_chunk(event)
+    await asyncio.sleep(0.05)
+
+    # Send more speech - should not emit another event
     event = create_audio_event(speech_chunk)
     await command_listener._handle_audio_chunk(event)
     await asyncio.sleep(0.05)
@@ -221,13 +226,13 @@ async def test_audio_detected_event_once_per_session(command_listener, speech_ch
         await command_listener._handle_audio_chunk(event)
     await asyncio.sleep(0.05)
 
-    # Start new recording - should emit AudioDetectedEvent again
+    # Start new recording - should emit AudioDetectedEvent again (new session)
     event = create_audio_event(speech_chunk)
     await command_listener._handle_audio_chunk(event)
     await asyncio.sleep(0.05)
 
-    # Should have exactly one event (only the first one in the session)
-    assert len(audio_detected_events) == 1
+    # Should have exactly two events: one per recording session
+    assert len(audio_detected_events) == 2
 
     await event_bus.stop_worker()
 

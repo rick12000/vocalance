@@ -9,6 +9,13 @@ This information is reported below for each piece of software or asset.
 ║ 1. PYTHON DEPENDENCIES ║
 ╚════════════════════════╝
 
+Licenses are reported below for all direct and indirect Python package 
+dependencies of this software. Direct dependencies refer to pinned dependencies
+in the pyproject.toml or requirements.txt files at the root of the repository.
+Indirect dependencies refer to any dependancies of those dependancies, and so forth.
+For the latter, we pin versions based on a static build, which can be reproduced by
+installing dependencies in the requirements-dist.txt file. 
+
 Jinja2
 3.1.6
 BSD License
