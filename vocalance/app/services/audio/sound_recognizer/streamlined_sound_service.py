@@ -230,7 +230,7 @@ class SoundService:
 
     async def _collect_training_sample(self, audio: np.ndarray, sample_rate: int) -> None:
         """Collect a training sample with identical preprocessing as recognition - thread-safe.
-        
+
         Stops accepting samples once the target number is reached to prevent
         over-collection. Auto-finalizes training when target is hit.
         """
@@ -243,7 +243,7 @@ class SoundService:
             # Check before collecting to stop immediately at target
             sample_count = len(self._training_samples)
             target = self._target_samples
-            
+
             if sample_count >= target:
                 logger.debug(f"Target samples reached ({sample_count}/{target}), ignoring additional sample")
                 return

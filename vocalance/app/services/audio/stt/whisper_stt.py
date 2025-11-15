@@ -55,13 +55,13 @@ class WhisperSTT:
         self._no_speech_threshold = (
             config.stt.whisper_no_speech_threshold if hasattr(config.stt, "whisper_no_speech_threshold") else 0.6
         )
-        
+
         # Quality thresholds to prevent hallucinations at the source
         # compression_ratio_threshold: Detects repetitive/garbled output (hallucinations have high compression)
         # logprob_threshold: Filters low-confidence predictions (hallucinations have low log probability)
         self._compression_ratio_threshold = (
-            config.stt.whisper_compression_ratio_threshold 
-            if hasattr(config.stt, "whisper_compression_ratio_threshold") 
+            config.stt.whisper_compression_ratio_threshold
+            if hasattr(config.stt, "whisper_compression_ratio_threshold")
             else 2.4  # faster-whisper default, reject segments with compression_ratio > 2.4
         )
         self._logprob_threshold = (
@@ -69,7 +69,7 @@ class WhisperSTT:
             if hasattr(config.stt, "whisper_logprob_threshold")
             else -1.0  # Reject segments with avg_logprob < -1.0 (low confidence)
         )
-        
+
         self._compute_type = "int8"
 
         self._max_retries = config.stt.whisper_max_retries

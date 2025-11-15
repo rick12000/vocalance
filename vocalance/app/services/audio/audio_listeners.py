@@ -371,7 +371,7 @@ class DictationAudioListener:
 
     async def _handle_dictation_mode_change(self, event: DictationModeDisableOthersEvent) -> None:
         """Clear pre-trigger audio when dictation mode activates.
-        
+
         When dictation is activated, clear all accumulated audio buffers to ensure only
         audio spoken AFTER the activation trigger is transcribed. This prevents pre-trigger
         words from being included in the dictation output.

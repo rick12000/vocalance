@@ -447,7 +447,7 @@ class SoundRecognizer:
 
     async def _copy_esc50_samples(self) -> None:
         """Copy ESC-50 samples from assets to app directory if needed.
-        
+
         Thread-safe and idempotent - can be called concurrently without issues.
         """
         try:
@@ -460,7 +460,9 @@ class SoundRecognizer:
                 # Check if any files exist for this category in app directory
                 try:
                     category_files = [
-                        f for f in os.listdir(self.external_sounds_path) if f.startswith(f"esc50_{category}_") and f.endswith(".wav")
+                        f
+                        for f in os.listdir(self.external_sounds_path)
+                        if f.startswith(f"esc50_{category}_") and f.endswith(".wav")
                     ]
                     if len(category_files) < self.max_esc50_per_cat:
                         needed_categories.append(category)

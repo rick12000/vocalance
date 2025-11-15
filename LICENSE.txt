@@ -1,9 +1,9 @@
-Vocalance
-Copyright (c) 2025- Riccardo Doyle
-This software is distributed according to the GNU license reported below,
+                           Vocalance
+                Copyright (c) 2025- Riccardo Doyle
+  This software is distributed according to the GNU license reported below,
 but note several dependencies and assets may be under different licenses.
-The individual licenses of every dependency and asset are reported in
-the NOTICE.txt file.
+  The individual licenses of every dependency and asset are reported in
+                        the NOTICE.txt file.
 
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007

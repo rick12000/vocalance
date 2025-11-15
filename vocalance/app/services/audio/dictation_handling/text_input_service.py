@@ -180,7 +180,7 @@ class TextInputService:
 
     def reset_session(self) -> None:
         """Reset session state to prevent continuation logic from applying to new sessions.
-        
+
         When a new dictation session starts, reset last_text so that the first text pasted
         won't be incorrectly treated as a continuation of previous text, which would cause
         it to be lowercased. This preserves Whisper's native capitalization.
