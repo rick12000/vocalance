@@ -11,6 +11,8 @@
 
 
 ## 💡 Overview
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Frick12000%2Fvocalance.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Frick12000%2Fvocalance?ref=badge_shield)
+
 
 Vocalance offers hands free control of your computer, enabling you to switch tabs, move on screen, dictate anywhere and much more!
 
@@ -101,3 +103,7 @@ The following features are planned additions to Vocalance, with some in early de
 
 *   **Enhanced Predictive Features:** Improve predictive capabilities based on window contents, recent context, gaze patterns, and more.
     *   *Privacy Note:* Any feature requiring local storage of potentially sensitive data (e.g., screenshots, window contents) will be deployed as an opt-in feature and disabled by default.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Frick12000%2Fvocalance.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Frick12000%2Fvocalance?ref=badge_large)
