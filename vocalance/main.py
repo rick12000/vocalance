@@ -17,21 +17,20 @@ from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.ui import ui_theme
-from vocalance.app.ui.startup_window import StartupProgressTracker, StartupWindow
-from vocalance.app.ui.utils.ui_icon_utils import configure_dpi_awareness, initialize_windows_taskbar_icon, set_window_icon_robust
-from vocalance.app.ui.utils.ui_thread_utils import initialize_ui_scheduler
+from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 if TYPE_CHECKING:
     from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
+    from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
 
 logger = logging.getLogger(__name__)
 
 
 async def initialize_services_with_ui_integration(
     initializer: "FastServiceInitializer",
-    progress_tracker: StartupProgressTracker,
+    progress_tracker: "StartupProgressTracker",
     root_window: tk.Tk,
-    startup_window: Optional[StartupWindow] = None,
+    startup_window: Optional["StartupWindow"] = None,
 ) -> Dict[str, Any]:
     """Initialize services while maintaining UI responsiveness during startup.
 
@@ -101,7 +100,7 @@ class FastServiceInitializer:
         self.shutdown_coordinator: Optional[ShutdownCoordinator] = shutdown_coordinator
         self._services_lock: threading.RLock = threading.RLock()
 
-    async def initialize_all(self, progress_tracker: StartupProgressTracker) -> Dict[str, Any]:
+    async def initialize_all(self, progress_tracker: "StartupProgressTracker") -> Dict[str, Any]:
         """Initialize all non-UI services in staged parallel batches with progress updates.
 
         Executes initialization in three sequential stages: core services (grid, automation),
@@ -146,7 +145,7 @@ class FastServiceInitializer:
             logger.info("Shutdown detected during initialization - cancelling")
             raise asyncio.CancelledError("Initialization cancelled due to shutdown request")
 
-    async def initialize_ui_components(self, progress_tracker: StartupProgressTracker) -> None:
+    async def initialize_ui_components(self, progress_tracker: "StartupProgressTracker") -> None:
         """Initialize UI components including fonts, theme, and main control room window.
 
         Loads custom fonts, configures the UI theme with the font service, and creates
@@ -174,7 +173,7 @@ class FastServiceInitializer:
             self.services["grid"] = GridService(event_bus=self.event_bus, config=self.config)
             self.services["automation"] = AutomationService(event_bus=self.event_bus, app_config=self.config)
 
-    async def _init_storage_services(self, progress_tracker: Optional[StartupProgressTracker] = None) -> None:
+    async def _init_storage_services(self, progress_tracker: Optional["StartupProgressTracker"] = None) -> None:
         """Initialize storage layer and dependent services concurrently.
 
         Creates the StorageService for file I/O, then initializes settings, command management,
@@ -268,7 +267,7 @@ class FastServiceInitializer:
 
         await asyncio.gather(init_settings(), init_commands(), init_click_tracker(), init_marks())
 
-    async def _init_audio_services(self, progress_tracker: Optional[StartupProgressTracker] = None) -> None:
+    async def _init_audio_services(self, progress_tracker: Optional["StartupProgressTracker"] = None) -> None:
         """Initialize audio processing pipeline services sequentially with cancellation checks.
 
         Initializes the audio capture service, sound recognition, STT engines, command parser,
@@ -646,6 +645,10 @@ def _create_main_window(app_config: GlobalAppConfig) -> ctk.CTk:
     Returns:
         Configured CustomTkinter root window ready for content.
     """
+    # Deferred imports for old Tkinter code
+    from vocalance.app.ui.utils.ui_icon_utils import configure_dpi_awareness, initialize_windows_taskbar_icon
+    from vocalance.app.ui.utils.ui_thread_utils import initialize_ui_scheduler
+
     configure_dpi_awareness()
 
     initialize_windows_taskbar_icon()
@@ -704,7 +707,7 @@ def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> None:
 async def _handle_initialization(
     init_task: asyncio.Task,
     service_initializer: FastServiceInitializer,
-    startup_window: StartupWindow,
+    startup_window: "StartupWindow",
     shutdown_coordinator: ShutdownCoordinator,
     event_bus: EventBus,
     gui_event_loop: asyncio.AbstractEventLoop,

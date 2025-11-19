@@ -1035,16 +1035,25 @@ class DictationCoordinator:
         if self._streaming_active:
             try:
                 self._token_queue.put_nowait(token)
+                if self._token_queue.qsize() <= 5 or self._token_queue.qsize() % 10 == 0:
+                    logger.debug(f"_stream_token: queued token (queue size: {self._token_queue.qsize()}): '{token}'")
             except queue.Full:
                 logger.warning("Token queue full - dropping token to prevent blocking")
+        else:
+            logger.warning(f"_stream_token called but streaming not active! Token: '{token}'")
 
     def _streaming_worker(self) -> None:
         """Background thread that publishes tokens with proper synchronization"""
         logger.info("Streaming worker thread started")
+        published_count = 0
         try:
             while not self._streaming_stop_event.is_set():
                 try:
                     token = self._token_queue.get(timeout=0.1)
+                    published_count += 1
+
+                    if published_count <= 5 or published_count % 10 == 0:
+                        logger.debug(f"_streaming_worker: publishing token #{published_count}: '{token}'")
 
                     if self._direct_token_callback:
                         try:
@@ -1063,7 +1072,7 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"Critical error in streaming worker: {e}", exc_info=True)
         finally:
-            logger.info("Streaming worker thread stopped")
+            logger.info(f"Streaming worker thread stopped (published {published_count} tokens)")
 
     def _start_streaming(self) -> None:
         """Start background streaming thread with proper synchronization"""

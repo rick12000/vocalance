@@ -1,0 +1,377 @@
+"""Qt-based dictation view - FULLY INTEGRATED WITH PROMPTS MANAGEMENT.
+
+Displays dictation prompts management with add/edit/delete/select capabilities.
+"""
+
+import logging
+from typing import Any, Dict, List, Optional
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QRadioButton,
+    QScrollArea,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TitleLabel
+
+
+class PromptEditDialog(QDialog):
+    """Dialog for editing prompts."""
+
+    def __init__(self, prompt_data: Dict[str, Any], parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+        self.prompt_data = prompt_data
+        self.result_saved = False
+        self.new_name = None
+        self.new_text = None
+
+        self.setWindowTitle(f"Edit: {prompt_data.get('name', 'Unnamed')}")
+        self.setModal(True)
+        self.setMinimumSize(500, 400)
+
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        """Build the dialog UI."""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Title input
+        layout.addWidget(QLabel("Prompt Title:"))
+        self.title_entry = QLineEdit()
+        self.title_entry.setText(self.prompt_data.get("name", ""))
+        layout.addWidget(self.title_entry)
+
+        # Prompt instructions
+        layout.addWidget(QLabel("Prompt Instructions:"))
+        self.prompt_textbox = QTextEdit()
+        self.prompt_textbox.setPlainText(self.prompt_data.get("text", ""))
+        layout.addWidget(self.prompt_textbox)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+
+        save_btn = PrimaryButton(text="Save Changes")
+        save_btn.clicked.connect(self._on_save)
+        button_layout.addWidget(save_btn)
+
+        cancel_btn = DangerButton(text="Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        layout.addLayout(button_layout)
+
+    def _on_save(self) -> None:
+        """Handle save button click."""
+        new_name = self.title_entry.text().strip()
+        new_text = self.prompt_textbox.toPlainText().strip()
+
+        if not new_name:
+            QMessageBox.warning(self, "Validation Error", "Please enter a title for the prompt.")
+            return
+
+        if not new_text:
+            QMessageBox.warning(self, "Validation Error", "Please enter instructions for the prompt.")
+            return
+
+        self.result_saved = True
+        self.new_name = new_name
+        self.new_text = new_text
+        self.accept()
+
+
+class QtDictationView(QWidget):
+    """Qt-based dictation view - FULLY INTEGRATED WITH PROMPTS MANAGEMENT.
+
+    Features:
+    - Add custom prompt form (title + instructions text area)
+    - Prompts list with radio buttons to select current
+    - Edit button for each prompt (opens edit dialog)
+    - Delete button for each prompt (disabled for default)
+    - Real-time updates from controller
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        """Initialize dictation view."""
+        super().__init__(parent)
+
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.controller = None
+        self.prompts_list: List[Dict[str, Any]] = []
+        self.current_prompt_id = None
+        self.prompt_radio_buttons = {}
+
+        self._setup_ui()
+        self.logger.debug("QtDictationView initialized")
+
+    def set_controller(self, controller) -> None:
+        """Set the controller and connect signals."""
+        self.controller = controller
+
+        # Connect controller signals
+        self.controller.prompts_loaded.connect(self._on_prompts_loaded)
+        self.controller.current_prompt_updated.connect(self._on_current_prompt_updated)
+        self.controller.operation_error.connect(self._on_error)
+        self.controller.status_updated.connect(self._on_status_updated)
+
+        # Load initial prompts
+        self.logger.info("Loading prompts from controller")
+        self.controller.refresh_prompts()
+
+    def _setup_ui(self) -> None:
+        """Build two-box layout."""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(
+            theme_manager.two_box_layout.outer_padding_left,
+            theme_manager.two_box_layout.outer_padding_top,
+            theme_manager.two_box_layout.outer_padding_right,
+            theme_manager.two_box_layout.outer_padding_bottom,
+        )
+        main_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+
+        # Create two-box layout
+        boxes_layout = QHBoxLayout()
+        boxes_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+
+        # LEFT BOX - Add custom prompt form
+        left_box = ThemedFrame(frame_type="two_box")
+        left_layout = QVBoxLayout(left_box)
+        left_layout.setContentsMargins(
+            theme_manager.two_box_layout.inner_content_padx,
+            20,
+            theme_manager.two_box_layout.inner_content_padx,
+            20,
+        )
+        left_layout.setSpacing(15)
+
+        # Title
+        left_layout.addWidget(TitleLabel(text="Add Custom Prompt"))
+
+        # Prompt title input
+        left_layout.addWidget(QLabel("Prompt Title:"))
+        self.title_entry = QLineEdit()
+        self.title_entry.setPlaceholderText("e.g. Email Formatting")
+        left_layout.addWidget(self.title_entry)
+
+        # Prompt instructions
+        left_layout.addWidget(QLabel("Prompt Instructions:"))
+        self.prompt_textbox = QTextEdit()
+        self.prompt_textbox.setPlaceholderText(
+            "e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' "
+            "Adopt a professional tone and style."
+        )
+        self.prompt_textbox.setMaximumHeight(150)
+        left_layout.addWidget(self.prompt_textbox)
+
+        # Add button
+        self.add_prompt_btn = PrimaryButton(text="Add Prompt")
+        self.add_prompt_btn.clicked.connect(self._on_add_prompt_clicked)
+        left_layout.addWidget(self.add_prompt_btn)
+
+        left_layout.addStretch()
+
+        # RIGHT BOX - Manage prompts
+        right_box = ThemedFrame(frame_type="two_box")
+        right_layout = QVBoxLayout(right_box)
+        right_layout.setContentsMargins(
+            theme_manager.two_box_layout.inner_content_padx,
+            20,
+            theme_manager.two_box_layout.inner_content_padx,
+            20,
+        )
+        right_layout.setSpacing(10)
+
+        # Title
+        right_layout.addWidget(TitleLabel(text="Manage Prompts"))
+
+        # Prompts list widget
+        self.prompts_list_widget = QWidget()
+        self.prompts_list_layout = QVBoxLayout(self.prompts_list_widget)
+        self.prompts_list_layout.setSpacing(5)
+        self.prompts_list_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Scroll area for prompts
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.prompts_list_widget)
+        right_layout.addWidget(scroll_area)
+
+        # Add boxes to main layout
+        boxes_layout.addWidget(left_box, 0)
+        boxes_layout.addWidget(right_box, 1)
+
+        main_layout.addLayout(boxes_layout)
+
+    def _on_prompts_loaded(self, prompts: List[Dict[str, Any]]) -> None:
+        """Handle prompts loaded from controller."""
+        try:
+            self.prompts_list = prompts
+            self.current_prompt_id = self.controller.get_current_prompt_id() if self.controller else None
+            self._display_prompts(prompts)
+            self.logger.info(f"Prompts loaded: {len(prompts)} total")
+        except Exception as e:
+            self.logger.error(f"Error loading prompts: {e}", exc_info=True)
+            self._show_error(f"Error loading prompts: {e}")
+
+    def _on_current_prompt_updated(self, prompt_id: str) -> None:
+        """Handle current prompt updated event."""
+        try:
+            self.current_prompt_id = prompt_id
+            # Update radio button selection
+            if prompt_id in self.prompt_radio_buttons:
+                self.prompt_radio_buttons[prompt_id].setChecked(True)
+            self.logger.info(f"Current prompt updated: {prompt_id}")
+        except Exception as e:
+            self.logger.error(f"Error handling current prompt updated: {e}", exc_info=True)
+
+    def _on_status_updated(self, message: str, is_error: bool) -> None:
+        """Handle status updates from controller."""
+        if is_error:
+            self._show_error(message)
+
+    def _on_error(self, error_msg: str) -> None:
+        """Handle error from controller."""
+        self._show_error(error_msg)
+
+    def _display_prompts(self, prompts: List[Dict[str, Any]]) -> None:
+        """Display prompts with radio buttons, edit, and delete buttons."""
+        # Clear existing items
+        while self.prompts_list_layout.count():
+            item = self.prompts_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.prompt_radio_buttons.clear()
+
+        if not prompts:
+            # Show empty message
+            empty_label = QLabel("No prompts available.")
+            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+            empty_label.setFont(empty_font)
+            empty_label.setStyleSheet(f"color: {theme_manager.text_colors.medium};")
+            self.prompts_list_layout.addWidget(empty_label)
+        else:
+            for prompt in prompts:
+                self._create_prompt_item(prompt)
+
+        self.prompts_list_layout.addStretch()
+
+    def _create_prompt_item(self, prompt_data: Dict[str, Any]) -> None:
+        """Create a prompt list item with radio, name, edit, and delete buttons."""
+        item_widget = QWidget()
+        item_layout = QHBoxLayout(item_widget)
+        item_layout.setContentsMargins(5, 5, 5, 5)
+        item_layout.setSpacing(10)
+
+        # Radio button
+        radio = QRadioButton()
+        prompt_id = prompt_data.get("id", "")
+        is_current = prompt_data.get("is_current", False) or (prompt_id == self.current_prompt_id)
+        radio.setChecked(is_current)
+        radio.toggled.connect(lambda checked, pid=prompt_id: self._on_radio_selected(pid, checked))
+        self.prompt_radio_buttons[prompt_id] = radio
+        item_layout.addWidget(radio)
+
+        # Prompt name label
+        name_label = QLabel(prompt_data.get("name", "Unnamed"))
+        name_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+        name_label.setFont(name_font)
+        name_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        item_layout.addWidget(name_label, 1)
+
+        # Edit button
+        edit_btn = PrimaryButton(text="Edit")
+        edit_btn.clicked.connect(lambda checked, p=prompt_data: self._on_edit_prompt(p))
+        item_layout.addWidget(edit_btn)
+
+        # Delete button
+        delete_btn = DangerButton(text="Delete")
+        is_default = prompt_data.get("is_default", False)
+        delete_btn.setEnabled(not is_default)
+        if not is_default:
+            delete_btn.clicked.connect(lambda checked, pid=prompt_data.get("id"): self._on_delete_prompt(pid))
+        item_layout.addWidget(delete_btn)
+
+        # Style the item
+        item_widget.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {theme_manager.shape_colors.dark};
+                border: 1px solid {theme_manager.shape_colors.medium};
+                border-radius: {theme_manager.border_radius.small}px;
+            }}
+        """
+        )
+
+        self.prompts_list_layout.addWidget(item_widget)
+
+    def _on_radio_selected(self, prompt_id: str, checked: bool) -> None:
+        """Handle radio button selection."""
+        if checked and self.controller:
+            self.controller.select_prompt(prompt_id)
+
+    def _on_add_prompt_clicked(self) -> None:
+        """Handle add prompt button clicked."""
+        title = self.title_entry.text().strip()
+        prompt_text = self.prompt_textbox.toPlainText().strip()
+
+        if not title:
+            QMessageBox.warning(self, "Validation Error", "Please enter a title for the prompt.")
+            return
+
+        if not prompt_text:
+            QMessageBox.warning(self, "Validation Error", "Please enter prompt instructions.")
+            return
+
+        if not self.controller:
+            QMessageBox.critical(self, "Error", "Controller not initialized.")
+            return
+
+        if self.controller.add_prompt(title, prompt_text):
+            # Clear form
+            self.title_entry.clear()
+            self.prompt_textbox.clear()
+
+    def _on_edit_prompt(self, prompt_data: Dict[str, Any]) -> None:
+        """Handle edit button clicked - show edit dialog."""
+        # Check if this is the default prompt
+        if prompt_data.get("is_default", False):
+            QMessageBox.information(self, "Cannot Edit Default Prompt", "The default prompt cannot be edited.")
+            return
+
+        if not self.controller:
+            self._show_error("Controller not initialized.")
+            return
+
+        dialog = PromptEditDialog(prompt_data, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            if dialog.result_saved:
+                self.controller.edit_prompt(prompt_data["id"], dialog.new_name, dialog.new_text)
+                self.logger.info(f"Edited prompt: {prompt_data['id']}")
+
+    def _on_delete_prompt(self, prompt_id: str) -> None:
+        """Handle delete button clicked."""
+        # Check if this is the default prompt
+        if self.controller and self.controller.is_default_prompt(prompt_id):
+            QMessageBox.information(self, "Cannot Delete Default Prompt", "The default prompt cannot be deleted.")
+            return
+
+        if self.controller:
+            self.controller.delete_prompt(prompt_id)
+
+    def _show_error(self, message: str) -> None:
+        """Show error message dialog."""
+        QMessageBox.critical(self, "Error", message)
