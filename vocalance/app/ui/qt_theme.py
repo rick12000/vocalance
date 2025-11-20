@@ -48,9 +48,9 @@ class ShapeColors:
     accent_minus: str = "#9dabaa"
     lightest: str = "#515151"
     light: str = "#404040"
-    medium: str = "#323232"
-    dark: str = "#181818"
-    darkest: str = "#111111"
+    medium: str = "#393939"
+    dark: str = "#2a2a2a"
+    darkest: str = "#1c1c1c"
 
 
 @dataclass
@@ -59,6 +59,14 @@ class AccentColors:
 
     success: str = "#28a745"
     success_text: str = "#ffffff"
+
+
+@dataclass
+class GradientColors:
+    """Gradient color design tokens for special text effects."""
+
+    blue_rose_start: str = "#4a90e2"  # Blue
+    blue_rose_end: str = "#a0657f"  # Rose
 
 
 @dataclass
@@ -81,6 +89,18 @@ class BorderRadius:
     medium: int = 10
     rounded: int = 20
     xlarge: int = 30
+
+
+class IconPropertiesInstance:
+    """Icon properties instance for runtime access."""
+
+    def __init__(self):
+        self.width_percentage = 0.42
+        self.icon_text_spacing = 5
+
+    @property
+    def color(self) -> str:
+        return ShapeColors().light
 
 
 @dataclass
@@ -142,8 +162,14 @@ class Dimensions:
 class SidebarLayout:
     """Sidebar layout configuration."""
 
-    width: int = 120
+    # Width for collapsed (icon-only) and expanded (icon + text) states
+    collapsed_width: int = 80
+    expanded_width: int = 200
+    width: int = 80  # Default width (collapsed)
     border_width: int = 1
+
+    # Animation
+    animation_duration: int = 200  # milliseconds
 
     # Container padding
     container_padding_left: int = 0
@@ -159,10 +185,11 @@ class SidebarLayout:
     logo_padding_bottom: int = 30
 
     # Button configuration
-    button_padding_left: int = 15
-    button_padding_right: int = 15
+    button_padding_left: int = 10
+    button_padding_right: int = 10
     button_spacing_vertical: int = 2
     button_hover_border_width: int = 1
+    button_icon_size: int = 48  # Larger icons for collapsed state
 
     # Top spacing
     top_spacing: int = 20
@@ -174,9 +201,13 @@ class HeaderLayout:
 
     frame_padding_top: int = 20
     frame_padding_bottom: int = 0
+    frame_padding_left: int = 25  # Must match TwoBoxLayout.outer_padding_left
+    frame_padding_right: int = 25  # Must match TwoBoxLayout.outer_padding_right
     border_width: int = 1
     title_y_offset: int = 10
     subtitle_y_offset: int = 11
+    content_padding_left: int = 30  # Aligns with box inner content
+    content_padding_right: int = 30  # Aligns with box inner content
 
 
 @dataclass
@@ -187,11 +218,15 @@ class TwoBoxLayout:
     box_border_width: int = 1
     inner_content_padx: int = 30
 
-    # Outer padding
-    outer_padding_left: int = 40
-    outer_padding_right: int = 40
-    outer_padding_top: int = 0
-    outer_padding_bottom: int = 40
+    # Outer padding - matches legacy values
+    outer_padding_left: int = 25
+    outer_padding_right: int = 25
+    outer_padding_top: int = 25  # Top padding for outer border frame
+    outer_padding_bottom: int = 25
+
+    # Outer content border - wraps around entire view content
+    outer_border_width: int = 3
+    outer_border_padding: int = 15  # Padding between border and content
 
 
 class ThemeManager:
@@ -208,12 +243,14 @@ class ThemeManager:
         self.text_colors = TextColors()
         self.shape_colors = ShapeColors()
         self.accent_colors = AccentColors()
+        self.gradient_colors = GradientColors()
         self.spacing = Spacing()
         self.border_radius = BorderRadius()
         self.dimensions = Dimensions()
         self.sidebar_layout = SidebarLayout()
         self.header_layout = HeaderLayout()
         self.two_box_layout = TwoBoxLayout()
+        self.icon_properties = IconPropertiesInstance()
 
         self._font_family = "Manrope"
         self._font_family_secondary = "Segoe UI"
@@ -322,10 +359,9 @@ QPushButton {{
     background-color: {self.shape_colors.accent};
     color: {self.shape_colors.dark};
     border: none;
-    border-radius: {self.dimensions.button_height // 2}px;
-    padding: 8px 16px;
+    border-radius: {self.dimensions.button_height // 2}px;  /* Pill-shaped: radius = height/2 */
+    padding: 4px 16px;
     font-weight: bold;
-    min-height: {self.dimensions.button_height}px;
     font-size: {self.font_sizes.medium}px;
 }}
 
@@ -346,41 +382,49 @@ QPushButton:disabled {{
 QPushButton[buttonType="primary"] {{
     background-color: {self.shape_colors.accent};
     color: {self.shape_colors.dark};
+    padding: 6px 12px;
 }}
 
 QPushButton[buttonType="primary"]:hover {{
     background-color: {self.shape_colors.accent_minus};
 }}
 
-/* Danger Button */
+/* Danger Button - matches legacy styling */
 QPushButton[buttonType="danger"] {{
     background-color: {self.shape_colors.darkest};
     color: {self.text_colors.light};
     border: 1px solid {self.shape_colors.lightest};
+    border-radius: {self.dimensions.button_height // 2}px;  /* Pill-shaped: radius = height/2 */
+    padding: 4px 16px;
 }}
 
 QPushButton[buttonType="danger"]:hover {{
     background-color: {self.shape_colors.medium};
 }}
 
+QPushButton[buttonType="danger"]:pressed {{
+    background-color: {self.shape_colors.dark};
+}}
+
 /* Sidebar Button */
 QPushButton[buttonType="sidebar"] {{
     background-color: transparent;
     color: {self.text_colors.light};
-    border: 1px solid transparent;
+    border: 2px solid transparent;
     border-radius: {self.border_radius.small}px;
     text-align: left;
-    padding: 10px 15px;
+    padding: 8px;
     font-weight: normal;
+    qproperty-iconSize: {self.sidebar_layout.button_icon_size}px {self.sidebar_layout.button_icon_size}px;
 }}
 
 QPushButton[buttonType="sidebar"]:hover {{
-    border: 1px solid {self.shape_colors.lightest};
+    border: 2px solid {self.shape_colors.lightest};
     background-color: transparent;
 }}
 
 QPushButton[buttonType="sidebar"][selected="true"] {{
-    border: 1px solid {self.shape_colors.accent};
+    border: 2px solid {self.shape_colors.accent};
     background-color: transparent;
 }}
 
@@ -469,8 +513,11 @@ QComboBox QAbstractItemView {{
 
 QLabel {{
     background-color: transparent;
+    background: transparent;
     color: {self.text_colors.lightest};
     border: none;
+    border-width: 0px;
+    border-color: transparent;
 }}
 
 QLabel[labelType="subtitle"] {{
@@ -498,6 +545,12 @@ QFrame[frameType="box"] {{
     border-radius: {self.border_radius.rounded}px;
 }}
 
+QFrame[frameType="two_box"] {{
+    background-color: {self.shape_colors.darkest};
+    border: 1px solid {self.shape_colors.medium};
+    border-radius: {self.border_radius.rounded}px;
+}}
+
 QFrame[frameType="tile"] {{
     background-color: {self.shape_colors.darkest};
     border: 1px solid {self.shape_colors.medium};
@@ -517,7 +570,28 @@ QFrame[frameType="sidebar"] {{
 
 QFrame[frameType="transparent"] {{
     background-color: transparent;
+    background: transparent;
     border: none;
+    border-width: 0px;
+}}
+
+QFrame[frameType="content_border"] {{
+    background-color: {self.shape_colors.darkest};
+    border: {self.two_box_layout.outer_border_width}px solid {self.shape_colors.light};
+    border-radius: {self.border_radius.small}px;
+}}
+
+/* List item frames should be borderless */
+QWidget[itemType="list_item"] {{
+    background-color: transparent;
+    border: none;
+    border-width: 0px;
+}}
+
+QFrame[itemType="list_item"] {{
+    background-color: transparent;
+    border: none;
+    border-width: 0px;
 }}
 
 /* =============================================================================

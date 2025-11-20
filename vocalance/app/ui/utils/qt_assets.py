@@ -208,6 +208,14 @@ class QtAssetCache:
         icon_path = self._assets_path / "icon.ico"
         return icon_path if icon_path.exists() else None
 
+    def get_icons_dir(self) -> Path:
+        """Get the path to the icons directory.
+
+        Returns:
+            Path to icons directory.
+        """
+        return Path(self._asset_paths_config.icons_dir)
+
     def load_pixmap_monochrome_colored(
         self,
         filename: str,

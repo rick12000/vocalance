@@ -1,0 +1,162 @@
+"""Qt icon transformation utilities for PySide6.
+
+Provides icon loading and recoloring functionality compatible with Qt/PySide6,
+porting the legacy PIL-based icon transformation logic.
+"""
+
+import logging
+from pathlib import Path
+from typing import Optional, Tuple
+
+from PIL import Image
+from PySide6.QtGui import QImage, QPixmap
+
+logger = logging.getLogger(__name__)
+
+
+def pil_image_to_qpixmap(pil_image: Image.Image) -> Optional[QPixmap]:
+    """Convert PIL Image to QPixmap.
+
+    Args:
+        pil_image: PIL Image object in RGBA mode.
+
+    Returns:
+        QPixmap or None if conversion failed.
+    """
+    try:
+        # Ensure image is in RGBA mode
+        if pil_image.mode != "RGBA":
+            pil_image = pil_image.convert("RGBA")
+
+        # Get image data
+        data = pil_image.tobytes("raw", "RGBA")
+        width, height = pil_image.size
+
+        # Create QImage from raw data
+        qimage = QImage(data, width, height, width * 4, QImage.Format.Format_RGBA8888)
+
+        # Convert to QPixmap
+        return QPixmap.fromImage(qimage)
+
+    except Exception as e:
+        logger.error(f"Failed to convert PIL image to QPixmap: {e}")
+        return None
+
+
+def transform_monochrome_icon(
+    icon_path: str | Path,
+    target_color: str,
+    size: Optional[Tuple[int, int]] = None,
+    force_all_pixels: bool = False,
+    preserve_aspect_ratio: bool = True,
+) -> Optional[QPixmap]:
+    """Transform a monochrome icon by recoloring it while preserving transparency.
+
+    Ports the legacy CustomTkinter icon transformation logic to work with Qt/PySide6.
+    If force_all_pixels is True, recolor all non-transparent pixels regardless of luminance.
+
+    Args:
+        icon_path: Path to the icon file.
+        target_color: Hex color string (e.g., "#ff0000").
+        size: Optional tuple (width, height) to resize the icon.
+        force_all_pixels: If True, recolor all non-transparent pixels.
+        preserve_aspect_ratio: If True, preserve aspect ratio when resizing.
+
+    Returns:
+        QPixmap with recolored icon, or None if processing failed.
+    """
+    try:
+        icon_path = Path(icon_path)
+        if not icon_path.exists():
+            logger.warning(f"Icon file not found: {icon_path}")
+            return None
+
+        # Load image with PIL
+        img = Image.open(icon_path).convert("RGBA")
+
+        # Resize if requested
+        if size:
+            if preserve_aspect_ratio and len(size) == 2:
+                orig_w, orig_h = img.size
+                target_w, target_h = size
+
+                scale = min(target_w / orig_w, target_h / orig_h)
+                new_w = int(orig_w * scale)
+                new_h = int(orig_h * scale)
+
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            else:
+                img = img.resize(size, Image.Resampling.LANCZOS)
+
+        # Parse target color
+        target_color = target_color.lstrip("#")
+        if len(target_color) != 6:
+            raise ValueError(f"Invalid hex color: {target_color}")
+
+        r = int(target_color[0:2], 16)
+        g = int(target_color[2:4], 16)
+        b = int(target_color[4:6], 16)
+        target_rgb = (r, g, b)
+
+        # Create new colored image
+        colored_img = Image.new("RGBA", img.size, (0, 0, 0, 0))
+
+        pixels = img.load()
+        colored_pixels = colored_img.load()
+
+        # Recolor pixels
+        for y in range(img.height):
+            for x in range(img.width):
+                r_orig, g_orig, b_orig, a_orig = pixels[x, y]
+
+                # Skip fully transparent pixels
+                if a_orig == 0:
+                    continue
+
+                if force_all_pixels:
+                    # Recolor all non-transparent pixels
+                    colored_pixels[x, y] = (target_rgb[0], target_rgb[1], target_rgb[2], a_orig)
+                else:
+                    # Apply luminance-based opacity for smoother gradients
+                    luminance = 0.299 * r_orig + 0.587 * g_orig + 0.114 * b_orig
+                    opacity_factor = (255 - luminance) / 255.0
+                    new_alpha = int(opacity_factor * a_orig)
+                    colored_pixels[x, y] = (target_rgb[0], target_rgb[1], target_rgb[2], new_alpha)
+
+        # Convert to QPixmap
+        return pil_image_to_qpixmap(colored_img)
+
+    except Exception as e:
+        logger.error(f"Failed to transform icon {icon_path}: {e}")
+        return None
+
+
+def load_sidebar_icon(
+    icon_filename: str,
+    icons_dir: Path,
+    target_color: str,
+    icon_size: int,
+) -> Optional[QPixmap]:
+    """Load and transform a sidebar icon.
+
+    Args:
+        icon_filename: Name of icon file.
+        icons_dir: Directory containing icon files.
+        target_color: Hex color for icon recoloring.
+        icon_size: Target size for icon (will preserve aspect ratio).
+
+    Returns:
+        QPixmap or None if loading failed.
+    """
+    try:
+        icon_path = icons_dir / icon_filename
+        return transform_monochrome_icon(
+            icon_path=icon_path,
+            target_color=target_color,
+            size=(icon_size, icon_size),
+            force_all_pixels=True,  # Force all pixels to target color for consistent appearance
+            preserve_aspect_ratio=True,
+        )
+    except Exception as e:
+        logger.error(f"Failed to load sidebar icon {icon_filename}: {e}")
+        return None

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TitleLabel
+from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, TwoColumnTabLayout
 
 
 class PromptEditDialog(QDialog):
@@ -131,88 +131,95 @@ class QtDictationView(QWidget):
         self.controller.refresh_prompts()
 
     def _setup_ui(self) -> None:
-        """Build two-box layout."""
+        """Build UI with TwoColumnTabLayout."""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(
-            theme_manager.two_box_layout.outer_padding_left,
-            theme_manager.two_box_layout.outer_padding_top,
-            theme_manager.two_box_layout.outer_padding_right,
-            theme_manager.two_box_layout.outer_padding_bottom,
-        )
-        main_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Create two-box layout
-        boxes_layout = QHBoxLayout()
-        boxes_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        # Create two-column layout with titles
+        self.layout = TwoColumnTabLayout(self, "Add Custom Prompt", "Manage Prompts")
+        main_layout.addWidget(self.layout)
 
-        # LEFT BOX - Add custom prompt form
-        left_box = ThemedFrame(frame_type="two_box")
-        left_layout = QVBoxLayout(left_box)
-        left_layout.setContentsMargins(
+        # Setup panels
+        self._setup_add_prompt_form()
+        self._setup_manage_prompts_panel()
+
+    def _setup_add_prompt_form(self) -> None:
+        """Setup add prompt form in left content area."""
+        container = self.layout.left_content
+
+        # Get existing layout
+        container_layout = container.layout()
+        if container_layout is None:
+            container_layout = QVBoxLayout(container)
+
+        container_layout.setContentsMargins(
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
         )
-        left_layout.setSpacing(15)
-
-        # Title
-        left_layout.addWidget(TitleLabel(text="Add Custom Prompt"))
+        container_layout.setSpacing(theme_manager.spacing.medium)
 
         # Prompt title input
-        left_layout.addWidget(QLabel("Prompt Title:"))
+        prompt_title_label = QLabel("Prompt Title:")
+        prompt_title_label.setStyleSheet("border: none; background: transparent;")
+        container_layout.addWidget(prompt_title_label)
         self.title_entry = QLineEdit()
         self.title_entry.setPlaceholderText("e.g. Email Formatting")
-        left_layout.addWidget(self.title_entry)
+        container_layout.addWidget(self.title_entry)
 
         # Prompt instructions
-        left_layout.addWidget(QLabel("Prompt Instructions:"))
+        prompt_instructions_label = QLabel("Prompt Instructions:")
+        prompt_instructions_label.setStyleSheet("border: none; background: transparent;")
+        container_layout.addWidget(prompt_instructions_label)
         self.prompt_textbox = QTextEdit()
         self.prompt_textbox.setPlaceholderText(
             "e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' "
             "Adopt a professional tone and style."
         )
         self.prompt_textbox.setMaximumHeight(150)
-        left_layout.addWidget(self.prompt_textbox)
+        container_layout.addWidget(self.prompt_textbox)
 
         # Add button
         self.add_prompt_btn = PrimaryButton(text="Add Prompt")
         self.add_prompt_btn.clicked.connect(self._on_add_prompt_clicked)
-        left_layout.addWidget(self.add_prompt_btn)
+        container_layout.addWidget(self.add_prompt_btn)
 
-        left_layout.addStretch()
+        container_layout.addStretch()
 
-        # RIGHT BOX - Manage prompts
-        right_box = ThemedFrame(frame_type="two_box")
-        right_layout = QVBoxLayout(right_box)
-        right_layout.setContentsMargins(
+    def _setup_manage_prompts_panel(self) -> None:
+        """Setup manage prompts panel in right content area."""
+        container = self.layout.right_content
+
+        # Get existing layout
+        container_layout = container.layout()
+        if container_layout is None:
+            container_layout = QVBoxLayout(container)
+
+        container_layout.setContentsMargins(
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
         )
-        right_layout.setSpacing(10)
-
-        # Title
-        right_layout.addWidget(TitleLabel(text="Manage Prompts"))
+        container_layout.setSpacing(theme_manager.spacing.small)
 
         # Prompts list widget
         self.prompts_list_widget = QWidget()
+        self.prompts_list_widget.setStyleSheet("background: transparent;")
         self.prompts_list_layout = QVBoxLayout(self.prompts_list_widget)
-        self.prompts_list_layout.setSpacing(5)
+        self.prompts_list_layout.setSpacing(theme_manager.spacing.tiny)
         self.prompts_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.prompts_list_layout.addStretch()
 
         # Scroll area for prompts
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setStyleSheet("background: transparent; border: none;")
         scroll_area.setWidget(self.prompts_list_widget)
-        right_layout.addWidget(scroll_area)
-
-        # Add boxes to main layout
-        boxes_layout.addWidget(left_box, 0)
-        boxes_layout.addWidget(right_box, 1)
-
-        main_layout.addLayout(boxes_layout)
+        container_layout.addWidget(scroll_area)
 
     def _on_prompts_loaded(self, prompts: List[Dict[str, Any]]) -> None:
         """Handle prompts loaded from controller."""
@@ -272,9 +279,11 @@ class QtDictationView(QWidget):
     def _create_prompt_item(self, prompt_data: Dict[str, Any]) -> None:
         """Create a prompt list item with radio, name, edit, and delete buttons."""
         item_widget = QWidget()
+        item_widget.setProperty("itemType", "list_item")
+        item_widget.setStyleSheet("background: transparent; border: none;")
         item_layout = QHBoxLayout(item_widget)
-        item_layout.setContentsMargins(5, 5, 5, 5)
-        item_layout.setSpacing(10)
+        item_layout.setContentsMargins(0, 0, 0, 0)
+        item_layout.setSpacing(theme_manager.spacing.small)
 
         # Radio button
         radio = QRadioButton()
@@ -289,34 +298,25 @@ class QtDictationView(QWidget):
         name_label = QLabel(prompt_data.get("name", "Unnamed"))
         name_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
         name_label.setFont(name_font)
-        name_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        name_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; background: transparent; border: none;")
         item_layout.addWidget(name_label, 1)
 
-        # Edit button
+        # Edit button (pill-shaped)
         edit_btn = PrimaryButton(text="Edit")
+        edit_btn.setFixedWidth(70)
         edit_btn.clicked.connect(lambda checked, p=prompt_data: self._on_edit_prompt(p))
         item_layout.addWidget(edit_btn)
 
-        # Delete button
+        # Delete button (pill-shaped)
         delete_btn = DangerButton(text="Delete")
+        delete_btn.setFixedWidth(80)
         is_default = prompt_data.get("is_default", False)
         delete_btn.setEnabled(not is_default)
         if not is_default:
             delete_btn.clicked.connect(lambda checked, pid=prompt_data.get("id"): self._on_delete_prompt(pid))
         item_layout.addWidget(delete_btn)
 
-        # Style the item
-        item_widget.setStyleSheet(
-            f"""
-            QWidget {{
-                background-color: {theme_manager.shape_colors.dark};
-                border: 1px solid {theme_manager.shape_colors.medium};
-                border-radius: {theme_manager.border_radius.small}px;
-            }}
-        """
-        )
-
-        self.prompts_list_layout.addWidget(item_widget)
+        self.prompts_list_layout.insertWidget(self.prompts_list_layout.count() - 1, item_widget)
 
     def _on_radio_selected(self, prompt_id: str, checked: bool) -> None:
         """Handle radio button selection."""

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageB
 
 from vocalance.app.config.command_types import AutomationCommand
 from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TitleLabel
+from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TwoColumnTabLayout
 
 
 class CommandEditDialog(QDialog):
@@ -201,89 +201,96 @@ class QtCommandsView(QWidget):
         self.controller.on_view_ready()
 
     def _setup_ui(self) -> None:
-        """Build two-box layout."""
+        """Build UI with TwoColumnTabLayout."""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(
-            theme_manager.two_box_layout.outer_padding_left,
-            theme_manager.two_box_layout.outer_padding_top,
-            theme_manager.two_box_layout.outer_padding_right,
-            theme_manager.two_box_layout.outer_padding_bottom,
-        )
-        main_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Create two-box layout
-        boxes_layout = QHBoxLayout()
-        boxes_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        # Create two-column layout with titles
+        self.layout = TwoColumnTabLayout(self, "Add Command", "Manage Commands")
+        main_layout.addWidget(self.layout)
 
-        # LEFT BOX - Add command form
-        left_box = ThemedFrame(frame_type="two_box")
-        left_layout = QVBoxLayout(left_box)
-        left_layout.setContentsMargins(
+        # Setup panels
+        self._setup_add_command_form()
+        self._setup_commands_list_panel()
+
+    def _setup_add_command_form(self) -> None:
+        """Setup add command form in left content area."""
+        container = self.layout.left_content
+
+        # Get existing layout
+        container_layout = container.layout()
+        if container_layout is None:
+            container_layout = QVBoxLayout(container)
+
+        container_layout.setContentsMargins(
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
         )
-        left_layout.setSpacing(15)
-
-        # Title
-        left_layout.addWidget(TitleLabel(text="Add Command"))
+        container_layout.setSpacing(theme_manager.spacing.medium)
 
         # Command phrase input
-        left_layout.addWidget(QLabel("Command Phrase:"))
+        command_phrase_label = QLabel("Command Phrase:")
+        command_phrase_label.setStyleSheet("border: none; background: transparent;")
+        container_layout.addWidget(command_phrase_label)
         self.command_phrase_entry = QLineEdit()
         self.command_phrase_entry.setPlaceholderText("Enter command phrase...")
-        left_layout.addWidget(self.command_phrase_entry)
+        container_layout.addWidget(self.command_phrase_entry)
 
         # Hotkey input
-        left_layout.addWidget(QLabel("Hotkey:"))
+        hotkey_label = QLabel("Hotkey:")
+        hotkey_label.setStyleSheet("border: none; background: transparent;")
+        container_layout.addWidget(hotkey_label)
         self.hotkey_entry = QLineEdit()
         self.hotkey_entry.setPlaceholderText("e.g. ctrl+alt+7")
-        left_layout.addWidget(self.hotkey_entry)
+        container_layout.addWidget(self.hotkey_entry)
 
         # Add button
         self.add_btn = PrimaryButton(text="Add Command")
         self.add_btn.clicked.connect(self._on_add_command_clicked)
-        left_layout.addWidget(self.add_btn)
+        container_layout.addWidget(self.add_btn)
 
-        left_layout.addStretch()
+        container_layout.addStretch()
 
-        # RIGHT BOX - Commands list
-        right_box = ThemedFrame(frame_type="two_box")
-        right_layout = QVBoxLayout(right_box)
-        right_layout.setContentsMargins(
+    def _setup_commands_list_panel(self) -> None:
+        """Setup commands list panel in right content area."""
+        container = self.layout.right_content
+
+        # Get existing layout
+        container_layout = container.layout()
+        if container_layout is None:
+            container_layout = QVBoxLayout(container)
+
+        container_layout.setContentsMargins(
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
         )
-        right_layout.setSpacing(10)
-
-        # Title
-        right_layout.addWidget(TitleLabel(text="Manage Commands"))
+        container_layout.setSpacing(theme_manager.spacing.small)
 
         # Commands list widget (will show grouped commands)
         self.commands_list_widget = QWidget()
+        self.commands_list_widget.setStyleSheet("background: transparent;")
         self.commands_list_layout = QVBoxLayout(self.commands_list_widget)
-        self.commands_list_layout.setSpacing(2)
+        self.commands_list_layout.setSpacing(theme_manager.spacing.tiny)
         self.commands_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.commands_list_layout.addStretch()
 
         # Scroll area for commands
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setStyleSheet("background: transparent; border: none;")
         scroll_area.setWidget(self.commands_list_widget)
-        right_layout.addWidget(scroll_area)
+        container_layout.addWidget(scroll_area)
 
         # Reset to defaults button
         self.reset_btn = DangerButton(text="Reset to Defaults")
         self.reset_btn.clicked.connect(self._on_reset_clicked)
-        right_layout.addWidget(self.reset_btn)
-
-        # Add boxes to main layout
-        boxes_layout.addWidget(left_box, 0)
-        boxes_layout.addWidget(right_box, 1)
-
-        main_layout.addLayout(boxes_layout)
+        container_layout.addWidget(self.reset_btn)
 
     def _on_commands_loaded(self, commands: List[AutomationCommand]) -> None:
         """Handle commands loaded from controller."""
@@ -393,34 +400,26 @@ class QtCommandsView(QWidget):
     def _create_command_item(self, command: AutomationCommand) -> None:
         """Create a command list item with phrase and change button."""
         item_widget = QWidget()
+        item_widget.setProperty("itemType", "list_item")
+        item_widget.setStyleSheet("background: transparent; border: none;")
         item_layout = QHBoxLayout(item_widget)
-        item_layout.setContentsMargins(5, 3, 5, 3)
-        item_layout.setSpacing(10)
+        item_layout.setContentsMargins(0, 0, 0, 0)
+        item_layout.setSpacing(theme_manager.spacing.small)
 
         # Command phrase label
         phrase_label = QLabel(command.command_key)
         phrase_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
         phrase_label.setFont(phrase_font)
-        phrase_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        phrase_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; background: transparent; border: none;")
         item_layout.addWidget(phrase_label, 1)
 
-        # Change button
+        # Change button (pill-shaped)
         change_btn = PrimaryButton(text="Change")
+        change_btn.setFixedWidth(90)
         change_btn.clicked.connect(lambda checked, c=command: self._on_change_command(c))
         item_layout.addWidget(change_btn)
 
-        # Style the item
-        item_widget.setStyleSheet(
-            f"""
-            QWidget {{
-                background-color: {theme_manager.shape_colors.dark};
-                border: 1px solid {theme_manager.shape_colors.medium};
-                border-radius: {theme_manager.border_radius.small}px;
-            }}
-        """
-        )
-
-        self.commands_list_layout.addWidget(item_widget)
+        self.commands_list_layout.insertWidget(self.commands_list_layout.count() - 1, item_widget)
 
     def _on_change_command(self, command: AutomationCommand) -> None:
         """Handle change button clicked - show edit dialog."""

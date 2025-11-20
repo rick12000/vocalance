@@ -1,6 +1,6 @@
-"""Qt-based sounds training view - FULLY INTEGRATED WITH MAPPING DIALOG.
+"""Qt-based sounds training view.
 
-Displays trained sounds and allows training new sounds with command mapping.
+Displays trained sounds and allows training new sounds with command mapping using TwoColumnTabLayout.
 """
 
 import logging
@@ -15,13 +15,14 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QProgressBar,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TitleLabel
+from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TwoColumnTabLayout
 
 
 class SoundMappingDialog(QDialog):
@@ -149,7 +150,7 @@ class SoundMappingDialog(QDialog):
 
 
 class QtSoundsView(QWidget):
-    """Qt-based sounds training view - FULLY INTEGRATED WITH MAPPING.
+    """Qt-based sounds training view using TwoColumnTabLayout.
 
     Features:
     - Training form with name input and samples spinner
@@ -192,103 +193,108 @@ class QtSoundsView(QWidget):
         self.controller.on_view_ready()
 
     def _setup_ui(self) -> None:
-        """Build two-box layout."""
+        """Build UI with TwoColumnTabLayout."""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(
-            theme_manager.two_box_layout.outer_padding_left,
-            theme_manager.two_box_layout.outer_padding_top,
-            theme_manager.two_box_layout.outer_padding_right,
-            theme_manager.two_box_layout.outer_padding_bottom,
-        )
-        main_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Create two-box layout
-        boxes_layout = QHBoxLayout()
-        boxes_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        # Create two-column layout with titles
+        self.layout = TwoColumnTabLayout(self, "Train Sound", "Trained Sounds")
+        main_layout.addWidget(self.layout)
 
-        # LEFT BOX - Training controls
-        left_box = ThemedFrame(frame_type="two_box")
-        left_layout = QVBoxLayout(left_box)
-        left_layout.setContentsMargins(
+        # Setup panels
+        self._setup_training_form()
+        self._setup_sounds_list_panel()
+
+    def _setup_training_form(self) -> None:
+        """Setup training form in left content area."""
+        container = self.layout.left_content
+
+        # Get existing layout
+        container_layout = container.layout()
+        if container_layout is None:
+            container_layout = QVBoxLayout(container)
+
+        container_layout.setContentsMargins(
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
         )
-        left_layout.setSpacing(15)
-
-        # Title
-        left_layout.addWidget(TitleLabel(text="Train Sound"))
+        container_layout.setSpacing(theme_manager.spacing.medium)
 
         # Sound name input
-        left_layout.addWidget(QLabel("Sound Name:"))
+        sound_name_label = QLabel("Sound Name:")
+        sound_name_label.setStyleSheet("border: none; background: transparent;")
+        container_layout.addWidget(sound_name_label)
         self.sound_name_input = QLineEdit()
         self.sound_name_input.setPlaceholderText("e.g., doorbell")
         self.sound_name_input.setMaxLength(50)
-        left_layout.addWidget(self.sound_name_input)
+        container_layout.addWidget(self.sound_name_input)
 
         # Number of samples
-        left_layout.addWidget(QLabel("Samples:"))
+        samples_label = QLabel("Samples:")
+        samples_label.setStyleSheet("border: none; background: transparent;")
+        container_layout.addWidget(samples_label)
         self.samples_spinbox = QSpinBox()
         self.samples_spinbox.setMinimum(1)
         self.samples_spinbox.setMaximum(100)
         self.samples_spinbox.setValue(self.controller.get_default_training_samples() if self.controller else 5)
-        left_layout.addWidget(self.samples_spinbox)
+        container_layout.addWidget(self.samples_spinbox)
 
         # Start training button
         self.start_training_btn = PrimaryButton(text="Record")
         self.start_training_btn.clicked.connect(self._on_start_training_clicked)
-        left_layout.addWidget(self.start_training_btn)
+        container_layout.addWidget(self.start_training_btn)
 
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        left_layout.addWidget(self.progress_bar)
+        container_layout.addWidget(self.progress_bar)
 
         # Status label
         self.status_label = QLabel("Ready")
-        left_layout.addWidget(self.status_label)
+        container_layout.addWidget(self.status_label)
 
-        left_layout.addStretch()
+        container_layout.addStretch()
 
-        # RIGHT BOX - Sounds list
-        right_box = ThemedFrame(frame_type="two_box")
-        right_layout = QVBoxLayout(right_box)
-        right_layout.setContentsMargins(
+    def _setup_sounds_list_panel(self) -> None:
+        """Setup sounds list panel in right content area."""
+        container = self.layout.right_content
+
+        # Get existing layout
+        container_layout = container.layout()
+        if container_layout is None:
+            container_layout = QVBoxLayout(container)
+
+        container_layout.setContentsMargins(
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
             theme_manager.two_box_layout.inner_content_padx,
-            20,
+            0,
         )
-        right_layout.setSpacing(10)
+        container_layout.setSpacing(theme_manager.spacing.small)
 
-        # Title
-        right_layout.addWidget(TitleLabel(text="Trained Sounds"))
-
-        # Sounds list widget (will show custom items with Map/Delete buttons)
+        # Sounds list widget
         self.sounds_list_widget = QWidget()
+        self.sounds_list_widget.setStyleSheet("background: transparent;")
         self.sounds_list_layout = QVBoxLayout(self.sounds_list_widget)
-        self.sounds_list_layout.setSpacing(5)
+        self.sounds_list_layout.setSpacing(theme_manager.spacing.tiny)
         self.sounds_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.sounds_list_layout.addStretch()
 
         # Scroll area for sounds
-        from PySide6.QtWidgets import QScrollArea
-
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setStyleSheet("background: transparent; border: none;")
         scroll_area.setWidget(self.sounds_list_widget)
-        right_layout.addWidget(scroll_area)
+        container_layout.addWidget(scroll_area)
 
         # Delete all button
         self.delete_all_btn = DangerButton(text="Delete All Sounds")
         self.delete_all_btn.clicked.connect(self._on_delete_all_clicked)
-        right_layout.addWidget(self.delete_all_btn)
-
-        # Add boxes to main layout
-        boxes_layout.addWidget(left_box, 0)
-        boxes_layout.addWidget(right_box, 1)
-
-        main_layout.addLayout(boxes_layout)
+        container_layout.addWidget(self.delete_all_btn)
 
     def _on_sounds_loaded(self, sounds: List[str]) -> None:
         """Handle sounds loaded from controller."""
@@ -347,86 +353,77 @@ class QtSoundsView(QWidget):
         """Handle training error event."""
         try:
             self.progress_bar.setVisible(False)
-            self.status_label.setText(f"Error: {error_msg}")
+            self.status_label.setText(f"Training failed: {error_msg}")
             self.start_training_btn.setEnabled(True)
             self.sound_name_input.setEnabled(True)
             self.samples_spinbox.setEnabled(True)
             self.current_training_sound = None
 
             self.logger.error(f"Training error for {sound_name}: {error_msg}")
-            self._show_error(f"Training failed: {error_msg}")
         except Exception as e:
             self.logger.error(f"Error handling training error: {e}", exc_info=True)
 
     def _on_sound_deleted(self, sound_name: str) -> None:
         """Handle sound deleted event."""
         try:
-            if sound_name in self.sounds_list:
-                self.sounds_list.remove(sound_name)
-            self._refresh_sounds_list()
+            if self.controller:
+                self.controller.refresh_sound_list()
             self.logger.info(f"Sound deleted: {sound_name}")
         except Exception as e:
             self.logger.error(f"Error handling sound deleted: {e}", exc_info=True)
 
-    def _on_error(self, error_msg: str) -> None:
+    def _on_error(self, error_message: str) -> None:
         """Handle error from controller."""
-        self._show_error(error_msg)
+        self.logger.error(f"Controller error: {error_message}")
+        self._show_error(error_message)
 
     def _refresh_sounds_list(self) -> None:
-        """Refresh the sounds list display with Map and Delete buttons."""
-        # Clear existing items
-        while self.sounds_list_layout.count():
+        """Refresh the display of trained sounds."""
+        # Clear existing widgets (keep the stretch at the end)
+        while self.sounds_list_layout.count() > 1:  # Keep the stretch
             item = self.sounds_list_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
+        # Add sound widgets
         if not self.sounds_list:
             # Show empty message
             empty_label = QLabel("No available sounds.\nUse the left panel to record a sound.")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
             empty_label.setFont(empty_font)
-            empty_label.setStyleSheet(f"color: {theme_manager.text_colors.medium};")
-            self.sounds_list_layout.addWidget(empty_label)
+            empty_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
+            self.sounds_list_layout.insertWidget(0, empty_label)
         else:
             for sound_name in sorted(self.sounds_list):
                 # Create item widget
                 item_widget = QWidget()
+                item_widget.setProperty("itemType", "list_item")
+                item_widget.setStyleSheet("background: transparent; border: none;")
                 item_layout = QHBoxLayout(item_widget)
-                item_layout.setContentsMargins(5, 5, 5, 5)
-                item_layout.setSpacing(10)
+                item_layout.setContentsMargins(0, 0, 0, 0)
+                item_layout.setSpacing(theme_manager.spacing.small)
 
                 # Sound name label
                 name_label = QLabel(sound_name)
                 name_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
                 name_label.setFont(name_font)
-                name_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+                name_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; background: transparent; border: none;")
                 item_layout.addWidget(name_label, 1)
 
-                # Map button
+                # Map button (pill-shaped)
                 map_btn = PrimaryButton(text="Map")
+                map_btn.setFixedWidth(80)
                 map_btn.clicked.connect(lambda checked, s=sound_name: self._on_map_sound(s))
                 item_layout.addWidget(map_btn)
 
-                # Delete button
+                # Delete button (pill-shaped)
                 delete_btn = DangerButton(text="Delete")
+                delete_btn.setFixedWidth(80)
                 delete_btn.clicked.connect(lambda checked, s=sound_name: self._on_delete_sound(s))
                 item_layout.addWidget(delete_btn)
 
-                # Style the item
-                item_widget.setStyleSheet(
-                    f"""
-                    QWidget {{
-                        background-color: {theme_manager.shape_colors.dark};
-                        border: 1px solid {theme_manager.shape_colors.medium};
-                        border-radius: {theme_manager.border_radius.small}px;
-                    }}
-                """
-                )
-
-                self.sounds_list_layout.addWidget(item_widget)
-
-        self.sounds_list_layout.addStretch()
+                self.sounds_list_layout.insertWidget(self.sounds_list_layout.count() - 1, item_widget)
 
     def _on_map_sound(self, sound_name: str) -> None:
         """Handle map button clicked - show mapping dialog."""
@@ -454,37 +451,34 @@ class QtSoundsView(QWidget):
                 self.controller.delete_individual_sound(sound_name)
 
     def _on_start_training_clicked(self) -> None:
-        """Handle start training button clicked."""
+        """Handle start training button click."""
         sound_name = self.sound_name_input.text().strip()
-
         if not sound_name:
-            QMessageBox.warning(self, "Invalid Input", "Please enter a sound name.")
-            return
-
-        if not self.controller:
-            QMessageBox.critical(self, "Error", "Controller not initialized.")
+            self._show_error("Please enter a sound name.")
             return
 
         num_samples = self.samples_spinbox.value()
-        self.controller.train_sound(sound_name, num_samples)
+        if self.controller:
+            self.controller.start_training(sound_name, num_samples)
 
     def _on_delete_all_clicked(self) -> None:
-        """Handle delete all button clicked."""
+        """Handle delete all button click."""
         if not self.sounds_list:
-            QMessageBox.information(self, "No Sounds", "There are no sounds to delete.")
             return
 
-        if self.controller:
-            reply = QMessageBox.question(
-                self,
-                "Delete All Sounds",
-                f"Delete all {len(self.sounds_list)} trained sounds?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
+        reply = QMessageBox.question(
+            self,
+            "Delete All Sounds",
+            "Delete all trained sounds? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
 
-            if reply == QMessageBox.StandardButton.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.controller:
                 self.controller.delete_all_sounds()
 
     def _show_error(self, message: str) -> None:
         """Show error message dialog."""
-        QMessageBox.critical(self, "Error", message)
+        from vocalance.app.ui.views.components.qt_themed_dialogs import showerror
+
+        showerror(message, parent=self)

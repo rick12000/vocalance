@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 from pydantic import BaseModel, Field
 
-from vocalance.app.ui import ui_theme
+from vocalance.app.ui import qt_theme as ui_theme
 
 
 class ViewTimings(BaseModel):
@@ -33,7 +33,7 @@ class GridViewConfig(BaseModel):
     @property
     def text_font_family(self) -> str:
         """Get font family from ui_theme"""
-        return ui_theme.theme.font_family.get_primary_font("regular")
+        return ui_theme.theme_manager.get_font_family("regular")
 
     def get_font_tuple(self, cell_height: float) -> tuple:
         """Calculate font tuple based on cell height with min/max constraints"""
@@ -114,17 +114,18 @@ class MarkViewConfig(BaseModel):
     @property
     def mark_font(self) -> tuple:
         """Get mark font from ui_theme"""
-        return ui_theme.theme.font_family.get_button_font(10)
+        font = ui_theme.theme_manager.get_font(size=10, weight="semibold")
+        return (font.family(), font.pointSize(), "bold")
 
     @property
     def themed_mark_fill_color(self) -> str:
         """Get mark fill color from ui_theme shape_colors.dark"""
-        return ui_theme.theme.shape_colors.dark
+        return ui_theme.theme_manager.shape_colors.dark
 
     @property
     def themed_mark_outline_color(self) -> str:
         """Get mark outline color from ui_theme shape_colors.medium"""
-        return ui_theme.theme.shape_colors.medium
+        return ui_theme.theme_manager.shape_colors.medium
 
 
 class DictationPopupConfig(BaseModel):
@@ -136,17 +137,20 @@ class DictationPopupConfig(BaseModel):
     @property
     def simple_window_size(self) -> tuple:
         """Get simple window dimensions from ui_theme"""
-        return (ui_theme.theme.dimensions.dictation_simple_width, ui_theme.theme.dimensions.dictation_simple_height)
+        return (
+            ui_theme.theme_manager.dimensions.dictation_simple_width,
+            ui_theme.theme_manager.dimensions.dictation_simple_height,
+        )
 
     @property
     def smart_window_size(self) -> tuple:
         """Get smart window dimensions from ui_theme"""
-        return (ui_theme.theme.dimensions.dictation_smart_width, ui_theme.theme.dimensions.dictation_smart_height)
+        return (ui_theme.theme_manager.dimensions.dictation_smart_width, ui_theme.theme_manager.dimensions.dictation_smart_height)
 
     @property
     def font_family(self) -> str:
         """Get font family from ui_theme"""
-        return ui_theme.theme.font_family.get_primary_font("regular")
+        return ui_theme.theme_manager.get_font_family("regular")
 
 
 class FormDefaults(BaseModel):
@@ -209,7 +213,7 @@ class ViewConfiguration(BaseModel):
     @property
     def theme(self):
         """Access to ui_theme for convenience"""
-        return ui_theme.theme
+        return ui_theme.theme_manager
 
 
 # Singleton instance

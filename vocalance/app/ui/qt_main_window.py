@@ -18,8 +18,8 @@ from vocalance.app.ui.qt_theme import theme_manager
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
 from vocalance.app.ui.views.components.qt_themed_components import (
+    ExpandableSidebar,
     SidebarButton,
-    SidebarButtonManager,
     SubtitleLabel,
     ThemedFrame,
     TitleLabel,
@@ -99,6 +99,9 @@ class VocalanceMainWindow(QMainWindow):
             theme_manager.dimensions.main_window_min_height,
         )
 
+        # Set window background color to match theme
+        self.setStyleSheet(f"QMainWindow {{ background-color: {theme_manager.shape_colors.darkest}; }}")
+
         # Set window icon if available
         icon_path = self.asset_cache.get_icon_path()
         if icon_path and icon_path.exists():
@@ -162,53 +165,69 @@ class VocalanceMainWindow(QMainWindow):
         self._create_sidebar()
         main_layout.addWidget(self.sidebar_frame)
 
-        # Create separator
+        # Create separator (will expand/contract with sidebar)
         self._create_sidebar_separator()
         main_layout.addWidget(self.sidebar_separator)
 
-        # Create right panel (header + content)
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
+        # Create right panel wrapper with outer padding (space between border and window edges)
+        right_panel_wrapper = QWidget()
+        right_wrapper_layout = QVBoxLayout(right_panel_wrapper)
+        right_wrapper_layout.setContentsMargins(
+            theme_manager.two_box_layout.outer_padding_left,
+            theme_manager.two_box_layout.outer_padding_top,
+            theme_manager.two_box_layout.outer_padding_right,
+            theme_manager.two_box_layout.outer_padding_bottom,
+        )
+        right_wrapper_layout.setSpacing(0)
 
-        # Create header
+        # Create bordered content frame that wraps header + content
+        # Use ThemedFrame with content_border frameType (defined in QSS)
+        self.content_border_frame = ThemedFrame(frame_type="content_border")
+        content_frame_layout = QVBoxLayout(self.content_border_frame)
+        content_frame_layout.setContentsMargins(
+            theme_manager.two_box_layout.outer_border_padding,
+            theme_manager.two_box_layout.outer_border_padding,
+            theme_manager.two_box_layout.outer_border_padding,
+            theme_manager.two_box_layout.outer_border_padding,
+        )
+        content_frame_layout.setSpacing(0)
+
+        # Create header with proper padding
         self._create_header()
-        right_layout.addWidget(self.header_frame)
+        content_frame_layout.addWidget(self.header_frame)
 
         # Create content area
         self._create_content_area()
-        right_layout.addWidget(self.content_widget)
+        content_frame_layout.addWidget(self.content_widget)
 
-        main_layout.addWidget(right_panel, stretch=1)
+        # Add bordered frame to wrapper
+        right_wrapper_layout.addWidget(self.content_border_frame)
+
+        main_layout.addWidget(right_panel_wrapper, stretch=1)
 
         # Show initial tab
         self.show_tab("Marks")
 
     def _create_sidebar(self) -> None:
-        """Create the sidebar with navigation buttons."""
-        self.sidebar_frame = ThemedFrame(frame_type="sidebar")
-        self.sidebar_frame.setFixedWidth(theme_manager.sidebar_layout.width)
-
-        sidebar_layout = QVBoxLayout(self.sidebar_frame)
-        sidebar_layout.setContentsMargins(
-            theme_manager.sidebar_layout.container_padding_left,
-            theme_manager.sidebar_layout.top_spacing,
-            theme_manager.sidebar_layout.container_padding_right,
-            theme_manager.sidebar_layout.container_padding_bottom,
-        )
-        sidebar_layout.setSpacing(0)
+        """Create the expandable sidebar with navigation buttons."""
+        self.sidebar_frame = ExpandableSidebar()
+        self.sidebar_button_manager = self.sidebar_frame.button_manager
 
         # Buttons container
         self._create_sidebar_buttons()
-        sidebar_layout.addWidget(self.buttons_widget)
+        self.sidebar_frame.add_button_widget(self.buttons_widget)
 
         # Stretch
-        sidebar_layout.addStretch()
+        self.sidebar_frame.add_stretch()
 
         # Logo at bottom
         self._create_sidebar_logo()
-        sidebar_layout.addWidget(self.sidebar_logo)
+        self.sidebar_frame.add_logo(self.sidebar_logo_frame)
+
+        # Select first button if available
+        if self.sidebar_buttons:
+            first_button = list(self.sidebar_buttons.values())[0]
+            self.sidebar_button_manager.select_button(first_button)
 
     def _create_sidebar_buttons(self) -> None:
         """Create sidebar navigation buttons."""
@@ -223,28 +242,54 @@ class VocalanceMainWindow(QMainWindow):
         buttons_layout.setSpacing(theme_manager.sidebar_layout.button_spacing_vertical)
 
         self.sidebar_buttons = {}
-        self.sidebar_button_manager = SidebarButtonManager()
 
-        # Tab definitions (icons optional - will add later if needed)
-        tabs = ["Marks", "Sounds", "Commands", "Dictation", "Settings"]
+        # Tab definitions with icon filenames
+        tabs = [
+            ("Marks", "bookmark_flag_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+            ("Sounds", "mic_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+            ("Commands", "voice_selection_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+            ("Dictation", "network_intelligence_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+            ("Settings", "settings_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+        ]
 
-        for tab_name in tabs:
-            # Create button without icon for now
-            btn = SidebarButton(text=tab_name, icon_pixmap=None)
+        # Import icon loading utility
+        from vocalance.app.ui.utils.qt_icon_utils import load_sidebar_icon
+
+        # Use the larger icon size for collapsed state
+        icon_size = theme_manager.sidebar_layout.button_icon_size
+
+        for tab_name, icon_filename in tabs:
+            # Load and transform icon
+            icon_pixmap = load_sidebar_icon(
+                icon_filename=icon_filename,
+                icons_dir=self.asset_cache.get_icons_dir(),
+                target_color=theme_manager.icon_properties.color,
+                icon_size=icon_size,
+            )
+
+            # Create button with icon
+            btn = SidebarButton(text=tab_name, icon_pixmap=icon_pixmap)
             btn.clicked.connect(lambda checked=False, tab=tab_name: self.show_tab(tab))
 
             buttons_layout.addWidget(btn)
 
             self.sidebar_buttons[tab_name] = btn
+            # Add button to the sidebar's button manager
             self.sidebar_button_manager.add_button(btn)
 
-        # Select first button
-        if tabs:
-            first_button = self.sidebar_buttons[tabs[0]]
-            self.sidebar_button_manager.select_button(first_button)
-
     def _create_sidebar_logo(self) -> None:
-        """Create sidebar logo."""
+        """Create sidebar logo with transparent background."""
+        # Create transparent frame for logo
+        logo_frame = TransparentFrame()
+        logo_frame.setStyleSheet("background: transparent; border: none;")
+        logo_layout = QVBoxLayout(logo_frame)
+        logo_layout.setContentsMargins(
+            0,
+            theme_manager.sidebar_layout.logo_padding_top,
+            0,
+            theme_manager.sidebar_layout.logo_padding_bottom,
+        )
+
         self.sidebar_logo = self.logo_service.create_logo_widget(
             max_size=theme_manager.sidebar_layout.logo_max_size,
             context="sidebar",
@@ -252,12 +297,11 @@ class VocalanceMainWindow(QMainWindow):
             logo_type="icon",
         )
         self.sidebar_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.sidebar_logo.setContentsMargins(
-            0,
-            theme_manager.sidebar_layout.logo_padding_top,
-            0,
-            theme_manager.sidebar_layout.logo_padding_bottom,
-        )
+        self.sidebar_logo.setStyleSheet("background: transparent; border: none;")
+        logo_layout.addWidget(self.sidebar_logo)
+
+        # Store the frame instead of just the logo widget
+        self.sidebar_logo_frame = logo_frame
 
     def _create_sidebar_separator(self) -> None:
         """Create separator line between sidebar and content."""
@@ -265,53 +309,54 @@ class VocalanceMainWindow(QMainWindow):
         self.sidebar_separator.setFrameShape(QFrame.Shape.VLine)
         self.sidebar_separator.setFrameShadow(QFrame.Shadow.Plain)
         self.sidebar_separator.setFixedWidth(theme_manager.sidebar_layout.border_width)
-        self.sidebar_separator.setStyleSheet(f"background-color: {theme_manager.shape_colors.medium};")
+        self.sidebar_separator.setStyleSheet("background-color: transparent; border: none;")
 
     def _create_header(self) -> None:
-        """Create the header section."""
-        self.header_frame = ThemedFrame(frame_type="header")
-        self.header_frame.setFixedHeight(theme_manager.dimensions.header_height)
+        """Create the header section with wrapper for proper padding."""
+        # Outer wrapper for frame padding
+        self.header_frame = QWidget()
+        self.header_frame.setStyleSheet("background: transparent; border: none;")
+        outer_layout = QVBoxLayout(self.header_frame)
+        # No outer padding needed - the content_border_frame handles that
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
-        header_layout = QVBoxLayout(self.header_frame)
+        # Inner header frame
+        header_inner = ThemedFrame(frame_type="header")
+        header_inner.setFixedHeight(theme_manager.dimensions.header_height)
+        header_inner.setStyleSheet("border: none; background: transparent;")
+
+        header_layout = QVBoxLayout(header_inner)
         header_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
+            theme_manager.header_layout.content_padding_left,
             theme_manager.header_layout.title_y_offset,
-            theme_manager.two_box_layout.inner_content_padx,
+            theme_manager.header_layout.content_padding_right,
             theme_manager.spacing.small,
         )
         header_layout.setSpacing(theme_manager.spacing.tiny)
 
         # Title
         self.header_label = TitleLabel(text="Welcome to Vocalance!")
+        self.header_label.setStyleSheet("border: none; background: transparent;")
         header_layout.addWidget(self.header_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # Subtitle (created on demand)
         self.header_subtitle = None
+        self.header_inner = header_inner
 
         # Stretch
         header_layout.addStretch()
 
-        # Apply margins for positioning
-        self.header_frame.setContentsMargins(
-            theme_manager.two_box_layout.outer_padding_left,
-            theme_manager.header_layout.frame_padding_top,
-            theme_manager.two_box_layout.outer_padding_right,
-            theme_manager.header_layout.frame_padding_bottom,
-        )
+        outer_layout.addWidget(header_inner)
 
     def _create_content_area(self) -> None:
         """Create the main content area with stacked widget for tabs."""
         self.content_widget = TransparentFrame()
         content_layout = QVBoxLayout(self.content_widget)
-        content_layout.setContentsMargins(
-            theme_manager.two_box_layout.outer_padding_left,
-            theme_manager.two_box_layout.outer_padding_top,
-            theme_manager.two_box_layout.outer_padding_right,
-            theme_manager.two_box_layout.outer_padding_bottom,
-        )
+        content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
 
-        # Stacked widget for tab content
+        # Stacked widget for tab content (views handle their own padding)
         self.stacked_widget = QStackedWidget()
         content_layout.addWidget(self.stacked_widget)
 
@@ -323,8 +368,9 @@ class VocalanceMainWindow(QMainWindow):
         """
         if not self.header_subtitle:
             self.header_subtitle = SubtitleLabel(text=text)
+            self.header_subtitle.setStyleSheet("border: none; background: transparent;")
             # Insert after title
-            header_layout = self.header_frame.layout()
+            header_layout = self.header_inner.layout()
             header_layout.insertWidget(1, self.header_subtitle, alignment=Qt.AlignmentFlag.AlignLeft)
         else:
             self.header_subtitle.setText(text)
