@@ -132,7 +132,7 @@ class QtDictationPopupView(QMainWindow):
         dictation_layout.setSpacing(5)
 
         dictation_label = QLabel("Dictation")
-        dictation_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, bold=True))
+        dictation_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, weight="semibold"))
         dictation_layout.addWidget(dictation_label)
 
         self.dictation_box = QPlainTextEdit()
@@ -149,7 +149,7 @@ class QtDictationPopupView(QMainWindow):
         llm_layout.setSpacing(5)
 
         self.llm_label = QLabel("AI Output")
-        self.llm_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, bold=True))
+        self.llm_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, weight="semibold"))
         llm_layout.addWidget(self.llm_label)
 
         self.llm_box = QPlainTextEdit()
@@ -171,7 +171,7 @@ class QtDictationPopupView(QMainWindow):
         visual_layout.setSpacing(10)
 
         visual_label = QLabel("Dictation")
-        visual_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, bold=True))
+        visual_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, weight="semibold"))
         visual_layout.addWidget(visual_label)
 
         self.visual_dictation_box = QPlainTextEdit()

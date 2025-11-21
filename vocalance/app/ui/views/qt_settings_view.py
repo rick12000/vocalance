@@ -201,7 +201,7 @@ class QtSettingsView(QWidget):
         for section_name, field_specs in visible_settings.items():
             # Section title
             section_label = QLabel(section_name)
-            section_font = theme_manager.get_font(size=theme_manager.font_sizes.large, bold=True)
+            section_font = theme_manager.get_font(size=theme_manager.font_sizes.large, weight="semibold")
             section_label.setFont(section_font)
             section_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; margin-top: 15px; margin-bottom: 10px;")
             self.settings_layout.addWidget(section_label)

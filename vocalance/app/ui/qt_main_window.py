@@ -331,9 +331,9 @@ class VocalanceMainWindow(QMainWindow):
             theme_manager.header_layout.content_padding_left,
             theme_manager.header_layout.title_y_offset,
             theme_manager.header_layout.content_padding_right,
-            theme_manager.spacing.small,
+            theme_manager.spacing.large,
         )
-        header_layout.setSpacing(theme_manager.spacing.tiny)
+        header_layout.setSpacing(theme_manager.spacing.small)
 
         # Title
         self.header_label = TitleLabel(text="Welcome to Vocalance!")

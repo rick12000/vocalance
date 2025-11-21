@@ -44,7 +44,7 @@ class CommandEditDialog(QDialog):
         desc_layout.setSpacing(5)
 
         desc_title = QLabel("Description")
-        desc_title_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="bold")
+        desc_title_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
         desc_title.setFont(desc_title_font)
         desc_title.setStyleSheet(f"color: {theme_manager.text_colors.light};")
         desc_layout.addWidget(desc_title)
@@ -248,7 +248,7 @@ class QtCommandsView(QWidget):
         container_layout.addWidget(self.hotkey_entry)
 
         # Add button
-        self.add_btn = PrimaryButton(text="Add Command")
+        self.add_btn = PrimaryButton(text="Add")
         self.add_btn.clicked.connect(self._on_add_command_clicked)
         container_layout.addWidget(self.add_btn)
 
@@ -288,9 +288,11 @@ class QtCommandsView(QWidget):
         container_layout.addWidget(scroll_area)
 
         # Reset to defaults button
-        self.reset_btn = DangerButton(text="Reset to Defaults")
+        self.reset_btn = DangerButton(text="Reset")
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         container_layout.addWidget(self.reset_btn)
+        # Add bottom padding after button
+        container_layout.addSpacing(theme_manager.spacing.large)
 
     def _on_commands_loaded(self, commands: List[AutomationCommand]) -> None:
         """Handle commands loaded from controller."""
@@ -357,9 +359,9 @@ class QtCommandsView(QWidget):
             for group_name, group_commands in sorted_groups:
                 # Group header
                 group_label = QLabel(group_name)
-                group_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="bold")
+                group_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
                 group_label.setFont(group_font)
-                group_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; padding: 5px;")
+                group_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; padding: 5px;")
                 self.commands_list_layout.addWidget(group_label)
 
                 # Divider
@@ -410,7 +412,7 @@ class QtCommandsView(QWidget):
         phrase_label = QLabel(command.command_key)
         phrase_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
         phrase_label.setFont(phrase_font)
-        phrase_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; background: transparent; border: none;")
+        phrase_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
         item_layout.addWidget(phrase_label, 1)
 
         # Change button (pill-shaped)
@@ -461,7 +463,7 @@ class QtCommandsView(QWidget):
         """Handle reset to defaults button clicked."""
         reply = QMessageBox.question(
             self,
-            "Reset to Defaults",
+            "Reset",
             "Are you sure you want to reset all commands to defaults? This will remove all custom commands.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )

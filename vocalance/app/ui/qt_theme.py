@@ -19,11 +19,11 @@ from PySide6.QtWidgets import QApplication
 class FontSizes:
     """Font size design tokens for typography hierarchy."""
 
-    small: int = 12
+    small: int = 13
     medium: int = 15
     large: int = 17
-    xlarge: int = 20
-    xxlarge: int = 26
+    xlarge: int = 22
+    xxlarge: int = 32
 
 
 @dataclass
@@ -33,19 +33,20 @@ class TextColors:
     color_accent: str = "#918f66"
     lightest: str = "#e8d6d6"
     light: str = "#c3afaf"
-    medium: str = "#bdaaaa"
+    medium: str = "#7a7a7a"
     dark: str = "#a79494"
     darkest: str = "#1f1f1f"
     success: str = "#28a745"
     streaming_token: str = "#c79b9b"
+    light_blue_accent: str = "#2b3054"
 
 
 @dataclass
 class ShapeColors:
     """Shape/background color design tokens - 5 shades from light to dark."""
 
-    accent: str = "#b4c7c6"
-    accent_minus: str = "#9dabaa"
+    accent: str = "#a3a3a3"
+    accent_minus: str = "#7c7c7c"
     lightest: str = "#515151"
     light: str = "#404040"
     medium: str = "#393939"
@@ -100,7 +101,7 @@ class IconPropertiesInstance:
 
     @property
     def color(self) -> str:
-        return ShapeColors().light
+        return ShapeColors().accent
 
 
 @dataclass
@@ -112,7 +113,7 @@ class Dimensions:
     main_window_height: int = 600
     main_window_min_width: int = 1000
     main_window_min_height: int = 600
-    header_height: int = 80
+    header_height: int = 100
 
     # Component dimensions
     button_height: int = 30
@@ -252,7 +253,7 @@ class ThemeManager:
         self.two_box_layout = TwoBoxLayout()
         self.icon_properties = IconPropertiesInstance()
 
-        self._font_family = "Manrope"
+        self._font_family = "DM_Sans"
         self._font_family_secondary = "Segoe UI"
         self._font_family_fallback = "Arial"
         self._font_family_monospace = "Courier New"
@@ -370,7 +371,7 @@ QPushButton:hover {{
 }}
 
 QPushButton:pressed {{
-    background-color: {self.shape_colors.accent_minus};
+    background-color: {self.shape_colors.accent};
 }}
 
 QPushButton:disabled {{
@@ -381,12 +382,12 @@ QPushButton:disabled {{
 /* Primary Button */
 QPushButton[buttonType="primary"] {{
     background-color: {self.shape_colors.accent};
-    color: {self.shape_colors.dark};
+    color: {self.text_colors.light_blue_accent};
     padding: 6px 12px;
 }}
 
 QPushButton[buttonType="primary"]:hover {{
-    background-color: {self.shape_colors.accent_minus};
+    background-color: {self.shape_colors.accent};
 }}
 
 /* Danger Button - matches legacy styling */
@@ -409,23 +410,28 @@ QPushButton[buttonType="danger"]:pressed {{
 /* Sidebar Button */
 QPushButton[buttonType="sidebar"] {{
     background-color: transparent;
-    color: {self.text_colors.light};
-    border: 2px solid transparent;
+    color: {self.shape_colors.accent};
+    border: none;
     border-radius: {self.border_radius.small}px;
     text-align: left;
-    padding: 8px;
-    font-weight: normal;
+    padding: 4px;
+    font-weight: 600;
     qproperty-iconSize: {self.sidebar_layout.button_icon_size}px {self.sidebar_layout.button_icon_size}px;
 }}
 
 QPushButton[buttonType="sidebar"]:hover {{
-    border: 2px solid {self.shape_colors.lightest};
-    background-color: transparent;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 {self.gradient_colors.blue_rose_start},
+        stop:1 {self.gradient_colors.blue_rose_end});
+    color: {self.text_colors.light_blue_accent};
 }}
 
 QPushButton[buttonType="sidebar"][selected="true"] {{
-    border: 2px solid {self.shape_colors.accent};
-    background-color: transparent;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 {self.gradient_colors.blue_rose_start},
+        stop:1 {self.gradient_colors.blue_rose_end});
+    color: {self.text_colors.light_blue_accent};
+    border: none;
 }}
 
 /* =============================================================================
@@ -546,7 +552,7 @@ QFrame[frameType="box"] {{
 }}
 
 QFrame[frameType="two_box"] {{
-    background-color: {self.shape_colors.darkest};
+    background-color: {self.shape_colors.dark};
     border: 1px solid {self.shape_colors.medium};
     border-radius: {self.border_radius.rounded}px;
 }}
@@ -577,8 +583,8 @@ QFrame[frameType="transparent"] {{
 
 QFrame[frameType="content_border"] {{
     background-color: {self.shape_colors.darkest};
-    border: {self.two_box_layout.outer_border_width}px solid {self.shape_colors.light};
-    border-radius: {self.border_radius.small}px;
+    border: {self.two_box_layout.outer_border_width}px solid {self.shape_colors.accent};
+    border-radius: {self.border_radius.xlarge}px;
 }}
 
 /* List item frames should be borderless */
@@ -804,6 +810,34 @@ QTabBar::tab:hover {{
 QStackedWidget {{
     background-color: transparent;
     border: none;
+}}
+
+/* =============================================================================
+   DANGER BUTTONS
+   ============================================================================= */
+
+QPushButton[buttonType="danger"] {{
+    background-color: {self.shape_colors.medium};
+    color: {self.text_colors.lightest};
+    border: 1px solid {self.shape_colors.light};
+    border-radius: {self.dimensions.button_height // 2}px;
+    padding: 4px 16px;
+    font-weight: bold;
+}}
+
+QPushButton[buttonType="danger"]:hover {{
+    background-color: {self.shape_colors.light};
+    border: 1px solid {self.shape_colors.lightest};
+}}
+
+QPushButton[buttonType="danger"]:pressed {{
+    background-color: {self.shape_colors.dark};
+}}
+
+QPushButton[buttonType="danger"]:disabled {{
+    background-color: {self.shape_colors.dark};
+    color: {self.text_colors.medium};
+    border: 1px solid {self.shape_colors.medium};
 }}
 """
 

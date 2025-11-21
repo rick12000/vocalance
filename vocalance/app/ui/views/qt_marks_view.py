@@ -143,11 +143,13 @@ class QtMarksView(QWidget):
         self.show_overlay_btn.clicked.connect(self._on_show_overlay_clicked)
         button_layout.addWidget(self.show_overlay_btn)
 
-        self.delete_all_btn = DangerButton(text="Delete All Marks")
+        self.delete_all_btn = DangerButton(text="Reset")
         self.delete_all_btn.clicked.connect(self._on_delete_all_clicked)
         button_layout.addWidget(self.delete_all_btn)
 
         container_layout.addLayout(button_layout)
+        # Add bottom padding after button row
+        container_layout.addSpacing(theme_manager.spacing.large)
 
     def _display_marks(self, marks: List[MarkData]) -> None:
         """Display marks in the list."""
@@ -176,7 +178,7 @@ class QtMarksView(QWidget):
         label = QLabel(label_text)
         font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
         label.setFont(font)
-        label.setStyleSheet(f"color: {theme_manager.text_colors.light}; background: transparent; border: none;")
+        label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
         layout.addWidget(label, stretch=1)
 
         # Delete button (pill-shaped)

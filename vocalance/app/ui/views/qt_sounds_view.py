@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -54,7 +53,7 @@ class SoundMappingDialog(QDialog):
         current_layout.setSpacing(5)
 
         current_title = QLabel("Current Mapping:")
-        current_title_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="bold")
+        current_title_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
         current_title.setFont(current_title_font)
         current_title.setStyleSheet(f"color: {theme_manager.text_colors.light};")
         current_layout.addWidget(current_title)
@@ -82,7 +81,7 @@ class SoundMappingDialog(QDialog):
 
         # Command Type dropdown
         type_label = QLabel("Command Type:")
-        type_label_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="bold")
+        type_label_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
         type_label.setFont(type_label_font)
         type_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
         mapping_layout.addWidget(type_label)
@@ -236,10 +235,10 @@ class QtSoundsView(QWidget):
         samples_label = QLabel("Samples:")
         samples_label.setStyleSheet("border: none; background: transparent;")
         container_layout.addWidget(samples_label)
-        self.samples_spinbox = QSpinBox()
-        self.samples_spinbox.setMinimum(1)
-        self.samples_spinbox.setMaximum(100)
-        self.samples_spinbox.setValue(self.controller.get_default_training_samples() if self.controller else 5)
+        self.samples_spinbox = QLineEdit()
+        default_samples = self.controller.get_default_training_samples() if self.controller else 5
+        self.samples_spinbox.setText(str(default_samples))
+        self.samples_spinbox.setPlaceholderText("e.g., 5")
         container_layout.addWidget(self.samples_spinbox)
 
         # Start training button
@@ -253,7 +252,8 @@ class QtSoundsView(QWidget):
         container_layout.addWidget(self.progress_bar)
 
         # Status label
-        self.status_label = QLabel("Ready")
+        self.status_label = QLabel()
+        self.status_label.setVisible(False)
         container_layout.addWidget(self.status_label)
 
         container_layout.addStretch()
@@ -292,9 +292,11 @@ class QtSoundsView(QWidget):
         container_layout.addWidget(scroll_area)
 
         # Delete all button
-        self.delete_all_btn = DangerButton(text="Delete All Sounds")
+        self.delete_all_btn = DangerButton(text="Reset")
         self.delete_all_btn.clicked.connect(self._on_delete_all_clicked)
         container_layout.addWidget(self.delete_all_btn)
+        # Add bottom padding after button
+        container_layout.addSpacing(theme_manager.spacing.large)
 
     def _on_sounds_loaded(self, sounds: List[str]) -> None:
         """Handle sounds loaded from controller."""
@@ -314,6 +316,7 @@ class QtSoundsView(QWidget):
             self.progress_bar.setMaximum(total_samples)
             self.progress_bar.setVisible(True)
             self.status_label.setText(f"Recording sample 1 of {total_samples}")
+            self.status_label.setVisible(True)
             self.start_training_btn.setEnabled(False)
             self.sound_name_input.setEnabled(False)
             self.samples_spinbox.setEnabled(False)
@@ -339,6 +342,7 @@ class QtSoundsView(QWidget):
         try:
             self.progress_bar.setVisible(False)
             self.status_label.setText(f"Training complete for '{sound_name}'!")
+            self.status_label.setVisible(True)
             self.start_training_btn.setEnabled(True)
             self.sound_name_input.setEnabled(True)
             self.samples_spinbox.setEnabled(True)
@@ -354,6 +358,7 @@ class QtSoundsView(QWidget):
         try:
             self.progress_bar.setVisible(False)
             self.status_label.setText(f"Training failed: {error_msg}")
+            self.status_label.setVisible(True)
             self.start_training_btn.setEnabled(True)
             self.sound_name_input.setEnabled(True)
             self.samples_spinbox.setEnabled(True)
@@ -408,7 +413,7 @@ class QtSoundsView(QWidget):
                 name_label = QLabel(sound_name)
                 name_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
                 name_label.setFont(name_font)
-                name_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; background: transparent; border: none;")
+                name_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
                 item_layout.addWidget(name_label, 1)
 
                 # Map button (pill-shaped)
@@ -457,7 +462,15 @@ class QtSoundsView(QWidget):
             self._show_error("Please enter a sound name.")
             return
 
-        num_samples = self.samples_spinbox.value()
+        try:
+            num_samples = int(self.samples_spinbox.text().strip())
+            if num_samples < 1 or num_samples > 100:
+                self._show_error("Please enter a number between 1 and 100 for samples.")
+                return
+        except ValueError:
+            self._show_error("Please enter a valid number for samples.")
+            return
+
         if self.controller:
             self.controller.start_training(sound_name, num_samples)
 
@@ -468,7 +481,7 @@ class QtSoundsView(QWidget):
 
         reply = QMessageBox.question(
             self,
-            "Delete All Sounds",
+            "Reset",
             "Delete all trained sounds? This cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )

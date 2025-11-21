@@ -50,7 +50,7 @@ class ThemedButton(QPushButton):
         if size is None:
             size = theme_manager.font_sizes.medium
 
-        font = theme_manager.get_font(size=size, bold=True)
+        font = theme_manager.get_font(size=size, weight="semibold")
         self.setFont(font)
 
         # Set fixed height and minimum width to ensure pill shape
@@ -95,7 +95,7 @@ class PrimaryButton(ThemedButton):
             QPushButton[buttonType="primary"] {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 {gradient_start}, stop:1 {gradient_end});
-                color: {theme_manager.shape_colors.darkest};
+                color: {theme_manager.text_colors.light_blue_accent};
                 border: none;
                 border-radius: {border_radius}px;
                 padding: 4px 16px;
@@ -155,16 +155,72 @@ class SidebarButton(QPushButton):
         self._selected = False
         self._button_text = text
         self._expanded = False
+        self._original_icon_pixmap = icon_pixmap
+        self._hover_icon_pixmap = None
+        self._default_icon_pixmap = None
+        self._is_hovered = False
 
         if icon_pixmap:
             icon = QIcon(icon_pixmap)
             self.setIcon(icon)
+            self._default_icon_pixmap = icon_pixmap
+            # Pre-generate hover state icon
+            self._generate_hover_icon()
             # Icon size will be set by expandable sidebar
 
-        font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+        font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
         self.setFont(font)
 
         self.setMinimumHeight(50)
+
+    def _generate_hover_icon(self) -> None:
+        """Generate the hover state icon with light_blue_accent color."""
+        if not self._original_icon_pixmap:
+            return
+
+        try:
+            from PIL import Image
+
+            # Convert QPixmap to PIL Image for transformation
+            image = self._original_icon_pixmap.toImage()
+            width = image.width()
+            height = image.height()
+
+            # Convert to PIL Image
+            ptr = image.bits()
+            ptr.setsize(image.byteCount())
+            arr = ptr.asarray()
+            pil_img = Image.frombytes("RGBA", (width, height), bytes(arr), "raw", "BGRA")
+
+            # Create colored version
+            colored = Image.new("RGBA", pil_img.size, (0, 0, 0, 0))
+            colored_pixels = colored.load()
+            pixels = pil_img.load()
+
+            light_blue = theme_manager.text_colors.light_blue_accent
+            r = int(light_blue[1:3], 16)
+            g = int(light_blue[3:5], 16)
+            b = int(light_blue[5:7], 16)
+
+            for y in range(pil_img.height):
+                for x in range(pil_img.width):
+                    pixel = pixels[x, y]
+                    if pixel[3] > 0:  # Not transparent
+                        luminance = 0.299 * pixel[0] + 0.587 * pixel[1] + 0.114 * pixel[2]
+                        opacity_factor = (255 - luminance) / 255.0
+                        new_alpha = int(opacity_factor * pixel[3])
+                        colored_pixels[x, y] = (r, g, b, new_alpha)
+
+            # Convert back to QPixmap
+            from vocalance.app.ui.utils.qt_icon_utils import pil_image_to_qpixmap
+
+            self._hover_icon_pixmap = pil_image_to_qpixmap(colored)
+        except Exception as e:
+            # Fallback: if conversion fails, just use default
+            import logging
+
+            logging.error(f"Failed to generate hover icon: {e}")
+            self._hover_icon_pixmap = self._original_icon_pixmap
 
     def set_selected(self, selected: bool) -> None:
         """Set button selected state.
@@ -174,6 +230,11 @@ class SidebarButton(QPushButton):
         """
         self._selected = selected
         self.setProperty("selected", "true" if selected else "false")
+        # Update icon color for selected state
+        if selected and self._hover_icon_pixmap:
+            self.setIcon(QIcon(self._hover_icon_pixmap))
+        else:
+            self.setIcon(QIcon(self._default_icon_pixmap))
         self.style().unpolish(self)
         self.style().polish(self)
 
@@ -189,6 +250,25 @@ class SidebarButton(QPushButton):
         else:
             self.setText("")
         self.update()
+
+    def enterEvent(self, event) -> None:
+        """Handle mouse enter event."""
+        self._is_hovered = True
+        if self._hover_icon_pixmap:
+            self.setIcon(QIcon(self._hover_icon_pixmap))
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        """Handle mouse leave event."""
+        self._is_hovered = False
+        if not self._selected:
+            if self._default_icon_pixmap:
+                self.setIcon(QIcon(self._default_icon_pixmap))
+        else:
+            # Keep hover icon if selected
+            if self._hover_icon_pixmap:
+                self.setIcon(QIcon(self._hover_icon_pixmap))
+        super().leaveEvent(event)
 
 
 class ThemedLabel(QLabel):
@@ -246,8 +326,10 @@ class TitleLabel(ThemedLabel):
             parent,
             text,
             size=theme_manager.font_sizes.xxlarge,
-            bold=True,
+            bold=False,
         )
+        font = theme_manager.get_font(size=theme_manager.font_sizes.xxlarge, weight="semibold")
+        self.setFont(font)
         self.setProperty("labelType", "title")
 
 
@@ -291,7 +373,7 @@ class BoxTitle(QLabel):
         super().__init__(text, parent)
 
         # Use xxlarge font size (same as header title)
-        font = theme_manager.get_font(size=theme_manager.font_sizes.xxlarge, bold=True)
+        font = theme_manager.get_font(size=theme_manager.font_sizes.xxlarge, weight="semibold")
         self.setFont(font)
 
         # Store original text
@@ -371,8 +453,10 @@ class TileTitle(ThemedLabel):
             parent,
             text,
             size=theme_manager.font_sizes.large,
-            bold=True,
+            bold=False,
         )
+        font = theme_manager.get_font(size=theme_manager.font_sizes.large, weight="semibold")
+        self.setFont(font)
 
 
 class TileContent(ThemedLabel):
@@ -984,18 +1068,28 @@ class TwoColumnTabLayout(TransparentFrame):
         right_outer_layout.addWidget(self.right_content, stretch=1)
 
         # Add boxes to main layout with proper spacing
-        # Left box: outer_padding_left on left, half_inner_spacing on right
+        # Left box: inner_content_padx on left, half_inner_spacing on right, bottom padding
         left_container = QWidget()
         left_container_layout = QHBoxLayout(left_container)
-        left_container_layout.setContentsMargins(0, 0, half_inner_spacing, 0)
+        left_container_layout.setContentsMargins(
+            half_inner_spacing,
+            0,
+            half_inner_spacing,
+            half_inner_spacing,
+        )
         left_container_layout.setSpacing(0)
         left_container_layout.addWidget(self.left_box)
         main_layout.addWidget(left_container, stretch=1)
 
-        # Right box: half_inner_spacing on left, outer_padding_right on right
+        # Right box: half_inner_spacing on left, inner_content_padx on right, bottom padding
         right_container = QWidget()
         right_container_layout = QHBoxLayout(right_container)
-        right_container_layout.setContentsMargins(half_inner_spacing, 0, 0, 0)
+        right_container_layout.setContentsMargins(
+            half_inner_spacing,
+            0,
+            half_inner_spacing,
+            half_inner_spacing,
+        )
         right_container_layout.setSpacing(0)
         right_container_layout.addWidget(self.right_box)
         main_layout.addWidget(right_container, stretch=1)

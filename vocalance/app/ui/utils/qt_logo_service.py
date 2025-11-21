@@ -110,7 +110,7 @@ class QtLogoService:
             label.setText(text_fallback)
 
             # Set large font for text fallback
-            font = theme_manager.get_font(size=max_size // 3, bold=True)
+            font = theme_manager.get_font(size=max_size // 3, weight="semibold")
             label.setFont(font)
 
             # Set color from theme

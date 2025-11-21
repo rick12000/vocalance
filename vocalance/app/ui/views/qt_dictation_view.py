@@ -7,18 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QRadioButton,
-    QScrollArea,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
 from vocalance.app.ui.qt_theme import theme_manager
 from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, TwoColumnTabLayout
@@ -55,8 +44,8 @@ class PromptEditDialog(QDialog):
 
         # Prompt instructions
         layout.addWidget(QLabel("Prompt Instructions:"))
-        self.prompt_textbox = QTextEdit()
-        self.prompt_textbox.setPlainText(self.prompt_data.get("text", ""))
+        self.prompt_textbox = QLineEdit()
+        self.prompt_textbox.setText(self.prompt_data.get("text", ""))
         layout.addWidget(self.prompt_textbox)
 
         # Buttons
@@ -173,12 +162,11 @@ class QtDictationView(QWidget):
         prompt_instructions_label = QLabel("Prompt Instructions:")
         prompt_instructions_label.setStyleSheet("border: none; background: transparent;")
         container_layout.addWidget(prompt_instructions_label)
-        self.prompt_textbox = QTextEdit()
+        self.prompt_textbox = QLineEdit()
         self.prompt_textbox.setPlaceholderText(
             "e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' "
             "Adopt a professional tone and style."
         )
-        self.prompt_textbox.setMaximumHeight(150)
         container_layout.addWidget(self.prompt_textbox)
 
         # Add button
@@ -298,7 +286,7 @@ class QtDictationView(QWidget):
         name_label = QLabel(prompt_data.get("name", "Unnamed"))
         name_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
         name_label.setFont(name_font)
-        name_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; background: transparent; border: none;")
+        name_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
         item_layout.addWidget(name_label, 1)
 
         # Edit button (pill-shaped)
