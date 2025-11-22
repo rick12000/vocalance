@@ -1,3 +1,9 @@
+"""Atomic UI components with consistent styling.
+
+All components use theme tokens - NO MAGIC NUMBERS.
+Styled via stylesheets only - never override programmatically.
+"""
+
 from typing import Optional
 
 from PySide6.QtCore import Qt
@@ -13,10 +19,10 @@ def _get_button_stylesheet() -> str:
     QPushButton {{
         background-color: {c.shapes.accent};
         color: {c.shapes.darkest};
-        border-radius: {c.dims.button_height // 2}px;
-        padding: 4px {c.spacing.medium}px;
+        border-radius: {c.radius.pill}px;
+        padding: {c.components.button_padding_vertical}px {c.components.button_padding_horizontal}px;
         font-weight: bold;
-        min-height: {c.dims.button_height}px;
+        min-height: {c.components.button_height}px;
         border: none;
         outline: none;
     }}
@@ -37,12 +43,14 @@ def _get_button_stylesheet() -> str:
     QPushButton[variant="primary"] {{
         background-color: {c.shapes.accent};
         color: {c.text.light_blue_accent};
+        border-radius: {c.radius.pill}px;
     }}
 
     QPushButton[variant="danger"] {{
         background-color: {c.shapes.medium};
         color: {c.text.lightest};
         border: 1px solid {c.shapes.light};
+        border-radius: {c.radius.pill}px;
     }}
 
     QPushButton[variant="danger"]:hover {{
@@ -53,6 +61,7 @@ def _get_button_stylesheet() -> str:
     QPushButton[variant="ghost"] {{
         background-color: transparent;
         color: {c.text.light};
+        border-radius: {c.radius.pill}px;
     }}
 
     QPushButton[variant="ghost"]:hover {{
@@ -69,11 +78,12 @@ def _get_input_stylesheet() -> str:
     QLineEdit, QTextEdit, QPlainTextEdit {{
         background-color: {c.shapes.darkest};
         color: {c.text.light};
-        border: 1px solid {c.shapes.medium};
+        border: 1px solid {c.shapes.light};
         border-radius: {c.radius.small}px;
-        padding: {c.spacing.tiny}px {c.spacing.small}px;
+        padding: {c.components.input_padding_vertical}px {c.components.input_padding_horizontal}px;
         selection-background-color: {c.shapes.accent};
         outline: none;
+        min-height: {c.components.input_height}px;
     }}
 
     QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
@@ -84,19 +94,48 @@ def _get_input_stylesheet() -> str:
     QLineEdit:disabled {{
         background-color: {c.shapes.dark};
         color: {c.shapes.light};
+        border: 1px solid {c.shapes.medium};
+    }}
+    """
+
+
+def _get_checkbox_stylesheet() -> str:
+    """Generate stylesheet for checkbox components."""
+    c = theme.config
+    return f"""
+    QCheckBox {{
+        color: {c.text.light};
+        spacing: {c.spacing.small}px;
+    }}
+
+    QCheckBox::indicator {{
+        width: 18px;
+        height: 18px;
+        border-radius: {c.radius.small // 2}px;
+        border: 1px solid {c.shapes.light};
+        background-color: {c.shapes.darkest};
+    }}
+
+    QCheckBox::indicator:checked {{
+        background-color: {c.shapes.accent};
+        border-color: {c.shapes.accent};
+    }}
+
+    QCheckBox::indicator:hover {{
+        border-color: {c.shapes.lightest};
     }}
     """
 
 
 class Label(QLabel):
-    """Standard label component."""
+    """Standard label component with variant-based styling."""
 
     def __init__(
-        self, text: str, parent: Optional[QWidget] = None, variant: str = "body", color: str = "text.lightest", align: str = "left"
+        self, text: str, parent: Optional[QWidget] = None, variant: str = "body", color: Optional[str] = None, align: str = "left"
     ):
         super().__init__(text, parent)
 
-        # alignment map
+        # Alignment
         align_map = {
             "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             "center": Qt.AlignmentFlag.AlignCenter,
@@ -104,21 +143,30 @@ class Label(QLabel):
         }
         self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
-        # Set font based on variant
+        # Font and color based on variant
         if variant == "title":
             self.setFont(theme.get_font("xxlarge", "bold"))
-            color = "text.lightest"
+            default_color = "text.lightest"
         elif variant == "subtitle":
             self.setFont(theme.get_font("large", "semibold"))
-            color = "text.light"
+            default_color = "text.light"
         elif variant == "body":
             self.setFont(theme.get_font("medium", "regular"))
+            default_color = "text.lightest"
         elif variant == "small":
             self.setFont(theme.get_font("small", "regular"))
+            default_color = "text.light"
+        elif variant == "group_header":
+            self.setFont(theme.get_font("medium", "semibold"))
+            default_color = "text.medium"
+        else:
+            self.setFont(theme.get_font("medium", "regular"))
+            default_color = "text.lightest"
 
         # Apply color
-        hex_color = theme.get_color(color)
-        self.setStyleSheet(f"color: {hex_color}; border: none; outline: none;")
+        color_key = color if color else default_color
+        hex_color = theme.get_color(color_key)
+        self.setStyleSheet(f"color: {hex_color}; background: transparent; border: none; padding: 0px; margin: 0px;")
         self.setProperty("variant", variant)
 
 
@@ -130,6 +178,7 @@ class Button(QPushButton):
         self.setProperty("variant", variant)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(_get_button_stylesheet())
+        self.setFont(theme.get_font("medium", "semibold"))
 
         if icon:
             self.setIcon(icon)
@@ -145,6 +194,8 @@ class Input(QLineEdit):
         super().__init__(parent)
         self.setPlaceholderText(placeholder)
         self.setStyleSheet(_get_input_stylesheet())
+        self.setFont(theme.get_font("medium"))
+
         if password:
             self.setEchoMode(QLineEdit.EchoMode.Password)
 
@@ -155,5 +206,8 @@ class Checkbox(QCheckBox):
     def __init__(self, text: str, parent: Optional[QWidget] = None, checked: bool = False, command=None):
         super().__init__(text, parent)
         self.setChecked(checked)
+        self.setStyleSheet(_get_checkbox_stylesheet())
+        self.setFont(theme.get_font("medium"))
+
         if command:
             self.stateChanged.connect(command)

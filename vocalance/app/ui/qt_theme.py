@@ -2,8 +2,16 @@
 
 Provides centralized theme configuration for PySide6 UI with:
 - Design tokens (Colors, Fonts, Spacing)
+- Container spacing system with clear hierarchy
 - Component styling rules
 - Runtime theme application
+
+SPACING HIERARCHY:
+1. Container Border (1px) - outermost boundary
+2. Container Padding - space between border and content (box_padding)
+3. Content Margin - space for content inside containers
+4. Item Spacing - space between items in lists/grids
+5. Element Padding - internal padding within elements
 """
 
 from dataclasses import dataclass, field
@@ -66,15 +74,15 @@ class GradientColors:
 
 @dataclass
 class Spacing:
-    """Spacing design tokens."""
+    """Core spacing scale for use between components and within layouts."""
 
     none: int = 0
-    tiny: int = 5
-    small: int = 10
-    medium: int = 15
-    large: int = 20
-    xlarge: int = 30
-    xxlarge: int = 40
+    tiny: int = 4
+    small: int = 8
+    medium: int = 12
+    large: int = 16
+    xlarge: int = 24
+    xxlarge: int = 32
 
 
 @dataclass
@@ -90,28 +98,62 @@ class BorderRadius:
 
 
 @dataclass
-class Dimensions:
-    """Layout dimension design tokens."""
+class ContainerLayout:
+    """Container spacing system - defines relationship between containers and content.
 
-    # Main Window
+    HIERARCHY:
+    - border: 1px solid line (part of container style)
+    - padding: space from border to content area
+    - content_margin: additional margin for content widgets inside container
+    """
+
+    # Box containers (primary content boxes)
+    box_padding: int = 20  # Padding from border to content
+    box_spacing_between: int = 20  # Space between adjacent boxes
+
+    # Content inside boxes
+    content_horizontal_margin: int = 0  # Additional horizontal margin for content (titles align with border + padding)
+    content_vertical_spacing: int = 8  # Space between stacked content items
+
+    # List items
+    list_item_padding_vertical: int = 4  # Vertical padding within each list item
+    list_item_padding_horizontal: int = 0  # Horizontal padding within list item (uses content margin)
+    list_item_spacing: int = 0  # Space between list items
+
+    # Group headers in lists
+    group_header_margin_top: int = 12  # Space above group header (first group has less)
+    group_header_margin_bottom: int = 4  # Space below group header, before divider
+    group_header_first_margin_top: int = 0  # No top margin for first group
+
+    # Section dividers
+    divider_margin_bottom: int = 0  # Space after divider before content
+
+
+@dataclass
+class ComponentSizes:
+    """Component dimension tokens."""
+
+    # Interactive elements
+    button_height: int = 24
+    button_padding_horizontal: int = 16
+    button_padding_vertical: int = 2
+    button_action_width: int = 80
+
+    input_height: int = 35
+    input_padding_horizontal: int = 10
+    input_padding_vertical: int = 6
+
+    # Windows
     main_window_width: int = 1000
     main_window_height: int = 600
     main_window_min_width: int = 1000
     main_window_min_height: int = 600
-    header_height: int = 100
-
-    # Components
-    button_height: int = 30
-    entry_height: int = 35
-    textbox_height_small: int = 150
 
     # Dialogs
     dialog_width: int = 400
-    dialog_min_height: int = 200
-
-    # Layouts
-    sidebar_collapsed_width: int = 80
-    sidebar_expanded_width: int = 200
+    dialog_min_height: int = 150
+    dialog_message_max_width: int = 350
+    sound_mapping_dialog_width: int = 500
 
     # Progress
     progress_bar_height: int = 5
@@ -119,19 +161,11 @@ class Dimensions:
     training_progress_width: int = 200
     training_progress_height: int = 20
 
-    # Box Layout
-    box_spacing: int = 25
-    outer_padding_left: int = 25
-    outer_padding_right: int = 25
-    outer_padding_top: int = 25
-    outer_padding_bottom: int = 25
-    inner_content_padx: int = 30
-    outer_border_padding: int = 15
-
     # Startup Window
     startup_width: int = 500
     startup_height: int = 250
     startup_logo_size: int = 110
+    startup_spinner_width: int = 15
 
     # Dictation
     dictation_simple_width: int = 250
@@ -147,11 +181,13 @@ class SidebarLayout:
     collapsed_width: int = 80
     expanded_width: int = 200
     animation_duration: int = 200
-    top_spacing: int = 20
+    padding_top: int = 20
+    padding_horizontal: int = 10
     button_padding_left: int = 10
     button_padding_right: int = 10
     button_spacing_vertical: int = 2
     button_icon_size: int = 48
+    button_min_height: int = 50
     logo_max_size: int = 50
     logo_padding_top: int = 0
     logo_padding_bottom: int = 30
@@ -162,8 +198,11 @@ class SidebarLayout:
 class HeaderLayout:
     """Header layout configuration."""
 
+    padding_horizontal: int = 30
     content_padding_left: int = 30
     content_padding_right: int = 30
+    height: int = 100
+    title_offset_y: int = 10
     title_y_offset: int = 10
 
 
@@ -186,9 +225,10 @@ class ThemeConfig:
     gradients: GradientColors = field(default_factory=GradientColors)
     spacing: Spacing = field(default_factory=Spacing)
     radius: BorderRadius = field(default_factory=BorderRadius)
-    dims: Dimensions = field(default_factory=Dimensions)
-    sidebar_layout: SidebarLayout = field(default_factory=SidebarLayout)
-    header_layout: HeaderLayout = field(default_factory=HeaderLayout)
+    container: ContainerLayout = field(default_factory=ContainerLayout)
+    components: ComponentSizes = field(default_factory=ComponentSizes)
+    sidebar: SidebarLayout = field(default_factory=SidebarLayout)
+    header: HeaderLayout = field(default_factory=HeaderLayout)
     icon_properties: IconProperties = field(default_factory=IconProperties)
 
     font_family_primary: str = "DM Sans"
@@ -217,7 +257,6 @@ class ThemeManager:
 
     def get_font_family(self, weight: str = "regular") -> str:
         """Get font family name."""
-        # This is a simplification of the previous logic
         if self.config.font_family_primary in self._loaded_fonts:
             return self.config.font_family_primary
         return self.config.font_family_secondary

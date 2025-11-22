@@ -81,8 +81,8 @@ class StartupWindow(QDialog):
         # Window configuration
         self.setWindowTitle("Vocalance")
         self.setFixedSize(
-            theme.config.dims.startup_width,
-            theme.config.dims.startup_height,
+            theme.config.components.startup_width,
+            theme.config.components.startup_height,
         )
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
@@ -93,12 +93,12 @@ class StartupWindow(QDialog):
         # Main layout
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(20)
+        main_layout.setSpacing(theme.config.container.box_spacing_between)
 
         # Logo
         self.logo_label = self.logo_service.create_logo_widget(
             self,
-            max_size=theme.config.dims.startup_logo_size,
+            max_size=theme.config.components.startup_logo_size,
             context="startup",
             text_fallback="VOCALANCE",
             logo_type="full",
@@ -111,14 +111,14 @@ class StartupWindow(QDialog):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimumHeight(theme.config.dims.progress_bar_height)
+        self.progress_bar.setMinimumHeight(theme.config.components.progress_bar_height)
         main_layout.addWidget(self.progress_bar)
 
         # Status container (text + spinner)
         status_container = QWidget(self)
         status_layout = QHBoxLayout(status_container)
         status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(10)
+        status_layout.setSpacing(theme.config.spacing.medium)
 
         # Add stretch before
         status_layout.addStretch()
@@ -135,7 +135,7 @@ class StartupWindow(QDialog):
         spinner_font = theme.get_monospace_font(size=theme.config.fonts.small)
         self.spinner_label.setFont(spinner_font)
         self.spinner_label.setStyleSheet(f"color: {theme.config.shapes.light};")
-        self.spinner_label.setFixedWidth(15)
+        self.spinner_label.setFixedWidth(theme.config.components.startup_spinner_width)
         status_layout.addWidget(self.spinner_label)
 
         # Add stretch after

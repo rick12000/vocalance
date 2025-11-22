@@ -56,18 +56,18 @@ def _create_dialog_base(
     dialog = QDialog(parent)
     dialog.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
     dialog.setModal(True)
-    dialog.setMinimumWidth(theme.config.dims.dialog_width)
-    dialog.setMinimumHeight(150)
+    dialog.setMinimumWidth(theme.config.components.dialog_width)
+    dialog.setMinimumHeight(theme.config.components.dialog_min_height)
 
     # Main layout
     main_layout = QVBoxLayout(dialog)
     main_layout.setContentsMargins(20, 20, 20, 20)
-    main_layout.setSpacing(20)
+    main_layout.setSpacing(theme.config.container.box_spacing_between)
 
     # Message label
     message_label = QLabel(message)
     message_label.setWordWrap(True)
-    message_label.setMaximumWidth(350)
+    message_label.setMaximumWidth(theme.config.components.dialog_message_max_width)
     font = theme.get_font(size="medium")
     message_label.setFont(font)
     message_label.setStyleSheet(f"color: {theme.config.text.light};")
@@ -77,7 +77,7 @@ def _create_dialog_base(
     # Button container
     if button_configs:
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(theme.config.spacing.medium)
 
         for btn_text, btn_type, btn_callback in button_configs:
             variant = "primary"

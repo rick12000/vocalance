@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 import pytest_asyncio
-from sklearn.metrics.pairwise import cosine_similarity
+from scipy.spatial.distance import cosine
 
 from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
 
@@ -41,7 +41,7 @@ class TestSoundRecognitionIntegration:
             if "user_prompt" not in name.lower():
                 embedding = real_recognizer._extract_embedding(audio, sr)
                 if embedding is not None:
-                    similarity = cosine_similarity(user_embedding.reshape(1, -1), embedding.reshape(1, -1))[0][0]
+                    similarity = 1 - cosine(user_embedding, embedding)
                     lip_similarities.append(similarity)
 
         # Get similarities to tongue_clicking samples
@@ -49,7 +49,7 @@ class TestSoundRecognitionIntegration:
         for audio, sr, name in audio_samples["tongue_clicking"]:
             embedding = real_recognizer._extract_embedding(audio, sr)
             if embedding is not None:
-                similarity = cosine_similarity(user_embedding.reshape(1, -1), embedding.reshape(1, -1))[0][0]
+                similarity = 1 - cosine(user_embedding, embedding)
                 tongue_similarities.append(similarity)
 
         if not lip_similarities or not tongue_similarities:
@@ -170,7 +170,7 @@ class TestSoundRecognitionIntegration:
             pytest.skip("Could not extract embeddings for silence trimming test")
 
         # Calculate similarity
-        similarity = cosine_similarity(embedding1.reshape(1, -1), embedding2.reshape(1, -1))[0][0]
+        similarity = 1 - cosine(embedding1, embedding2)
 
         # Assertion
         assert similarity > 0.8, f"Silence trimming should maintain high similarity between same sound type, got {similarity:.3f}"
@@ -323,7 +323,7 @@ class TestMinimalGuarantees:
         if embedding1 is not None and embedding2 is not None:
             # With mock embeddings, we check that they're at least somewhat consistent
             # (real YAMNet would be much more consistent)
-            similarity = cosine_similarity(embedding1.reshape(1, -1), embedding2.reshape(1, -1))[0][0]
+            similarity = 1 - cosine(embedding1, embedding2)
 
             assert (
                 similarity > 0.1

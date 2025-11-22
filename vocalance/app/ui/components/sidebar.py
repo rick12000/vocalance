@@ -49,10 +49,10 @@ class SidebarButton(QPushButton):
 
         if icon_pixmap:
             self.setIcon(QIcon(icon_pixmap))
-            self.setIconSize(QSize(theme.config.sidebar_layout.button_icon_size, theme.config.sidebar_layout.button_icon_size))
+            self.setIconSize(QSize(theme.config.sidebar.button_icon_size, theme.config.sidebar.button_icon_size))
             self._generate_hover_icon()
 
-        self.setMinimumHeight(50)
+        self.setMinimumHeight(theme.config.sidebar.button_min_height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _generate_hover_icon(self):
@@ -138,14 +138,14 @@ class ExpandableSidebar(QFrame):
         """
         )
 
-        self.collapsed_width = theme.config.sidebar_layout.collapsed_width
-        self.expanded_width = theme.config.sidebar_layout.expanded_width
+        self.collapsed_width = theme.config.sidebar.collapsed_width
+        self.expanded_width = theme.config.sidebar.expanded_width
         self.setFixedWidth(self.collapsed_width)
         self.setMouseTracking(True)
 
         # Layout
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(0, theme.config.sidebar_layout.top_spacing, 0, 0)
+        self._layout.setContentsMargins(0, theme.config.sidebar.padding_top, 0, 0)
         self._layout.setSpacing(0)
 
         # Manager
@@ -155,7 +155,7 @@ class ExpandableSidebar(QFrame):
         self._anim_min = QPropertyAnimation(self, b"minimumWidth")
         self._anim_max = QPropertyAnimation(self, b"maximumWidth")
         for anim in (self._anim_min, self._anim_max):
-            anim.setDuration(theme.config.sidebar_layout.animation_duration)
+            anim.setDuration(theme.config.sidebar.animation_duration)
             anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     def add_widget(self, widget: QWidget):

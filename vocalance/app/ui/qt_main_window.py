@@ -73,12 +73,12 @@ class VocalanceMainWindow(QMainWindow):
 
         # Set window size
         self.resize(
-            theme.config.dims.main_window_width,
-            theme.config.dims.main_window_height,
+            theme.config.components.main_window_width,
+            theme.config.components.main_window_height,
         )
         self.setMinimumSize(
-            theme.config.dims.main_window_min_width,
-            theme.config.dims.main_window_min_height,
+            theme.config.components.main_window_min_width,
+            theme.config.components.main_window_min_height,
         )
 
         # Set window background color to match theme
@@ -141,10 +141,10 @@ class VocalanceMainWindow(QMainWindow):
         right_panel_wrapper = QWidget()
         right_wrapper_layout = QVBoxLayout(right_panel_wrapper)
         right_wrapper_layout.setContentsMargins(
-            theme.config.dims.outer_padding_left,
-            theme.config.dims.outer_padding_top,
-            theme.config.dims.outer_padding_right,
-            theme.config.dims.outer_padding_bottom,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
         )
         right_wrapper_layout.setSpacing(0)
 
@@ -155,10 +155,10 @@ class VocalanceMainWindow(QMainWindow):
 
         content_frame_layout = self.content_border_frame.layout()  # It has a layout from BaseContainer
         content_frame_layout.setContentsMargins(
-            theme.config.dims.outer_border_padding,
-            theme.config.dims.outer_border_padding,
-            theme.config.dims.outer_border_padding,
-            theme.config.dims.outer_border_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
         )
         content_frame_layout.setSpacing(0)
 
@@ -204,12 +204,12 @@ class VocalanceMainWindow(QMainWindow):
         self.buttons_widget = TransparentBox()
         buttons_layout = self.buttons_widget.layout()
         buttons_layout.setContentsMargins(
-            theme.config.sidebar_layout.button_padding_left,
+            theme.config.sidebar.button_padding_left,
             0,
-            theme.config.sidebar_layout.button_padding_right,
+            theme.config.sidebar.button_padding_right,
             0,
         )
-        buttons_layout.setSpacing(theme.config.sidebar_layout.button_spacing_vertical)
+        buttons_layout.setSpacing(theme.config.sidebar.button_spacing_vertical)
 
         self.sidebar_buttons = {}
 
@@ -225,7 +225,7 @@ class VocalanceMainWindow(QMainWindow):
         # Import icon loading utility
         from vocalance.app.ui.utils.qt_icon_utils import load_sidebar_icon
 
-        icon_size = theme.config.sidebar_layout.button_icon_size
+        icon_size = theme.config.sidebar.button_icon_size
 
         for tab_name, icon_filename in tabs:
             # Load and transform icon
@@ -251,13 +251,13 @@ class VocalanceMainWindow(QMainWindow):
         logo_layout = logo_frame.layout()
         logo_layout.setContentsMargins(
             0,
-            theme.config.sidebar_layout.logo_padding_top,
+            theme.config.sidebar.logo_padding_top,
             0,
-            theme.config.sidebar_layout.logo_padding_bottom,
+            theme.config.sidebar.logo_padding_bottom,
         )
 
         self.sidebar_logo = self.logo_service.create_logo_widget(
-            max_size=theme.config.sidebar_layout.logo_max_size,
+            max_size=theme.config.sidebar.logo_max_size,
             context="sidebar",
             text_fallback="Vocalance",
             logo_type="icon",
@@ -273,7 +273,7 @@ class VocalanceMainWindow(QMainWindow):
         self.sidebar_separator = QFrame()
         self.sidebar_separator.setFrameShape(QFrame.Shape.VLine)
         self.sidebar_separator.setFrameShadow(QFrame.Shadow.Plain)
-        self.sidebar_separator.setFixedWidth(theme.config.sidebar_layout.border_width)
+        self.sidebar_separator.setFixedWidth(theme.config.sidebar.border_width)
         self.sidebar_separator.setStyleSheet("background-color: transparent; border: none;")
 
     def _create_header(self) -> None:
@@ -288,13 +288,13 @@ class VocalanceMainWindow(QMainWindow):
         # Inner header frame - using BaseContainer with custom type
         header_inner = BaseContainer(variant="default")
         header_inner.setProperty("frameType", "header")
-        header_inner.setFixedHeight(theme.config.dims.header_height)
+        header_inner.setFixedHeight(theme.config.header.height)
 
         header_layout = header_inner.layout()
         header_layout.setContentsMargins(
-            theme.config.header_layout.content_padding_left,
-            theme.config.header_layout.title_y_offset,
-            theme.config.header_layout.content_padding_right,
+            theme.config.header.content_padding_left,
+            theme.config.header.title_y_offset,
+            theme.config.header.content_padding_right,
             theme.config.spacing.large,
         )
         header_layout.setSpacing(theme.config.spacing.small)

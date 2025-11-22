@@ -7,7 +7,7 @@ Installation
 
       git clone https://github.com/rick12000/vocalance.git
 
-2. Create a Python 3.11 environment using your preferred environment manager.
+2. Create a Python 3.13.9 environment using your preferred environment manager.
 3. Activate the environment.
 
 4. Navigate to the repository directory:

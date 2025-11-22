@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.atoms import Button
+from vocalance.app.ui.components.atoms import Button, Input, Label
 from vocalance.app.ui.components.complex import TwoColumnLayout
 from vocalance.app.ui.qt_theme import theme
 
@@ -34,8 +34,13 @@ class PromptEditDialog(QDialog):
     def _setup_ui(self) -> None:
         """Build the dialog UI."""
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(theme.config.spacing.medium)
+        layout.setContentsMargins(
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+        )
 
         # Title input
         layout.addWidget(QLabel("Prompt Title:"))
@@ -51,7 +56,7 @@ class PromptEditDialog(QDialog):
 
         # Buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(theme.config.spacing.medium)
 
         save_btn = Button(text="Save Changes", variant="primary")
         save_btn.clicked.connect(self._on_save)
@@ -135,72 +140,42 @@ class QtDictationView(QWidget):
         self._setup_manage_prompts_panel()
 
     def _setup_add_prompt_form(self) -> None:
-        """Setup add prompt form in left content area."""
-        container = self.layout.left_content
-
-        # Create layout if it doesn't exist
-        container_layout = container.layout()
-        if container_layout is None:
-            container_layout = QVBoxLayout(container)
-
-        container_layout.setContentsMargins(
-            theme.config.dims.inner_content_padx,
-            0,
-            theme.config.dims.inner_content_padx,
-            0,
-        )
-        container_layout.setSpacing(theme.config.spacing.medium)
+        """Setup add prompt form in left content area using ContentArea system."""
+        content = self.layout.left_content
+        # ContentArea already has proper spacing - use it directly
 
         # Prompt title input
-        prompt_title_label = QLabel("Prompt Title:")
-        prompt_title_label.setStyleSheet("border: none; background: transparent;")
-        container_layout.addWidget(prompt_title_label)
-        self.title_entry = QLineEdit()
-        self.title_entry.setPlaceholderText("e.g. Email Formatting")
-        container_layout.addWidget(self.title_entry)
+        prompt_title_label = Label("Prompt Title:", variant="body")
+        content.add(prompt_title_label)
+        self.title_entry = Input(placeholder="e.g. Email Formatting")
+        content.add(self.title_entry)
 
         # Prompt instructions
-        prompt_instructions_label = QLabel("Prompt Instructions:")
-        prompt_instructions_label.setStyleSheet("border: none; background: transparent;")
-        container_layout.addWidget(prompt_instructions_label)
-        self.prompt_textbox = QLineEdit()
-        self.prompt_textbox.setPlaceholderText(
-            "e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' "
-            "Adopt a professional tone and style."
+        prompt_instructions_label = Label("Prompt Instructions:", variant="body")
+        content.add(prompt_instructions_label)
+        self.prompt_textbox = Input(
+            placeholder="e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' Adopt a professional tone and style."
         )
-        container_layout.addWidget(self.prompt_textbox)
+        content.add(self.prompt_textbox)
 
         # Add button
         self.add_prompt_btn = Button(text="Add Prompt", variant="primary")
         self.add_prompt_btn.clicked.connect(self._on_add_prompt_clicked)
-        container_layout.addWidget(self.add_prompt_btn)
+        content.add(self.add_prompt_btn)
 
-        container_layout.addStretch()
+        content.add_stretch()
 
     def _setup_manage_prompts_panel(self) -> None:
-        """Setup manage prompts panel in right content area."""
-        container = self.layout.right_content
-
-        # Create layout if it doesn't exist
-        container_layout = container.layout()
-        if container_layout is None:
-            container_layout = QVBoxLayout(container)
-
-        container_layout.setContentsMargins(
-            theme.config.dims.inner_content_padx,
-            0,
-            theme.config.dims.inner_content_padx,
-            0,
-        )
-        container_layout.setSpacing(theme.config.spacing.small)
+        """Setup manage prompts panel in right content area using ContentArea system."""
+        content = self.layout.right_content
+        # ContentArea already has proper spacing - use it directly
 
         # Prompts list widget
         self.prompts_list_widget = QWidget()
-        self.prompts_list_widget.setStyleSheet("background: transparent;")
+        self.prompts_list_widget.setStyleSheet("background: transparent; border: none;")
         self.prompts_list_layout = QVBoxLayout(self.prompts_list_widget)
-        self.prompts_list_layout.setSpacing(theme.config.spacing.tiny)
+        self.prompts_list_layout.setSpacing(theme.config.container.list_item_spacing)
         self.prompts_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.prompts_list_layout.addStretch()
 
         # Scroll area for prompts
         scroll_area = QScrollArea()
@@ -208,7 +183,7 @@ class QtDictationView(QWidget):
         scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll_area.setStyleSheet("background: transparent; border: none;")
         scroll_area.setWidget(self.prompts_list_widget)
-        container_layout.addWidget(scroll_area)
+        content.add(scroll_area, stretch=1)
 
     def _on_prompts_loaded(self, prompts: List[Dict[str, Any]]) -> None:
         """Handle prompts loaded from controller."""
@@ -269,9 +244,14 @@ class QtDictationView(QWidget):
         """Create a prompt list item with radio, name, edit, and delete buttons."""
         item_widget = QWidget()
         item_widget.setProperty("itemType", "list_item")
-        item_widget.setStyleSheet("background: transparent; border: none;")
+        item_widget.setStyleSheet("background: transparent; border: none; margin: 0px; padding: 0px;")
         item_layout = QHBoxLayout(item_widget)
-        item_layout.setContentsMargins(0, 0, 0, 0)
+        item_layout.setContentsMargins(
+            0,
+            theme.config.container.list_item_padding_vertical,
+            0,
+            theme.config.container.list_item_padding_vertical,
+        )
         item_layout.setSpacing(theme.config.spacing.small)
 
         # Radio button
@@ -287,18 +267,20 @@ class QtDictationView(QWidget):
         name_label = QLabel(prompt_data.get("name", "Unnamed"))
         name_font = theme.get_font(size=theme.config.fonts.medium)
         name_label.setFont(name_font)
-        name_label.setStyleSheet(f"color: {theme.config.text.medium}; background: transparent; border: none;")
+        name_label.setStyleSheet(
+            f"color: {theme.config.text.medium}; background: transparent; border: none; margin: 0px; padding: 0px;"
+        )
         item_layout.addWidget(name_label, 1)
 
         # Edit button (pill-shaped)
         edit_btn = Button(text="Edit", variant="primary")
-        edit_btn.setFixedWidth(70)
+        edit_btn.setFixedWidth(theme.config.components.button_action_width - 10)
         edit_btn.clicked.connect(lambda checked, p=prompt_data: self._on_edit_prompt(p))
         item_layout.addWidget(edit_btn)
 
         # Delete button (pill-shaped)
         delete_btn = Button(text="Delete", variant="danger")
-        delete_btn.setFixedWidth(80)
+        delete_btn.setFixedWidth(theme.config.components.button_action_width)
         is_default = prompt_data.get("is_default", False)
         delete_btn.setEnabled(not is_default)
         if not is_default:

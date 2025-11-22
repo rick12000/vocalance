@@ -25,35 +25,48 @@ To find out more about what Vocalance can do, including detailed instructions an
 
 ## 💻 Installation
 
-Vocalance can be set up entirely from the source code in this repository. To do so, follow the instructions below:
+Vocalance can be set up entirely from the source code in this repository. To do so, follow the instructions below (currently only supported on Windows):
 
 ### Steps
 
-1. **Clone the repository:**
+1. Install UV (Python package manager):
+   ```powershell
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
+
+2. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
+   ```bash
+   uv venv --python 3.13.9 vocalance_env
+   ```
+
+3. Activate the environment:
+   ```bash
+   vocalance_env\Scripts\activate
+   ```
+
+4. Clone the repository:
    ```bash
    git clone https://github.com/rick12000/vocalance.git
    ```
 
-2. **Create a Python 3.11.0 environment using your environment manager of choice. Then with that environment activated:**
+5. Go to the repository directory:
+   ```bash
+   cd vocalance
+   ```
 
-    - **Go to the repository directory:**
-      ```bash
-      cd vocalance
-      ```
+6. Install Vocalance from `uv.lock`:
+   ```bash
+   uv sync --active
+   ```
 
-    - **Install Vocalance as a package locally:**
-      ```bash
-      pip install .
-      ```
-
-    - **Run the application:**
-        ```bash
-        python vocalance.py
-        ```
+7. Run the application:
+   ```bash
+   python vocalance.py
+   ```
 
 The application will start up and download any required models (like speech recognition models) on first run. This may take several minutes depending on your internet connection.
 
-On follow up runs, skip the `pip install .` step and just run the application (in the environment you created earlier).
+On follow up runs, skip the `uv sync --active` step and just run the application (in the environment you created earlier).
 
 If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html).
 
