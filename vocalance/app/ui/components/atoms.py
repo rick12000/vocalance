@@ -12,65 +12,6 @@ from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QPushButton, QWidget
 from vocalance.app.ui.qt_theme import theme
 
 
-def _get_button_stylesheet() -> str:
-    """Generate stylesheet for button components."""
-    c = theme.config
-    return f"""
-    QPushButton {{
-        background-color: {c.shapes.accent};
-        color: {c.shapes.darkest};
-        border-radius: {c.radius.pill}px;
-        padding: {c.components.button_padding_vertical}px {c.components.button_padding_horizontal}px;
-        font-weight: bold;
-        min-height: {c.components.button_height}px;
-        border: none;
-        outline: none;
-    }}
-
-    QPushButton:hover {{
-        background-color: {c.shapes.lightest};
-    }}
-
-    QPushButton:pressed {{
-        background-color: {c.shapes.accent_minus};
-    }}
-
-    QPushButton:disabled {{
-        background-color: {c.shapes.medium};
-        color: {c.shapes.light};
-    }}
-
-    QPushButton[variant="primary"] {{
-        background-color: {c.shapes.accent};
-        color: {c.text.light_blue_accent};
-        border-radius: {c.radius.pill}px;
-    }}
-
-    QPushButton[variant="danger"] {{
-        background-color: {c.shapes.medium};
-        color: {c.text.lightest};
-        border: 1px solid {c.shapes.light};
-        border-radius: {c.radius.pill}px;
-    }}
-
-    QPushButton[variant="danger"]:hover {{
-        background-color: {c.shapes.light};
-        border-color: {c.shapes.lightest};
-    }}
-
-    QPushButton[variant="ghost"] {{
-        background-color: transparent;
-        color: {c.text.light};
-        border-radius: {c.radius.pill}px;
-    }}
-
-    QPushButton[variant="ghost"]:hover {{
-        background-color: {c.shapes.medium};
-        color: {c.text.lightest};
-    }}
-    """
-
-
 def _get_input_stylesheet() -> str:
     """Generate stylesheet for input components."""
     c = theme.config
@@ -171,20 +112,92 @@ class Label(QLabel):
 
 
 class Button(QPushButton):
-    """Standard button component."""
+    """Standard button component with pill-shaped design."""
 
     def __init__(self, text: str, parent: Optional[QWidget] = None, variant: str = "primary", icon=None, command=None):
         super().__init__(text, parent)
         self.setProperty("variant", variant)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(_get_button_stylesheet())
         self.setFont(theme.get_font("medium", "semibold"))
+
+        # Set fixed height to enable pill shape (height determines border-radius)
+        self.setFixedHeight(theme.config.components.button_height)
+
+        # Apply stylesheet AFTER setting height
+        self._update_stylesheet()
 
         if icon:
             self.setIcon(icon)
 
         if command:
             self.clicked.connect(command)
+
+    def _update_stylesheet(self) -> None:
+        """Apply button-specific stylesheet with pill-shape calculation."""
+        c = theme.config
+        h = c.components.button_height
+        # Pill shape: border-radius = height / 2 (creates semi-circles on sides)
+        radius = h // 2
+
+        stylesheet = f"""
+        QPushButton {{
+            background-color: {c.shapes.accent};
+            color: {c.shapes.darkest};
+            border: none;
+            border-radius: {radius}px;
+            padding: {c.components.button_padding_vertical}px {c.components.button_padding_horizontal}px;
+            font-weight: bold;
+            outline: none;
+        }}
+
+        QPushButton:hover {{
+            background-color: {c.shapes.lightest};
+        }}
+
+        QPushButton:pressed {{
+            background-color: {c.shapes.accent_minus};
+        }}
+
+        QPushButton:disabled {{
+            background-color: {c.shapes.medium};
+            color: {c.shapes.light};
+        }}
+
+        QPushButton[variant="primary"] {{
+            background-color: {c.shapes.accent};
+            color: {c.text.light_blue_accent};
+            border-radius: {radius}px;
+        }}
+
+        QPushButton[variant="primary"]:hover {{
+            background-color: {c.shapes.lightest};
+        }}
+
+        QPushButton[variant="danger"] {{
+            background-color: {c.shapes.medium};
+            color: {c.text.lightest};
+            border: 1px solid {c.shapes.light};
+            border-radius: {radius}px;
+        }}
+
+        QPushButton[variant="danger"]:hover {{
+            background-color: {c.shapes.light};
+            border-color: {c.shapes.lightest};
+        }}
+
+        QPushButton[variant="ghost"] {{
+            background-color: transparent;
+            color: {c.text.light};
+            border-radius: {radius}px;
+        }}
+
+        QPushButton[variant="ghost"]:hover {{
+            background-color: {c.shapes.medium};
+            color: {c.text.lightest};
+        }}
+        """
+
+        self.setStyleSheet(stylesheet)
 
 
 class Input(QLineEdit):
