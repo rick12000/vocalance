@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QImage, QPixmap
 
 from vocalance.app.config.app_config import AssetPathsConfig
-from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.qt_theme import theme
 
 logger = logging.getLogger("QtAssets")
 
@@ -285,7 +285,7 @@ class QtAssetCache:
             QPixmap object or None if loading fails.
         """
         # Get logo properties from theme
-        logo_props = theme_manager.logo_properties if hasattr(theme_manager, "logo_properties") else None
+        logo_props = theme.config.icon_properties
 
         if not self._assets_path:
             logger.error("Assets path not available for logo.")
@@ -316,7 +316,7 @@ class QtAssetCache:
         try:
             if apply_monochrome:
                 # Use PIL transform then convert to QPixmap
-                color = logo_props.color if logo_props else theme_manager.shape_colors.medium
+                color = logo_props.color if logo_props else theme.config.shapes.medium
 
                 if size is not None:
                     pil_image = transform_monochrome_icon(

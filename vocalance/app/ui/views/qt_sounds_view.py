@@ -20,8 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TwoColumnTabLayout
+from vocalance.app.ui.components.atoms import Button
+from vocalance.app.ui.components.complex import TwoColumnLayout
+from vocalance.app.ui.components.containers import BaseContainer
+from vocalance.app.ui.qt_theme import theme
 
 
 class SoundMappingDialog(QDialog):
@@ -47,15 +49,18 @@ class SoundMappingDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # Current mapping frame
-        current_frame = ThemedFrame()
-        current_layout = QVBoxLayout(current_frame)
+        current_frame = BaseContainer()
+        # Get the layout created by BaseContainer
+        current_layout = current_frame.layout()
+        if current_layout is None:
+            current_layout = QVBoxLayout(current_frame)
         current_layout.setContentsMargins(15, 15, 15, 15)
         current_layout.setSpacing(5)
 
         current_title = QLabel("Current Mapping:")
-        current_title_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
+        current_title_font = theme.get_font(size=theme.config.fonts.medium, weight="semibold")
         current_title.setFont(current_title_font)
-        current_title.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        current_title.setStyleSheet(f"color: {theme.config.text.light};")
         current_layout.addWidget(current_title)
 
         # Get current mapping
@@ -66,24 +71,27 @@ class SoundMappingDialog(QDialog):
             mapping_text = "Unmapped"
 
         current_label = QLabel(mapping_text)
-        current_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+        current_font = theme.get_font(size=theme.config.fonts.medium)
         current_label.setFont(current_font)
-        current_label.setStyleSheet(f"color: {theme_manager.text_colors.medium};")
+        current_label.setStyleSheet(f"color: {theme.config.text.medium};")
         current_layout.addWidget(current_label)
 
         layout.addWidget(current_frame)
 
         # Main mapping frame
-        mapping_frame = ThemedFrame()
-        mapping_layout = QVBoxLayout(mapping_frame)
+        mapping_frame = BaseContainer()
+        # Get the layout created by BaseContainer
+        mapping_layout = mapping_frame.layout()
+        if mapping_layout is None:
+            mapping_layout = QVBoxLayout(mapping_frame)
         mapping_layout.setContentsMargins(15, 15, 15, 15)
         mapping_layout.setSpacing(10)
 
         # Command Type dropdown
         type_label = QLabel("Command Type:")
-        type_label_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
+        type_label_font = theme.get_font(size=theme.config.fonts.medium, weight="semibold")
         type_label.setFont(type_label_font)
-        type_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        type_label.setStyleSheet(f"color: {theme.config.text.light};")
         mapping_layout.addWidget(type_label)
 
         self.type_combo = QComboBox()
@@ -95,7 +103,7 @@ class SoundMappingDialog(QDialog):
         # Command Value dropdown
         value_label = QLabel("Command Value:")
         value_label.setFont(type_label_font)
-        value_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        value_label.setStyleSheet(f"color: {theme.config.text.light};")
         mapping_layout.addWidget(value_label)
 
         self.value_combo = QComboBox()
@@ -105,11 +113,11 @@ class SoundMappingDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
-        confirm_btn = PrimaryButton(text="Confirm")
+        confirm_btn = Button(text="Confirm", variant="primary")
         confirm_btn.clicked.connect(self._on_confirm)
         button_layout.addWidget(confirm_btn)
 
-        cancel_btn = DangerButton(text="Cancel")
+        cancel_btn = Button(text="Cancel", variant="danger")
         cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(cancel_btn)
 
@@ -198,7 +206,7 @@ class QtSoundsView(QWidget):
         main_layout.setSpacing(0)
 
         # Create two-column layout with titles
-        self.layout = TwoColumnTabLayout(self, "Train Sound", "Trained Sounds")
+        self.layout = TwoColumnLayout("Train Sound", "Trained Sounds", self)
         main_layout.addWidget(self.layout)
 
         # Setup panels
@@ -209,18 +217,18 @@ class QtSoundsView(QWidget):
         """Setup training form in left content area."""
         container = self.layout.left_content
 
-        # Get existing layout
+        # Create layout if it doesn't exist
         container_layout = container.layout()
         if container_layout is None:
             container_layout = QVBoxLayout(container)
 
         container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
         )
-        container_layout.setSpacing(theme_manager.spacing.medium)
+        container_layout.setSpacing(theme.config.spacing.medium)
 
         # Sound name input
         sound_name_label = QLabel("Sound Name:")
@@ -242,7 +250,7 @@ class QtSoundsView(QWidget):
         container_layout.addWidget(self.samples_spinbox)
 
         # Start training button
-        self.start_training_btn = PrimaryButton(text="Record")
+        self.start_training_btn = Button(text="Record", variant="primary")
         self.start_training_btn.clicked.connect(self._on_start_training_clicked)
         container_layout.addWidget(self.start_training_btn)
 
@@ -262,24 +270,24 @@ class QtSoundsView(QWidget):
         """Setup sounds list panel in right content area."""
         container = self.layout.right_content
 
-        # Get existing layout
+        # Create layout if it doesn't exist
         container_layout = container.layout()
         if container_layout is None:
             container_layout = QVBoxLayout(container)
 
         container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
         )
-        container_layout.setSpacing(theme_manager.spacing.small)
+        container_layout.setSpacing(theme.config.spacing.small)
 
         # Sounds list widget
         self.sounds_list_widget = QWidget()
         self.sounds_list_widget.setStyleSheet("background: transparent;")
         self.sounds_list_layout = QVBoxLayout(self.sounds_list_widget)
-        self.sounds_list_layout.setSpacing(theme_manager.spacing.tiny)
+        self.sounds_list_layout.setSpacing(theme.config.spacing.tiny)
         self.sounds_list_layout.setContentsMargins(0, 0, 0, 0)
         self.sounds_list_layout.addStretch()
 
@@ -292,11 +300,11 @@ class QtSoundsView(QWidget):
         container_layout.addWidget(scroll_area)
 
         # Delete all button
-        self.delete_all_btn = DangerButton(text="Reset")
+        self.delete_all_btn = Button(text="Reset", variant="danger")
         self.delete_all_btn.clicked.connect(self._on_delete_all_clicked)
         container_layout.addWidget(self.delete_all_btn)
         # Add bottom padding after button
-        container_layout.addSpacing(theme_manager.spacing.large)
+        container_layout.addSpacing(theme.config.spacing.large)
 
     def _on_sounds_loaded(self, sounds: List[str]) -> None:
         """Handle sounds loaded from controller."""
@@ -395,9 +403,9 @@ class QtSoundsView(QWidget):
             # Show empty message
             empty_label = QLabel("No available sounds.\nUse the left panel to record a sound.")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+            empty_font = theme.get_font(size=theme.config.fonts.medium)
             empty_label.setFont(empty_font)
-            empty_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
+            empty_label.setStyleSheet(f"color: {theme.config.text.medium}; background: transparent; border: none;")
             self.sounds_list_layout.insertWidget(0, empty_label)
         else:
             for sound_name in sorted(self.sounds_list):
@@ -407,23 +415,23 @@ class QtSoundsView(QWidget):
                 item_widget.setStyleSheet("background: transparent; border: none;")
                 item_layout = QHBoxLayout(item_widget)
                 item_layout.setContentsMargins(0, 0, 0, 0)
-                item_layout.setSpacing(theme_manager.spacing.small)
+                item_layout.setSpacing(theme.config.spacing.small)
 
                 # Sound name label
                 name_label = QLabel(sound_name)
-                name_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+                name_font = theme.get_font(size=theme.config.fonts.medium)
                 name_label.setFont(name_font)
-                name_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
+                name_label.setStyleSheet(f"color: {theme.config.text.medium}; background: transparent; border: none;")
                 item_layout.addWidget(name_label, 1)
 
                 # Map button (pill-shaped)
-                map_btn = PrimaryButton(text="Map")
+                map_btn = Button(text="Map", variant="primary")
                 map_btn.setFixedWidth(80)
                 map_btn.clicked.connect(lambda checked, s=sound_name: self._on_map_sound(s))
                 item_layout.addWidget(map_btn)
 
                 # Delete button (pill-shaped)
-                delete_btn = DangerButton(text="Delete")
+                delete_btn = Button(text="Delete", variant="danger")
                 delete_btn.setFixedWidth(80)
                 delete_btn.clicked.connect(lambda checked, s=sound_name: self._on_delete_sound(s))
                 item_layout.addWidget(delete_btn)
@@ -492,6 +500,6 @@ class QtSoundsView(QWidget):
 
     def _show_error(self, message: str) -> None:
         """Show error message dialog."""
-        from vocalance.app.ui.views.components.qt_themed_dialogs import showerror
+        from vocalance.app.ui.components.dialogs import showerror
 
         showerror(message, parent=self)

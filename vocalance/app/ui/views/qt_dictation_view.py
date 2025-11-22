@@ -9,8 +9,9 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
-from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, TwoColumnTabLayout
+from vocalance.app.ui.components.atoms import Button
+from vocalance.app.ui.components.complex import TwoColumnLayout
+from vocalance.app.ui.qt_theme import theme
 
 
 class PromptEditDialog(QDialog):
@@ -52,11 +53,11 @@ class PromptEditDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
-        save_btn = PrimaryButton(text="Save Changes")
+        save_btn = Button(text="Save Changes", variant="primary")
         save_btn.clicked.connect(self._on_save)
         button_layout.addWidget(save_btn)
 
-        cancel_btn = DangerButton(text="Cancel")
+        cancel_btn = Button(text="Cancel", variant="danger")
         cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(cancel_btn)
 
@@ -65,7 +66,7 @@ class PromptEditDialog(QDialog):
     def _on_save(self) -> None:
         """Handle save button click."""
         new_name = self.title_entry.text().strip()
-        new_text = self.prompt_textbox.toPlainText().strip()
+        new_text = self.prompt_textbox.text().strip()
 
         if not new_name:
             QMessageBox.warning(self, "Validation Error", "Please enter a title for the prompt.")
@@ -126,7 +127,7 @@ class QtDictationView(QWidget):
         main_layout.setSpacing(0)
 
         # Create two-column layout with titles
-        self.layout = TwoColumnTabLayout(self, "Add Custom Prompt", "Manage Prompts")
+        self.layout = TwoColumnLayout("Add Custom Prompt", "Manage Prompts", self)
         main_layout.addWidget(self.layout)
 
         # Setup panels
@@ -137,18 +138,18 @@ class QtDictationView(QWidget):
         """Setup add prompt form in left content area."""
         container = self.layout.left_content
 
-        # Get existing layout
+        # Create layout if it doesn't exist
         container_layout = container.layout()
         if container_layout is None:
             container_layout = QVBoxLayout(container)
 
         container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
         )
-        container_layout.setSpacing(theme_manager.spacing.medium)
+        container_layout.setSpacing(theme.config.spacing.medium)
 
         # Prompt title input
         prompt_title_label = QLabel("Prompt Title:")
@@ -170,7 +171,7 @@ class QtDictationView(QWidget):
         container_layout.addWidget(self.prompt_textbox)
 
         # Add button
-        self.add_prompt_btn = PrimaryButton(text="Add Prompt")
+        self.add_prompt_btn = Button(text="Add Prompt", variant="primary")
         self.add_prompt_btn.clicked.connect(self._on_add_prompt_clicked)
         container_layout.addWidget(self.add_prompt_btn)
 
@@ -180,24 +181,24 @@ class QtDictationView(QWidget):
         """Setup manage prompts panel in right content area."""
         container = self.layout.right_content
 
-        # Get existing layout
+        # Create layout if it doesn't exist
         container_layout = container.layout()
         if container_layout is None:
             container_layout = QVBoxLayout(container)
 
         container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
         )
-        container_layout.setSpacing(theme_manager.spacing.small)
+        container_layout.setSpacing(theme.config.spacing.small)
 
         # Prompts list widget
         self.prompts_list_widget = QWidget()
         self.prompts_list_widget.setStyleSheet("background: transparent;")
         self.prompts_list_layout = QVBoxLayout(self.prompts_list_widget)
-        self.prompts_list_layout.setSpacing(theme_manager.spacing.tiny)
+        self.prompts_list_layout.setSpacing(theme.config.spacing.tiny)
         self.prompts_list_layout.setContentsMargins(0, 0, 0, 0)
         self.prompts_list_layout.addStretch()
 
@@ -254,9 +255,9 @@ class QtDictationView(QWidget):
             # Show empty message
             empty_label = QLabel("No prompts available.")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+            empty_font = theme.get_font(size=theme.config.fonts.medium)
             empty_label.setFont(empty_font)
-            empty_label.setStyleSheet(f"color: {theme_manager.text_colors.medium};")
+            empty_label.setStyleSheet(f"color: {theme.config.text.medium};")
             self.prompts_list_layout.addWidget(empty_label)
         else:
             for prompt in prompts:
@@ -271,7 +272,7 @@ class QtDictationView(QWidget):
         item_widget.setStyleSheet("background: transparent; border: none;")
         item_layout = QHBoxLayout(item_widget)
         item_layout.setContentsMargins(0, 0, 0, 0)
-        item_layout.setSpacing(theme_manager.spacing.small)
+        item_layout.setSpacing(theme.config.spacing.small)
 
         # Radio button
         radio = QRadioButton()
@@ -284,19 +285,19 @@ class QtDictationView(QWidget):
 
         # Prompt name label
         name_label = QLabel(prompt_data.get("name", "Unnamed"))
-        name_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+        name_font = theme.get_font(size=theme.config.fonts.medium)
         name_label.setFont(name_font)
-        name_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
+        name_label.setStyleSheet(f"color: {theme.config.text.medium}; background: transparent; border: none;")
         item_layout.addWidget(name_label, 1)
 
         # Edit button (pill-shaped)
-        edit_btn = PrimaryButton(text="Edit")
+        edit_btn = Button(text="Edit", variant="primary")
         edit_btn.setFixedWidth(70)
         edit_btn.clicked.connect(lambda checked, p=prompt_data: self._on_edit_prompt(p))
         item_layout.addWidget(edit_btn)
 
         # Delete button (pill-shaped)
-        delete_btn = DangerButton(text="Delete")
+        delete_btn = Button(text="Delete", variant="danger")
         delete_btn.setFixedWidth(80)
         is_default = prompt_data.get("is_default", False)
         delete_btn.setEnabled(not is_default)
@@ -314,7 +315,7 @@ class QtDictationView(QWidget):
     def _on_add_prompt_clicked(self) -> None:
         """Handle add prompt button clicked."""
         title = self.title_entry.text().strip()
-        prompt_text = self.prompt_textbox.toPlainText().strip()
+        prompt_text = self.prompt_textbox.text().strip()
 
         if not title:
             QMessageBox.warning(self, "Validation Error", "Please enter a title for the prompt.")

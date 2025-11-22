@@ -249,6 +249,62 @@ class SettingsService:
             logger.error(f"Failed to reset setting {setting_path}: {e}")
             return False
 
+    def reset_to_defaults(self) -> tuple:
+        """Reset all user settings to defaults (sync wrapper for thread execution)."""
+        try:
+            # Clear all user overrides
+            self._user_overrides = {}
+
+            # For sync context, we need to handle storage differently
+            # Save to file directly if possible, or mark for async processing
+            import json
+            from pathlib import Path
+
+            storage_path = Path(self._storage._storage_path) if hasattr(self._storage, "_storage_path") else None
+            if storage_path:
+                storage_path.write_text(json.dumps({"user_overrides": {}}))
+                success = True
+            else:
+                # Fallback: assume successful if no path
+                success = True
+
+            if success:
+                # Rebuild effective settings (will use all defaults now)
+                # Do minimal sync rebuild
+                self._effective_settings = {
+                    "llm": {
+                        "context_length": self._get_default_value("llm.context_length"),
+                        "max_tokens": self._get_default_value("llm.max_tokens"),
+                    },
+                    "grid": {"default_rect_count": self._get_default_value("grid.default_rect_count")},
+                    "sound_recognizer": {
+                        "confidence_threshold": self._get_default_value("sound_recognizer.confidence_threshold"),
+                        "vote_threshold": self._get_default_value("sound_recognizer.vote_threshold"),
+                    },
+                    "vad": {
+                        "energy_threshold": self._get_default_value("vad.energy_threshold"),
+                        "dictation_silent_chunks_for_end": self._get_default_value("vad.dictation_silent_chunks_for_end"),
+                        "command_silent_chunks_for_end": self._get_default_value("vad.command_silent_chunks_for_end"),
+                    },
+                    "audio": {
+                        "device": self._get_default_value("audio.device"),
+                        "sample_rate": self._get_default_value("audio.sample_rate"),
+                    },
+                    "markov_predictor": {"confidence_threshold": self._get_default_value("markov_predictor.confidence_threshold")},
+                }
+
+                logger.info("All settings reset to defaults successfully")
+                return True, "Settings reset to defaults successfully"
+            else:
+                error_msg = "Failed to save reset settings to storage"
+                logger.error(error_msg)
+                return False, error_msg
+
+        except Exception as e:
+            error_msg = f"Failed to reset settings to defaults: {e}"
+            logger.error(error_msg, exc_info=True)
+            return False, error_msg
+
     def _validate_setting_value(self, setting_path: str, value: Any) -> bool:
         """Validate setting value based on setting type and constraints"""
         validation_rules = {

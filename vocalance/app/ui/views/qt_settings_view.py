@@ -6,10 +6,12 @@ Displays application settings with management capabilities.
 import logging
 from typing import Any, Dict, Optional
 
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
-from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, ThemedFrame, TitleLabel
+from vocalance.app.ui.components.atoms import Button, Checkbox, Input, Label
+from vocalance.app.ui.components.containers import Box, ScrollableContainer
+from vocalance.app.ui.components.forms import FormGroup
+from vocalance.app.ui.qt_theme import theme
 
 
 class QtSettingsView(QWidget):
@@ -53,70 +55,43 @@ class QtSettingsView(QWidget):
         """Build two-box layout."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(
-            theme_manager.two_box_layout.outer_padding_left,
-            theme_manager.two_box_layout.outer_padding_top,
-            theme_manager.two_box_layout.outer_padding_right,
-            theme_manager.two_box_layout.outer_padding_bottom,
+            theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large
         )
-        main_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        main_layout.setSpacing(theme.config.spacing.large)
 
         # Create two-box layout
         boxes_layout = QHBoxLayout()
-        boxes_layout.setSpacing(theme_manager.two_box_layout.base_spacing)
+        boxes_layout.setSpacing(theme.config.spacing.large)
 
         # LEFT BOX - Actions
-        left_box = ThemedFrame(frame_type="two_box")
-        left_layout = QVBoxLayout(left_box)
-        left_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
-            20,
-            theme_manager.two_box_layout.inner_content_padx,
-            20,
-        )
-        left_layout.setSpacing(15)
+        self.left_box = Box(layout="vertical")
 
         # Title
-        left_layout.addWidget(TitleLabel(text="Settings Actions"))
+        self.left_box.add(Label(text="Settings Actions", variant="title"))
 
         # Reset to defaults button
-        self.reset_btn = DangerButton(text="Reset to Defaults")
-        self.reset_btn.clicked.connect(self._on_reset_clicked)
-        left_layout.addWidget(self.reset_btn)
+        self.reset_btn = Button(text="Reset to Defaults", variant="danger", command=self._on_reset_clicked)
+        self.left_box.add(self.reset_btn)
 
         # Info label
-        self.info_label = QLabel("Settings loaded")
-        left_layout.addWidget(self.info_label)
+        self.info_label = Label("Settings loaded", variant="body", color="text.medium")
+        self.left_box.add(self.info_label)
 
-        left_layout.addStretch()
+        self.left_box.add_stretch()
 
         # RIGHT BOX - Settings list
-        right_box = ThemedFrame(frame_type="two_box")
-        right_layout = QVBoxLayout(right_box)
-        right_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
-            20,
-            theme_manager.two_box_layout.inner_content_padx,
-            20,
-        )
-        right_layout.setSpacing(10)
+        self.right_box = Box(layout="vertical")
 
         # Title
-        right_layout.addWidget(TitleLabel(text="Settings"))
+        self.right_box.add(Label(text="Settings", variant="title"))
 
         # Scrollable settings area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-
-        self.settings_widget = QWidget()
-        self.settings_layout = QVBoxLayout(self.settings_widget)
-        self.settings_layout.setSpacing(10)
-
-        scroll_area.setWidget(self.settings_widget)
-        right_layout.addWidget(scroll_area)
+        self.scroll_container = ScrollableContainer()
+        self.right_box.add(self.scroll_container, stretch=1)
 
         # Add boxes to main layout
-        boxes_layout.addWidget(left_box, 0)
-        boxes_layout.addWidget(right_box, 1)
+        boxes_layout.addWidget(self.left_box, 0)
+        boxes_layout.addWidget(self.right_box, 1)
 
         main_layout.addLayout(boxes_layout)
 
@@ -163,16 +138,18 @@ class QtSettingsView(QWidget):
         self._show_error(error_msg)
 
     def _refresh_settings_display(self) -> None:
-        """Refresh the settings display with organized sections - matching legacy UI."""
-        # Clear existing widgets
-        while self.settings_layout.count():
-            item = self.settings_layout.takeAt(0)
+        """Refresh the settings display with organized sections."""
+        # Clear existing widgets from scroll container
+        # (In a real app, we might want to update in place, but clearing is safer for refactor)
+        # Efficient clearing for QLayout
+        while self.scroll_container.content_layout.count():
+            item = self.scroll_container.content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
         self.setting_widgets.clear()
 
-        # Define which settings to display (matching legacy implementation)
+        # Define which settings to display
         visible_settings = {
             "LLM Model Settings": [
                 ("llm", "context_length", "Max Context Tokens"),
@@ -200,11 +177,7 @@ class QtSettingsView(QWidget):
         # Display each section with filtered settings
         for section_name, field_specs in visible_settings.items():
             # Section title
-            section_label = QLabel(section_name)
-            section_font = theme_manager.get_font(size=theme_manager.font_sizes.large, weight="semibold")
-            section_label.setFont(section_font)
-            section_label.setStyleSheet(f"color: {theme_manager.text_colors.light}; margin-top: 15px; margin-bottom: 10px;")
-            self.settings_layout.addWidget(section_label)
+            self.scroll_container.add(Label(section_name, variant="subtitle", color="text.light"))
 
             # Section items
             for category, key, label_text in field_specs:
@@ -214,47 +187,36 @@ class QtSettingsView(QWidget):
                     value = self.settings[category].get(key)
 
                 if value is None:
-                    continue  # Skip if setting not found
+                    continue
 
                 total_count += 1
-
-                # Create row for each setting
-                row_widget = QWidget()
-                row_layout = QHBoxLayout(row_widget)
-                row_layout.setContentsMargins(10, 5, 10, 5)
-
-                # Label
-                label = QLabel(label_text)
-                label.setMinimumWidth(200)
-                row_layout.addWidget(label, 0)
-
-                # Input widget based on type
                 setting_key = f"{category}.{key}"
 
+                # Create widgets based on type
                 if isinstance(value, bool):
-                    widget = QCheckBox()
-                    widget.setChecked(value)
-                    widget.stateChanged.connect(
-                        lambda state, k=setting_key, w=widget: self._on_setting_value_changed(k, w.isChecked())
+                    checkbox = Checkbox(
+                        text=label_text,
+                        checked=value,
+                        command=lambda state, k=setting_key: self._on_setting_value_changed(
+                            k, state == 2
+                        ),  # Qt Check state 2 is Checked
                     )
-                elif isinstance(value, (int, float)):
-                    widget = QSpinBox()
-                    widget.setValue(int(value))
-                    widget.setMinimum(0)
-                    widget.setMaximum(10000)
-                    widget.valueChanged.connect(lambda v, k=setting_key, w=widget: self._on_setting_value_changed(k, w.value()))
-                else:
-                    widget = QLineEdit()
-                    widget.setText(str(value))
-                    widget.editingFinished.connect(lambda k=setting_key, w=widget: self._on_setting_value_changed(k, w.text()))
+                    # Checkbox needs a slight wrapper or just add directly
+                    self.scroll_container.add(checkbox)
+                    self.setting_widgets[setting_key] = checkbox
 
-                row_layout.addWidget(widget, 1)
-                self.settings_layout.addWidget(row_widget)
+                elif isinstance(value, (int, float, str)):
+                    # Use FormGroup
+                    inp = Input(str(value))
+                    # Connect editing finished
+                    inp.editingFinished.connect(lambda k=setting_key, w=inp: self._on_setting_value_changed(k, w.text()))
 
-                self.setting_widgets[setting_key] = widget
+                    group = FormGroup(label_text, inp)
+                    self.scroll_container.add(group)
+                    self.setting_widgets[setting_key] = inp
 
         # Add stretch at end
-        self.settings_layout.addStretch()
+        self.scroll_container.add_stretch()
 
         # Update info
         self.info_label.setText(f"{total_count} settings")

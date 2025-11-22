@@ -16,7 +16,7 @@ from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
-from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.ui_icon_utils import set_window_icon_robust
 
 if TYPE_CHECKING:
@@ -555,7 +555,7 @@ class FastServiceInitializer:
         from vocalance.app.ui.main_window import AppControlRoom
 
         # Load Qt fonts
-        theme_manager.load_fonts()
+        theme.load_fonts()
 
         with self._services_lock:
             storage = self.services.get("storage")
@@ -662,8 +662,8 @@ def _create_main_window(app_config: GlobalAppConfig) -> ctk.CTk:
     app_tk_root.withdraw()
 
     # Set initial size
-    app_tk_root.geometry(f"{theme_manager.dimensions.main_window_width}x{theme_manager.dimensions.main_window_height}")
-    app_tk_root.minsize(theme_manager.dimensions.main_window_min_width, theme_manager.dimensions.main_window_min_height)
+    app_tk_root.geometry(f"{theme.config.dims.main_window_width}x{theme.config.dims.main_window_height}")
+    app_tk_root.minsize(theme.config.dims.main_window_min_width, theme.config.dims.main_window_min_height)
     app_tk_root.resizable(False, False)
 
     # Realize the window geometry while still withdrawn for accurate screen metrics
@@ -870,8 +870,8 @@ async def main() -> None:
                 app_tk_root.update_idletasks()
                 screen_width = app_tk_root.winfo_screenwidth()
                 screen_height = app_tk_root.winfo_screenheight()
-                window_width = theme_manager.dimensions.main_window_width
-                window_height = theme_manager.dimensions.main_window_height
+                window_width = theme.config.dims.main_window_width
+                window_height = theme.config.dims.main_window_height
 
                 x = (screen_width - window_width) // 2
                 y = int(screen_height * 0.35 - window_height // 2)

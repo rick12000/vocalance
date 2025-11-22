@@ -1,6 +1,6 @@
-"""Qt-based themed dialogs and message boxes.
+"""Themed dialogs and message boxes for Qt-based UI.
 
-Provides themed dialog functions replacing CustomTkinter dialogs with Qt equivalents.
+Provides dialog functions for user interactions with consistent theming.
 """
 
 from typing import Optional
@@ -8,8 +8,9 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget
 
-from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton
+from vocalance.app.ui.qt_theme import theme
+
+from .atoms import Button
 
 
 def _center_on_parent(dialog: QDialog, parent: Optional[QWidget] = None) -> None:
@@ -55,8 +56,8 @@ def _create_dialog_base(
     dialog = QDialog(parent)
     dialog.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
     dialog.setModal(True)
-    dialog.setMinimumWidth(theme_manager.dimensions.dialog_width)
-    dialog.setMinimumHeight(theme_manager.dimensions.dialog_min_height)
+    dialog.setMinimumWidth(theme.config.dims.dialog_width)
+    dialog.setMinimumHeight(150)
 
     # Main layout
     main_layout = QVBoxLayout(dialog)
@@ -67,9 +68,9 @@ def _create_dialog_base(
     message_label = QLabel(message)
     message_label.setWordWrap(True)
     message_label.setMaximumWidth(350)
-    font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+    font = theme.get_font(size="medium")
     message_label.setFont(font)
-    message_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+    message_label.setStyleSheet(f"color: {theme.config.text.light};")
     message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     main_layout.addWidget(message_label)
 
@@ -79,15 +80,18 @@ def _create_dialog_base(
         button_layout.setSpacing(10)
 
         for btn_text, btn_type, btn_callback in button_configs:
-            if btn_type == "primary":
-                btn = PrimaryButton(text=btn_text)
-            elif btn_type == "danger":
-                btn = DangerButton(text=btn_text)
-            else:
-                btn = PrimaryButton(text=btn_text)
+            variant = "primary"
+            if btn_type == "danger":
+                variant = "danger"
+
+            btn = Button(text=btn_text, variant=variant)
 
             def on_click(callback=btn_callback):
-                result[0] = callback()
+                # Only call callback if it's callable, otherwise use the value directly
+                if callable(callback):
+                    result[0] = callback()
+                else:
+                    result[0] = callback
                 dialog.accept()
 
             btn.clicked.connect(on_click)
@@ -105,15 +109,7 @@ def _create_dialog_base(
 
 
 def askokcancel(message: str, parent: Optional[QWidget] = None) -> bool:
-    """Show a themed OK/Cancel dialog and return True if OK was clicked.
-
-    Args:
-        message: Dialog message.
-        parent: Parent widget.
-
-    Returns:
-        True if OK clicked, False otherwise.
-    """
+    """Show a themed OK/Cancel dialog."""
     result = _create_dialog_base(
         message=message,
         parent=parent,
@@ -126,15 +122,7 @@ def askokcancel(message: str, parent: Optional[QWidget] = None) -> bool:
 
 
 def askyesno(message: str, parent: Optional[QWidget] = None) -> bool:
-    """Show a themed Yes/No dialog and return True if Yes was clicked.
-
-    Args:
-        message: Dialog message.
-        parent: Parent widget.
-
-    Returns:
-        True if Yes clicked, False otherwise.
-    """
+    """Show a themed Yes/No dialog."""
     result = _create_dialog_base(
         message=message,
         parent=parent,
@@ -147,12 +135,7 @@ def askyesno(message: str, parent: Optional[QWidget] = None) -> bool:
 
 
 def showinfo(message: str, parent: Optional[QWidget] = None) -> None:
-    """Show a themed info dialog.
-
-    Args:
-        message: Dialog message.
-        parent: Parent widget.
-    """
+    """Show a themed info dialog."""
     _create_dialog_base(
         message=message,
         parent=parent,
@@ -163,12 +146,7 @@ def showinfo(message: str, parent: Optional[QWidget] = None) -> None:
 
 
 def showerror(message: str, parent: Optional[QWidget] = None) -> None:
-    """Show a themed error dialog.
-
-    Args:
-        message: Error message.
-        parent: Parent widget.
-    """
+    """Show a themed error dialog."""
     _create_dialog_base(
         message=message,
         parent=parent,
@@ -179,12 +157,7 @@ def showerror(message: str, parent: Optional[QWidget] = None) -> None:
 
 
 def showwarning(message: str, parent: Optional[QWidget] = None) -> None:
-    """Show a themed warning dialog.
-
-    Args:
-        message: Warning message.
-        parent: Parent widget.
-    """
+    """Show a themed warning dialog."""
     _create_dialog_base(
         message=message,
         parent=parent,
@@ -194,53 +167,23 @@ def showwarning(message: str, parent: Optional[QWidget] = None) -> None:
     )
 
 
-# Using Qt's native message boxes as an alternative (simpler but less customized)
-
-
 def qt_showinfo(message: str, title: str = "Information", parent: Optional[QWidget] = None) -> None:
-    """Show Qt native info message box.
-
-    Args:
-        message: Dialog message.
-        title: Dialog title.
-        parent: Parent widget.
-    """
+    """Show a native Qt info message box."""
     QMessageBox.information(parent, title, message)
 
 
 def qt_showerror(message: str, title: str = "Error", parent: Optional[QWidget] = None) -> None:
-    """Show Qt native error message box.
-
-    Args:
-        message: Error message.
-        title: Dialog title.
-        parent: Parent widget.
-    """
+    """Show a native Qt error message box."""
     QMessageBox.critical(parent, title, message)
 
 
 def qt_showwarning(message: str, title: str = "Warning", parent: Optional[QWidget] = None) -> None:
-    """Show Qt native warning message box.
-
-    Args:
-        message: Warning message.
-        title: Dialog title.
-        parent: Parent widget.
-    """
+    """Show a native Qt warning message box."""
     QMessageBox.warning(parent, title, message)
 
 
 def qt_askyesno(message: str, title: str = "Question", parent: Optional[QWidget] = None) -> bool:
-    """Show Qt native yes/no question box.
-
-    Args:
-        message: Question message.
-        title: Dialog title.
-        parent: Parent widget.
-
-    Returns:
-        True if Yes clicked, False otherwise.
-    """
+    """Show a native Qt yes/no dialog."""
     reply = QMessageBox.question(
         parent,
         title,
@@ -252,16 +195,7 @@ def qt_askyesno(message: str, title: str = "Question", parent: Optional[QWidget]
 
 
 def qt_askokcancel(message: str, title: str = "Confirm", parent: Optional[QWidget] = None) -> bool:
-    """Show Qt native OK/Cancel question box.
-
-    Args:
-        message: Question message.
-        title: Dialog title.
-        parent: Parent widget.
-
-    Returns:
-        True if OK clicked, False otherwise.
-    """
+    """Show a native Qt ok/cancel dialog."""
     reply = QMessageBox.question(
         parent,
         title,

@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel
 
-from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 
 logger = logging.getLogger(__name__)
@@ -110,11 +110,11 @@ class QtLogoService:
             label.setText(text_fallback)
 
             # Set large font for text fallback
-            font = theme_manager.get_font(size=max_size // 3, weight="semibold")
+            font = theme.get_font(size=max_size // 3, weight="semibold")
             label.setFont(font)
 
             # Set color from theme
-            color = theme_manager.shape_colors.medium if hasattr(theme_manager, "shape_colors") else "#515151"
+            color = theme.config.shapes.medium if hasattr(theme, "shape_colors") else "#515151"
             label.setStyleSheet(f"color: {color};")
 
         return label

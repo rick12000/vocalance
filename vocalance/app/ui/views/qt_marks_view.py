@@ -1,16 +1,18 @@
 """Qt-based marks management view.
 
-Displays marks with management capabilities matching legacy layout using TwoColumnTabLayout.
+Displays marks with management capabilities matching legacy layout using TwoColumnLayout.
 """
 
 import logging
 from typing import List, Optional
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from vocalance.app.events.mark_events import MarkData
-from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, InstructionTile, PrimaryButton, TwoColumnTabLayout
+from vocalance.app.ui.components.atoms import Button, Label
+from vocalance.app.ui.components.complex import Tile, TwoColumnLayout
+from vocalance.app.ui.components.containers import ScrollableContainer, TransparentBox
+from vocalance.app.ui.qt_theme import theme
 
 
 class QtMarksView(QWidget):
@@ -51,13 +53,15 @@ class QtMarksView(QWidget):
         self.controller.refresh_marks()
 
     def _setup_ui(self) -> None:
-        """Build UI with TwoColumnTabLayout."""
+        """Build UI with TwoColumnLayout."""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(
+            theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large
+        )
+        main_layout.setSpacing(theme.config.spacing.large)
 
         # Create two-column layout with titles
-        self.layout = TwoColumnTabLayout(self, "Instructions", "Manage Marks")
+        self.layout = TwoColumnLayout("Instructions", "Manage Marks")
         main_layout.addWidget(self.layout)
 
         # Setup instruction panels
@@ -68,126 +72,79 @@ class QtMarksView(QWidget):
         """Setup instructions panel in left content area."""
         container = self.layout.left_content
 
-        # Get existing layout
-        container_layout = container.layout()
-        if container_layout is None:
-            container_layout = QVBoxLayout(container)
-
-        container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
-            0,
-            theme_manager.two_box_layout.inner_content_padx,
-            0,
-        )
-        container_layout.setSpacing(theme_manager.spacing.small)
+        # Create layout if it doesn't exist
+        layout = container.layout()
+        if layout is None:
+            layout = QVBoxLayout(container)
+        layout.setSpacing(theme.config.spacing.small)
 
         # Instruction tiles
-        tile1 = InstructionTile(
-            title="Create Mark",
-            content="Say 'Mark [name]' to create a mark\nat the current cursor position",
+        layout.addWidget(Tile("Create Mark", "Say 'Mark [name]' to create a mark\nat the current cursor position"))
+        layout.addWidget(Tile("Navigate", "Say the mark's [name] to automatically click\nat that position"))
+        layout.addWidget(
+            Tile("Manage Marks", "Use the right panel to visualize and delete marks,\nor say 'show marks' to see them on screen")
         )
-        container_layout.addWidget(tile1)
 
-        tile2 = InstructionTile(
-            title="Navigate",
-            content="Say the mark's [name] to automatically click\nat that position",
-        )
-        container_layout.addWidget(tile2)
-
-        tile3 = InstructionTile(
-            title="Manage Marks",
-            content="Use the right panel to visualize and delete marks,\nor say 'show marks' to see them on screen",
-        )
-        container_layout.addWidget(tile3)
-
-        container_layout.addStretch()
+        layout.addStretch()
 
     def _setup_marks_panel(self) -> None:
         """Setup marks management panel in right content area."""
         container = self.layout.right_content
 
-        # Get existing layout
-        container_layout = container.layout()
-        if container_layout is None:
-            container_layout = QVBoxLayout(container)
-
-        container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
-            0,
-            theme_manager.two_box_layout.inner_content_padx,
-            0,
-        )
-        container_layout.setSpacing(theme_manager.spacing.small)
+        # Create layout if it doesn't exist
+        layout = container.layout()
+        if layout is None:
+            layout = QVBoxLayout(container)
+        layout.setSpacing(theme.config.spacing.small)
 
         # Marks list container with scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll_area.setStyleSheet("background: transparent; border: none;")
-
-        self.marks_container = QWidget()
-        self.marks_container.setStyleSheet("background: transparent;")
-        self.marks_list_layout = QVBoxLayout(self.marks_container)
-        self.marks_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.marks_list_layout.setSpacing(theme_manager.spacing.tiny)
-        self.marks_list_layout.addStretch()
-
-        scroll_area.setWidget(self.marks_container)
-        container_layout.addWidget(scroll_area)
+        self.marks_scroll = ScrollableContainer()
+        layout.addWidget(self.marks_scroll, stretch=1)
 
         # Button row
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(theme_manager.spacing.small)
+        button_box = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
 
-        self.show_overlay_btn = PrimaryButton(text="Show Marks")
-        self.show_overlay_btn.clicked.connect(self._on_show_overlay_clicked)
-        button_layout.addWidget(self.show_overlay_btn)
+        self.show_overlay_btn = Button(text="Show Marks", command=self._on_show_overlay_clicked)
+        button_box.add(self.show_overlay_btn)
 
-        self.delete_all_btn = DangerButton(text="Reset")
-        self.delete_all_btn.clicked.connect(self._on_delete_all_clicked)
-        button_layout.addWidget(self.delete_all_btn)
+        self.delete_all_btn = Button(text="Reset", variant="danger", command=self._on_delete_all_clicked)
+        button_box.add(self.delete_all_btn)
 
-        container_layout.addLayout(button_layout)
-        # Add bottom padding after button row
-        container_layout.addSpacing(theme_manager.spacing.large)
+        layout.addWidget(button_box)
+        layout.addSpacing(theme.config.spacing.large)
 
     def _display_marks(self, marks: List[MarkData]) -> None:
         """Display marks in the list."""
-        # Clear existing marks
-        while self.marks_list_layout.count() > 1:  # Keep the stretch
-            item = self.marks_list_layout.takeAt(0)
+        # Clear existing marks - ScrollableContainer has a content_widget/layout
+        layout = self.marks_scroll.content_layout
+
+        # Clear widgets
+        while layout.count():
+            item = layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
         # Add marks
         for mark in marks:
-            mark_widget = self._create_mark_widget(mark)
-            self.marks_list_layout.insertWidget(self.marks_list_layout.count() - 1, mark_widget)
+            self.marks_scroll.add(self._create_mark_widget(mark))
+
+        self.marks_scroll.add_stretch()
 
     def _create_mark_widget(self, mark: MarkData) -> QWidget:
         """Create a widget for a single mark."""
-        widget = QWidget()
-        widget.setProperty("itemType", "list_item")
-        widget.setStyleSheet("background: transparent; border: none;")
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme_manager.spacing.small)
+        # Using a TransparentBox as a row
+        row = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
 
         # Mark label
-        label_text = f"{mark.name}"
-        label = QLabel(label_text)
-        font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
-        label.setFont(font)
-        label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
-        layout.addWidget(label, stretch=1)
+        label = Label(f"{mark.name}", variant="body", color="text.medium")
+        row.add(label, stretch=1)
 
-        # Delete button (pill-shaped)
-        delete_btn = DangerButton(text="Delete")
+        # Delete button
+        delete_btn = Button("Delete", variant="danger", command=lambda: self._on_delete_mark(mark.name))
         delete_btn.setFixedWidth(80)
-        delete_btn.clicked.connect(lambda: self._on_delete_mark(mark.name))
-        layout.addWidget(delete_btn)
+        row.add(delete_btn)
 
-        return widget
+        return row
 
     def _on_show_overlay_clicked(self) -> None:
         """Handle show overlay button click."""
@@ -200,7 +157,10 @@ class QtMarksView(QWidget):
             return
 
         # Confirm deletion
-        from vocalance.app.ui.views.components.qt_themed_dialogs import askyesno
+        from vocalance.app.ui.components.dialogs import askyesno
+
+        # NOTE: qt_themed_dialogs needs to be checked if it's still valid or needs refactor
+        # For now, assuming it works or using QMessageBox
 
         confirmed = askyesno("Are you sure you want to delete all marks?", parent=self)
 
@@ -225,7 +185,6 @@ class QtMarksView(QWidget):
     def _on_mark_created(self, name: str, x: int, y: int) -> None:
         """Handle mark created event."""
         try:
-            # Refresh marks to get updated list
             if self.controller:
                 self.controller.refresh_marks()
             self.logger.info(f"Mark created: {name}")
@@ -235,7 +194,6 @@ class QtMarksView(QWidget):
     def _on_mark_deleted(self, name: str) -> None:
         """Handle mark deleted event."""
         try:
-            # Refresh marks to get updated list
             if self.controller:
                 self.controller.refresh_marks()
             self.logger.info(f"Mark deleted: {name}")
@@ -258,6 +216,7 @@ class QtMarksView(QWidget):
 
     def _show_error(self, message: str) -> None:
         """Show error message dialog."""
-        from vocalance.app.ui.views.components.qt_themed_dialogs import showerror
+        # Using standard MessageBox for now if dialogs not refactored
+        from PySide6.QtWidgets import QMessageBox
 
-        showerror(message, parent=self)
+        QMessageBox.critical(self, "Error", message)

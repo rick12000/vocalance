@@ -10,7 +10,7 @@ import threading
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
-from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
 
@@ -81,14 +81,14 @@ class StartupWindow(QDialog):
         # Window configuration
         self.setWindowTitle("Vocalance")
         self.setFixedSize(
-            theme_manager.dimensions.startup_width,
-            theme_manager.dimensions.startup_height,
+            theme.config.dims.startup_width,
+            theme.config.dims.startup_height,
         )
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         # Apply theme colors
-        self.setStyleSheet(f"background-color: {theme_manager.shape_colors.darkest};")
+        self.setStyleSheet(f"background-color: {theme.config.shapes.darkest};")
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -98,7 +98,7 @@ class StartupWindow(QDialog):
         # Logo
         self.logo_label = self.logo_service.create_logo_widget(
             self,
-            max_size=theme_manager.dimensions.startup_logo_size,
+            max_size=theme.config.dims.startup_logo_size,
             context="startup",
             text_fallback="VOCALANCE",
             logo_type="full",
@@ -111,7 +111,7 @@ class StartupWindow(QDialog):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimumHeight(theme_manager.dimensions.progress_bar_height)
+        self.progress_bar.setMinimumHeight(theme.config.dims.progress_bar_height)
         main_layout.addWidget(self.progress_bar)
 
         # Status container (text + spinner)
@@ -125,16 +125,16 @@ class StartupWindow(QDialog):
 
         # Status text
         self.text_label = QLabel("Starting up", self)
-        font = theme_manager.get_font(size=theme_manager.font_sizes.small)
+        font = theme.get_font(size=theme.config.fonts.small)
         self.text_label.setFont(font)
-        self.text_label.setStyleSheet(f"color: {theme_manager.shape_colors.light};")
+        self.text_label.setStyleSheet(f"color: {theme.config.shapes.light};")
         status_layout.addWidget(self.text_label)
 
         # Spinner
         self.spinner_label = QLabel("\\", self)
-        spinner_font = theme_manager.get_monospace_font(size=theme_manager.font_sizes.small)
+        spinner_font = theme.get_monospace_font(size=theme.config.fonts.small)
         self.spinner_label.setFont(spinner_font)
-        self.spinner_label.setStyleSheet(f"color: {theme_manager.shape_colors.light};")
+        self.spinner_label.setStyleSheet(f"color: {theme.config.shapes.light};")
         self.spinner_label.setFixedWidth(15)
         status_layout.addWidget(self.spinner_label)
 

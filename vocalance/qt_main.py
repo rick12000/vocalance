@@ -20,10 +20,52 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.ui.qt_main_window import VocalanceMainWindow
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
-from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.qt_theme import theme
 from vocalance.main import FastServiceInitializer, _cleanup_services, _validate_critical_assets
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_base_styles(app: QApplication, fonts_dir: str) -> None:
+    """Apply base stylesheet to QApplication with color resets and font defaults.
+
+    This applies minimal global styling to establish base colors and fonts.
+    Specific component styling is handled by individual components.
+    """
+    c = theme.config
+
+    base_stylesheet = f"""
+    /* Global Reset */
+    * {{
+        outline: none;
+        border: none;
+        background: transparent;
+        color: {c.text.lightest};
+        selection-background-color: {c.shapes.accent};
+        selection-color: {c.text.light_blue_accent};
+    }}
+
+    QMainWindow {{
+        background-color: {c.shapes.darkest};
+    }}
+
+    QWidget {{
+        font-family: "{c.font_family_primary}", "{c.font_family_secondary}";
+        font-size: {c.fonts.medium}px;
+    }}
+
+    QLabel[variant="title"] {{
+        font-size: {c.fonts.xxlarge}px;
+        font-weight: bold;
+    }}
+
+    QLabel[variant="subtitle"] {{
+        color: {c.text.light};
+        font-size: {c.fonts.large}px;
+    }}
+    """
+
+    app.setStyleSheet(base_stylesheet)
 
 
 async def initialize_services_with_ui_integration(
@@ -221,10 +263,11 @@ async def main() -> None:
         qt_app = QApplication(sys.argv)
         qt_app.setStyle("Fusion")  # Modern Qt style
 
-        # Load fonts and apply theme
-        theme_manager.asset_paths_config = app_config.asset_paths
-        theme_manager.load_fonts()
-        theme_manager.apply_theme(qt_app)
+        # Load fonts and apply base styles
+        theme.load_fonts(app_config.asset_paths.fonts_dir)
+
+        # Apply global base stylesheet to QApplication
+        _apply_base_styles(qt_app, app_config.asset_paths.fonts_dir)
 
         # Create infrastructure
         event_bus, gui_event_loop, gui_thread = _setup_infrastructure(app_config=app_config)

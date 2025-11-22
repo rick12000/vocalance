@@ -11,8 +11,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QScrollArea, QVBoxLayout, QWidget
 
 from vocalance.app.config.command_types import AutomationCommand
-from vocalance.app.ui.qt_theme import theme_manager
-from vocalance.app.ui.views.components.qt_themed_components import DangerButton, PrimaryButton, ThemedFrame, TwoColumnTabLayout
+from vocalance.app.ui.components.atoms import Button
+from vocalance.app.ui.components.complex import TwoColumnLayout
+from vocalance.app.ui.components.containers import BaseContainer
+from vocalance.app.ui.qt_theme import theme
 
 
 class CommandEditDialog(QDialog):
@@ -38,36 +40,42 @@ class CommandEditDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
 
         # Description tile
-        desc_frame = ThemedFrame()
-        desc_layout = QVBoxLayout(desc_frame)
+        desc_frame = BaseContainer()
+        # Get the layout created by BaseContainer
+        desc_layout = desc_frame.layout()
+        if desc_layout is None:
+            desc_layout = QVBoxLayout(desc_frame)
         desc_layout.setContentsMargins(15, 15, 15, 15)
         desc_layout.setSpacing(5)
 
         desc_title = QLabel("Description")
-        desc_title_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
+        desc_title_font = theme.get_font(size=theme.config.fonts.medium, weight="semibold")
         desc_title.setFont(desc_title_font)
-        desc_title.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        desc_title.setStyleSheet(f"color: {theme.config.text.light};")
         desc_layout.addWidget(desc_title)
 
         desc_text = self._get_command_description()
         desc_label = QLabel(desc_text)
-        desc_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+        desc_font = theme.get_font(size=theme.config.fonts.medium)
         desc_label.setFont(desc_font)
-        desc_label.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        desc_label.setStyleSheet(f"color: {theme.config.text.light};")
         desc_label.setWordWrap(True)
         desc_layout.addWidget(desc_label)
 
         layout.addWidget(desc_frame)
 
         # Edit tile
-        edit_frame = ThemedFrame()
-        edit_layout = QVBoxLayout(edit_frame)
+        edit_frame = BaseContainer()
+        # Get the layout created by BaseContainer
+        edit_layout = edit_frame.layout()
+        if edit_layout is None:
+            edit_layout = QVBoxLayout(edit_frame)
         edit_layout.setContentsMargins(15, 15, 15, 15)
         edit_layout.setSpacing(10)
 
         edit_title = QLabel("Edit Command Phrase")
         edit_title.setFont(desc_title_font)
-        edit_title.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        edit_title.setStyleSheet(f"color: {theme.config.text.light};")
         edit_layout.addWidget(edit_title)
 
         self.entry = QLineEdit()
@@ -75,37 +83,40 @@ class CommandEditDialog(QDialog):
         self.entry.selectAll()
         edit_layout.addWidget(self.entry)
 
-        save_btn = PrimaryButton(text="Save Changes")
+        save_btn = Button(text="Save Changes", variant="primary")
         save_btn.clicked.connect(self._on_save)
         edit_layout.addWidget(save_btn)
 
         layout.addWidget(edit_frame)
 
         # Delete tile
-        delete_frame = ThemedFrame()
-        delete_layout = QVBoxLayout(delete_frame)
+        delete_frame = BaseContainer()
+        # Get the layout created by BaseContainer
+        delete_layout = delete_frame.layout()
+        if delete_layout is None:
+            delete_layout = QVBoxLayout(delete_frame)
         delete_layout.setContentsMargins(15, 15, 15, 15)
         delete_layout.setSpacing(10)
 
         delete_title = QLabel("Delete Command")
         delete_title.setFont(desc_title_font)
-        delete_title.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+        delete_title.setStyleSheet(f"color: {theme.config.text.light};")
         delete_layout.addWidget(delete_title)
 
         if self.command.is_custom:
             delete_desc = QLabel("This is a custom command and can be safely deleted.")
             delete_desc.setFont(desc_font)
-            delete_desc.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+            delete_desc.setStyleSheet(f"color: {theme.config.text.light};")
             delete_desc.setWordWrap(True)
             delete_layout.addWidget(delete_desc)
 
-            delete_btn = DangerButton(text="Delete Command")
+            delete_btn = Button(text="Delete Command", variant="danger")
             delete_btn.clicked.connect(self._on_delete)
             delete_layout.addWidget(delete_btn)
         else:
             delete_desc = QLabel("This is a built-in command and cannot be deleted.")
             delete_desc.setFont(desc_font)
-            delete_desc.setStyleSheet(f"color: {theme_manager.text_colors.light};")
+            delete_desc.setStyleSheet(f"color: {theme.config.text.light};")
             delete_desc.setWordWrap(True)
             delete_layout.addWidget(delete_desc)
 
@@ -207,7 +218,7 @@ class QtCommandsView(QWidget):
         main_layout.setSpacing(0)
 
         # Create two-column layout with titles
-        self.layout = TwoColumnTabLayout(self, "Add Command", "Manage Commands")
+        self.layout = TwoColumnLayout("Add Command", "Manage Commands", self)
         main_layout.addWidget(self.layout)
 
         # Setup panels
@@ -218,18 +229,18 @@ class QtCommandsView(QWidget):
         """Setup add command form in left content area."""
         container = self.layout.left_content
 
-        # Get existing layout
+        # Create layout if it doesn't exist
         container_layout = container.layout()
         if container_layout is None:
             container_layout = QVBoxLayout(container)
 
         container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
         )
-        container_layout.setSpacing(theme_manager.spacing.medium)
+        container_layout.setSpacing(theme.config.spacing.medium)
 
         # Command phrase input
         command_phrase_label = QLabel("Command Phrase:")
@@ -248,7 +259,7 @@ class QtCommandsView(QWidget):
         container_layout.addWidget(self.hotkey_entry)
 
         # Add button
-        self.add_btn = PrimaryButton(text="Add")
+        self.add_btn = Button(text="Add", variant="primary")
         self.add_btn.clicked.connect(self._on_add_command_clicked)
         container_layout.addWidget(self.add_btn)
 
@@ -258,24 +269,24 @@ class QtCommandsView(QWidget):
         """Setup commands list panel in right content area."""
         container = self.layout.right_content
 
-        # Get existing layout
+        # Create layout if it doesn't exist
         container_layout = container.layout()
         if container_layout is None:
             container_layout = QVBoxLayout(container)
 
         container_layout.setContentsMargins(
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
-            theme_manager.two_box_layout.inner_content_padx,
+            theme.config.dims.inner_content_padx,
             0,
         )
-        container_layout.setSpacing(theme_manager.spacing.small)
+        container_layout.setSpacing(theme.config.spacing.small)
 
         # Commands list widget (will show grouped commands)
         self.commands_list_widget = QWidget()
         self.commands_list_widget.setStyleSheet("background: transparent;")
         self.commands_list_layout = QVBoxLayout(self.commands_list_widget)
-        self.commands_list_layout.setSpacing(theme_manager.spacing.tiny)
+        self.commands_list_layout.setSpacing(theme.config.spacing.tiny)
         self.commands_list_layout.setContentsMargins(0, 0, 0, 0)
         self.commands_list_layout.addStretch()
 
@@ -288,11 +299,11 @@ class QtCommandsView(QWidget):
         container_layout.addWidget(scroll_area)
 
         # Reset to defaults button
-        self.reset_btn = DangerButton(text="Reset")
+        self.reset_btn = Button(text="Reset", variant="danger")
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         container_layout.addWidget(self.reset_btn)
         # Add bottom padding after button
-        container_layout.addSpacing(theme_manager.spacing.large)
+        container_layout.addSpacing(theme.config.spacing.large)
 
     def _on_commands_loaded(self, commands: List[AutomationCommand]) -> None:
         """Handle commands loaded from controller."""
@@ -348,9 +359,9 @@ class QtCommandsView(QWidget):
             # Show empty message
             empty_label = QLabel("No commands available.")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+            empty_font = theme.get_font(size=theme.config.fonts.medium)
             empty_label.setFont(empty_font)
-            empty_label.setStyleSheet(f"color: {theme_manager.text_colors.medium};")
+            empty_label.setStyleSheet(f"color: {theme.config.text.medium};")
             self.commands_list_layout.addWidget(empty_label)
         else:
             grouped_commands = self._group_commands(commands)
@@ -359,15 +370,15 @@ class QtCommandsView(QWidget):
             for group_name, group_commands in sorted_groups:
                 # Group header
                 group_label = QLabel(group_name)
-                group_font = theme_manager.get_font(size=theme_manager.font_sizes.medium, weight="semibold")
+                group_font = theme.get_font(size=theme.config.fonts.medium, weight="semibold")
                 group_label.setFont(group_font)
-                group_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; padding: 5px;")
+                group_label.setStyleSheet(f"color: {theme.config.text.medium}; padding: 5px;")
                 self.commands_list_layout.addWidget(group_label)
 
                 # Divider
                 divider = QWidget()
                 divider.setFixedHeight(1)
-                divider.setStyleSheet(f"background-color: {theme_manager.shape_colors.medium};")
+                divider.setStyleSheet(f"background-color: {theme.config.shapes.medium};")
                 self.commands_list_layout.addWidget(divider)
 
                 # Commands in this group
@@ -406,17 +417,17 @@ class QtCommandsView(QWidget):
         item_widget.setStyleSheet("background: transparent; border: none;")
         item_layout = QHBoxLayout(item_widget)
         item_layout.setContentsMargins(0, 0, 0, 0)
-        item_layout.setSpacing(theme_manager.spacing.small)
+        item_layout.setSpacing(theme.config.spacing.small)
 
         # Command phrase label
         phrase_label = QLabel(command.command_key)
-        phrase_font = theme_manager.get_font(size=theme_manager.font_sizes.medium)
+        phrase_font = theme.get_font(size=theme.config.fonts.medium)
         phrase_label.setFont(phrase_font)
-        phrase_label.setStyleSheet(f"color: {theme_manager.text_colors.medium}; background: transparent; border: none;")
+        phrase_label.setStyleSheet(f"color: {theme.config.text.medium}; background: transparent; border: none;")
         item_layout.addWidget(phrase_label, 1)
 
         # Change button (pill-shaped)
-        change_btn = PrimaryButton(text="Change")
+        change_btn = Button(text="Change", variant="primary")
         change_btn.setFixedWidth(90)
         change_btn.clicked.connect(lambda checked, c=command: self._on_change_command(c))
         item_layout.addWidget(change_btn)

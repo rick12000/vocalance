@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.mark_events import MarkData
-from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.qt_theme import theme
 
 
 class QtMarkView(QWidget):
@@ -59,8 +59,8 @@ class QtMarkView(QWidget):
         self.setWindowOpacity(0.8)
 
         # Visual properties
-        fill_color = getattr(theme_manager, "themed_mark_fill_color", "#FF0000")
-        outline_color = getattr(theme_manager, "themed_mark_outline_color", "#FFFFFF")
+        fill_color = getattr(theme, "themed_mark_fill_color", "#FF0000")
+        outline_color = getattr(theme, "themed_mark_outline_color", "#FFFFFF")
         self.mark_fill_color = QColor(fill_color)
         self.mark_fill_color.setAlpha(200)
         self.mark_outline_color = QColor(outline_color)

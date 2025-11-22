@@ -211,6 +211,10 @@ class QtSoundController(QtBaseController):
         event = SoundTrainingRequestEvent(sound_label=sound_name, num_samples=num_samples)
         asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
 
+    def start_training(self, sound_name: str, num_samples: int) -> None:
+        """Start training a sound (alias for train_sound for legacy compatibility)."""
+        self.train_sound(sound_name, num_samples)
+
     def map_sound_to_command(self, sound_label: str, command_phrase: str) -> None:
         """Map a sound to a command phrase."""
         mapping_command = MapSoundToCommandPhraseCommand(sound_label=sound_label, command_phrase=command_phrase)

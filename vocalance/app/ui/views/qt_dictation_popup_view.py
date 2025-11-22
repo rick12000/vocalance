@@ -14,7 +14,7 @@ from PySide6.QtCore import QMetaObject, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QTextCharFormat
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit, QVBoxLayout, QWidget
 
-from vocalance.app.ui.qt_theme import theme_manager
+from vocalance.app.ui.qt_theme import theme
 
 
 class QtDictationPopupView(QMainWindow):
@@ -132,7 +132,7 @@ class QtDictationPopupView(QMainWindow):
         dictation_layout.setSpacing(5)
 
         dictation_label = QLabel("Dictation")
-        dictation_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, weight="semibold"))
+        dictation_label.setFont(theme.get_font(size=theme.config.fonts.xlarge, weight="semibold"))
         dictation_layout.addWidget(dictation_label)
 
         self.dictation_box = QPlainTextEdit()
@@ -149,7 +149,7 @@ class QtDictationPopupView(QMainWindow):
         llm_layout.setSpacing(5)
 
         self.llm_label = QLabel("AI Output")
-        self.llm_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, weight="semibold"))
+        self.llm_label.setFont(theme.get_font(size=theme.config.fonts.xlarge, weight="semibold"))
         llm_layout.addWidget(self.llm_label)
 
         self.llm_box = QPlainTextEdit()
@@ -171,7 +171,7 @@ class QtDictationPopupView(QMainWindow):
         visual_layout.setSpacing(10)
 
         visual_label = QLabel("Dictation")
-        visual_label.setFont(theme_manager.get_font(size=theme_manager.font_sizes.xlarge, weight="semibold"))
+        visual_label.setFont(theme.get_font(size=theme.config.fonts.xlarge, weight="semibold"))
         visual_layout.addWidget(visual_label)
 
         self.visual_dictation_box = QPlainTextEdit()
@@ -185,28 +185,28 @@ class QtDictationPopupView(QMainWindow):
         """Apply QSS styling."""
         stylesheet = f"""
         QMainWindow {{
-            background-color: {theme_manager.shape_colors.darkest};
-            color: {theme_manager.text_colors.lightest};
-            border: 1px solid {theme_manager.shape_colors.medium};
+            background-color: {theme.config.shapes.darkest};
+            color: {theme.config.text.lightest};
+            border: 1px solid {theme.config.shapes.medium};
             border-radius: 8px;
         }}
 
         QLabel {{
-            color: {theme_manager.text_colors.light};
-            font-size: {theme_manager.font_sizes.medium}px;
+            color: {theme.config.text.light};
+            font-size: {theme.config.fonts.medium}px;
         }}
 
         QPlainTextEdit {{
-            background-color: {theme_manager.shape_colors.dark};
-            color: {theme_manager.text_colors.light};
-            border: 1px solid {theme_manager.shape_colors.medium};
+            background-color: {theme.config.shapes.dark};
+            color: {theme.config.text.light};
+            border: 1px solid {theme.config.shapes.medium};
             border-radius: 4px;
             padding: 5px;
-            font-size: {theme_manager.font_sizes.medium}px;
+            font-size: {theme.config.fonts.medium}px;
         }}
 
         QPlainTextEdit:focus {{
-            border: 1px solid {theme_manager.shape_colors.accent};
+            border: 1px solid {theme.config.shapes.accent};
         }}
         """
         self.setStyleSheet(stylesheet)
@@ -445,7 +445,7 @@ class QtDictationPopupView(QMainWindow):
 
         # Create character format for WHITE text (final = stable)
         white_format = QTextCharFormat()
-        white_format.setForeground(QColor(theme_manager.text_colors.light))  # White for final
+        white_format.setForeground(QColor(theme.config.text.light))  # White for final
         cursor.setCharFormat(white_format)
 
         # Insert text with trailing space (matches legacy line 315)

@@ -133,6 +133,10 @@ class QtMarksController(QtBaseController):
         event = MarkDeleteByNameRequestEventData(name=mark_name)
         asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
 
+    def delete_mark(self, mark_name: str) -> None:
+        """Delete a mark by name (alias for delete_mark_by_name for legacy compatibility)."""
+        self.delete_mark_by_name(mark_name)
+
     def delete_all_marks(self) -> None:
         """Delete all marks via service layer."""
         event = MarkDeleteAllRequestEventData()
@@ -166,6 +170,10 @@ class QtMarksController(QtBaseController):
 
         # Use coroutine to fetch fresh marks then show
         asyncio.run_coroutine_threadsafe(self._show_mark_overlay_async(), self.event_loop)
+
+    def show_marks_overlay(self) -> None:
+        """Alias for show_mark_overlay (legacy compatibility)."""
+        self.show_mark_overlay()
 
     async def _show_mark_overlay_async(self) -> None:
         """Async helper to ensure marks are loaded before showing overlay."""
