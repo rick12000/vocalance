@@ -1,9 +1,10 @@
 import math
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter
+from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import QWidget
 
+from vocalance.app.ui.components.primitives import _create_gradient
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -84,11 +85,11 @@ class SoundWaveWidget(QWidget):
         # Vertical center
         center_y = self.height() / 2
 
-        # Create horizontal gradient with 3 colors
-        gradient = QLinearGradient(start_x, 0, start_x + total_width, 0)
-        gradient.setColorAt(0.0, QColor(theme.config.text.sound_wave_left))  # Left
-        gradient.setColorAt(0.5, QColor(theme.config.text.sound_wave_center))  # Center
-        gradient.setColorAt(1.0, QColor(theme.config.text.sound_wave_right))  # Right
+        # Create horizontal gradient from theme colors
+        gradient = _create_gradient(int(total_width), theme.config.text.gradient_colors)
+        # Adjust gradient to start position
+        gradient.setStart(start_x, 0)
+        gradient.setFinalStop(start_x + total_width, 0)
 
         painter.setBrush(QBrush(gradient))
         painter.setPen(Qt.PenStyle.NoPen)

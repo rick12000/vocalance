@@ -259,34 +259,39 @@ class ScrollableContainer(QFrame):
         main_layout.addWidget(self.scroll_area)
 
     def _style_scrollbar(self):
-        """Apply scrollbar styling programmatically."""
-        # Note: QScrollBar styling is complex to do purely programmatically
-        # We'll use minimal stylesheet just for scrollbar as it's internal to QScrollArea
+        """Apply scrollbar styling programmatically.
+
+        Note: QScrollBar styling is complex to do purely programmatically.
+        We use a scoped stylesheet applied only to this ScrollableContainer's scroll area
+        to avoid affecting other scrollbars in the application.
+        """
         c = theme.config
+        # Use class selector to scope scrollbar styles to this scroll area only
         scrollbar_style = f"""
-        QScrollBar:vertical {{
+        ScrollableContainer QScrollBar:vertical {{
             background: {c.shapes.dark};
             width: 10px;
             margin: 0;
             border-radius: 5px;
             border: none;
         }}
-        QScrollBar::handle:vertical {{
+        ScrollableContainer QScrollBar::handle:vertical {{
             background: {c.shapes.light};
             min-height: 20px;
             border-radius: 5px;
         }}
-        QScrollBar::handle:vertical:hover {{
+        ScrollableContainer QScrollBar::handle:vertical:hover {{
             background: {c.shapes.lightest};
         }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        ScrollableContainer QScrollBar::add-line:vertical, ScrollableContainer QScrollBar::sub-line:vertical {{
             height: 0px;
         }}
-        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+        ScrollableContainer QScrollBar::add-page:vertical, ScrollableContainer QScrollBar::sub-page:vertical {{
             background: none;
         }}
         """
-        self.scroll_area.setStyleSheet(scrollbar_style)
+        # Apply stylesheet to this widget so the descendant selector works
+        self.setStyleSheet(scrollbar_style)
 
     def add(self, widget: QWidget, stretch: int = 0):
         """Add widget to scrollable content."""

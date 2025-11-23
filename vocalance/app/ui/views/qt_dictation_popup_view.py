@@ -193,21 +193,25 @@ class QtDictationPopupView(QMainWindow):
         main_layout.addWidget(self.visual_widget, 1)
 
     def _apply_styling(self) -> None:
-        """Apply QSS styling."""
+        """Apply QSS styling.
+
+        Uses class-specific selectors to avoid affecting other QMainWindow,
+        QLabel, or QPlainTextEdit instances in the application.
+        """
         stylesheet = f"""
-        QMainWindow {{
+        QtDictationPopupView {{
             background-color: {theme.config.shapes.darkest};
             color: {theme.config.text.lightest};
             border: 1px solid {theme.config.shapes.medium};
             border-radius: 8px;
         }}
 
-        QLabel {{
+        QtDictationPopupView QLabel {{
             color: {theme.config.text.light};
             font-size: {theme.config.fonts.medium}px;
         }}
 
-        QPlainTextEdit {{
+        QtDictationPopupView QPlainTextEdit {{
             background-color: {theme.config.shapes.dark};
             color: {theme.config.text.light};
             border: 1px solid {theme.config.shapes.medium};
@@ -216,7 +220,7 @@ class QtDictationPopupView(QMainWindow):
             font-size: {theme.config.fonts.medium}px;
         }}
 
-        QPlainTextEdit:focus {{
+        QtDictationPopupView QPlainTextEdit:focus {{
             border: 1px solid {theme.config.shapes.accent};
         }}
         """

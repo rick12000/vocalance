@@ -55,7 +55,8 @@ class QtMarkView(QWidget):
             | Qt.WindowType.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setStyleSheet("background-color: #262626;")  # grey15
+        # Use class-specific selector to avoid affecting other QWidget instances
+        self.setStyleSheet("QtMarkView { background-color: #262626; }")  # grey15
         self.setWindowOpacity(0.8)
 
         # Visual properties

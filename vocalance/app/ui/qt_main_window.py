@@ -167,8 +167,8 @@ class VocalanceMainWindow(QMainWindow):
             theme.config.container.box_padding,
             theme.config.container.box_padding,
         )
-        # Consistent spacing between header and content
-        content_frame_layout.setSpacing(theme.config.spacing.large)
+        # Consistent spacing between header and content - reduced for tighter layout
+        content_frame_layout.setSpacing(theme.config.spacing.small)
 
         # Create header with proper padding
         self._create_header()
@@ -236,11 +236,11 @@ class VocalanceMainWindow(QMainWindow):
         icon_size = theme.config.sidebar.button_icon_size
 
         for tab_name, icon_filename in tabs:
-            # Load and transform icon
+            # Load and transform icon with shapes.accent color
             icon_pixmap = load_sidebar_icon(
                 icon_filename=icon_filename,
                 icons_dir=self.asset_cache.get_icons_dir(),
-                target_color=theme.config.icon_properties.color,
+                target_color=theme.config.shapes.accent,
                 icon_size=icon_size,
             )
 

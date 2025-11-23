@@ -27,7 +27,7 @@ class FontSizes:
 
     small: int = 11
     medium: int = 12
-    large: int = 15
+    large: int = 18
     xlarge: int = 24
     xxlarge: int = 30
 
@@ -49,10 +49,26 @@ class TextColors:
     streaming_token: str = "#c79b9b"
     light_blue_accent: str = "#2b3054"
 
-    # Dictation sound wave gradient colors
-    sound_wave_left: str = "#ff6b6b"  # Coral red
-    sound_wave_center: str = "#feca57"  # Golden yellow
-    sound_wave_right: str = "#54a0ff"  # Sky blue
+    # Gradient colors for buttons and UI elements
+    gradient_colors: list = None  # Set in __post_init__
+    gradient_colors_dark: list = None  # Set in __post_init__
+    primary_fill_gradient: list = None  # Set in __post_init__
+    primary_fill_gradient_dark: list = None  # Set in __post_init__
+
+    def __post_init__(self):
+        """Initialize gradient color lists."""
+        # Default gradient: Used for borders and text
+        self.gradient_colors = ["#4E98FF", "#F97070"]
+
+        # Darker versions for hover/press state
+        self.gradient_colors_dark = ["#5c1a17", "#0d3a6d"]
+
+        # Primary fill gradient: Used for button/sidebar backgrounds
+        darkest = "#1c1c1c"  # ShapeColors.darkest
+        self.primary_fill_gradient = ["#4E98FF", darkest]
+
+        # Darker version for hover/press
+        self.primary_fill_gradient_dark = ["#5c1a17", "#0d0d0d"]
 
 
 @dataclass
@@ -67,6 +83,14 @@ class ShapeColors:
     dark: str = "#2a2a2a"
     darkest: str = "#1c1c1c"
     transparent: str = "transparent"
+
+
+@dataclass
+class BlueColors:
+    """Blue color design tokens."""
+
+    blue_1: str = "#1f3760"
+    blue_2: str = "#a8c7fa"
 
 
 @dataclass
@@ -201,7 +225,7 @@ class HeaderLayout:
     height: int = 100
     title_offset_y: int = 10
     title_y_offset: int = 0
-    spacing: int = 4  # Reduced spacing between title and subtitle
+    spacing: int = 2  # Reduced spacing between title and subtitle
 
 
 @dataclass
@@ -220,6 +244,7 @@ class ThemeConfig:
     fonts: FontSizes = field(default_factory=FontSizes)
     text: TextColors = field(default_factory=TextColors)
     shapes: ShapeColors = field(default_factory=ShapeColors)
+    blue: BlueColors = field(default_factory=BlueColors)
     spacing: Spacing = field(default_factory=Spacing)
     radius: BorderRadius = field(default_factory=BorderRadius)
     container: ContainerLayout = field(default_factory=ContainerLayout)

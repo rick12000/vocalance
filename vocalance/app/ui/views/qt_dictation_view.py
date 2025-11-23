@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.layouts import TwoColumnLayout
@@ -244,7 +245,8 @@ class QtDictationView(QWidget):
         """Create a prompt list item with radio, name, edit, and delete buttons."""
         item_widget = QWidget()
         item_widget.setProperty("itemType", "list_item")
-        item_widget.setStyleSheet("background: transparent; border: none; margin: 0px; padding: 0px;")
+        # Use programmatic styling instead of stylesheets to avoid affecting other QWidget instances
+        item_widget.setAutoFillBackground(False)
         item_layout = QHBoxLayout(item_widget)
         item_layout.setContentsMargins(
             0,
@@ -267,9 +269,11 @@ class QtDictationView(QWidget):
         name_label = QLabel(prompt_data.get("name", "Unnamed"))
         name_font = theme.get_font(size=theme.config.fonts.medium)
         name_label.setFont(name_font)
-        name_label.setStyleSheet(
-            f"color: {theme.config.text.medium}; background: transparent; border: none; margin: 0px; padding: 0px;"
-        )
+        # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
+        label_palette = name_label.palette()
+        label_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.medium))
+        name_label.setPalette(label_palette)
+        name_label.setAutoFillBackground(False)
         item_layout.addWidget(name_label, 1)
 
         # Edit button (pill-shaped)

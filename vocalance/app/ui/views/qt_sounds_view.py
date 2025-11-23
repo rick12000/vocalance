@@ -6,6 +6,7 @@ Displays trained sounds and allows training new sounds with command mapping usin
 from typing import List, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QScrollArea, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.layouts import BaseContainer, TwoColumnLayout
@@ -55,7 +56,10 @@ class SoundMappingDialog(QDialog):
         current_title = QLabel("Current Mapping:")
         current_title_font = theme.get_font(size=theme.config.fonts.medium, weight="semibold")
         current_title.setFont(current_title_font)
-        current_title.setStyleSheet(f"color: {theme.config.text.light};")
+        # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
+        title_palette = current_title.palette()
+        title_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.light))
+        current_title.setPalette(title_palette)
         current_layout.addWidget(current_title)
 
         # Get current mapping
@@ -68,7 +72,10 @@ class SoundMappingDialog(QDialog):
         current_label = QLabel(mapping_text)
         current_font = theme.get_font(size=theme.config.fonts.medium)
         current_label.setFont(current_font)
-        current_label.setStyleSheet(f"color: {theme.config.text.medium};")
+        # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
+        label_palette = current_label.palette()
+        label_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.medium))
+        current_label.setPalette(label_palette)
         current_layout.addWidget(current_label)
 
         layout.addWidget(current_frame)
@@ -88,7 +95,10 @@ class SoundMappingDialog(QDialog):
         type_label = QLabel("Command Type:")
         type_label_font = theme.get_font(size=theme.config.fonts.medium, weight="semibold")
         type_label.setFont(type_label_font)
-        type_label.setStyleSheet(f"color: {theme.config.text.light};")
+        # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
+        type_label_palette = type_label.palette()
+        type_label_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.light))
+        type_label.setPalette(type_label_palette)
         mapping_layout.addWidget(type_label)
 
         self.type_combo = QComboBox()
@@ -100,7 +110,10 @@ class SoundMappingDialog(QDialog):
         # Command Value dropdown
         value_label = QLabel("Command Value:")
         value_label.setFont(type_label_font)
-        value_label.setStyleSheet(f"color: {theme.config.text.light};")
+        # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
+        value_label_palette = value_label.palette()
+        value_label_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.light))
+        value_label.setPalette(value_label_palette)
         mapping_layout.addWidget(value_label)
 
         self.value_combo = QComboBox()
@@ -365,14 +378,19 @@ class QtSoundsView(QtBaseView):
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty_font = theme.get_font(size=theme.config.fonts.medium)
             empty_label.setFont(empty_font)
-            empty_label.setStyleSheet(f"color: {theme.config.text.medium}; background: transparent; border: none;")
+            # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
+            empty_palette = empty_label.palette()
+            empty_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.medium))
+            empty_label.setPalette(empty_palette)
+            empty_label.setAutoFillBackground(False)
             self.sounds_list_layout.addWidget(empty_label)
         else:
             for sound_name in sorted(self.sounds_list):
                 # Create item widget
                 item_widget = QWidget()
                 item_widget.setProperty("itemType", "list_item")
-                item_widget.setStyleSheet("background: transparent; border: none; margin: 0px; padding: 0px;")
+                # Use programmatic styling instead of stylesheets to avoid affecting other QWidget instances
+                item_widget.setAutoFillBackground(False)
                 item_layout = QHBoxLayout(item_widget)
                 item_layout.setContentsMargins(
                     0,
@@ -386,9 +404,11 @@ class QtSoundsView(QtBaseView):
                 name_label = QLabel(sound_name)
                 name_font = theme.get_font(size=theme.config.fonts.medium)
                 name_label.setFont(name_font)
-                name_label.setStyleSheet(
-                    f"color: {theme.config.text.medium}; background: transparent; border: none; margin: 0px; padding: 0px;"
-                )
+                # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
+                label_palette = name_label.palette()
+                label_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.medium))
+                name_label.setPalette(label_palette)
+                name_label.setAutoFillBackground(False)
                 item_layout.addWidget(name_label, 1)
 
                 # Map button (pill-shaped)

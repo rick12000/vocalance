@@ -106,17 +106,19 @@ class Button(PrimitiveButton):
     ):
         # Determine colors based on variant
         if variant == "primary":
-            bg_color = theme.config.shapes.accent
-            text_color = theme.config.text.light_blue_accent
+            # Primary: blue_1 background, blue_2 text (handled in paintEvent)
+            bg_color = theme.config.blue.blue_1
+            text_color = theme.config.blue.blue_2
         elif variant == "danger":
-            bg_color = theme.config.shapes.medium
-            text_color = theme.config.text.lightest
+            # Danger: transparent background, blue_1 border, blue_2 text (handled in paintEvent)
+            bg_color = "transparent"
+            text_color = theme.config.blue.blue_2
         elif variant == "ghost":
             bg_color = "transparent"
             text_color = theme.config.text.light
         else:
-            bg_color = theme.config.shapes.accent
-            text_color = theme.config.text.light_blue_accent
+            bg_color = theme.config.blue.blue_1
+            text_color = theme.config.blue.blue_2
 
         # Store variant for later use
         self._variant = variant
@@ -128,10 +130,13 @@ class Button(PrimitiveButton):
             bg_color=bg_color,
             text_color=text_color,
             height=theme.config.components.button_height,
+            is_primary=(variant == "primary"),
+            is_danger=(variant == "danger"),
         )
 
         # Override variant-specific hover colors after initialization
         if variant == "danger":
+            # Danger uses sound wave colors for gradient (handled in paintEvent)
             self._hover_bg_color = theme.config.shapes.light
             self._pressed_bg_color = theme.config.shapes.medium
         elif variant == "ghost":

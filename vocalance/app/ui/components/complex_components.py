@@ -7,7 +7,7 @@ NO STYLESHEETS - built from simple_components and layouts.
 from typing import Optional, Tuple
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPalette, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.layouts import BaseContainer
@@ -184,6 +184,9 @@ class SidebarButton(QWidget):
         self._text_color_hover = theme.config.text.light_blue_accent
         self._text_color_selected = theme.config.text.light_blue_accent
 
+        # Ensure no background fill - we handle all painting in paintEvent
+        self.setAutoFillBackground(False)
+
         # Setup UI
         self._setup_ui(icon_pixmap)
 
@@ -206,6 +209,9 @@ class SidebarButton(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(theme.config.spacing.small)
 
+        # Store border radius for custom painting
+        self._border_radius = theme.config.radius.small  # 8px rounded corners
+
         # Icon label
         if icon_pixmap:
             self.icon_label = Label("")
@@ -222,7 +228,12 @@ class SidebarButton(QWidget):
             self.icon_label = None
 
         # Text label (initially hidden in collapsed state)
+        # Use medium variant with demi-bold weight
         self.text_label = Label(self._text_content, variant="body")
+        # Make it demi-bold by updating the font
+        font = self.text_label.font()
+        font.setWeight(QFont.Weight.DemiBold)
+        self.text_label.setFont(font)
         self.text_label.setVisible(False)
         layout.addWidget(self.text_label, stretch=1)
 
@@ -230,25 +241,11 @@ class SidebarButton(QWidget):
 
     def _update_appearance(self):
         """Update button appearance based on state."""
-        # Determine colors
-        if self._selected:
-            bg_color = self._bg_color_selected
-            text_color = self._text_color_selected
-        elif self._hovered:
-            bg_color = self._bg_color_hover
-            text_color = self._text_color_hover
+        # Determine text color: blue_2 on hover/select, shapes.accent by default
+        if self._hovered or self._selected:
+            text_color = theme.config.blue.blue_2
         else:
-            bg_color = self._bg_color_default
-            text_color = self._text_color_default
-
-        # Apply background
-        if bg_color == "transparent":
-            self.setAutoFillBackground(False)
-        else:
-            palette = self.palette()
-            palette.setColor(QPalette.ColorRole.Window, QColor(bg_color))
-            self.setPalette(palette)
-            self.setAutoFillBackground(True)
+            text_color = theme.config.shapes.accent
 
         # Update text color
         if self.text_label:
@@ -256,7 +253,43 @@ class SidebarButton(QWidget):
             palette.setColor(QPalette.ColorRole.WindowText, QColor(text_color))
             self.text_label.setPalette(palette)
 
+        # Update icon color based on state
+        if self.icon_label and self._default_icon:
+            if self._hovered or self._selected:
+                # Use blue_2 color on hover/select
+                icon_color = theme.config.blue.blue_2
+                self.icon_label.setPixmap(
+                    self._color_pixmap(self._default_icon, icon_color).scaled(
+                        theme.config.sidebar.button_icon_size,
+                        theme.config.sidebar.button_icon_size,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+            else:
+                # Use default icon (shapes.accent color)
+                self.icon_label.setPixmap(
+                    self._default_icon.scaled(
+                        theme.config.sidebar.button_icon_size,
+                        theme.config.sidebar.button_icon_size,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+
         self.update()
+
+    def _color_pixmap(self, pixmap: QPixmap, color: str) -> QPixmap:
+        """Color a pixmap by replacing white pixels with the given color."""
+        result = pixmap.copy()
+
+        # Create a painter to recolor the pixmap
+        painter = QPainter(result)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(result.rect(), QColor(color))
+        painter.end()
+
+        return result
 
     def set_selected(self, selected: bool):
         """Set selection state."""
@@ -286,3 +319,19 @@ class SidebarButton(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        """Custom paint event to draw rounded corners with blue fill on hover/select."""
+        from PySide6.QtGui import QColor, QPainter, QPainterPath
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Only paint background when hovered or selected
+        if self._hovered or self._selected:
+            # Create rounded rectangle path (no border, full size)
+            fill_path = QPainterPath()
+            fill_path.addRoundedRect(0, 0, self.width(), self.height(), self._border_radius, self._border_radius)
+
+            # Fill with blue_1 color
+            painter.fillPath(fill_path, QColor(theme.config.blue.blue_1))
