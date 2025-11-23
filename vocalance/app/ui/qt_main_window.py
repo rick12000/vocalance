@@ -14,11 +14,10 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, 
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.ui.components.atoms import Label
-from vocalance.app.ui.components.containers import BaseContainer, TransparentBox
-
-# New component imports
-from vocalance.app.ui.components.sidebar import ExpandableSidebar, SidebarButton
+from vocalance.app.ui.components.complex_components import SidebarButton
+from vocalance.app.ui.components.layouts import BaseContainer, TransparentBox
+from vocalance.app.ui.components.simple_components import Label
+from vocalance.app.ui.components.specialized import ExpandableSidebar
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
@@ -81,8 +80,13 @@ class VocalanceMainWindow(QMainWindow):
             theme.config.components.main_window_min_height,
         )
 
-        # Set window background color to match theme
-        self.setStyleSheet(f"QMainWindow {{ background-color: {theme.config.shapes.darkest}; }}")
+        # Set window background color programmatically
+        palette = self.palette()
+        from PySide6.QtGui import QColor, QPalette
+
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
 
         # Set window icon if available
         icon_path = self.asset_cache.get_icon_path()
@@ -148,10 +152,13 @@ class VocalanceMainWindow(QMainWindow):
         )
         right_wrapper_layout.setSpacing(0)
 
-        # Create bordered content frame that wraps header + content
-        # Using BaseContainer with custom frameType/variant
-        self.content_border_frame = BaseContainer(variant="default")  # default
-        self.content_border_frame.setProperty("frameType", "content_border")
+        # Create bordered content frame that wraps header + content (transparent border)
+        self.content_border_frame = BaseContainer(
+            layout="vertical",
+            bg_color=theme.config.shapes.darkest,
+            border_color=None,  # Transparent border
+            border_radius=0,
+        )
 
         content_frame_layout = self.content_border_frame.layout()  # It has a layout from BaseContainer
         content_frame_layout.setContentsMargins(
@@ -160,7 +167,8 @@ class VocalanceMainWindow(QMainWindow):
             theme.config.container.box_padding,
             theme.config.container.box_padding,
         )
-        content_frame_layout.setSpacing(0)
+        # Consistent spacing between header and content
+        content_frame_layout.setSpacing(theme.config.spacing.large)
 
         # Create header with proper padding
         self._create_header()
@@ -263,31 +271,34 @@ class VocalanceMainWindow(QMainWindow):
             logo_type="icon",
         )
         self.sidebar_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.sidebar_logo.setStyleSheet("background: transparent; border: none;")
+        self.sidebar_logo.setAutoFillBackground(False)
         logo_layout.addWidget(self.sidebar_logo)
 
         self.sidebar_logo_frame = logo_frame
 
     def _create_sidebar_separator(self) -> None:
-        """Create separator line between sidebar and content."""
+        """Create separator line between sidebar and content - transparent."""
         self.sidebar_separator = QFrame()
-        self.sidebar_separator.setFrameShape(QFrame.Shape.VLine)
-        self.sidebar_separator.setFrameShadow(QFrame.Shadow.Plain)
+        self.sidebar_separator.setFrameShape(QFrame.Shape.NoFrame)
         self.sidebar_separator.setFixedWidth(theme.config.sidebar.border_width)
-        self.sidebar_separator.setStyleSheet("background-color: transparent; border: none;")
+        self.sidebar_separator.setAutoFillBackground(False)
 
     def _create_header(self) -> None:
         """Create the header section."""
         # Outer wrapper
         self.header_frame = QWidget()
-        self.header_frame.setStyleSheet("background: transparent; border: none;")
+        self.header_frame.setAutoFillBackground(False)
         outer_layout = QVBoxLayout(self.header_frame)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        # Inner header frame - using BaseContainer with custom type
-        header_inner = BaseContainer(variant="default")
-        header_inner.setProperty("frameType", "header")
+        # Inner header frame
+        header_inner = BaseContainer(
+            layout="vertical",
+            bg_color=theme.config.shapes.darkest,
+            border_color=None,
+            border_radius=0,
+        )
         header_inner.setFixedHeight(theme.config.header.height)
 
         header_layout = header_inner.layout()
@@ -295,7 +306,7 @@ class VocalanceMainWindow(QMainWindow):
             theme.config.header.content_padding_left,
             theme.config.header.title_y_offset,
             theme.config.header.content_padding_right,
-            theme.config.spacing.large,
+            theme.config.spacing.none,
         )
         header_layout.setSpacing(theme.config.spacing.small)
 
@@ -416,8 +427,12 @@ class VocalanceMainWindow(QMainWindow):
         except Exception as e:
             self.logger.error(f"Error creating view for {tab_name}: {e}", exc_info=True)
 
-        # Fallback
-        placeholder = QWidget()
+        # Fallback - create a widget with dummy set_controller method
+        class FallbackView(QWidget):
+            def set_controller(self, controller):
+                pass  # Dummy method to prevent AttributeError
+
+        placeholder = FallbackView()
         layout = QVBoxLayout(placeholder)
         label = Label(f"{tab_name} View\n(Fallback - check logs for errors)", variant="large")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)

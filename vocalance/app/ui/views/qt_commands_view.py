@@ -3,17 +3,17 @@
 Displays commands grouped by category with edit/delete capabilities.
 """
 
-import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.config.command_types import AutomationCommand
-from vocalance.app.ui.components.atoms import Button, Input, Label
-from vocalance.app.ui.components.complex import GroupHeader, ListItem, TwoColumnLayout
-from vocalance.app.ui.components.containers import Box, ScrollableContainer
+from vocalance.app.ui.components.complex_components import GroupHeader, ListItem
+from vocalance.app.ui.components.layouts import Box, ScrollableContainer, TwoColumnLayout
+from vocalance.app.ui.components.simple_components import Button, Input, Label
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.ui.views.qt_base_view import QtBaseView
 
 
 class CommandEditDialog(QDialog):
@@ -138,7 +138,7 @@ class CommandEditDialog(QDialog):
         return self.result_action, self.new_phrase_value
 
 
-class QtCommandsView(QWidget):
+class QtCommandsView(QtBaseView):
     """Qt-based commands management view - FULLY INTEGRATED.
 
     Features:
@@ -156,8 +156,6 @@ class QtCommandsView(QWidget):
         """Initialize commands view."""
         super().__init__(parent)
 
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.controller = None
         self.commands_list: List[AutomationCommand] = []
 
         self._setup_ui()
@@ -180,14 +178,10 @@ class QtCommandsView(QWidget):
         self.controller.on_view_ready()
 
     def _setup_ui(self) -> None:
-        """Build UI with TwoColumnTabLayout."""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
+        """Build UI with TwoColumnLayout."""
         # Create two-column layout with titles
         self.layout = TwoColumnLayout("Add Command", "Manage Commands", self)
-        main_layout.addWidget(self.layout)
+        self.main_layout.addWidget(self.layout, stretch=1)
 
         # Setup panels
         self._setup_add_command_form()
@@ -222,7 +216,7 @@ class QtCommandsView(QWidget):
 
         # Commands list widget with systematic spacing
         self.commands_list_widget = QWidget()
-        self.commands_list_widget.setStyleSheet("background: transparent; border: none;")
+        self.commands_list_widget.setAutoFillBackground(False)
         self.commands_list_layout = QVBoxLayout(self.commands_list_widget)
         self.commands_list_layout.setSpacing(theme.config.container.list_item_spacing)
         self.commands_list_layout.setContentsMargins(0, 0, 0, 0)
@@ -289,7 +283,7 @@ class QtCommandsView(QWidget):
 
         if not commands:
             # Show empty message
-            empty_label = Label("No commands available.", variant="body", color="text.medium", align="center")
+            empty_label = Label("No commands available.", variant="body", color=theme.config.text.medium, align="center")
             self.commands_list_layout.addWidget(empty_label)
         else:
             grouped_commands = self._group_commands(commands)
@@ -337,7 +331,7 @@ class QtCommandsView(QWidget):
         item = ListItem()
 
         # Command phrase label
-        phrase_label = Label(command.command_key, variant="body", color="text.medium")
+        phrase_label = Label(command.command_key, variant="body", color=theme.config.text.lightest)
         item.add(phrase_label, stretch=1)
 
         # Change button

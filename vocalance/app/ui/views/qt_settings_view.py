@@ -8,9 +8,9 @@ from typing import Any, Dict, Optional
 
 from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.atoms import Button, Checkbox, Input, Label
-from vocalance.app.ui.components.containers import Box, ScrollableContainer
-from vocalance.app.ui.components.forms import FormGroup
+from vocalance.app.ui.components.complex_components import FormGroup
+from vocalance.app.ui.components.layouts import Box, ScrollableContainer
+from vocalance.app.ui.components.simple_components import Button, Checkbox, Input, Label
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -67,7 +67,7 @@ class QtSettingsView(QWidget):
         self.left_box = Box(layout="vertical")
 
         # Title
-        self.left_box.add(Label(text="Settings Actions", variant="title"))
+        self.left_box.add(Label(text="Settings Actions", variant="box_title"))
 
         # Reset to defaults button
         self.reset_btn = Button(text="Reset to Defaults", variant="danger", command=self._on_reset_clicked)
@@ -83,7 +83,7 @@ class QtSettingsView(QWidget):
         self.right_box = Box(layout="vertical")
 
         # Title
-        self.right_box.add(Label(text="Settings", variant="title"))
+        self.right_box.add(Label(text="Settings", variant="box_title"))
 
         # Scrollable settings area
         self.scroll_container = ScrollableContainer()

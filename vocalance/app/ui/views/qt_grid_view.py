@@ -91,23 +91,11 @@ class QtGridView(QWidget):
         # Subscribe to click events
         self.event_bus.subscribe(PerformMouseClickEventData, self._handle_click_logged_for_cache)
 
-        # Get screen dimensions
-        screen = self.screen()
-        if screen:
-            screen_geometry = screen.geometry()
-            self.screen_width = screen_geometry.width()
-            self.screen_height = screen_geometry.height()
-        else:
-            primary = QApplication.primaryScreen()
-            if primary:
-                screen_geometry = primary.geometry()
-                self.screen_width = screen_geometry.width()
-                self.screen_height = screen_geometry.height()
-            else:
-                self.screen_width = 1920
-                self.screen_height = 1080
+        # Screen dimensions will be set dynamically when grid is shown
+        self.screen_width = 1920
+        self.screen_height = 1080
 
-        self.logger.info(f"QtGridView initialized. Screen: {self.screen_width}x{self.screen_height}")
+        self.logger.info("QtGridView initialized")
 
     def set_controller_callback(self, callback) -> None:
         """Set the controller callback."""
@@ -248,20 +236,29 @@ class QtGridView(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # Get device pixel ratio for converting physical to logical pixels
+        primary = QApplication.primaryScreen()
+        device_pixel_ratio = primary.devicePixelRatio() if primary else 1.0
+
         for ui_number, rect_data in rect_map.items():
-            x0, y0 = rect_data["x"], rect_data["y"]
-            x1, y1 = x0 + rect_data["w"], y0 + rect_data["h"]
+            # rect_data contains physical pixels, convert to logical for painting
+            x0 = rect_data["x"] / device_pixel_ratio
+            y0 = rect_data["y"] / device_pixel_ratio
+            w = rect_data["w"] / device_pixel_ratio
+            h = rect_data["h"] / device_pixel_ratio
+            center_x = rect_data["center_x"] / device_pixel_ratio
+            center_y = rect_data["center_y"] / device_pixel_ratio
 
             # Draw rectangle
             painter.setPen(QPen(self.outline_color, 2))
             if self.fill_color.alpha() > 0:
                 painter.setBrush(self.fill_color)
-            painter.drawRect(QRect(int(x0), int(y0), int(x1 - x0), int(y1 - y0)))
+            painter.drawRect(QRect(int(x0), int(y0), int(w), int(h)))
 
             # Draw number
             painter.setPen(QPen(self.text_color))
             painter.setFont(self.font)
-            painter.drawText(int(rect_data["center_x"]), int(rect_data["center_y"]), str(ui_number))
+            painter.drawText(int(center_x), int(center_y), str(ui_number))
 
         self.logger.debug(f"Drew {len(rect_map)} grid cells")
 
@@ -312,7 +309,33 @@ class QtGridView(QWidget):
 
             self._current_click_mode = click_mode
 
-            # Calculate grid layout
+            # Get PRIMARY screen for physical pixel calculations
+            primary = QApplication.primaryScreen()
+            if primary:
+                geometry = primary.geometry()
+                device_pixel_ratio = primary.devicePixelRatio()
+
+                # Calculate PHYSICAL pixels (what pyautogui uses)
+                # Qt geometry() returns logical pixels, multiply by DPR for physical
+                self.screen_width = int(geometry.width() * device_pixel_ratio)
+                self.screen_height = int(geometry.height() * device_pixel_ratio)
+
+                self.logger.info(
+                    f"Screen - Logical: {geometry.width()}x{geometry.height()}, "
+                    f"DPR: {device_pixel_ratio}, "
+                    f"Physical: {self.screen_width}x{self.screen_height}"
+                )
+
+                # Set window geometry using logical pixels (Qt expects logical)
+                self.setGeometry(geometry)
+            else:
+                # Fallback geometry
+                self.logger.warning("No primary screen found, using fallback geometry")
+                self.screen_width = 1920
+                self.screen_height = 1080
+                self.setGeometry(0, 0, 1920, 1080)
+
+            # Calculate grid layout using PHYSICAL pixels
             rect_definitions, cell_w, cell_h = self._calculate_grid_layout(num_rects)
 
             if not rect_definitions:
@@ -331,20 +354,6 @@ class QtGridView(QWidget):
                 for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
                     self.ui_to_rect_data_map[ui_number] = weighted_rect_info["data"]
                 self.current_num_rects_displayed = len(weighted_rects)
-
-            # Get PRIMARY screen geometry only (for mirrored/extended displays)
-            # Following legacy Tkinter approach: fullscreen on primary monitor
-            primary = QApplication.primaryScreen()
-            if primary:
-                geometry = primary.geometry()
-                self.logger.info(
-                    f"Primary screen geometry: x={geometry.x()}, y={geometry.y()}, w={geometry.width()}, h={geometry.height()}"
-                )
-                self.setGeometry(geometry)
-            else:
-                # Fallback geometry
-                self.logger.warning("No primary screen found, using fallback geometry")
-                self.setGeometry(0, 0, 1920, 1080)
 
             # Show window
             super().show()
@@ -417,6 +426,7 @@ class QtGridView(QWidget):
 
             rect_data = self.ui_to_rect_data_map[selected_number]
 
+        # Coordinates are already in physical pixels (matching pyautogui)
         center_x = rect_data["center_x"]
         center_y = rect_data["center_y"]
 
@@ -426,7 +436,7 @@ class QtGridView(QWidget):
             elif click_mode == "hover":
                 pyautogui.moveTo(center_x, center_y)
 
-            self.logger.info(f"Grid cell {selected_number} selected at ({center_x}, {center_y})")
+            self.logger.info(f"Grid cell {selected_number} selected at physical coords ({center_x}, {center_y})")
 
             if self.controller_callback:
                 self.controller_callback.on_grid_selection_success(selected_number, center_x, center_y)

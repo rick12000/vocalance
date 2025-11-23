@@ -3,16 +3,15 @@
 Displays trained sounds and allows training new sounds with command mapping using TwoColumnTabLayout.
 """
 
-import logging
 from typing import List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QScrollArea, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.atoms import Button, Input, Label
-from vocalance.app.ui.components.complex import TwoColumnLayout
-from vocalance.app.ui.components.containers import BaseContainer
+from vocalance.app.ui.components.layouts import BaseContainer, TwoColumnLayout
+from vocalance.app.ui.components.simple_components import Button, Input, Label
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.ui.views.qt_base_view import QtBaseView
 
 
 class SoundMappingDialog(QDialog):
@@ -154,8 +153,8 @@ class SoundMappingDialog(QDialog):
             self.accept()
 
 
-class QtSoundsView(QWidget):
-    """Qt-based sounds training view using TwoColumnTabLayout.
+class QtSoundsView(QtBaseView):
+    """Qt-based sounds training view using TwoColumnLayout.
 
     Features:
     - Training form with name input and samples spinner
@@ -171,8 +170,6 @@ class QtSoundsView(QWidget):
         """Initialize sounds view."""
         super().__init__(parent)
 
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.controller = None
         self.sounds_list: List[str] = []
         self.current_training_sound = None
 
@@ -198,14 +195,10 @@ class QtSoundsView(QWidget):
         self.controller.on_view_ready()
 
     def _setup_ui(self) -> None:
-        """Build UI with TwoColumnTabLayout."""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
+        """Build UI with TwoColumnLayout."""
         # Create two-column layout with titles
         self.layout = TwoColumnLayout("Train Sound", "Trained Sounds", self)
-        main_layout.addWidget(self.layout)
+        self.main_layout.addWidget(self.layout, stretch=1)
 
         # Setup panels
         self._setup_training_form()

@@ -28,7 +28,7 @@ class FontSizes:
     small: int = 13
     medium: int = 15
     large: int = 17
-    xlarge: int = 22
+    xlarge: int = 26
     xxlarge: int = 32
 
 
@@ -62,14 +62,6 @@ class ShapeColors:
     dark: str = "#2a2a2a"
     darkest: str = "#1c1c1c"
     transparent: str = "transparent"
-
-
-@dataclass
-class GradientColors:
-    """Gradient color design tokens."""
-
-    blue_rose_start: str = "#4a90e2"
-    blue_rose_end: str = "#a0657f"
 
 
 @dataclass
@@ -126,7 +118,7 @@ class ContainerLayout:
     group_header_first_margin_top: int = 0  # No top margin for first group
 
     # Section dividers
-    divider_margin_bottom: int = 0  # Space after divider before content
+    divider_margin_bottom: int = 4  # Space after divider before content
 
 
 @dataclass
@@ -222,7 +214,6 @@ class ThemeConfig:
     fonts: FontSizes = field(default_factory=FontSizes)
     text: TextColors = field(default_factory=TextColors)
     shapes: ShapeColors = field(default_factory=ShapeColors)
-    gradients: GradientColors = field(default_factory=GradientColors)
     spacing: Spacing = field(default_factory=Spacing)
     radius: BorderRadius = field(default_factory=BorderRadius)
     container: ContainerLayout = field(default_factory=ContainerLayout)
@@ -231,7 +222,7 @@ class ThemeConfig:
     header: HeaderLayout = field(default_factory=HeaderLayout)
     icon_properties: IconProperties = field(default_factory=IconProperties)
 
-    font_family_primary: str = "DM Sans"
+    font_family_primary: str = "DMSans"
     font_family_secondary: str = "Segoe UI"
     font_family_monospace: str = "Consolas"
 
@@ -249,7 +240,7 @@ class ThemeManager:
         if not path.exists():
             return
 
-        for font_file in path.glob("*.ttf"):
+        for font_file in path.glob("**/*.ttf"):
             font_id = QFontDatabase.addApplicationFont(str(font_file))
             if font_id != -1:
                 families = QFontDatabase.applicationFontFamilies(font_id)
@@ -278,7 +269,7 @@ class ThemeManager:
         elif weight == "semibold":
             font.setWeight(QFont.Weight.DemiBold)
         elif weight == "light":
-            font.setWeight(QFont.Weight.Light)
+            font.setWeight(QFont.Weight.Medium)
 
         if italic:
             font.setItalic(True)
@@ -305,6 +296,71 @@ class ThemeManager:
                 cat_obj = getattr(self.config, category)
                 return getattr(cat_obj, name, "#FF00FF")
         return "#FF00FF"
+
+    def get_palette(self, bg_color: str, text_color: str):
+        """Create a QPalette with specified colors.
+
+        Args:
+            bg_color: Background color hex
+            text_color: Text/foreground color hex
+
+        Returns:
+            Configured QPalette
+        """
+        from PySide6.QtGui import QColor, QPalette
+
+        palette = QPalette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(bg_color))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(text_color))
+        palette.setColor(QPalette.ColorRole.Base, QColor(bg_color))
+        palette.setColor(QPalette.ColorRole.Text, QColor(text_color))
+        palette.setColor(QPalette.ColorRole.Button, QColor(bg_color))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(text_color))
+        return palette
+
+    def apply_colors_to_widget(self, widget, bg_color: str, text_color: str = None):
+        """Apply colors to a widget programmatically.
+
+        Args:
+            widget: QWidget to style
+            bg_color: Background color hex
+            text_color: Optional text color hex
+        """
+        from PySide6.QtGui import QColor, QPalette
+
+        palette = widget.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(bg_color))
+        palette.setColor(QPalette.ColorRole.Base, QColor(bg_color))
+
+        if text_color:
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(text_color))
+            palette.setColor(QPalette.ColorRole.Text, QColor(text_color))
+
+        widget.setPalette(palette)
+        widget.setAutoFillBackground(True)
+
+    def apply_frame_style(self, frame, border_color: str, bg_color: str, border_radius: int):
+        """Apply frame styling programmatically.
+
+        Args:
+            frame: QFrame to style
+            border_color: Border color hex
+            bg_color: Background color hex
+            border_radius: Border radius in pixels
+        """
+        from PySide6.QtGui import QColor, QPalette
+        from PySide6.QtWidgets import QFrame
+
+        # Set colors
+        palette = frame.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(bg_color))
+        frame.setPalette(palette)
+        frame.setAutoFillBackground(True)
+
+        # Store border info for custom painting if needed
+        frame._theme_border_color = border_color
+        frame._theme_border_radius = border_radius
+        frame.setFrameShape(QFrame.Shape.NoFrame)
 
 
 # Singleton instance

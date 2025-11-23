@@ -3,19 +3,19 @@
 Displays marks with management capabilities matching legacy layout using TwoColumnLayout.
 """
 
-import logging
 from typing import List, Optional
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from vocalance.app.events.mark_events import MarkData
-from vocalance.app.ui.components.atoms import Button, Label
-from vocalance.app.ui.components.complex import Tile, TwoColumnLayout
-from vocalance.app.ui.components.containers import ScrollableContainer, TransparentBox
+from vocalance.app.ui.components.complex_components import Tile
+from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentBox, TwoColumnLayout
+from vocalance.app.ui.components.simple_components import Button, Label
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.ui.views.qt_base_view import QtBaseView
 
 
-class QtMarksView(QWidget):
+class QtMarksView(QtBaseView):
     """Qt-based marks management view.
 
     Features:
@@ -30,8 +30,6 @@ class QtMarksView(QWidget):
         """Initialize marks view."""
         super().__init__(parent)
 
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.controller = None
         self.marks_list: List[MarkData] = []
 
         self._setup_ui()
@@ -54,15 +52,9 @@ class QtMarksView(QWidget):
 
     def _setup_ui(self) -> None:
         """Build UI with TwoColumnLayout."""
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(
-            theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large
-        )
-        main_layout.setSpacing(theme.config.spacing.large)
-
         # Create two-column layout with titles
         self.layout = TwoColumnLayout("Instructions", "Manage Marks")
-        main_layout.addWidget(self.layout)
+        self.main_layout.addWidget(self.layout, stretch=1)
 
         # Setup instruction panels
         self._setup_instructions_panel()
@@ -136,7 +128,7 @@ class QtMarksView(QWidget):
         row = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
 
         # Mark label
-        label = Label(f"{mark.name}", variant="body", color="text.medium")
+        label = Label(f"{mark.name}", variant="body", color=theme.config.text.lightest)
         row.add(label, stretch=1)
 
         # Delete button

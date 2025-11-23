@@ -87,8 +87,13 @@ class StartupWindow(QDialog):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
-        # Apply theme colors
-        self.setStyleSheet(f"background-color: {theme.config.shapes.darkest};")
+        # Apply theme colors programmatically
+        palette = self.palette()
+        from PySide6.QtGui import QColor, QPalette
+
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -127,14 +132,20 @@ class StartupWindow(QDialog):
         self.text_label = QLabel("Starting up", self)
         font = theme.get_font(size=theme.config.fonts.small)
         self.text_label.setFont(font)
-        self.text_label.setStyleSheet(f"color: {theme.config.shapes.light};")
+        palette = self.text_label.palette()
+        from PySide6.QtGui import QColor, QPalette
+
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.shapes.light))
+        self.text_label.setPalette(palette)
         status_layout.addWidget(self.text_label)
 
         # Spinner
         self.spinner_label = QLabel("\\", self)
         spinner_font = theme.get_monospace_font(size=theme.config.fonts.small)
         self.spinner_label.setFont(spinner_font)
-        self.spinner_label.setStyleSheet(f"color: {theme.config.shapes.light};")
+        spinner_palette = self.spinner_label.palette()
+        spinner_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.shapes.light))
+        self.spinner_label.setPalette(spinner_palette)
         self.spinner_label.setFixedWidth(theme.config.components.startup_spinner_width)
         status_layout.addWidget(self.spinner_label)
 

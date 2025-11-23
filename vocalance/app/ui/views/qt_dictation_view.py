@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.atoms import Button, Input, Label
-from vocalance.app.ui.components.complex import TwoColumnLayout
+from vocalance.app.ui.components.layouts import TwoColumnLayout
+from vocalance.app.ui.components.simple_components import Button, Input, Label
 from vocalance.app.ui.qt_theme import theme
 
 

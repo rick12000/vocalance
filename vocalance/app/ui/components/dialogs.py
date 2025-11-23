@@ -6,11 +6,10 @@ Provides dialog functions for user interactions with consistent theming.
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
+from vocalance.app.ui.components.simple_components import Button, Label
 from vocalance.app.ui.qt_theme import theme
-
-from .atoms import Button
 
 
 def _center_on_parent(dialog: QDialog, parent: Optional[QWidget] = None) -> None:
@@ -65,13 +64,9 @@ def _create_dialog_base(
     main_layout.setSpacing(theme.config.container.box_spacing_between)
 
     # Message label
-    message_label = QLabel(message)
+    message_label = Label(message, variant="body", align="center")
     message_label.setWordWrap(True)
     message_label.setMaximumWidth(theme.config.components.dialog_message_max_width)
-    font = theme.get_font(size="medium")
-    message_label.setFont(font)
-    message_label.setStyleSheet(f"color: {theme.config.text.light};")
-    message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     main_layout.addWidget(message_label)
 
     # Button container

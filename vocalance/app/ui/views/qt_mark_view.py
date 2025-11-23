@@ -238,19 +238,28 @@ class QtMarkView(QWidget):
         self.logger.info(f"paintEvent: Drawing {len(self.marks)} marks")
         self.logger.info(f"  self.marks content: {self.marks}")
 
-        # Get overlay position to offset coordinates
+        # Get device pixel ratio for DPI scaling conversion
+        primary = QApplication.primaryScreen()
+        device_pixel_ratio = primary.devicePixelRatio() if primary else 1.0
+
+        # Get overlay position to offset coordinates (in logical pixels)
         overlay_geometry = self.geometry()
         overlay_x = overlay_geometry.x()
         overlay_y = overlay_geometry.y()
-        self.logger.info(f"  Overlay position: ({overlay_x}, {overlay_y}), size: ({self.width()}, {self.height()})")
+        self.logger.info(f"  Overlay position (logical): ({overlay_x}, {overlay_y}), size: ({self.width()}, {self.height()})")
+        self.logger.info(f"  Device pixel ratio: {device_pixel_ratio}")
 
         # Draw each mark - following legacy approach: draw ALL marks at their absolute coordinates
-        # Do NOT filter by bounds - Tkinter didn't, so we shouldn't either
+        # Mark coordinates are in PHYSICAL pixels (from pyautogui), convert to LOGICAL pixels for Qt painting
         for label, (x, y) in self.marks.items():
             try:
-                # Convert absolute screen coordinates to overlay-relative coordinates
-                relative_x = x - overlay_x
-                relative_y = y - overlay_y
+                # Convert physical pixels to logical pixels
+                logical_x = x / device_pixel_ratio
+                logical_y = y / device_pixel_ratio
+
+                # Convert absolute logical screen coordinates to overlay-relative logical coordinates
+                relative_x = logical_x - overlay_x
+                relative_y = logical_y - overlay_y
 
                 # Draw mark circle
                 radius = 5
@@ -263,7 +272,9 @@ class QtMarkView(QWidget):
                 painter.setFont(self.font)
                 painter.drawText(int(relative_x) + 10, int(relative_y) - 10, label)
 
-                self.logger.info(f"  Drew mark '{label}': absolute=({x}, {y}) -> relative=({relative_x}, {relative_y})")
+                self.logger.info(
+                    f"  Drew mark '{label}': physical=({x}, {y}) -> logical=({logical_x:.1f}, {logical_y:.1f}) -> relative=({relative_x:.1f}, {relative_y:.1f})"
+                )
             except Exception as e:
                 self.logger.error(f"  Error drawing mark '{label}': {e}", exc_info=True)
 
