@@ -25,11 +25,11 @@ from PySide6.QtGui import QFont, QFontDatabase
 class FontSizes:
     """Font size design tokens."""
 
-    small: int = 13
-    medium: int = 15
-    large: int = 17
-    xlarge: int = 26
-    xxlarge: int = 32
+    small: int = 11
+    medium: int = 12
+    large: int = 15
+    xlarge: int = 24
+    xxlarge: int = 30
 
 
 @dataclass
@@ -48,6 +48,11 @@ class TextColors:
     info: str = "#17a2b8"
     streaming_token: str = "#c79b9b"
     light_blue_accent: str = "#2b3054"
+
+    # Dictation sound wave gradient colors
+    sound_wave_left: str = "#ff6b6b"  # Coral red
+    sound_wave_center: str = "#feca57"  # Golden yellow
+    sound_wave_right: str = "#54a0ff"  # Sky blue
 
 
 @dataclass
@@ -195,7 +200,8 @@ class HeaderLayout:
     content_padding_right: int = 30
     height: int = 100
     title_offset_y: int = 10
-    title_y_offset: int = 10
+    title_y_offset: int = 0
+    spacing: int = 4  # Reduced spacing between title and subtitle
 
 
 @dataclass

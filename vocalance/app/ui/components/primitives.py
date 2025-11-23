@@ -58,8 +58,8 @@ class PrimitiveButton(QPushButton):
         # Set cursor
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Set font
-        self.setFont(theme.get_font("medium", "semibold"))
+        # Set font - smaller for button text
+        self.setFont(theme.get_font("small", "semibold"))
 
         # Set height
         if height is None:
@@ -154,100 +154,44 @@ class PrimitiveButton(QPushButton):
 
 
 class PrimitiveInput(QLineEdit):
-    """Base input with programmatic styling."""
+    """Base input with pure programmatic styling.
+
+    Uses QPalette and direct property setters only - NO STYLESHEETS.
+    Follows the design principle that Primitives use programmatic styling only.
+    """
 
     def __init__(self, placeholder: str = "", parent: Optional[QWidget] = None):
         super().__init__(parent)
 
         self.setPlaceholderText(placeholder)
+
+        # Set font FIRST before any other styling
         self.setFont(theme.get_font("medium"))
 
         # Set minimum height
         self.setMinimumHeight(theme.config.components.input_height)
 
-        # Set margins
+        # Set padding via text margins
         margins = self.textMargins()
         margins.setLeft(theme.config.components.input_padding_horizontal)
         margins.setRight(theme.config.components.input_padding_horizontal)
+        margins.setTop(theme.config.components.input_padding_vertical)
+        margins.setBottom(theme.config.components.input_padding_vertical)
         self.setTextMargins(margins)
 
-        # Store colors for state changes
-        self._bg_color = theme.config.shapes.darkest
-        self._text_color = theme.config.text.light
-        self._border_color = theme.config.shapes.light
-        self._focus_border_color = theme.config.shapes.accent
-        self._focus_text_color = theme.config.text.lightest
-        self._disabled_bg_color = theme.config.shapes.dark
-        self._disabled_text_color = theme.config.shapes.light
-        self._disabled_border_color = theme.config.shapes.medium
+        # Apply colors via palette
+        self._update_palette()
 
-        # Store border radius
-        self._border_radius = theme.config.radius.small
-
-        # Apply initial styling
-        self._update_colors()
-
-    def _update_colors(self):
-        """Update input colors based on state."""
+    def _update_palette(self):
+        """Update colors using QPalette - programmatic only."""
         palette = self.palette()
 
-        if not self.isEnabled():
-            bg_color = self._disabled_bg_color
-            text_color = self._disabled_text_color
-            border_color = self._disabled_border_color
-        elif self.hasFocus():
-            bg_color = self._bg_color
-            text_color = self._focus_text_color
-            border_color = self._focus_border_color
-        else:
-            bg_color = self._bg_color
-            text_color = self._text_color
-            border_color = self._border_color
-
-        palette.setColor(QPalette.ColorRole.Base, QColor(bg_color))
-        palette.setColor(QPalette.ColorRole.Text, QColor(text_color))
+        palette.setColor(QPalette.ColorRole.Base, QColor(theme.config.shapes.darkest))
+        palette.setColor(QPalette.ColorRole.Text, QColor(theme.config.text.light))
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(theme.config.text.medium))
 
         self.setPalette(palette)
         self.setAutoFillBackground(True)
-
-        # Store border color for paint event
-        self._current_border_color = border_color
-        self.update()
-
-    def focusInEvent(self, event):
-        """Handle focus in."""
-        self._update_colors()
-        super().focusInEvent(event)
-
-    def focusOutEvent(self, event):
-        """Handle focus out."""
-        self._update_colors()
-        super().focusOutEvent(event)
-
-    def changeEvent(self, event):
-        """Handle state changes."""
-        if event.type() == event.Type.EnabledChange:
-            self._update_colors()
-        super().changeEvent(event)
-
-    def paintEvent(self, event):
-        """Custom paint for border and rounded corners."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Draw background with rounded corners
-        bg_color = self.palette().color(QPalette.ColorRole.Base)
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, self.width(), self.height(), self._border_radius, self._border_radius)
-        painter.fillPath(path, bg_color)
-
-        # Draw border
-        painter.setPen(QColor(self._current_border_color))
-        painter.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, self._border_radius, self._border_radius)
-
-        # Let QLineEdit draw the text
-        painter.end()
-        super().paintEvent(event)
 
 
 class PrimitiveCheckbox(QCheckBox):

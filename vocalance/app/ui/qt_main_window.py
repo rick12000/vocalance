@@ -308,7 +308,7 @@ class VocalanceMainWindow(QMainWindow):
             theme.config.header.content_padding_right,
             theme.config.spacing.none,
         )
-        header_layout.setSpacing(theme.config.spacing.small)
+        header_layout.setSpacing(theme.config.header.spacing)
 
         # Title
         self.header_label = Label(text="Welcome to Vocalance!", variant="title")
@@ -337,7 +337,7 @@ class VocalanceMainWindow(QMainWindow):
     def _set_header_subtitle(self, text: str) -> None:
         """Set or update the header subtitle."""
         if not self.header_subtitle:
-            self.header_subtitle = Label(text=text, variant="subtitle")
+            self.header_subtitle = Label(text=text, variant="body")
             # Insert after title (index 1)
             self.header_inner.layout().insertWidget(1, self.header_subtitle, alignment=Qt.AlignmentFlag.AlignLeft)
         else:

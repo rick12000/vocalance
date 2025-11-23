@@ -78,10 +78,10 @@ class Tile(BaseContainer):
         self._layout.setSpacing(theme.config.spacing.small)
 
         # Title
-        title_label = Label(title, variant="subtitle", align="center")
+        title_label = Label(title, variant="group_header", align="center")
         self.add(title_label)
 
-        # Content
+        # Content - use consistent small font
         content_label = Label(content, variant="small", align="center")
         content_label.setWordWrap(True)
         self.add(content_label)

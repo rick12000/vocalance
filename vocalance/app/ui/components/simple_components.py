@@ -46,7 +46,7 @@ class Label(PrimitiveLabel):
         elif variant == "body":
             font_size = theme.config.fonts.medium
             font_weight = "regular"
-            default_color = theme.config.text.lightest
+            default_color = theme.config.text.light
         elif variant == "small":
             font_size = theme.config.fonts.small
             font_weight = "regular"
@@ -54,7 +54,7 @@ class Label(PrimitiveLabel):
         elif variant == "group_header":
             font_size = theme.config.fonts.medium
             font_weight = "semibold"
-            default_color = theme.config.text.medium
+            default_color = theme.config.text.light
         elif variant == "box_title":
             font_size = theme.config.fonts.large
             font_weight = "semibold"
@@ -62,11 +62,9 @@ class Label(PrimitiveLabel):
         elif variant == "large":
             font_size = theme.config.fonts.large
             font_weight = "regular"
-            default_color = theme.config.text.lightest
+            default_color = theme.config.text.light
         else:
-            font_size = theme.config.fonts.medium
-            font_weight = "regular"
-            default_color = theme.config.text.lightest
+            raise ValueError(f"Invalid variant: {variant}")
 
         # Use provided color or default
         final_color = color if color else default_color
@@ -186,3 +184,48 @@ class Checkbox(PrimitiveCheckbox):
 
         if command:
             self.stateChanged.connect(command)
+
+
+class InputBox(QWidget):
+    """Container that wraps an input field with a border.
+
+    Provides a bordered container specifically for input fields to give them
+    visual definition without using QLineEdit's problematic native border styling.
+    This keeps the design system clean by using Box containers consistently.
+    """
+
+    def __init__(self, input_widget: QWidget, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+        # Import here to avoid circular imports
+        from vocalance.app.ui.components.layouts import BaseContainer
+
+        # Transparent background for this wrapper
+        self.setAutoFillBackground(False)
+
+        # Create layout
+        from PySide6.QtWidgets import QHBoxLayout
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Create the bordered container
+        self._border_frame = BaseContainer(
+            parent=self,
+            layout="horizontal",
+            bg_color=theme.config.shapes.darkest,
+            border_color=theme.config.shapes.medium,
+            border_radius=theme.config.radius.small,
+        )
+
+        # Minimal padding around input
+        padding = 1
+        self._border_frame.layout().setContentsMargins(padding, padding, padding, padding)
+        self._border_frame.layout().setSpacing(0)
+
+        # Add input widget to bordered container
+        self._border_frame.add(input_widget)
+
+        # Add bordered container to wrapper layout
+        layout.addWidget(self._border_frame)

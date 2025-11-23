@@ -192,13 +192,13 @@ class QtCommandsView(QtBaseView):
         content = self.layout.left_content
 
         # Command phrase input
-        command_phrase_label = Label("Command Phrase:", variant="body")
+        command_phrase_label = Label("Command Phrase:", variant="small")
         content.add(command_phrase_label)
         self.command_phrase_entry = Input(placeholder="Enter command phrase...")
         content.add(self.command_phrase_entry)
 
         # Hotkey input
-        hotkey_label = Label("Hotkey:", variant="body")
+        hotkey_label = Label("Hotkey:", variant="small")
         content.add(hotkey_label)
         self.hotkey_entry = Input(placeholder="e.g. ctrl+alt+7")
         content.add(self.hotkey_entry)
@@ -330,8 +330,8 @@ class QtCommandsView(QtBaseView):
         # Create list item with systematic spacing
         item = ListItem()
 
-        # Command phrase label
-        phrase_label = Label(command.command_key, variant="body", color=theme.config.text.lightest)
+        # Command phrase label - smaller font
+        phrase_label = Label(command.command_key, variant="small", color=theme.config.text.lightest)
         item.add(phrase_label, stretch=1)
 
         # Change button

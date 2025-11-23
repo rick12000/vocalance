@@ -328,12 +328,22 @@ class TwoColumnLayout(QWidget):
         if left_title:
             title_label = Label(left_title, variant="box_title")
             self.left_box.add(title_label)
+            # Add extra spacing after title
+            title_spacing = QWidget()
+            title_spacing.setFixedHeight(theme.config.spacing.small)
+            title_spacing.setAutoFillBackground(False)
+            self.left_box.add(title_spacing)
 
         # Right Box
         self.right_box = Box(layout="vertical")
         if right_title:
             title_label = Label(right_title, variant="box_title")
             self.right_box.add(title_label)
+            # Add extra spacing after title
+            title_spacing = QWidget()
+            title_spacing.setFixedHeight(theme.config.spacing.small)
+            title_spacing.setAutoFillBackground(False)
+            self.right_box.add(title_spacing)
 
         # Content areas
         self.left_content = ContentArea()

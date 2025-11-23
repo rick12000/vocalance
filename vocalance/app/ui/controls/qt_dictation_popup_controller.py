@@ -46,6 +46,7 @@ class QtDictationPopupController:
     def _subscribe_to_events(self) -> None:
         """Subscribe to dictation-related events."""
         try:
+            from vocalance.app.events.core_events import AudioChunkEvent
             from vocalance.app.events.dictation_events import (
                 DictationStatusChangedEvent,
                 FinalDictationTextEvent,
@@ -62,6 +63,9 @@ class QtDictationPopupController:
 
             # Standard/Type dictation modes (critical for showing simple listening popup)
             self.event_bus.subscribe(DictationStatusChangedEvent, self._on_dictation_status_changed)
+
+            # Audio visualization
+            self.event_bus.subscribe(AudioChunkEvent, self._on_audio_chunk)
 
             # Smart/Visual dictation mode lifecycle
             self.event_bus.subscribe(SmartDictationStartedEvent, self._on_smart_started)
@@ -266,6 +270,38 @@ class QtDictationPopupController:
 
         QTimer.singleShot(1500, self.hide_popup)  # 1500ms = 1.5s
         self.logger.debug("Scheduled popup hide after 1.5s delay")
+
+    async def _on_audio_chunk(self, event) -> None:
+        """Handle audio chunk for visualization."""
+        # Optimization: Only process if popup is visible and in simple mode
+        if not self.popup_view.isVisible() or self.popup_view.current_mode != "simple":
+            return
+
+        try:
+            import numpy as np
+
+            # Convert bytes to numpy array (assuming int16)
+            audio_data = np.frombuffer(event.audio_chunk, dtype=np.int16)
+
+            if len(audio_data) == 0:
+                return
+
+            # Calculate RMS
+            # Convert to float for calculation to avoid overflow
+            rms = np.sqrt(np.mean(audio_data.astype(float) ** 2))
+
+            # Normalize
+            # 16-bit audio max amplitude is 32768
+            # Normal speech might be around 1000-5000 RMS
+            # Use 5000 as reference max for visualization to make it sensitive
+            max_ref = 5000.0
+            normalized_level = min(1.0, rms / max_ref)
+
+            self.popup_view.update_audio_level(normalized_level)
+
+        except Exception:
+            # Fail silently for performance in high-frequency callback
+            pass
 
     def cleanup(self) -> None:
         """Clean up controller resources."""

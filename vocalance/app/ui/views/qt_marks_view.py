@@ -127,8 +127,8 @@ class QtMarksView(QtBaseView):
         # Using a TransparentBox as a row
         row = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
 
-        # Mark label
-        label = Label(f"{mark.name}", variant="body", color=theme.config.text.lightest)
+        # Mark label - smaller font
+        label = Label(f"{mark.name}", variant="small", color=theme.config.text.lightest)
         row.add(label, stretch=1)
 
         # Delete button

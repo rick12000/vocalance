@@ -11,9 +11,10 @@ import threading
 from collections import deque
 
 from PySide6.QtCore import QMetaObject, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QTextCharFormat
+from PySide6.QtGui import QColor, QPainter, QTextCharFormat
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit, QVBoxLayout, QWidget
 
+from vocalance.app.ui.components.sound_wave_widget import SoundWaveWidget
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -25,17 +26,18 @@ class QtDictationPopupView(QMainWindow):
     - Real-time text streaming
     - Non-intrusive (always-on-top, no focus stealing)
     - Thread-safe token buffering
-    - Spinner animation in simple mode
+    - Sound wave animation in simple mode
     """
 
     # Signals for thread-safe text updates
     _signal_partial_text = Signal(str, str)  # text, segment_id
     _signal_final_text = Signal(str, str)  # text, segment_id
     _signal_llm_token = Signal(str)  # token
+    _signal_audio_level = Signal(float)  # audio level
 
-    # Window sizes
-    SIMPLE_WIDTH = 200
-    SIMPLE_HEIGHT = 70
+    # Window sizes (determined by the sound wave widget)
+    SIMPLE_WIDTH = 60  # Exact fit for sound wave widget
+    SIMPLE_HEIGHT = 30  # Exact fit for sound wave widget
     SMART_WIDTH = 800
     SMART_HEIGHT = 550
     VISUAL_WIDTH = 400
@@ -58,12 +60,6 @@ class QtDictationPopupView(QMainWindow):
         self._flush_interval_ms = 16  # ~60 FPS
         self._pending_flush = False
 
-        # Spinner animation
-        self.is_animating = False
-        self.animation_frame = 0
-        self.animation_frames = ["|", "/", "-", "\\"]
-        self.animation_timer = None
-
         # Current display mode
         self.current_mode = None
 
@@ -76,6 +72,7 @@ class QtDictationPopupView(QMainWindow):
         self._signal_partial_text.connect(self._do_display_partial_text)
         self._signal_final_text.connect(self._do_display_final_text)
         self._signal_llm_token.connect(self._do_append_llm_token)
+        self._signal_audio_level.connect(self._do_update_audio_level)
 
         self.logger.info("QtDictationPopupView initialized")
 
@@ -85,14 +82,26 @@ class QtDictationPopupView(QMainWindow):
         self.setWindowFlags(
             Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        # Semi-transparent window
-        self.setWindowOpacity(0.95)
+    def paintEvent(self, event) -> None:
+        """Draw rounded background for the window."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Set minimum size
-        self.setMinimumSize(200, 70)
+        # Draw background
+        painter.setBrush(QColor(theme.config.shapes.darkest))
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        # Rounded rect filling the entire window
+        rect = self.rect()
+        painter.drawRoundedRect(rect, 16, 16)
+
+        # Optional: Draw subtle border
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QColor(theme.config.shapes.medium))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 16, 16)
 
     def _create_ui(self) -> None:
         """Create UI elements."""
@@ -103,13 +112,15 @@ class QtDictationPopupView(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(5)
 
-        # Simple mode: Listening indicator
+        # Simple mode: Sound wave animation
         self.simple_widget = QWidget()
         simple_layout = QVBoxLayout(self.simple_widget)
         simple_layout.setContentsMargins(0, 0, 0, 0)
-        self.simple_label = QLabel("Listening")
-        self.simple_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        simple_layout.addWidget(self.simple_label)
+        simple_layout.setSpacing(0)
+
+        self.sound_wave_widget = SoundWaveWidget()
+        simple_layout.addWidget(self.sound_wave_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+
         self.simple_widget.setVisible(False)
         main_layout.addWidget(self.simple_widget)
 
@@ -227,7 +238,7 @@ class QtDictationPopupView(QMainWindow):
             self.current_mode = "simple"
             self._position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
             self._show_window()
-            self._start_animation()
+            # Animation runs automatically in widget
 
     @Slot()
     def show_smart_dictation(self) -> None:
@@ -286,9 +297,18 @@ class QtDictationPopupView(QMainWindow):
     def _do_hide_popup(self) -> None:
         """Internal hide popup - MUST run on main Qt thread."""
         with self._ui_lock:
-            self._stop_animation()
             self.hide()
             self.current_mode = None
+
+    def update_audio_level(self, level: float) -> None:
+        """Update audio level for visualization - thread-safe."""
+        self._signal_audio_level.emit(level)
+
+    @Slot(float)
+    def _do_update_audio_level(self, level: float) -> None:
+        """Internal update audio level - MUST run on main Qt thread."""
+        if self.current_mode == "simple" and hasattr(self, "sound_wave_widget"):
+            self.sound_wave_widget.update_level(level)
 
     def append_dictation_text(self, text: str) -> None:
         """Append text to dictation box - thread-safe."""
@@ -600,38 +620,6 @@ class QtDictationPopupView(QMainWindow):
 
         self.setGeometry(x, y, width, height)
         self.logger.debug(f"Positioned window at ({x}, {y}) with size ({width}, {height}), type={position_type}")
-
-    def _start_animation(self) -> None:
-        """Start spinner animation for simple mode."""
-        if self.is_animating or self.current_mode != "simple":
-            return
-
-        self.is_animating = True
-        self.animation_frame = 0
-
-        self.animation_timer = QTimer()
-        self.animation_timer.timeout.connect(self._update_animation_frame)
-        self.animation_timer.start(100)
-
-    def _update_animation_frame(self) -> None:
-        """Update spinner animation frame."""
-        if not self.is_animating or self.current_mode != "simple":
-            self._stop_animation()
-            return
-
-        frame_char = self.animation_frames[self.animation_frame]
-        self.simple_label.setText(f"Listening {frame_char}")
-        self.animation_frame = (self.animation_frame + 1) % len(self.animation_frames)
-
-    def _stop_animation(self) -> None:
-        """Stop spinner animation."""
-        self.is_animating = False
-
-        if self.animation_timer:
-            self.animation_timer.stop()
-            self.animation_timer = None
-
-        self.simple_label.setText("Listening")
 
     def keyPressEvent(self, event) -> None:
         """Handle key press events - allow Escape to close."""
