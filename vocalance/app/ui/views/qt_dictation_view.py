@@ -8,9 +8,9 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.layouts import TwoColumnLayout
+from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentWidget, TwoColumnLayout
 from vocalance.app.ui.components.simple_components import Button, Input, Label
 from vocalance.app.ui.qt_theme import theme
 
@@ -171,19 +171,15 @@ class QtDictationView(QWidget):
         content = self.layout.right_content
         # ContentArea already has proper spacing - use it directly
 
-        # Prompts list widget
-        self.prompts_list_widget = QWidget()
-        self.prompts_list_widget.setStyleSheet("background: transparent; border: none;")
+        # Prompts list widget - use TransparentWidget to prevent stylesheet interference
+        self.prompts_list_widget = TransparentWidget()
         self.prompts_list_layout = QVBoxLayout(self.prompts_list_widget)
         self.prompts_list_layout.setSpacing(theme.config.container.list_item_spacing)
-        self.prompts_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.prompts_list_layout.setContentsMargins(0, 0, theme.config.spacing.small, 0)
 
-        # Scroll area for prompts
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll_area.setStyleSheet("background: transparent; border: none;")
-        scroll_area.setWidget(self.prompts_list_widget)
+        # Scroll area for prompts - use ScrollableContainer for consistency
+        scroll_area = ScrollableContainer()
+        scroll_area.content_layout.addWidget(self.prompts_list_widget)
         content.add(scroll_area, stretch=1)
 
     def _on_prompts_loaded(self, prompts: List[Dict[str, Any]]) -> None:
@@ -243,10 +239,9 @@ class QtDictationView(QWidget):
 
     def _create_prompt_item(self, prompt_data: Dict[str, Any]) -> None:
         """Create a prompt list item with radio, name, edit, and delete buttons."""
-        item_widget = QWidget()
+        # Create item widget with guaranteed transparent background
+        item_widget = TransparentWidget()
         item_widget.setProperty("itemType", "list_item")
-        # Use programmatic styling instead of stylesheets to avoid affecting other QWidget instances
-        item_widget.setAutoFillBackground(False)
         item_layout = QHBoxLayout(item_widget)
         item_layout.setContentsMargins(
             0,

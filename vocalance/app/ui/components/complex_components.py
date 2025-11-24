@@ -68,21 +68,25 @@ class Tile(BaseContainer):
         super().__init__(
             parent=parent,
             layout="vertical",
-            bg_color=theme.config.shapes.medium,
-            border_color=None,
-            border_radius=theme.config.radius.large,  # Rounded corners
+            bg_color=theme.config.shapes.transparent,
+            border_color=theme.config.blue.blue_1,
+            border_radius=theme.config.radius.rounded,  # Fairly rounded corners
         )
 
         padding = theme.config.spacing.medium
         self._layout.setContentsMargins(padding, padding, padding, padding)
         self._layout.setSpacing(theme.config.spacing.small)
 
-        # Title
-        title_label = Label(title, variant="group_header", align="center")
+        # Title - blue_2 color
+        title_label = Label(title, variant="group_header", align="center", color=theme.config.blue.blue_2)
         self.add(title_label)
 
-        # Content - use consistent small font
-        content_label = Label(content, variant="small", align="center")
+        # Content - one size smaller font (using small size 11px), blue_2 color
+        content_label = Label(content, variant="small", align="center", color=theme.config.blue.blue_2)
+        # Make font even smaller by creating a custom font
+        font = content_label.font()
+        font.setPointSize(theme.config.fonts.small - 1)  # One size smaller than small (11px -> 10px)
+        content_label.setFont(font)
         content_label.setWordWrap(True)
         self.add(content_label)
 
@@ -158,6 +162,7 @@ class SidebarButton(QWidget):
     """Sidebar navigation button with icon and text.
 
     Handles selection state and hover effects programmatically.
+    Uses fixed icon positioning for smooth sidebar expansion animation.
     """
 
     clicked = Signal()
@@ -184,6 +189,13 @@ class SidebarButton(QWidget):
         self._text_color_hover = theme.config.text.light_blue_accent
         self._text_color_selected = theme.config.text.light_blue_accent
 
+        # Store border radius for custom painting
+        self._border_radius = theme.config.radius.small
+
+        # Calculate icon position (centered in collapsed width)
+        self._icon_area_width = theme.config.sidebar.collapsed_width
+        self._button_padding = 4
+
         # Ensure no background fill - we handle all painting in paintEvent
         self.setAutoFillBackground(False)
 
@@ -204,15 +216,24 @@ class SidebarButton(QWidget):
         self._update_appearance()
 
     def _setup_ui(self, icon_pixmap: Optional[QPixmap]):
-        """Setup button UI."""
+        """Setup button UI with fixed icon positioning.
+
+        Design: Icon area has fixed width matching collapsed sidebar.
+        Text appears next to icon area when expanded.
+        """
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(theme.config.spacing.small)
+        layout.setContentsMargins(self._button_padding, self._button_padding, self._button_padding, self._button_padding)
+        layout.setSpacing(0)
+        # CRITICAL: Anchor content to the left to prevent centering jolt when text is hidden
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        # Store border radius for custom painting
-        self._border_radius = theme.config.radius.small  # 8px rounded corners
+        # Icon area: fixed width container that matches collapsed sidebar width
+        self.icon_area = QWidget()
+        self.icon_area.setFixedWidth(self._icon_area_width - (2 * self._button_padding))
+        icon_area_layout = QHBoxLayout(self.icon_area)
+        icon_area_layout.setContentsMargins(0, 0, 0, 0)
+        icon_area_layout.setSpacing(0)
 
-        # Icon label
         if icon_pixmap:
             self.icon_label = Label("")
             self.icon_label.setPixmap(
@@ -223,21 +244,33 @@ class SidebarButton(QWidget):
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
-            layout.addWidget(self.icon_label)
+            # Center icon within the fixed icon area
+            icon_area_layout.addStretch()
+            icon_area_layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
+            icon_area_layout.addStretch()
         else:
             self.icon_label = None
 
-        # Text label (initially hidden in collapsed state)
-        # Use medium variant with demi-bold weight
+        layout.addWidget(self.icon_area)
+
+        # Spacer widget (toggleable) - replaces addSpacing so we can hide it
+        self.spacer = QWidget()
+        self.spacer.setFixedWidth(theme.config.spacing.medium)
+        self.spacer.setVisible(False)  # Initially hidden
+        layout.addWidget(self.spacer)
+
+        # Text label (initially hidden)
         self.text_label = Label(self._text_content, variant="body")
-        # Make it demi-bold by updating the font
         font = self.text_label.font()
         font.setWeight(QFont.Weight.DemiBold)
         self.text_label.setFont(font)
         self.text_label.setVisible(False)
-        layout.addWidget(self.text_label, stretch=1)
+        # Use explicit alignment for text instead of stretch to avoid layout shifts
+        layout.addWidget(self.text_label)
 
-        layout.addStretch()
+        # Add a final stretch to consume any remaining space on the right
+        # This reinforces the left alignment of the icon
+        layout.addStretch(1)
 
     def _update_appearance(self):
         """Update button appearance based on state."""
@@ -301,6 +334,8 @@ class SidebarButton(QWidget):
         self._expanded = expanded
         if self.text_label:
             self.text_label.setVisible(expanded)
+        if hasattr(self, "spacer"):
+            self.spacer.setVisible(expanded)
 
     def enterEvent(self, event):
         """Handle mouse enter."""
@@ -321,17 +356,6 @@ class SidebarButton(QWidget):
         super().mousePressEvent(event)
 
     def paintEvent(self, event):
-        """Custom paint event to draw rounded corners with blue fill on hover/select."""
-        from PySide6.QtGui import QColor, QPainter, QPainterPath
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Only paint background when hovered or selected
-        if self._hovered or self._selected:
-            # Create rounded rectangle path (no border, full size)
-            fill_path = QPainterPath()
-            fill_path.addRoundedRect(0, 0, self.width(), self.height(), self._border_radius, self._border_radius)
-
-            # Fill with blue_1 color
-            painter.fillPath(fill_path, QColor(theme.config.blue.blue_1))
+        """No custom painting - rely on theme colors for text and icon highlighting."""
+        # Remove the blue background highlight - just use default painting
+        super().paintEvent(event)

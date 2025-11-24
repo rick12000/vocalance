@@ -254,8 +254,14 @@ class VocalanceMainWindow(QMainWindow):
             self.sidebar_button_manager.add(btn)
 
     def _create_sidebar_logo(self) -> None:
-        """Create sidebar logo with transparent background."""
-        logo_frame = TransparentBox()
+        """Create sidebar logo with transparent background.
+
+        Uses fixed-width container matching collapsed sidebar to keep logo
+        positioned consistently during animation.
+        """
+        from PySide6.QtWidgets import QHBoxLayout
+
+        logo_frame = TransparentBox(layout="horizontal")
         logo_layout = logo_frame.layout()
         logo_layout.setContentsMargins(
             0,
@@ -263,6 +269,15 @@ class VocalanceMainWindow(QMainWindow):
             0,
             theme.config.sidebar.logo_padding_bottom,
         )
+        logo_layout.setSpacing(0)
+
+        # Create fixed-width logo area matching collapsed sidebar width
+        logo_area = QWidget()
+        logo_area.setFixedWidth(theme.config.sidebar.collapsed_width)
+        logo_area.setAutoFillBackground(False)
+        logo_area_layout = QHBoxLayout(logo_area)
+        logo_area_layout.setContentsMargins(0, 0, 0, 0)
+        logo_area_layout.setSpacing(0)
 
         self.sidebar_logo = self.logo_service.create_logo_widget(
             max_size=theme.config.sidebar.logo_max_size,
@@ -272,7 +287,14 @@ class VocalanceMainWindow(QMainWindow):
         )
         self.sidebar_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sidebar_logo.setAutoFillBackground(False)
-        logo_layout.addWidget(self.sidebar_logo)
+
+        # Center logo within fixed-width area
+        logo_area_layout.addStretch()
+        logo_area_layout.addWidget(self.sidebar_logo, alignment=Qt.AlignmentFlag.AlignCenter)
+        logo_area_layout.addStretch()
+
+        logo_layout.addWidget(logo_area)
+        logo_layout.addStretch()  # Push logo area to left
 
         self.sidebar_logo_frame = logo_frame
 

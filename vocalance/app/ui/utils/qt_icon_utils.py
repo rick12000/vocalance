@@ -2,6 +2,7 @@
 
 Provides icon loading and recoloring functionality compatible with Qt/PySide6,
 porting the legacy PIL-based icon transformation logic.
+Supports high-DPI displays with automatic scaling.
 """
 
 import logging
@@ -10,6 +11,8 @@ from typing import Optional, Tuple
 
 from PIL import Image
 from PySide6.QtGui import QImage, QPixmap
+
+from vocalance.app.ui.utils.qt_dpi_utils import get_device_pixel_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -49,22 +52,29 @@ def transform_monochrome_icon(
     size: Optional[Tuple[int, int]] = None,
     force_all_pixels: bool = False,
     preserve_aspect_ratio: bool = True,
+    device_pixel_ratio: Optional[float] = None,
 ) -> Optional[QPixmap]:
     """Transform a monochrome icon by recoloring it while preserving transparency.
 
     Ports the legacy CustomTkinter icon transformation logic to work with Qt/PySide6.
     If force_all_pixels is True, recolor all non-transparent pixels regardless of luminance.
+    Supports high-DPI displays via device_pixel_ratio parameter.
 
     Args:
         icon_path: Path to the icon file.
         target_color: Hex color string (e.g., "#ff0000").
-        size: Optional tuple (width, height) to resize the icon.
+        size: Optional tuple (width, height) to resize the icon in physical pixels.
         force_all_pixels: If True, recolor all non-transparent pixels.
         preserve_aspect_ratio: If True, preserve aspect ratio when resizing.
+        device_pixel_ratio: Device pixel ratio for high-DPI rendering.
+                           If provided and set on returned QPixmap.
 
     Returns:
         QPixmap with recolored icon, or None if processing failed.
     """
+    if device_pixel_ratio is None:
+        device_pixel_ratio = get_device_pixel_ratio()
+
     try:
         icon_path = Path(icon_path)
         if not icon_path.exists():
@@ -124,7 +134,13 @@ def transform_monochrome_icon(
                     colored_pixels[x, y] = (target_rgb[0], target_rgb[1], target_rgb[2], new_alpha)
 
         # Convert to QPixmap
-        return pil_image_to_qpixmap(colored_img)
+        pixmap = pil_image_to_qpixmap(colored_img)
+
+        # Set device pixel ratio for proper high-DPI rendering
+        if pixmap and device_pixel_ratio:
+            pixmap.setDevicePixelRatio(device_pixel_ratio)
+
+        return pixmap
 
     except Exception as e:
         logger.error(f"Failed to transform icon {icon_path}: {e}")
@@ -136,27 +152,40 @@ def load_sidebar_icon(
     icons_dir: Path,
     target_color: str,
     icon_size: int,
+    high_dpi: bool = True,
 ) -> Optional[QPixmap]:
-    """Load and transform a sidebar icon.
+    """Load and transform a sidebar icon. Supports high-DPI.
 
     Args:
         icon_filename: Name of icon file.
         icons_dir: Directory containing icon files.
         target_color: Hex color for icon recoloring.
-        icon_size: Target size for icon (will preserve aspect ratio).
+        icon_size: Target size for icon in logical pixels (will preserve aspect ratio).
+        high_dpi: If True, scale to device pixel ratio for sharp rendering.
 
     Returns:
         QPixmap or None if loading failed.
     """
     try:
+        device_pixel_ratio = get_device_pixel_ratio() if high_dpi else 1.0
         icon_path = icons_dir / icon_filename
-        return transform_monochrome_icon(
+
+        # Scale to physical pixels for high-DPI displays
+        physical_size = (int(icon_size * device_pixel_ratio), int(icon_size * device_pixel_ratio))
+
+        pixmap = transform_monochrome_icon(
             icon_path=icon_path,
             target_color=target_color,
-            size=(icon_size, icon_size),
+            size=physical_size,
             force_all_pixels=True,  # Force all pixels to target color for consistent appearance
             preserve_aspect_ratio=True,
         )
+
+        if pixmap and high_dpi:
+            # Set device pixel ratio so Qt renders at correct DPI
+            pixmap.setDevicePixelRatio(device_pixel_ratio)
+
+        return pixmap
     except Exception as e:
         logger.error(f"Failed to load sidebar icon {icon_filename}: {e}")
         return None

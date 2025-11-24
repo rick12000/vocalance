@@ -3,6 +3,7 @@
 Displays marks with management capabilities matching legacy layout using TwoColumnLayout.
 """
 
+import logging
 from typing import List, Optional
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
@@ -12,10 +13,9 @@ from vocalance.app.ui.components.complex_components import Tile
 from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentBox, TwoColumnLayout
 from vocalance.app.ui.components.simple_components import Button, Label
 from vocalance.app.ui.qt_theme import theme
-from vocalance.app.ui.views.qt_base_view import QtBaseView
 
 
-class QtMarksView(QtBaseView):
+class QtMarksView(QWidget):
     """Qt-based marks management view.
 
     Features:
@@ -30,7 +30,14 @@ class QtMarksView(QtBaseView):
         """Initialize marks view."""
         super().__init__(parent)
 
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.controller = None
         self.marks_list: List[MarkData] = []
+
+        # Setup main layout - zero margins/spacing like QtBaseView
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
 
         self._setup_ui()
         self.logger.debug("QtMarksView initialized")
@@ -53,7 +60,7 @@ class QtMarksView(QtBaseView):
     def _setup_ui(self) -> None:
         """Build UI with TwoColumnLayout."""
         # Create two-column layout with titles
-        self.layout = TwoColumnLayout("Instructions", "Manage Marks")
+        self.layout = TwoColumnLayout("Instructions", "Manage Marks", self)
         self.main_layout.addWidget(self.layout, stretch=1)
 
         # Setup instruction panels
@@ -62,36 +69,24 @@ class QtMarksView(QtBaseView):
 
     def _setup_instructions_panel(self) -> None:
         """Setup instructions panel in left content area."""
-        container = self.layout.left_content
+        content = self.layout.left_content
 
-        # Create layout if it doesn't exist
-        layout = container.layout()
-        if layout is None:
-            layout = QVBoxLayout(container)
-        layout.setSpacing(theme.config.spacing.small)
-
-        # Instruction tiles
-        layout.addWidget(Tile("Create Mark", "Say 'Mark [name]' to create a mark\nat the current cursor position"))
-        layout.addWidget(Tile("Navigate", "Say the mark's [name] to automatically click\nat that position"))
-        layout.addWidget(
+        # Instruction tiles - use ContentArea.add() for systematic spacing
+        content.add(Tile("Create Mark", "Say 'Mark [name]' to create a mark\nat the current cursor position"))
+        content.add(Tile("Navigate", "Say the mark's [name] to automatically click\nat that position"))
+        content.add(
             Tile("Manage Marks", "Use the right panel to visualize and delete marks,\nor say 'show marks' to see them on screen")
         )
 
-        layout.addStretch()
+        content.add_stretch()
 
     def _setup_marks_panel(self) -> None:
         """Setup marks management panel in right content area."""
-        container = self.layout.right_content
+        content = self.layout.right_content
 
-        # Create layout if it doesn't exist
-        layout = container.layout()
-        if layout is None:
-            layout = QVBoxLayout(container)
-        layout.setSpacing(theme.config.spacing.small)
-
-        # Marks list container with scroll area
+        # Marks list container with scroll area - use ContentArea.add() for systematic spacing
         self.marks_scroll = ScrollableContainer()
-        layout.addWidget(self.marks_scroll, stretch=1)
+        content.add(self.marks_scroll, stretch=1)
 
         # Button row
         button_box = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
@@ -102,8 +97,7 @@ class QtMarksView(QtBaseView):
         self.delete_all_btn = Button(text="Reset", variant="danger", command=self._on_delete_all_clicked)
         button_box.add(self.delete_all_btn)
 
-        layout.addWidget(button_box)
-        layout.addSpacing(theme.config.spacing.large)
+        content.add(button_box)
 
     def _display_marks(self, marks: List[MarkData]) -> None:
         """Display marks in the list."""

@@ -7,9 +7,9 @@ from typing import List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.layouts import BaseContainer, TwoColumnLayout
+from vocalance.app.ui.components.layouts import BaseContainer, TransparentWidget, TwoColumnLayout
 from vocalance.app.ui.components.simple_components import Button, Input, Label
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.views.qt_base_view import QtBaseView
@@ -259,19 +259,17 @@ class QtSoundsView(QtBaseView):
         content = self.layout.right_content
         # ContentArea already has proper spacing - use it directly
 
-        # Sounds list widget
-        self.sounds_list_widget = QWidget()
-        self.sounds_list_widget.setStyleSheet("background: transparent; border: none;")
+        # Sounds list widget - use TransparentWidget to prevent stylesheet interference
+        self.sounds_list_widget = TransparentWidget()
         self.sounds_list_layout = QVBoxLayout(self.sounds_list_widget)
         self.sounds_list_layout.setSpacing(theme.config.container.list_item_spacing)
-        self.sounds_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.sounds_list_layout.setContentsMargins(0, 0, theme.config.spacing.small, 0)
 
-        # Scroll area for sounds
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll_area.setStyleSheet("background: transparent; border: none;")
-        scroll_area.setWidget(self.sounds_list_widget)
+        # Scroll area for sounds - use ScrollableContainer for consistency
+        from vocalance.app.ui.components.layouts import ScrollableContainer
+
+        scroll_area = ScrollableContainer()
+        scroll_area.content_layout.addWidget(self.sounds_list_widget)
         content.add(scroll_area, stretch=1)
 
         # Delete all button
@@ -386,11 +384,9 @@ class QtSoundsView(QtBaseView):
             self.sounds_list_layout.addWidget(empty_label)
         else:
             for sound_name in sorted(self.sounds_list):
-                # Create item widget
-                item_widget = QWidget()
+                # Create item widget with guaranteed transparent background
+                item_widget = TransparentWidget()
                 item_widget.setProperty("itemType", "list_item")
-                # Use programmatic styling instead of stylesheets to avoid affecting other QWidget instances
-                item_widget.setAutoFillBackground(False)
                 item_layout = QHBoxLayout(item_widget)
                 item_layout.setContentsMargins(
                     0,

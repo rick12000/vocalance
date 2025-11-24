@@ -1,6 +1,7 @@
 """Qt-based logo service for managing application logos.
 
 Provides thread-safe logo loading and widget creation using Qt.
+Supports high-DPI displays with automatic scaling.
 """
 
 import logging
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import QLabel
 
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
+from vocalance.app.ui.utils.qt_dpi_utils import get_device_pixel_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +43,19 @@ class QtLogoService:
         context: str = "default",
         logo_type: str = "full",
     ) -> Optional[QPixmap]:
-        """Get a logo pixmap with specified maximum size. Thread-safe.
+        """Get a logo pixmap with specified maximum size. Thread-safe. Supports high-DPI.
 
         Args:
-            max_size: Maximum dimension (width or height) for the logo.
+            max_size: Maximum dimension (width or height) for the logo in logical pixels.
             context: Context for logging (e.g., "startup", "sidebar").
             logo_type: Type of logo to load ("full" or "icon").
 
         Returns:
             QPixmap if successful, None if fallback needed.
         """
-        cache_key = f"{max_size}_{context}_{logo_type}"
+        # Include device pixel ratio in cache key for high-DPI support
+        device_pixel_ratio = get_device_pixel_ratio()
+        cache_key = f"{max_size}_{context}_{logo_type}_{device_pixel_ratio}"
 
         with self._cache_lock:
             if cache_key in self._logo_cache:
@@ -62,12 +66,17 @@ class QtLogoService:
                 size=None,
                 max_dimension=max_size,
                 logo_type=logo_type,
+                device_pixel_ratio=device_pixel_ratio,
             )
 
             if logo_pixmap:
                 with self._cache_lock:
                     self._logo_cache[cache_key] = logo_pixmap
-                logger.debug(f"Logo loaded successfully for {context} (size: {logo_pixmap.width()}x{logo_pixmap.height()})")
+                logical_width = int(logo_pixmap.width() / device_pixel_ratio)
+                logical_height = int(logo_pixmap.height() / device_pixel_ratio)
+                logger.debug(
+                    f"Logo loaded successfully for {context} (logical: {logical_width}x{logical_height}, physical: {logo_pixmap.width()}x{logo_pixmap.height()}, DPR: {device_pixel_ratio})"
+                )
                 return logo_pixmap
             else:
                 logger.debug(f"No logo image available for {context}")

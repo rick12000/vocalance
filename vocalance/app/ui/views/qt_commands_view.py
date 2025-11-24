@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.config.command_types import AutomationCommand
 from vocalance.app.ui.components.complex_components import GroupHeader, ListItem
-from vocalance.app.ui.components.layouts import Box, ScrollableContainer, TwoColumnLayout
+from vocalance.app.ui.components.layouts import Box, ScrollableContainer, TransparentWidget, TwoColumnLayout
 from vocalance.app.ui.components.simple_components import Button, Input, Label
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.views.qt_base_view import QtBaseView
@@ -214,12 +214,12 @@ class QtCommandsView(QtBaseView):
         """Setup commands list panel using systematic spacing."""
         content = self.layout.right_content
 
-        # Commands list widget with systematic spacing
-        self.commands_list_widget = QWidget()
-        self.commands_list_widget.setAutoFillBackground(False)
+        # Commands list widget with guaranteed transparent background
+        # Use TransparentWidget to prevent stylesheet and palette interference
+        self.commands_list_widget = TransparentWidget()
         self.commands_list_layout = QVBoxLayout(self.commands_list_widget)
         self.commands_list_layout.setSpacing(theme.config.container.list_item_spacing)
-        self.commands_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.commands_list_layout.setContentsMargins(0, 0, theme.config.spacing.small, 0)
 
         # Scroll area for commands
         scroll_area = ScrollableContainer()

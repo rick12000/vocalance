@@ -81,7 +81,8 @@ class ShapeColors:
     light: str = "#404040"
     medium: str = "#393939"
     dark: str = "#2a2a2a"
-    darkest: str = "#1c1c1c"
+    darkest: str = "#131313"
+    background: str = "#131313"
     transparent: str = "transparent"
 
 
@@ -206,10 +207,10 @@ class SidebarLayout:
     padding_horizontal: int = 10
     button_padding_left: int = 10
     button_padding_right: int = 10
-    button_spacing_vertical: int = 2
-    button_icon_size: int = 48
+    button_spacing_vertical: int = 6
+    button_icon_size: int = 70
     button_min_height: int = 50
-    logo_max_size: int = 50
+    logo_max_size: int = 38
     logo_padding_top: int = 0
     logo_padding_bottom: int = 30
     border_width: int = 1
@@ -220,8 +221,8 @@ class HeaderLayout:
     """Header layout configuration."""
 
     padding_horizontal: int = 30
-    content_padding_left: int = 30
-    content_padding_right: int = 30
+    content_padding_left: int = 20  # Matches box_padding for vertical alignment with box titles
+    content_padding_right: int = 20  # Matches box_padding for consistent spacing
     height: int = 100
     title_offset_y: int = 10
     title_y_offset: int = 0

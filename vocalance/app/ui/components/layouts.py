@@ -6,11 +6,51 @@ NO STYLESHEETS - only QPalette, geometry, and custom painting.
 
 from typing import Literal, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLayout, QScrollArea, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.simple_components import Label
 from vocalance.app.ui.qt_theme import theme
+
+
+class TransparentWidget(QWidget):
+    """A QWidget that guarantees transparent background with no stylesheet interference."""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        # Disable auto fill background - we'll handle it ourselves
+        self.setAutoFillBackground(False)
+        # Set widget to not receive stylesheet styling
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        # Ensure palette is transparent on all roles
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor("transparent"))
+        self.setPalette(palette)
+
+    def paintEvent(self, event):
+        """Explicitly paint transparent background."""
+        # Do nothing - let parent show through
+
+
+class TransparentViewport(QWidget):
+    """A viewport widget that guarantees transparent background."""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        # Ensure palette is transparent on all background roles
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor("transparent"))
+        self.setPalette(palette)
+
+    def paintEvent(self, event):
+        """Don't paint any background."""
 
 
 class BaseContainer(QFrame):
@@ -147,7 +187,10 @@ class Card(BaseContainer):
 
 
 class TransparentBox(BaseContainer):
-    """Transparent container - inherits parent styling."""
+    """Transparent container - inherits parent styling.
+
+    Prevents stylesheet and palette inheritance to ensure transparency.
+    """
 
     def __init__(
         self,
@@ -165,10 +208,17 @@ class TransparentBox(BaseContainer):
 
         # Transparent - no background fill
         self.setAutoFillBackground(False)
+        # Prevent stylesheet styling of background
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
 
         # Transparent boxes have no margins, optional spacing
         if spacing is not None:
             self._layout.setSpacing(spacing)
+
+    def paintEvent(self, event):
+        """Override to not paint anything - let parent show through."""
+        # Don't call parent paintEvent - that would draw the background
+        # Just let the transparent background work
 
 
 class ContentArea(QWidget):
@@ -184,6 +234,13 @@ class ContentArea(QWidget):
 
         # Transparent background
         self.setAutoFillBackground(False)
+        # Prevent stylesheet styling
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        # Ensure palette is transparent
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("transparent"))
+        self.setPalette(palette)
 
         if layout == "vertical":
             self._layout = QVBoxLayout(self)
@@ -235,63 +292,71 @@ class ScrollableContainer(QFrame):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
 
-        # Make scroll area transparent
+        # Make scroll area transparent - ensure all background roles are transparent
         palette = self.scroll_area.palette()
         palette.setColor(QPalette.ColorRole.Base, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor("transparent"))
         self.scroll_area.setPalette(palette)
         self.scroll_area.setAutoFillBackground(False)
+        # Prevent stylesheet styling of scroll area background
+        self.scroll_area.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
 
         # Style scrollbar programmatically
         self._style_scrollbar()
 
-        # Content widget with transparent background
-        self.content_widget = QWidget()
-        self.content_widget.setAutoFillBackground(False)
-        content_palette = self.content_widget.palette()
-        content_palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
-        self.content_widget.setPalette(content_palette)
+        # Replace the viewport with a transparent one BEFORE adding content
+        transparent_viewport = TransparentViewport()
+        self.scroll_area.setViewport(transparent_viewport)
+
+        # Content widget with guaranteed transparent background
+        # Use TransparentWidget to prevent stylesheet and palette interference
+        self.content_widget = TransparentWidget()
 
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(theme.config.container.content_vertical_spacing)
 
+        # Set widget AFTER viewport is set
         self.scroll_area.setWidget(self.content_widget)
+
         main_layout.addWidget(self.scroll_area)
 
     def _style_scrollbar(self):
         """Apply scrollbar styling programmatically.
 
         Note: QScrollBar styling is complex to do purely programmatically.
-        We use a scoped stylesheet applied only to this ScrollableContainer's scroll area
-        to avoid affecting other scrollbars in the application.
+        We apply stylesheet ONLY to the scroll area, not to the container,
+        to prevent stylesheet cascade to child widgets.
         """
         c = theme.config
-        # Use class selector to scope scrollbar styles to this scroll area only
+        # Apply stylesheet ONLY to the scroll area widget itself
+        # Use QScrollArea selector to avoid cascading to descendants
         scrollbar_style = f"""
-        ScrollableContainer QScrollBar:vertical {{
+        QScrollBar:vertical {{
             background: {c.shapes.dark};
             width: 10px;
             margin: 0;
             border-radius: 5px;
             border: none;
         }}
-        ScrollableContainer QScrollBar::handle:vertical {{
+        QScrollBar::handle:vertical {{
             background: {c.shapes.light};
             min-height: 20px;
             border-radius: 5px;
         }}
-        ScrollableContainer QScrollBar::handle:vertical:hover {{
+        QScrollBar::handle:vertical:hover {{
             background: {c.shapes.lightest};
         }}
-        ScrollableContainer QScrollBar::add-line:vertical, ScrollableContainer QScrollBar::sub-line:vertical {{
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
             height: 0px;
         }}
-        ScrollableContainer QScrollBar::add-page:vertical, ScrollableContainer QScrollBar::sub-page:vertical {{
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
             background: none;
         }}
         """
-        # Apply stylesheet to this widget so the descendant selector works
-        self.setStyleSheet(scrollbar_style)
+        # Apply stylesheet ONLY to scroll area, not the container
+        self.scroll_area.setStyleSheet(scrollbar_style)
 
     def add(self, widget: QWidget, stretch: int = 0):
         """Add widget to scrollable content."""
@@ -333,22 +398,12 @@ class TwoColumnLayout(QWidget):
         if left_title:
             title_label = Label(left_title, variant="box_title")
             self.left_box.add(title_label)
-            # Add extra spacing after title
-            title_spacing = QWidget()
-            title_spacing.setFixedHeight(theme.config.spacing.small)
-            title_spacing.setAutoFillBackground(False)
-            self.left_box.add(title_spacing)
 
         # Right Box
         self.right_box = Box(layout="vertical")
         if right_title:
             title_label = Label(right_title, variant="box_title")
             self.right_box.add(title_label)
-            # Add extra spacing after title
-            title_spacing = QWidget()
-            title_spacing.setFixedHeight(theme.config.spacing.small)
-            title_spacing.setAutoFillBackground(False)
-            self.right_box.add(title_spacing)
 
         # Content areas
         self.left_content = ContentArea()

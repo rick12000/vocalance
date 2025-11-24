@@ -15,6 +15,7 @@ from PySide6.QtGui import QIcon, QImage, QPixmap
 
 from vocalance.app.config.app_config import AssetPathsConfig
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.ui.utils.qt_dpi_utils import get_device_pixel_ratio, load_pixmap_high_dpi
 
 logger = logging.getLogger("QtAssets")
 
@@ -116,17 +117,20 @@ class QtAssetCache:
         self,
         filename: str,
         size: Optional[Tuple[int, int]] = None,
+        high_dpi: bool = True,
     ) -> Optional[QPixmap]:
-        """Load and cache a pixmap. Thread-safe.
+        """Load and cache a pixmap. Thread-safe. Supports high-DPI.
 
         Args:
             filename: Image filename in assets directory.
-            size: Optional (width, height) tuple for resizing.
+            size: Optional (width, height) tuple for resizing (logical pixels).
+            high_dpi: If True, load at device pixel ratio for sharp rendering.
 
         Returns:
             QPixmap object or None if loading fails.
         """
-        cache_key = f"{filename}_{size}"
+        device_pixel_ratio = get_device_pixel_ratio() if high_dpi else 1.0
+        cache_key = f"{filename}_{size}_{device_pixel_ratio}"
 
         with self._cache_lock:
             if cache_key in self._pixmap_cache:
@@ -142,23 +146,42 @@ class QtAssetCache:
                 logger.warning(f"Image file not found: {image_path}")
                 return None
 
-            pixmap = QPixmap(str(image_path))
-            if pixmap.isNull():
+            if high_dpi and size:
+                # Load at high-DPI with proper device pixel ratio
+                pixmap = load_pixmap_high_dpi(
+                    image_path,
+                    logical_size=size,
+                    device_pixel_ratio=device_pixel_ratio,
+                    preserve_aspect_ratio=True,
+                )
+            elif high_dpi:
+                # Load high-DPI without specific size constraint
+                pixmap = QPixmap(str(image_path))
+                if not pixmap.isNull():
+                    pixmap.setDevicePixelRatio(device_pixel_ratio)
+            else:
+                # Standard DPI loading
+                pixmap = QPixmap(str(image_path))
+                if pixmap.isNull():
+                    logger.warning(f"Failed to load pixmap from {image_path}")
+                    return None
+
+                if size:
+                    pixmap = pixmap.scaled(
+                        size[0],
+                        size[1],
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+
+            if pixmap and pixmap.isNull():
                 logger.warning(f"Failed to load pixmap from {image_path}")
                 return None
-
-            if size:
-                pixmap = pixmap.scaled(
-                    size[0],
-                    size[1],
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
 
             with self._cache_lock:
                 self._pixmap_cache[cache_key] = pixmap
 
-            logger.debug(f"Loaded and cached pixmap: {filename}")
+            logger.debug(f"Loaded and cached pixmap: {filename} (high_dpi={high_dpi})")
             return pixmap
 
         except Exception as e:
@@ -273,17 +296,23 @@ class QtAssetCache:
         size: Optional[Tuple[int, int]] = None,
         max_dimension: int = 200,
         logo_type: str = "full",
+        device_pixel_ratio: Optional[float] = None,
     ) -> Optional[QPixmap]:
-        """Load logo as QPixmap, optionally recolored.
+        """Load logo as QPixmap, optionally recolored. Supports high-DPI.
 
         Args:
-            size: Optional exact size tuple (width, height).
-            max_dimension: Maximum dimension when size is None.
+            size: Optional exact size tuple (width, height) in logical pixels.
+            max_dimension: Maximum dimension (logical pixels) when size is None.
             logo_type: Type of logo ("full" or "icon").
+            device_pixel_ratio: Device pixel ratio for high-DPI rendering.
+                               If None, uses system DPR.
 
         Returns:
             QPixmap object or None if loading fails.
         """
+        if device_pixel_ratio is None:
+            device_pixel_ratio = get_device_pixel_ratio()
+
         # Get logo properties from theme
         logo_props = theme.config.icon_properties
 
@@ -319,15 +348,19 @@ class QtAssetCache:
                 color = logo_props.color if logo_props else theme.config.shapes.medium
 
                 if size is not None:
+                    # Scale to physical pixels for high-DPI
+                    physical_size = (int(size[0] * device_pixel_ratio), int(size[1] * device_pixel_ratio))
                     pil_image = transform_monochrome_icon(
                         str(logo_path),
                         color,
-                        size,
+                        physical_size,
                         force_all_pixels=True,
                         preserve_aspect_ratio=True,
                     )
                 else:
-                    constraint_size = (max_dimension, max_dimension)
+                    # Scale constraint to physical pixels
+                    physical_constraint = int(max_dimension * device_pixel_ratio)
+                    constraint_size = (physical_constraint, physical_constraint)
                     pil_image = transform_monochrome_icon(
                         str(logo_path),
                         color,
@@ -340,29 +373,31 @@ class QtAssetCache:
                     logger.error(f"Failed to transform logo {filename}")
                     return None
 
-                return self._pil_to_pixmap(pil_image)
+                pixmap = self._pil_to_pixmap(pil_image)
+                if pixmap:
+                    pixmap.setDevicePixelRatio(device_pixel_ratio)
+                return pixmap
             else:
-                # Load directly as pixmap and resize
-                pixmap = QPixmap(str(logo_path))
-
+                # Load using high-DPI aware method
                 if size is not None:
-                    pixmap = pixmap.scaled(
-                        size[0],
-                        size[1],
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
+                    pixmap = load_pixmap_high_dpi(
+                        logo_path,
+                        logical_size=size,
+                        device_pixel_ratio=device_pixel_ratio,
+                        preserve_aspect_ratio=True,
                     )
                 elif max_dimension > 0:
-                    width = pixmap.width()
-                    height = pixmap.height()
-
-                    if width > max_dimension or height > max_dimension:
-                        pixmap = pixmap.scaled(
-                            max_dimension,
-                            max_dimension,
-                            Qt.AspectRatioMode.KeepAspectRatio,
-                            Qt.TransformationMode.SmoothTransformation,
-                        )
+                    pixmap = load_pixmap_high_dpi(
+                        logo_path,
+                        max_logical_dimension=max_dimension,
+                        device_pixel_ratio=device_pixel_ratio,
+                        preserve_aspect_ratio=True,
+                    )
+                else:
+                    # Load without scaling, but set device pixel ratio
+                    pixmap = QPixmap(str(logo_path))
+                    if not pixmap.isNull():
+                        pixmap.setDevicePixelRatio(device_pixel_ratio)
 
                 return pixmap
 
