@@ -20,7 +20,7 @@
 QWidget {
     background: transparent;
     font-family: "DMSans";
-    font-size: 12px;
+    font-size: 10px;
     color: #c3afaf;
 }
 
@@ -32,7 +32,7 @@ QLabel {
     background: transparent;
     color: #c3afaf;
     font-family: "DMSans";
-    font-size: 12px;
+    font-size: 10px;
 }
 
 /* ==========================================================================
@@ -46,7 +46,7 @@ QPushButton {
     border-radius: 12px;
     padding: 2px 16px;
     font-family: "DMSans";
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     min-height: 24px;
 }
@@ -75,7 +75,7 @@ QLineEdit {
     border-radius: 8px;
     padding: 6px 10px;
     font-family: "DMSans";
-    font-size: 11px;
+    font-size: 10px;
     min-height: 35px;
 }
 
@@ -95,7 +95,7 @@ QCheckBox {
     background: transparent;
     color: #c3afaf;
     font-family: "DMSans";
-    font-size: 12px;
+    font-size: 10px;
     spacing: 8px;
 }
 
@@ -124,7 +124,7 @@ QRadioButton {
     background: transparent;
     color: #c3afaf;
     font-family: "DMSans";
-    font-size: 12px;
+    font-size: 10px;
     spacing: 8px;
 }
 
@@ -150,59 +150,81 @@ QRadioButton::indicator:checked {
    ========================================================================== */
 
 QScrollBar:vertical {
-    background: #2a2a2a;
-    width: 10px;
-    margin: 0;
-    border-radius: 5px;
+    background-color: transparent;
+    width: 12px;
+    margin: 0px;
     border: none;
 }
 
 QScrollBar::handle:vertical {
-    background: #404040;
+    background-color: rgba(100, 100, 100, 0.5);
+    border-radius: 6px;
     min-height: 20px;
-    border-radius: 5px;
+    margin: 3px 2px 3px 2px;
+    padding: 0px;
+    border: none;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #515151;
+    background-color: rgba(120, 120, 120, 0.7);
 }
 
-QScrollBar::add-line:vertical,
-QScrollBar::sub-line:vertical {
+QScrollBar::handle:vertical:pressed {
+    background-color: rgba(140, 140, 140, 0.9);
+}
+
+QScrollBar::up-arrow:vertical,
+QScrollBar::down-arrow:vertical {
+    background-color: none;
+}
+
+QScrollBar::add-line:vertical {
+    background-color: none;
     height: 0px;
 }
 
-QScrollBar::add-page:vertical,
-QScrollBar::sub-page:vertical {
-    background: none;
+QScrollBar::sub-line:vertical {
+    background-color: none;
+    height: 0px;
 }
 
 QScrollBar:horizontal {
-    background: #2a2a2a;
-    height: 10px;
-    margin: 0;
-    border-radius: 5px;
+    background-color: transparent;
+    height: 12px;
+    margin: 0px;
     border: none;
 }
 
 QScrollBar::handle:horizontal {
-    background: #404040;
+    background-color: rgba(100, 100, 100, 0.5);
+    border-radius: 6px;
     min-width: 20px;
-    border-radius: 5px;
+    margin: 2px 3px 2px 3px;
+    padding: 0px;
+    border: none;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #515151;
+    background-color: rgba(120, 120, 120, 0.7);
 }
 
-QScrollBar::add-line:horizontal,
-QScrollBar::sub-line:horizontal {
+QScrollBar::handle:horizontal:pressed {
+    background-color: rgba(140, 140, 140, 0.9);
+}
+
+QScrollBar::left-arrow:horizontal,
+QScrollBar::right-arrow:horizontal {
+    background-color: none;
+}
+
+QScrollBar::add-line:horizontal {
+    background-color: none;
     width: 0px;
 }
 
-QScrollBar::add-page:horizontal,
-QScrollBar::sub-page:horizontal {
-    background: none;
+QScrollBar::sub-line:horizontal {
+    background-color: none;
+    width: 0px;
 }
 
 /* ==========================================================================
@@ -282,5 +304,5 @@ QToolTip {
     border-radius: 4px;
     padding: 4px 8px;
     font-family: "DMSans";
-    font-size: 11px;
+    font-size: 10px;
 }

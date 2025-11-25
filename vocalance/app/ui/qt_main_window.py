@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, 
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.ui.components.complex_components import SidebarButton
+from vocalance.app.ui.components.complex_components import HeaderIconButton, SidebarButton
 from vocalance.app.ui.components.labels import BodyLabel, LargeLabel, TitleLabel
 from vocalance.app.ui.components.layouts import BaseContainer, TransparentBox
 from vocalance.app.ui.components.specialized import ExpandableSidebar
@@ -144,12 +144,7 @@ class VocalanceMainWindow(QMainWindow):
         # Create right panel wrapper with outer padding
         right_panel_wrapper = QWidget()
         right_wrapper_layout = QVBoxLayout(right_panel_wrapper)
-        right_wrapper_layout.setContentsMargins(
-            theme.config.container.box_padding,
-            theme.config.container.box_padding,
-            theme.config.container.box_padding,
-            theme.config.container.box_padding,
-        )
+        right_wrapper_layout.setContentsMargins(0, 0, 0, 0)
         right_wrapper_layout.setSpacing(0)
 
         # Create bordered content frame that wraps header + content (transparent border)
@@ -176,15 +171,15 @@ class VocalanceMainWindow(QMainWindow):
 
         # Create content area
         self._create_content_area()
-        self.content_border_frame.add(self.content_widget)
+        self.content_border_frame.add(self.content_widget, stretch=1)
 
         # Add bordered frame to wrapper
-        right_wrapper_layout.addWidget(self.content_border_frame)
+        right_wrapper_layout.addWidget(self.content_border_frame, stretch=1)
 
         main_layout.addWidget(right_panel_wrapper, stretch=1)
 
         # Show initial tab
-        self.show_tab("Marks")
+        self.show_tab("Commands")
 
     def _create_sidebar(self) -> None:
         """Create the expandable sidebar with navigation buttons."""
@@ -223,10 +218,10 @@ class VocalanceMainWindow(QMainWindow):
 
         # Tab definitions
         tabs = [
-            ("Marks", "bookmark_flag_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
-            ("Sounds", "mic_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
             ("Commands", "voice_selection_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
-            ("Dictation", "network_intelligence_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+            ("Marks", "location_on_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+            ("Dictation", "speech_to_text_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
+            ("Sounds", "mic_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
             ("Settings", "settings_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"),
         ]
 
@@ -314,36 +309,81 @@ class VocalanceMainWindow(QMainWindow):
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        # Inner header frame
+        # Inner header frame - now with horizontal layout to accommodate icon button
         header_inner = BaseContainer(
-            layout="vertical",
+            layout="horizontal",
             bg_color=theme.config.shapes.darkest,
             border_color=None,
             border_radius=0,
         )
-        header_inner.setFixedHeight(theme.config.header.height)
 
         header_layout = header_inner.layout()
         header_layout.setContentsMargins(
-            theme.config.header.content_padding_left,
-            theme.config.header.title_y_offset,
-            theme.config.header.content_padding_right,
-            theme.config.spacing.none,
+            theme.config.container.box_padding,
+            0,
+            theme.config.container.box_padding,
+            theme.config.header.padding_bottom,
         )
-        header_layout.setSpacing(theme.config.header.spacing)
+        header_layout.setSpacing(0)
+
+        # Left side: Title and subtitle container
+        title_container = TransparentBox()
+        title_layout = title_container.layout()
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(theme.config.header.spacing)
 
         # Title
         self.header_label = TitleLabel(text="Welcome to Vocalance!")
-        header_layout.addWidget(self.header_label, alignment=Qt.AlignmentFlag.AlignLeft)
+        title_layout.addWidget(self.header_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # Subtitle placeholder
         self.header_subtitle = None
+
+        # Stretch within title container
+        title_layout.addStretch()
+
+        header_layout.addWidget(title_container, stretch=1)
+
+        # Right side: Header icon button
+        self._create_header_icon_button()
+        header_layout.addWidget(self.header_icon_button, alignment=Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignCenter)
+
         self.header_inner = header_inner
 
-        # Stretch
-        header_layout.addStretch()
-
         outer_layout.addWidget(header_inner)
+
+    def _create_header_icon_button(self) -> None:
+        """Create the header icon button with book icon."""
+        from vocalance.app.ui.utils.qt_icon_utils import load_sidebar_icon
+
+        # Load book icon at theme-defined size
+        icon_filename = theme.config.icon_properties.documentation_icon_filename
+        icon_pixmap = load_sidebar_icon(
+            icon_filename=icon_filename,
+            icons_dir=self.asset_cache.get_icons_dir(),
+            target_color=theme.config.blue.blue_1,
+            icon_size=theme.config.header.icon_size,
+        )
+
+        # Create header icon button with text "Documentation"
+        self.header_icon_button = HeaderIconButton(
+            text="User Guide",
+            icon_pixmap=icon_pixmap,
+            icon_size=theme.config.header.icon_size,
+            text_icon_spacing=theme.config.header.text_icon_spacing,
+        )
+
+        # Connect click handler (placeholder for now)
+        self.header_icon_button.clicked.connect(self._on_documentation_clicked)
+
+    def _on_documentation_clicked(self) -> None:
+        """Handle documentation button click - open user guide URL."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        documentation_url = "https://www.vocalance.com/instructions.html"
+        self.logger.info(f"Opening documentation: {documentation_url}")
+        QDesktopServices.openUrl(QUrl(documentation_url))
 
     def _create_content_area(self) -> None:
         """Create the main content area."""
@@ -360,8 +400,11 @@ class VocalanceMainWindow(QMainWindow):
         """Set or update the header subtitle."""
         if not self.header_subtitle:
             self.header_subtitle = BodyLabel(text=text)
-            # Insert after title (index 1)
-            self.header_inner.layout().insertWidget(1, self.header_subtitle, alignment=Qt.AlignmentFlag.AlignLeft)
+            # Get the title container (first widget in header layout)
+            title_container_widget = self.header_inner.layout().itemAt(0).widget()
+            if title_container_widget:
+                # Insert after title (index 1) in the title container's layout
+                title_container_widget.layout().insertWidget(1, self.header_subtitle, alignment=Qt.AlignmentFlag.AlignLeft)
         else:
             self.header_subtitle.setText(text)
 
@@ -629,3 +672,9 @@ class VocalanceMainWindow(QMainWindow):
             self._view_cache["Marks"].set_controller(self.marks_controller)
         if self.sound_controller and "Sounds" in self._view_cache:
             self._view_cache["Sounds"].set_controller(self.sound_controller)
+        if self.commands_controller and "Commands" in self._view_cache:
+            self._view_cache["Commands"].set_controller(self.commands_controller)
+        if self.dictation_controller and "Dictation" in self._view_cache:
+            self._view_cache["Dictation"].set_controller(self.dictation_controller)
+        if self.settings_controller and "Settings" in self._view_cache:
+            self._view_cache["Settings"].set_controller(self.settings_controller)

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QRadioButton, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
+from vocalance.app.ui.components.buttons import DeleteButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import PromptEditDialog
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
@@ -192,12 +192,11 @@ class QtDictationView(QWidget):
         item_layout.addWidget(edit_btn)
 
         # Delete button
-        delete_btn = DangerButton(text="Delete")
-        delete_btn.setFixedWidth(theme.config.components.button_action_width)
         is_default = prompt_data.get("is_default", False)
+        delete_btn = DeleteButton(
+            command=lambda checked, pid=prompt_data.get("id"): self._on_delete_prompt(pid) if not is_default else None
+        )
         delete_btn.setEnabled(not is_default)
-        if not is_default:
-            delete_btn.clicked.connect(lambda checked, pid=prompt_data.get("id"): self._on_delete_prompt(pid))
         item_layout.addWidget(delete_btn)
 
         self.prompts_list_layout.insertWidget(self.prompts_list_layout.count() - 1, item_widget)

@@ -1,10 +1,12 @@
 """Qt theme system with QSS stylesheets and theme management.
 
 Provides centralized theme configuration for PySide6 UI with:
-- Design tokens (Colors, Fonts, Spacing)
-- Container spacing system with clear hierarchy
-- Component styling rules
-- Runtime theme application
+- Design tokens: Text colors (lightest, light, medium), Shape colors (accent through darkest)
+- Blue accent colors for interactive elements
+- Spacing and border radius scales
+- Container and layout spacing hierarchy
+- Component dimensions and positioning
+- Runtime theme application and stylesheet management
 
 SPACING HIERARCHY:
 1. Container Border (1px) - outermost boundary
@@ -25,9 +27,8 @@ from PySide6.QtGui import QFont, QFontDatabase
 class FontSizes:
     """Font size design tokens."""
 
-    small: int = 11
     medium: int = 12
-    large: int = 18
+    large: int = 20
     xlarge: int = 24
     xxlarge: int = 30
 
@@ -36,19 +37,9 @@ class FontSizes:
 class TextColors:
     """Text color design tokens."""
 
-    color_accent: str = "#918f66"
     lightest: str = "#e8d6d6"
     light: str = "#c3afaf"
     medium: str = "#7a7a7a"
-    dark: str = "#a79494"
-    darkest: str = "#1f1f1f"
-    success: str = "#28a745"
-    error: str = "#dc3545"
-    warning: str = "#ffc107"
-    info: str = "#17a2b8"
-    streaming_token: str = "#c79b9b"
-    light_blue_accent: str = "#2b3054"
-
     # Gradient colors for buttons and UI elements
     gradient_colors: list = field(default_factory=lambda: ["#4E98FF", "#F97070"])
     gradient_colors_dark: list = field(default_factory=lambda: ["#5c1a17", "#0d3a6d"])
@@ -59,14 +50,11 @@ class ShapeColors:
     """Shape/background color design tokens."""
 
     accent: str = "#a3a3a3"
-    accent_minus: str = "#7c7c7c"
-    lightest: str = "#515151"
-    light: str = "#404040"
-    medium: str = "#393939"
-    dark: str = "#2a2a2a"
-    darkest: str = "#131313"
-    background: str = "#131313"
-    transparent: str = "transparent"
+    lightest: str = "#504e5c"
+    light: str = "#3c3a45"
+    medium: str = "#313038"
+    dark: str = "#232229"
+    darkest: str = "#1d1c21"
 
 
 @dataclass
@@ -94,12 +82,9 @@ class Spacing:
 class BorderRadius:
     """Border radius design tokens."""
 
-    small: int = 8
-    medium: int = 10
-    large: int = 15
-    rounded: int = 20
-    xlarge: int = 30
-    pill: int = 999  # Use for pill shapes
+    small: int = 4
+    medium: int = 8
+    rounded: int = 15
 
 
 @dataclass
@@ -115,6 +100,7 @@ class ContainerLayout:
     # Box containers (primary content boxes)
     box_padding: int = 20  # Padding from border to content
     box_spacing_between: int = 20  # Space between adjacent boxes
+    box_title_spacing: int = 20  # Space after box title before content
 
     # Content inside boxes
     content_horizontal_margin: int = 0  # Additional horizontal margin for content (titles align with border + padding)
@@ -163,20 +149,12 @@ class ComponentSizes:
     # Progress
     progress_bar_height: int = 5
     progress_bar_width: int = 300
-    training_progress_width: int = 200
-    training_progress_height: int = 20
 
     # Startup Window
     startup_width: int = 500
-    startup_height: int = 250
+    startup_height: int = 200
     startup_logo_size: int = 110
     startup_spinner_width: int = 15
-
-    # Dictation
-    dictation_simple_width: int = 250
-    dictation_simple_height: int = 100
-    dictation_smart_width: int = 1000
-    dictation_smart_height: int = 600
 
 
 @dataclass
@@ -197,6 +175,7 @@ class SidebarLayout:
     logo_padding_top: int = 0
     logo_padding_bottom: int = 30
     border_width: int = 1
+    button_icon_text_spacing: int = 4
 
 
 @dataclass
@@ -210,6 +189,9 @@ class HeaderLayout:
     title_offset_y: int = 10
     title_y_offset: int = 0
     spacing: int = 2  # Reduced spacing between title and subtitle
+    padding_bottom: int = 20  # Space after header content (subtitle)
+    icon_size: int = 55  # Size of header icon button
+    text_icon_spacing: int = 20  # Space between text and icon in header button
 
 
 @dataclass
@@ -219,6 +201,7 @@ class IconProperties:
     icon_logo_filename: str = "grey_icon_full_size.png"
     full_logo_apply_monochrome: bool = False
     icon_logo_apply_monochrome: bool = False
+    documentation_icon_filename: str = "book_4_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.png"
 
 
 @dataclass
@@ -323,11 +306,11 @@ class ThemeManager:
         font = QFont(family, font_size)
 
         if bold or weight == "bold":
-            font.setWeight(QFont.Weight.Bold)
+            font.setWeight(QFont.Weight(550))  # Reduced from Bold (700) by ~14% (DemiBold equivalent)
         elif weight == "semibold":
-            font.setWeight(QFont.Weight.DemiBold)
+            font.setWeight(QFont.Weight(530))  # Reduced from DemiBold (600) by ~17% (Medium equivalent)
         elif weight == "light":
-            font.setWeight(QFont.Weight.Medium)
+            font.setWeight(QFont.Weight(500))
 
         if italic:
             font.setItalic(True)

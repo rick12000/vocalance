@@ -38,6 +38,11 @@ class SidebarButtonManager:
         for btn in self._buttons:
             btn.set_expanded(expanded)
 
+    def set_text_opacity(self, opacity: float):
+        """Set text opacity for all buttons."""
+        for btn in self._buttons:
+            btn.set_text_opacity(opacity)
+
 
 class ExpandableSidebar(QFrame):
     """Sidebar that expands on hover with animation."""
@@ -72,6 +77,11 @@ class ExpandableSidebar(QFrame):
             anim.setDuration(theme.config.sidebar.animation_duration)
             anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
+        # Track animation progress
+        self._anim_min.valueChanged.connect(self._on_width_changed)
+        self._anim_min.finished.connect(self._on_animation_finished)
+        self._expanding = False
+
     def add_widget(self, widget: QWidget):
         """Add widget to sidebar layout."""
         self._layout.addWidget(widget)
@@ -96,13 +106,44 @@ class ExpandableSidebar(QFrame):
         Args:
             expand: True to expand, False to collapse
         """
+        self._expanding = expand
         target_width = self.expanded_width if expand else self.collapsed_width
 
         self._anim_min.setEndValue(target_width)
         self._anim_max.setEndValue(target_width)
 
+        if expand:
+            # Show text immediately but transparent
+            self.manager.set_expanded(True)
+            self.manager.set_text_opacity(0.0)
+
         self._anim_min.start()
         self._anim_max.start()
 
-        # Update button text visibility
-        self.manager.set_expanded(expand)
+        # Update button text visibility is handled in _on_animation_finished for collapse
+
+    def _on_width_changed(self, value):
+        """Handle width animation progress."""
+        current_width = int(value)
+
+        # Calculate progress
+        total_delta = self.expanded_width - self.collapsed_width
+        if total_delta <= 0:
+            return
+
+        progress = (current_width - self.collapsed_width) / total_delta
+        # Clamp progress
+        progress = max(0.0, min(1.0, progress))
+
+        # Update opacity
+        self.manager.set_text_opacity(progress)
+
+    def _on_animation_finished(self):
+        """Handle animation completion."""
+        if not self._expanding:
+            # If collapsed, hide text completely
+            self.manager.set_expanded(False)
+            self.manager.set_text_opacity(0.0)
+        else:
+            # Ensure fully visible
+            self.manager.set_text_opacity(1.0)

@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
+from vocalance.app.ui.components.buttons import DangerButton, DeleteButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import BaseDialog
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
@@ -343,9 +343,7 @@ class QtSoundsView(QtBaseView):
                 item_layout.addWidget(map_btn)
 
                 # Delete button
-                delete_btn = DangerButton(text="Delete")
-                delete_btn.setFixedWidth(theme.config.components.button_action_width)
-                delete_btn.clicked.connect(lambda checked, s=sound_name: self._on_delete_sound(s))
+                delete_btn = DeleteButton(command=lambda checked, s=sound_name: self._on_delete_sound(s))
                 item_layout.addWidget(delete_btn)
 
                 self.sounds_list_layout.addWidget(item_widget)

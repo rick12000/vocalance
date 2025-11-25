@@ -3,12 +3,15 @@
 Each button class inherits from QPushButton and applies its own styling.
 Primary and Danger buttons use custom paintEvent for complex rendering.
 GhostButton uses stylesheet for simple transparent styling.
+ChangeButton and DeleteButton are circular icon-based variants.
 """
 
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -91,9 +94,9 @@ class PrimaryButton(QPushButton):
 
         # Determine background color based on state
         if self._is_pressed:
-            bg_color = QColor(theme.config.blue.blue_1).darker(120)
+            bg_color = QColor(theme.config.shapes.darkest)
         elif self._is_hovered:
-            bg_color = QColor(theme.config.blue.blue_1).lighter(120)
+            bg_color = QColor(theme.config.blue.blue_1)
         else:
             bg_color = QColor(theme.config.blue.blue_1)
 
@@ -183,9 +186,9 @@ class DangerButton(QPushButton):
 
         # Determine fill based on state
         if self._is_pressed:
-            painter.fillPath(bg_path, QColor(theme.config.shapes.medium))
+            painter.fillPath(bg_path, Qt.GlobalColor.transparent)
         elif self._is_hovered:
-            painter.fillPath(bg_path, QColor(theme.config.shapes.light))
+            painter.fillPath(bg_path, Qt.GlobalColor.transparent)
         else:
             painter.fillPath(bg_path, Qt.GlobalColor.transparent)
 
@@ -193,12 +196,12 @@ class DangerButton(QPushButton):
         border_path = QPainterPath()
         border_path.addRoundedRect(0.5, 0.5, self.width() - 1, self.height() - 1, self._border_radius, self._border_radius)
 
-        pen = QPen(QColor(theme.config.blue.blue_1), 1.0)
+        pen = QPen(QColor(theme.config.shapes.lightest), 1.0)
         painter.setPen(pen)
         painter.drawPath(border_path)
 
         # Draw text with blue_2 color
-        painter.setPen(QColor(theme.config.blue.blue_2))
+        painter.setPen(QColor(theme.config.shapes.accent))
         painter.setFont(self.font())
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
@@ -255,3 +258,178 @@ class GhostButton(QPushButton):
         # Connect command if provided
         if command:
             self.clicked.connect(command)
+
+
+def _create_recolored_renderer(svg_path: str, color: str) -> QSvgRenderer:
+    """Load an SVG icon, recolor it, and return a renderer.
+
+    This allows rendering the SVG directly to the painter for maximum crispness
+    at any DPI or scale, avoiding rasterization artifacts.
+
+    Args:
+        svg_path: Path to the SVG file
+        color: Hex color string (e.g., "#a8c7fa")
+
+    Returns:
+        QSvgRenderer initialized with recolored SVG data
+    """
+    from PySide6.QtCore import QByteArray
+
+    # Read SVG file
+    svg_file = Path(svg_path)
+    if not svg_file.exists():
+        return QSvgRenderer()
+
+    svg_content = svg_file.read_text(encoding="utf-8")
+
+    # Replace fill color in SVG
+    svg_content = svg_content.replace('fill="#e3e3e3"', f'fill="{color}"')
+    svg_content = svg_content.replace('fill="#E3E3E3"', f'fill="{color}"')
+
+    # Create renderer with modified content
+    renderer = QSvgRenderer(QByteArray(svg_content.encode("utf-8")))
+    return renderer
+
+
+class ChangeButton(PrimaryButton):
+    """Circular icon button with add icon, inherits styling from PrimaryButton.
+
+    Uses the add icon and renders as a perfect circle instead of pill shape.
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        command=None,
+    ):
+        # Initialize with empty text
+        super().__init__("", parent, command)
+
+        # Calculate size: same height as primary button (24px)
+        button_size = theme.config.components.button_height
+        self.setFixedSize(button_size, button_size)
+
+        # CRITICAL: Remove all content margins to ensure proper centering
+        self.setContentsMargins(0, 0, 0, 0)
+
+        # Override border radius to make it circular (half of button size)
+        self._border_radius = button_size // 2
+
+        # Set up icon
+        assets_dir = Path(__file__).parent.parent.parent / "assets" / "icons"
+        icon_path = assets_dir / "add_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.svg"
+
+        # Create vector renderer
+        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.blue.blue_2)
+
+    def paintEvent(self, event):
+        """Custom paint for circular button with icon."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Use exact dimensions from self.rect() to match the widget geometry
+        rect = self.rect()
+        width = rect.width()
+        height = rect.height()
+
+        # Create circular path
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
+
+        # Determine background color based on state
+        if self._is_pressed:
+            bg_color = QColor(theme.config.shapes.darkest)
+        elif self._is_hovered:
+            bg_color = QColor(theme.config.blue.blue_1)
+        else:
+            bg_color = QColor(theme.config.blue.blue_1)
+
+        # Fill background
+        painter.fillPath(path, bg_color)
+
+        # Draw icon centered using vector renderer
+        if self._renderer.isValid():
+            # Calculate target icon size (60% of button)
+            icon_dim = int(width * 0.6)
+
+            # Calculate centered rect
+            x_pos = (width - icon_dim) / 2.0
+            y_pos = (height - icon_dim) / 2.0
+
+            from PySide6.QtCore import QRectF
+
+            target_rect = QRectF(x_pos, y_pos, icon_dim, icon_dim)
+
+            self._renderer.render(painter, target_rect)
+
+
+class DeleteButton(DangerButton):
+    """Circular icon button with delete icon, inherits styling from DangerButton.
+
+    Uses the delete icon and renders as a perfect circle instead of pill shape.
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        command=None,
+    ):
+        # Initialize with empty text
+        super().__init__("", parent, command)
+
+        # Calculate size: same height as danger button (24px)
+        button_size = theme.config.components.button_height
+        self.setFixedSize(button_size, button_size)
+
+        # CRITICAL: Remove all content margins to ensure proper centering
+        self.setContentsMargins(0, 0, 0, 0)
+
+        # Override border radius to make it circular (half of button size)
+        self._border_radius = button_size // 2
+
+        # Set up icon
+        assets_dir = Path(__file__).parent.parent.parent / "assets" / "icons"
+        icon_path = assets_dir / "delete_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.svg"
+
+        # Create vector renderer
+        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.shapes.accent)
+
+    def paintEvent(self, event):
+        """Custom paint for circular danger button with icon."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Use exact dimensions from self.rect()
+        rect = self.rect()
+        width = rect.width()
+        height = rect.height()
+
+        # Create circular path for background using explicit coordinates
+        bg_path = QPainterPath()
+        bg_path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
+
+        # Background is always transparent
+        painter.fillPath(bg_path, Qt.GlobalColor.transparent)
+
+        # Draw 1px border with lightest color
+        border_path = QPainterPath()
+        border_path.addRoundedRect(0.5, 0.5, width - 1, height - 1, self._border_radius, self._border_radius)
+
+        pen = QPen(QColor(theme.config.shapes.lightest), 1.0)
+        painter.setPen(pen)
+        painter.drawPath(border_path)
+
+        # Draw icon centered using vector renderer
+        if self._renderer.isValid():
+            # Calculate target icon size (60% of button)
+            icon_dim = int(width * 0.6)
+
+            # Calculate centered rect
+            x_pos = (width - icon_dim) / 2.0
+            y_pos = (height - icon_dim) / 2.0
+
+            from PySide6.QtCore import QRectF
+
+            target_rect = QRectF(x_pos, y_pos, icon_dim, icon_dim)
+
+            self._renderer.render(painter, target_rect)

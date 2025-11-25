@@ -9,7 +9,7 @@ from typing import List, Optional
 from PySide6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.events.mark_events import MarkData
-from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
+from vocalance.app.ui.components.buttons import DangerButton, DeleteButton, PrimaryButton
 from vocalance.app.ui.components.complex_components import Tile
 from vocalance.app.ui.components.dialogs import askyesno
 from vocalance.app.ui.components.labels import SmallLabel
@@ -71,13 +71,12 @@ class QtMarksView(QWidget):
         """Setup instructions panel in left content area."""
         content = self.layout.left_content
 
-        content.add(Tile("Create Mark", "Say 'Mark [name]' to create a mark\nat the current cursor position"))
-        content.add(Tile("Navigate", "Say the mark's [name] to automatically click\nat that position"))
+        content.add(Tile("Create Mark", "Say 'Mark [name]' to create a mark\nat the current cursor position"), stretch=1)
+        content.add(Tile("Navigate", "Say the mark's [name] to automatically click\nat that position"), stretch=1)
         content.add(
-            Tile("Manage Marks", "Use the right panel to visualize and delete marks,\nor say 'show marks' to see them on screen")
+            Tile("Manage Marks", "Use the right panel to visualize and delete marks,\nor say 'show marks' to see them on screen"),
+            stretch=1,
         )
-
-        content.add_stretch()
 
     def _setup_marks_panel(self) -> None:
         """Setup marks management panel in right content area."""
@@ -119,12 +118,11 @@ class QtMarksView(QWidget):
         row = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
 
         # Mark label
-        label = SmallLabel(f"{mark.name}", color=theme.config.text.lightest)
+        label = SmallLabel(f"{mark.name}", color=theme.config.text.medium)
         row.add(label, stretch=1)
 
         # Delete button
-        delete_btn = DangerButton("Delete", command=lambda: self._on_delete_mark(mark.name))
-        delete_btn.setFixedWidth(80)
+        delete_btn = DeleteButton(command=lambda: self._on_delete_mark(mark.name))
         row.add(delete_btn)
 
         return row

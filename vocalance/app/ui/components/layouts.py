@@ -79,7 +79,8 @@ class BaseContainer(QFrame):
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, QColor(self._bg_color))
         self.setPalette(palette)
-        self.setAutoFillBackground(True)
+        # Don't auto-fill - we handle all painting in paintEvent
+        self.setAutoFillBackground(False)
 
         # Remove default frame styling
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -116,17 +117,23 @@ class BaseContainer(QFrame):
         """Custom paint for border and rounded corners."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        # Draw background
+        # Draw background with rounded corners
         bg_color = self.palette().color(QPalette.ColorRole.Window)
         path = QPainterPath()
-        path.addRoundedRect(0, 0, self.width(), self.height(), self._border_radius, self._border_radius)
+        path.addRoundedRect(0.5, 0.5, self.width() - 1, self.height() - 1, self._border_radius, self._border_radius)
+
+        # Fill the background
         painter.fillPath(path, bg_color)
 
         # Draw border if specified
         if self._border_color:
             painter.setPen(QColor(self._border_color))
-            painter.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, self._border_radius, self._border_radius)
+            painter.drawPath(path)
+
+        # Let parent handle child widget painting
+        painter.end()
 
 
 class Box(BaseContainer):
@@ -139,8 +146,8 @@ class Box(BaseContainer):
         super().__init__(
             parent=parent,
             layout=layout,
-            bg_color=theme.config.shapes.darkest,
-            border_color=theme.config.shapes.medium,
+            bg_color=theme.config.shapes.dark,
+            border_color=None,
             border_radius=theme.config.radius.rounded,
         )
 
@@ -295,14 +302,64 @@ class ScrollableContainer(QFrame):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
 
-        # Make scroll area transparent
-        palette = self.scroll_area.palette()
-        palette.setColor(QPalette.ColorRole.Base, QColor("transparent"))
-        palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
-        palette.setColor(QPalette.ColorRole.AlternateBase, QColor("transparent"))
-        self.scroll_area.setPalette(palette)
-        self.scroll_area.setAutoFillBackground(False)
-        self.scroll_area.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        # Apply scrollbar styling directly via inline stylesheet
+        # This overrides any palette/attribute settings for scrollbars specifically
+        self.scroll_area.setStyleSheet(
+            """
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: transparent;
+                width: 12px;
+                margin: 0px;
+                border: none;
+            }
+            QScrollBar::handle:vertical {
+                background-color: rgba(100, 100, 100, 0.5);
+                border-radius: 6px;
+                min-height: 20px;
+                margin: 3px 2px 3px 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: rgba(120, 120, 120, 0.7);
+            }
+            QScrollBar::handle:vertical:pressed {
+                background-color: rgba(140, 140, 140, 0.9);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background-color: transparent;
+                height: 12px;
+                margin: 0px;
+                border: none;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: rgba(100, 100, 100, 0.5);
+                border-radius: 6px;
+                min-width: 20px;
+                margin: 2px 3px 2px 3px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: rgba(120, 120, 120, 0.7);
+            }
+            QScrollBar::handle:horizontal:pressed {
+                background-color: rgba(140, 140, 140, 0.9);
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
+        """
+        )
 
         # Replace the viewport with a transparent one BEFORE adding content
         transparent_viewport = TransparentViewport()
@@ -363,12 +420,16 @@ class TwoColumnLayout(QWidget):
         if left_title:
             title_label = BoxTitleLabel(left_title)
             self.left_box.add(title_label)
+            # Add extra spacing after title
+            self.left_box.layout().addSpacing(theme.config.container.box_title_spacing)
 
         # Right Box
         self.right_box = Box(layout="vertical")
         if right_title:
             title_label = BoxTitleLabel(right_title)
             self.right_box.add(title_label)
+            # Add extra spacing after title
+            self.right_box.layout().addSpacing(theme.config.container.box_title_spacing)
 
         # Content areas
         self.left_content = ContentArea()

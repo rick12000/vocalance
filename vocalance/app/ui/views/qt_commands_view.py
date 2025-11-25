@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from PySide6.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.config.command_types import AutomationCommand
-from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
+from vocalance.app.ui.components.buttons import ChangeButton, DangerButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import CommandEditDialog
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
@@ -198,12 +198,10 @@ class QtCommandsView(QtBaseView):
         """Create a command list item."""
         item = ListItem()
 
-        phrase_label = SmallLabel(command.command_key, color=theme.config.text.lightest)
+        phrase_label = SmallLabel(command.command_key, color=theme.config.text.medium)
         item.add(phrase_label, stretch=1)
 
-        change_btn = PrimaryButton(text="Change")
-        change_btn.setFixedWidth(90)
-        change_btn.clicked.connect(lambda checked, c=command: self._on_change_command(c))
+        change_btn = ChangeButton(command=lambda checked, c=command: self._on_change_command(c))
         item.add(change_btn)
 
         self.commands_list_layout.addWidget(item)

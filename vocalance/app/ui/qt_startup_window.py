@@ -92,11 +92,11 @@ class StartupWindow(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         # Store border radius for painting
-        self.border_radius = theme.config.radius.large
+        self.border_radius = theme.config.radius.rounded
 
         # Apply theme colors programmatically (for content inside rounded box)
         palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.background))
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
         self.setPalette(palette)
 
         # Main layout
@@ -148,7 +148,7 @@ class StartupWindow(QDialog):
 
         # Status text
         self.text_label = QLabel("Starting up", self)
-        font = theme.get_font(size=theme.config.fonts.small)
+        font = theme.get_font(size=theme.config.fonts.medium)
         self.text_label.setFont(font)
         palette = self.text_label.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.shapes.light))
@@ -195,7 +195,7 @@ class StartupWindow(QDialog):
         path.addRoundedRect(0, 0, self.width(), self.height(), self.border_radius, self.border_radius)
 
         # Fill with background color
-        painter.fillPath(path, QColor(theme.config.shapes.background))
+        painter.fillPath(path, QColor(theme.config.shapes.darkest))
 
         # Don't call super().paintEvent() to avoid double painting
         # The layout will handle drawing the content
