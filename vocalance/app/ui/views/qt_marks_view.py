@@ -1,17 +1,19 @@
 """Qt-based marks management view.
 
-Displays marks with management capabilities matching legacy layout using TwoColumnLayout.
+Displays marks with management capabilities using new component subclasses.
 """
 
 import logging
 from typing import List, Optional
 
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.events.mark_events import MarkData
+from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
 from vocalance.app.ui.components.complex_components import Tile
+from vocalance.app.ui.components.dialogs import askyesno
+from vocalance.app.ui.components.labels import SmallLabel
 from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentBox, TwoColumnLayout
-from vocalance.app.ui.components.simple_components import Button, Label
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -34,7 +36,7 @@ class QtMarksView(QWidget):
         self.controller = None
         self.marks_list: List[MarkData] = []
 
-        # Setup main layout - zero margins/spacing like QtBaseView
+        # Setup main layout
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
@@ -59,11 +61,9 @@ class QtMarksView(QWidget):
 
     def _setup_ui(self) -> None:
         """Build UI with TwoColumnLayout."""
-        # Create two-column layout with titles
         self.layout = TwoColumnLayout("Instructions", "Manage Marks", self)
         self.main_layout.addWidget(self.layout, stretch=1)
 
-        # Setup instruction panels
         self._setup_instructions_panel()
         self._setup_marks_panel()
 
@@ -71,7 +71,6 @@ class QtMarksView(QWidget):
         """Setup instructions panel in left content area."""
         content = self.layout.left_content
 
-        # Instruction tiles - use ContentArea.add() for systematic spacing
         content.add(Tile("Create Mark", "Say 'Mark [name]' to create a mark\nat the current cursor position"))
         content.add(Tile("Navigate", "Say the mark's [name] to automatically click\nat that position"))
         content.add(
@@ -84,24 +83,23 @@ class QtMarksView(QWidget):
         """Setup marks management panel in right content area."""
         content = self.layout.right_content
 
-        # Marks list container with scroll area - use ContentArea.add() for systematic spacing
+        # Marks list container with scroll area
         self.marks_scroll = ScrollableContainer()
         content.add(self.marks_scroll, stretch=1)
 
         # Button row
         button_box = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
 
-        self.show_overlay_btn = Button(text="Show Marks", command=self._on_show_overlay_clicked)
+        self.show_overlay_btn = PrimaryButton(text="Show Marks", command=self._on_show_overlay_clicked)
         button_box.add(self.show_overlay_btn)
 
-        self.delete_all_btn = Button(text="Reset", variant="danger", command=self._on_delete_all_clicked)
+        self.delete_all_btn = DangerButton(text="Reset", command=self._on_delete_all_clicked)
         button_box.add(self.delete_all_btn)
 
         content.add(button_box)
 
     def _display_marks(self, marks: List[MarkData]) -> None:
         """Display marks in the list."""
-        # Clear existing marks - ScrollableContainer has a content_widget/layout
         layout = self.marks_scroll.content_layout
 
         # Clear widgets
@@ -118,15 +116,14 @@ class QtMarksView(QWidget):
 
     def _create_mark_widget(self, mark: MarkData) -> QWidget:
         """Create a widget for a single mark."""
-        # Using a TransparentBox as a row
         row = TransparentBox(layout="horizontal", spacing=theme.config.spacing.small)
 
-        # Mark label - smaller font
-        label = Label(f"{mark.name}", variant="small", color=theme.config.text.lightest)
+        # Mark label
+        label = SmallLabel(f"{mark.name}", color=theme.config.text.lightest)
         row.add(label, stretch=1)
 
         # Delete button
-        delete_btn = Button("Delete", variant="danger", command=lambda: self._on_delete_mark(mark.name))
+        delete_btn = DangerButton("Delete", command=lambda: self._on_delete_mark(mark.name))
         delete_btn.setFixedWidth(80)
         row.add(delete_btn)
 
@@ -141,12 +138,6 @@ class QtMarksView(QWidget):
         """Handle delete all button click."""
         if not self.marks_list:
             return
-
-        # Confirm deletion
-        from vocalance.app.ui.components.dialogs import askyesno
-
-        # NOTE: qt_themed_dialogs needs to be checked if it's still valid or needs refactor
-        # For now, assuming it works or using QMessageBox
 
         confirmed = askyesno("Are you sure you want to delete all marks?", parent=self)
 
@@ -170,30 +161,21 @@ class QtMarksView(QWidget):
 
     def _on_mark_created(self, name: str, x: int, y: int) -> None:
         """Handle mark created event."""
-        try:
-            if self.controller:
-                self.controller.refresh_marks()
-            self.logger.info(f"Mark created: {name}")
-        except Exception as e:
-            self.logger.error(f"Error handling mark created: {e}", exc_info=True)
+        if self.controller:
+            self.controller.refresh_marks()
+        self.logger.info(f"Mark created: {name}")
 
     def _on_mark_deleted(self, name: str) -> None:
         """Handle mark deleted event."""
-        try:
-            if self.controller:
-                self.controller.refresh_marks()
-            self.logger.info(f"Mark deleted: {name}")
-        except Exception as e:
-            self.logger.error(f"Error handling mark deleted: {e}", exc_info=True)
+        if self.controller:
+            self.controller.refresh_marks()
+        self.logger.info(f"Mark deleted: {name}")
 
     def _on_all_deleted(self) -> None:
         """Handle all marks deleted event."""
-        try:
-            self.marks_list = []
-            self._display_marks([])
-            self.logger.info("All marks deleted")
-        except Exception as e:
-            self.logger.error(f"Error handling all marks deleted: {e}", exc_info=True)
+        self.marks_list = []
+        self._display_marks([])
+        self.logger.info("All marks deleted")
 
     def _on_error(self, error_message: str) -> None:
         """Handle error from controller."""
@@ -202,7 +184,4 @@ class QtMarksView(QWidget):
 
     def _show_error(self, message: str) -> None:
         """Show error message dialog."""
-        # Using standard MessageBox for now if dialogs not refactored
-        from PySide6.QtWidgets import QMessageBox
-
         QMessageBox.critical(self, "Error", message)

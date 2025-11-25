@@ -15,8 +15,8 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.ui.components.complex_components import SidebarButton
+from vocalance.app.ui.components.labels import BodyLabel, LargeLabel, TitleLabel
 from vocalance.app.ui.components.layouts import BaseContainer, TransparentBox
-from vocalance.app.ui.components.simple_components import Label
 from vocalance.app.ui.components.specialized import ExpandableSidebar
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
@@ -333,7 +333,7 @@ class VocalanceMainWindow(QMainWindow):
         header_layout.setSpacing(theme.config.header.spacing)
 
         # Title
-        self.header_label = Label(text="Welcome to Vocalance!", variant="title")
+        self.header_label = TitleLabel(text="Welcome to Vocalance!")
         header_layout.addWidget(self.header_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # Subtitle placeholder
@@ -359,7 +359,7 @@ class VocalanceMainWindow(QMainWindow):
     def _set_header_subtitle(self, text: str) -> None:
         """Set or update the header subtitle."""
         if not self.header_subtitle:
-            self.header_subtitle = Label(text=text, variant="body")
+            self.header_subtitle = BodyLabel(text=text)
             # Insert after title (index 1)
             self.header_inner.layout().insertWidget(1, self.header_subtitle, alignment=Qt.AlignmentFlag.AlignLeft)
         else:
@@ -456,7 +456,7 @@ class VocalanceMainWindow(QMainWindow):
 
         placeholder = FallbackView()
         layout = QVBoxLayout(placeholder)
-        label = Label(f"{tab_name} View\n(Fallback - check logs for errors)", variant="large")
+        label = LargeLabel(f"{tab_name} View\n(Fallback - check logs for errors)")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
         return placeholder

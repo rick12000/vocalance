@@ -246,6 +246,51 @@ class ThemeManager:
     def __init__(self):
         self.config = ThemeConfig()
         self._loaded_fonts = set()
+        self._stylesheet: str = ""
+
+    def load_stylesheet(self, qss_path: str = None) -> str:
+        """Load the centralized QSS stylesheet.
+
+        Args:
+            qss_path: Optional path to QSS file. If None, uses default location.
+
+        Returns:
+            The loaded stylesheet content.
+        """
+        if qss_path is None:
+            # Default location is alongside this module
+            qss_path = Path(__file__).parent / "styles.qss"
+        else:
+            qss_path = Path(qss_path)
+
+        if qss_path.exists():
+            self._stylesheet = qss_path.read_text(encoding="utf-8")
+        else:
+            self._stylesheet = ""
+
+        return self._stylesheet
+
+    def apply_stylesheet(self, app) -> None:
+        """Apply the loaded stylesheet to a QApplication.
+
+        Args:
+            app: QApplication instance to apply stylesheet to.
+        """
+        if not self._stylesheet:
+            self.load_stylesheet()
+
+        if self._stylesheet:
+            app.setStyleSheet(self._stylesheet)
+
+    def get_stylesheet(self) -> str:
+        """Get the loaded stylesheet content.
+
+        Returns:
+            The stylesheet string, loading it if necessary.
+        """
+        if not self._stylesheet:
+            self.load_stylesheet()
+        return self._stylesheet
 
     def load_fonts(self, fonts_dir: str) -> None:
         """Load fonts from a directory."""

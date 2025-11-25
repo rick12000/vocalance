@@ -1,0 +1,286 @@
+/*
+ * Vocalance Centralized QSS Stylesheet
+ *
+ * This file defines default styles for ALL Qt built-in components used in the UI.
+ * Component subclasses override only what differs from these defaults using their
+ * own class name as the selector.
+ *
+ * Design Tokens Reference (from qt_theme.py):
+ * - Font: DMSans
+ * - Text Colors: lightest=#e8d6d6, light=#c3afaf, medium=#7a7a7a
+ * - Shape Colors: darkest=#131313, dark=#2a2a2a, medium=#393939, light=#404040
+ * - Blue Colors: blue_1=#1f3760, blue_2=#a8c7fa
+ * - Border Radius: small=8, medium=10, large=15, rounded=20
+ */
+
+/* ==========================================================================
+   BASE WIDGET DEFAULTS
+   ========================================================================== */
+
+QWidget {
+    background: transparent;
+    font-family: "DMSans";
+    font-size: 12px;
+    color: #c3afaf;
+}
+
+/* ==========================================================================
+   LABELS
+   ========================================================================== */
+
+QLabel {
+    background: transparent;
+    color: #c3afaf;
+    font-family: "DMSans";
+    font-size: 12px;
+}
+
+/* ==========================================================================
+   BUTTONS
+   ========================================================================== */
+
+QPushButton {
+    background-color: #a3a3a3;
+    color: #131313;
+    border: none;
+    border-radius: 12px;
+    padding: 2px 16px;
+    font-family: "DMSans";
+    font-size: 11px;
+    font-weight: 600;
+    min-height: 24px;
+}
+
+QPushButton:hover {
+    background-color: #515151;
+}
+
+QPushButton:pressed {
+    background-color: #7c7c7c;
+}
+
+QPushButton:disabled {
+    background-color: #393939;
+    color: #404040;
+}
+
+/* ==========================================================================
+   LINE EDITS / TEXT INPUTS
+   ========================================================================== */
+
+QLineEdit {
+    background-color: transparent;
+    color: #c3afaf;
+    border: 1px solid #404040;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-family: "DMSans";
+    font-size: 11px;
+    min-height: 35px;
+}
+
+QLineEdit:focus {
+    border-color: #515151;
+}
+
+QLineEdit::placeholder {
+    color: #7a7a7a;
+}
+
+/* ==========================================================================
+   CHECKBOXES
+   ========================================================================== */
+
+QCheckBox {
+    background: transparent;
+    color: #c3afaf;
+    font-family: "DMSans";
+    font-size: 12px;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #404040;
+    border-radius: 4px;
+    background-color: #131313;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #515151;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #a3a3a3;
+    border-color: #a3a3a3;
+}
+
+/* ==========================================================================
+   RADIO BUTTONS
+   ========================================================================== */
+
+QRadioButton {
+    background: transparent;
+    color: #c3afaf;
+    font-family: "DMSans";
+    font-size: 12px;
+    spacing: 8px;
+}
+
+QRadioButton::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #404040;
+    border-radius: 9px;
+    background-color: #131313;
+}
+
+QRadioButton::indicator:hover {
+    border-color: #515151;
+}
+
+QRadioButton::indicator:checked {
+    background-color: #a3a3a3;
+    border-color: #a3a3a3;
+}
+
+/* ==========================================================================
+   SCROLL BARS
+   ========================================================================== */
+
+QScrollBar:vertical {
+    background: #2a2a2a;
+    width: 10px;
+    margin: 0;
+    border-radius: 5px;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background: #404040;
+    min-height: 20px;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #515151;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    background: #2a2a2a;
+    height: 10px;
+    margin: 0;
+    border-radius: 5px;
+    border: none;
+}
+
+QScrollBar::handle:horizontal {
+    background: #404040;
+    min-width: 20px;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #515151;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+/* ==========================================================================
+   SCROLL AREA
+   ========================================================================== */
+
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+/* ==========================================================================
+   FRAMES
+   ========================================================================== */
+
+QFrame {
+    background: transparent;
+    border: none;
+}
+
+/* ==========================================================================
+   DIALOGS
+   ========================================================================== */
+
+QDialog {
+    background-color: #131313;
+    color: #c3afaf;
+    font-family: "DMSans";
+}
+
+/* ==========================================================================
+   MESSAGE BOXES
+   ========================================================================== */
+
+QMessageBox {
+    background-color: #131313;
+    color: #c3afaf;
+    font-family: "DMSans";
+}
+
+QMessageBox QLabel {
+    color: #c3afaf;
+}
+
+QMessageBox QPushButton {
+    min-width: 80px;
+}
+
+/* ==========================================================================
+   STACKED WIDGET
+   ========================================================================== */
+
+QStackedWidget {
+    background: transparent;
+}
+
+/* ==========================================================================
+   MAIN WINDOW
+   ========================================================================== */
+
+QMainWindow {
+    background-color: #131313;
+}
+
+/* ==========================================================================
+   TOOL TIP
+   ========================================================================== */
+
+QToolTip {
+    background-color: #2a2a2a;
+    color: #e8d6d6;
+    border: 1px solid #393939;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: "DMSans";
+    font-size: 11px;
+}

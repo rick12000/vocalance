@@ -586,8 +586,7 @@ class QtDictationPopupView(QMainWindow):
         if not self.isVisible():
             self.show()
             self.raise_()
-            self.activateWindow()  # Ensure window is at top level
-            # Don't call setFocus() to prevent stealing focus from user's current task
+            # Don't call activateWindow() or setFocus() to prevent stealing focus from user's current task
             self.logger.debug(f"Dictation popup shown in {self.current_mode} mode")
 
     def _show_window_with_animation(self) -> None:
@@ -629,7 +628,7 @@ class QtDictationPopupView(QMainWindow):
         self.setWindowOpacity(0.0)
         self.show()
         self.raise_()
-        self.activateWindow()
+        # Don't call activateWindow() to prevent stealing focus from user's current task
 
         self.logger.info(f"Animation: starting y={start_geom.y()}, target y={target_geom.y()}, mode={self.current_mode}")
 

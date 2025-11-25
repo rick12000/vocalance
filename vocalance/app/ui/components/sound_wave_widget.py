@@ -1,11 +1,46 @@
 import math
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QBrush, QPainter
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter
 from PySide6.QtWidgets import QWidget
 
-from vocalance.app.ui.components.primitives import _create_gradient
 from vocalance.app.ui.qt_theme import theme
+
+
+def _create_gradient(width: int, colors: list) -> QLinearGradient:
+    """Create smooth linear gradient with blended transitions."""
+    gradient = QLinearGradient(0, 0, width, 0)
+    if not colors:
+        return gradient
+
+    num = len(colors)
+    if num == 1:
+        gradient.setColorAt(0, QColor(colors[0]))
+        return gradient
+
+    # For 2+ colors, add intermediate stops for smoother blending
+    stops_per_color = 5
+
+    for i, color in enumerate(colors):
+        pos = i / (num - 1)
+        gradient.setColorAt(pos, QColor(color))
+
+        if i < num - 1:
+            next_color = QColor(colors[i + 1])
+            current = QColor(color)
+
+            for step in range(1, stops_per_color):
+                blend_pos = pos + (1 / (num - 1)) * (step / stops_per_color)
+                blend_ratio = step / stops_per_color
+
+                blended = QColor(
+                    int(current.red() * (1 - blend_ratio) + next_color.red() * blend_ratio),
+                    int(current.green() * (1 - blend_ratio) + next_color.green() * blend_ratio),
+                    int(current.blue() * (1 - blend_ratio) + next_color.blue() * blend_ratio),
+                )
+                gradient.setColorAt(blend_pos, blended)
+
+    return gradient
 
 
 class SoundWaveWidget(QWidget):

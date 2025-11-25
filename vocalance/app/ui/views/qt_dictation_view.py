@@ -1,95 +1,24 @@
-"""Qt-based dictation view - FULLY INTEGRATED WITH PROMPTS MANAGEMENT.
+"""Qt-based dictation view.
 
 Displays dictation prompts management with add/edit/delete/select capabilities.
+Uses new component subclasses and dialogs from components module.
 """
 
 import logging
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QRadioButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QRadioButton, QVBoxLayout, QWidget
 
+from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
+from vocalance.app.ui.components.dialogs import PromptEditDialog
+from vocalance.app.ui.components.inputs import TextInput
+from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
 from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentWidget, TwoColumnLayout
-from vocalance.app.ui.components.simple_components import Button, Input, Label
 from vocalance.app.ui.qt_theme import theme
 
 
-class PromptEditDialog(QDialog):
-    """Dialog for editing prompts."""
-
-    def __init__(self, prompt_data: Dict[str, Any], parent: Optional[QWidget] = None):
-        super().__init__(parent)
-
-        self.prompt_data = prompt_data
-        self.result_saved = False
-        self.new_name = None
-        self.new_text = None
-
-        self.setWindowTitle(f"Edit: {prompt_data.get('name', 'Unnamed')}")
-        self.setModal(True)
-        self.setMinimumSize(500, 400)
-
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        """Build the dialog UI."""
-        layout = QVBoxLayout(self)
-        layout.setSpacing(theme.config.spacing.medium)
-        layout.setContentsMargins(
-            theme.config.container.box_padding,
-            theme.config.container.box_padding,
-            theme.config.container.box_padding,
-            theme.config.container.box_padding,
-        )
-
-        # Title input
-        layout.addWidget(QLabel("Prompt Title:"))
-        self.title_entry = QLineEdit()
-        self.title_entry.setText(self.prompt_data.get("name", ""))
-        layout.addWidget(self.title_entry)
-
-        # Prompt instructions
-        layout.addWidget(QLabel("Prompt Instructions:"))
-        self.prompt_textbox = QLineEdit()
-        self.prompt_textbox.setText(self.prompt_data.get("text", ""))
-        layout.addWidget(self.prompt_textbox)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(theme.config.spacing.medium)
-
-        save_btn = Button(text="Save Changes", variant="primary")
-        save_btn.clicked.connect(self._on_save)
-        button_layout.addWidget(save_btn)
-
-        cancel_btn = Button(text="Cancel", variant="danger")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_btn)
-
-        layout.addLayout(button_layout)
-
-    def _on_save(self) -> None:
-        """Handle save button click."""
-        new_name = self.title_entry.text().strip()
-        new_text = self.prompt_textbox.text().strip()
-
-        if not new_name:
-            QMessageBox.warning(self, "Validation Error", "Please enter a title for the prompt.")
-            return
-
-        if not new_text:
-            QMessageBox.warning(self, "Validation Error", "Please enter instructions for the prompt.")
-            return
-
-        self.result_saved = True
-        self.new_name = new_name
-        self.new_text = new_text
-        self.accept()
-
-
 class QtDictationView(QWidget):
-    """Qt-based dictation view - FULLY INTEGRATED WITH PROMPTS MANAGEMENT.
+    """Qt-based dictation view.
 
     Features:
     - Add custom prompt form (title + instructions text area)
@@ -127,7 +56,7 @@ class QtDictationView(QWidget):
         self.controller.refresh_prompts()
 
     def _setup_ui(self) -> None:
-        """Build UI with TwoColumnTabLayout."""
+        """Build UI with TwoColumnLayout."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -141,43 +70,41 @@ class QtDictationView(QWidget):
         self._setup_manage_prompts_panel()
 
     def _setup_add_prompt_form(self) -> None:
-        """Setup add prompt form in left content area using ContentArea system."""
+        """Setup add prompt form in left content area."""
         content = self.layout.left_content
-        # ContentArea already has proper spacing - use it directly
 
         # Prompt title input
-        prompt_title_label = Label("Prompt Title:", variant="body")
+        prompt_title_label = BodyLabel("Prompt Title:")
         content.add(prompt_title_label)
-        self.title_entry = Input(placeholder="e.g. Email Formatting")
+        self.title_entry = TextInput(placeholder="e.g. Email Formatting")
         content.add(self.title_entry)
 
         # Prompt instructions
-        prompt_instructions_label = Label("Prompt Instructions:", variant="body")
+        prompt_instructions_label = BodyLabel("Prompt Instructions:")
         content.add(prompt_instructions_label)
-        self.prompt_textbox = Input(
+        self.prompt_textbox = TextInput(
             placeholder="e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' Adopt a professional tone and style."
         )
         content.add(self.prompt_textbox)
 
         # Add button
-        self.add_prompt_btn = Button(text="Add Prompt", variant="primary")
+        self.add_prompt_btn = PrimaryButton(text="Add Prompt")
         self.add_prompt_btn.clicked.connect(self._on_add_prompt_clicked)
         content.add(self.add_prompt_btn)
 
         content.add_stretch()
 
     def _setup_manage_prompts_panel(self) -> None:
-        """Setup manage prompts panel in right content area using ContentArea system."""
+        """Setup manage prompts panel in right content area."""
         content = self.layout.right_content
-        # ContentArea already has proper spacing - use it directly
 
-        # Prompts list widget - use TransparentWidget to prevent stylesheet interference
+        # Prompts list widget
         self.prompts_list_widget = TransparentWidget()
         self.prompts_list_layout = QVBoxLayout(self.prompts_list_widget)
         self.prompts_list_layout.setSpacing(theme.config.container.list_item_spacing)
         self.prompts_list_layout.setContentsMargins(0, 0, theme.config.spacing.small, 0)
 
-        # Scroll area for prompts - use ScrollableContainer for consistency
+        # Scroll area for prompts
         scroll_area = ScrollableContainer()
         scroll_area.content_layout.addWidget(self.prompts_list_widget)
         content.add(scroll_area, stretch=1)
@@ -197,7 +124,6 @@ class QtDictationView(QWidget):
         """Handle current prompt updated event."""
         try:
             self.current_prompt_id = prompt_id
-            # Update radio button selection
             if prompt_id in self.prompt_radio_buttons:
                 self.prompt_radio_buttons[prompt_id].setChecked(True)
             self.logger.info(f"Current prompt updated: {prompt_id}")
@@ -224,12 +150,7 @@ class QtDictationView(QWidget):
         self.prompt_radio_buttons.clear()
 
         if not prompts:
-            # Show empty message
-            empty_label = QLabel("No prompts available.")
-            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_font = theme.get_font(size=theme.config.fonts.medium)
-            empty_label.setFont(empty_font)
-            empty_label.setStyleSheet(f"color: {theme.config.text.medium};")
+            empty_label = BodyLabel("No prompts available.", align="center", color=theme.config.text.medium)
             self.prompts_list_layout.addWidget(empty_label)
         else:
             for prompt in prompts:
@@ -239,7 +160,7 @@ class QtDictationView(QWidget):
 
     def _create_prompt_item(self, prompt_data: Dict[str, Any]) -> None:
         """Create a prompt list item with radio, name, edit, and delete buttons."""
-        # Create item widget with guaranteed transparent background
+        # Create item widget
         item_widget = TransparentWidget()
         item_widget.setProperty("itemType", "list_item")
         item_layout = QHBoxLayout(item_widget)
@@ -261,24 +182,17 @@ class QtDictationView(QWidget):
         item_layout.addWidget(radio)
 
         # Prompt name label
-        name_label = QLabel(prompt_data.get("name", "Unnamed"))
-        name_font = theme.get_font(size=theme.config.fonts.medium)
-        name_label.setFont(name_font)
-        # Use programmatic palette coloring instead of stylesheets to avoid affecting other QLabel instances
-        label_palette = name_label.palette()
-        label_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.medium))
-        name_label.setPalette(label_palette)
-        name_label.setAutoFillBackground(False)
+        name_label = SmallLabel(prompt_data.get("name", "Unnamed"), color=theme.config.text.medium)
         item_layout.addWidget(name_label, 1)
 
-        # Edit button (pill-shaped)
-        edit_btn = Button(text="Edit", variant="primary")
+        # Edit button
+        edit_btn = PrimaryButton(text="Edit")
         edit_btn.setFixedWidth(theme.config.components.button_action_width - 10)
         edit_btn.clicked.connect(lambda checked, p=prompt_data: self._on_edit_prompt(p))
         item_layout.addWidget(edit_btn)
 
-        # Delete button (pill-shaped)
-        delete_btn = Button(text="Delete", variant="danger")
+        # Delete button
+        delete_btn = DangerButton(text="Delete")
         delete_btn.setFixedWidth(theme.config.components.button_action_width)
         is_default = prompt_data.get("is_default", False)
         delete_btn.setEnabled(not is_default)
@@ -311,13 +225,11 @@ class QtDictationView(QWidget):
             return
 
         if self.controller.add_prompt(title, prompt_text):
-            # Clear form
             self.title_entry.clear()
             self.prompt_textbox.clear()
 
     def _on_edit_prompt(self, prompt_data: Dict[str, Any]) -> None:
         """Handle edit button clicked - show edit dialog."""
-        # Check if this is the default prompt
         if prompt_data.get("is_default", False):
             QMessageBox.information(self, "Cannot Edit Default Prompt", "The default prompt cannot be edited.")
             return
@@ -334,7 +246,6 @@ class QtDictationView(QWidget):
 
     def _on_delete_prompt(self, prompt_id: str) -> None:
         """Handle delete button clicked."""
-        # Check if this is the default prompt
         if self.controller and self.controller.is_default_prompt(prompt_id):
             QMessageBox.information(self, "Cannot Delete Default Prompt", "The default prompt cannot be deleted.")
             return

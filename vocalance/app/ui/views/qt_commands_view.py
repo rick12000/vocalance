@@ -1,145 +1,26 @@
-"""Qt-based commands management view - FULLY INTEGRATED WITH COMMAND EDIT DIALOG.
+"""Qt-based commands management view.
 
 Displays commands grouped by category with edit/delete capabilities.
+Uses new component subclasses and dialogs from components module.
 """
 
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from PySide6.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.config.command_types import AutomationCommand
-from vocalance.app.ui.components.complex_components import GroupHeader, ListItem
-from vocalance.app.ui.components.layouts import Box, ScrollableContainer, TransparentWidget, TwoColumnLayout
-from vocalance.app.ui.components.simple_components import Button, Input, Label
+from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
+from vocalance.app.ui.components.dialogs import CommandEditDialog
+from vocalance.app.ui.components.inputs import TextInput
+from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
+from vocalance.app.ui.components.layouts import GroupHeader, ListItem, ScrollableContainer, TransparentWidget, TwoColumnLayout
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.views.qt_base_view import QtBaseView
 
 
-class CommandEditDialog(QDialog):
-    """Dialog for editing command phrases matching legacy design."""
-
-    def __init__(self, command: AutomationCommand, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-
-        self.command = command
-        self.result_action = None
-        self.new_phrase_value = None
-
-        self.setWindowTitle(f"Edit Command: {command.command_key}")
-        self.setModal(True)
-        self.setMinimumWidth(500)
-
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        """Build the dialog UI."""
-        layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        # Description tile
-        desc_frame = Box()
-        desc_frame._layout
-
-        desc_title = Label("Description", variant="subtitle")
-        desc_frame.add(desc_title)
-
-        desc_text = self._get_command_description()
-        desc_label = Label(desc_text, variant="body")
-        desc_label.setWordWrap(True)
-        desc_frame.add(desc_label)
-
-        layout.addWidget(desc_frame)
-
-        # Edit tile
-        edit_frame = Box()
-
-        edit_title = Label("Edit Command Phrase", variant="subtitle")
-        edit_frame.add(edit_title)
-
-        self.entry = Input()
-        self.entry.setText(self.command.command_key)
-        self.entry.selectAll()
-        edit_frame.add(self.entry)
-
-        save_btn = Button(text="Save Changes", variant="primary")
-        save_btn.clicked.connect(self._on_save)
-        edit_frame.add(save_btn)
-
-        layout.addWidget(edit_frame)
-
-        # Delete tile
-        delete_frame = Box()
-
-        delete_title = Label("Delete Command", variant="subtitle")
-        delete_frame.add(delete_title)
-
-        if self.command.is_custom:
-            delete_desc = Label("This is a custom command and can be safely deleted.", variant="body")
-            delete_desc.setWordWrap(True)
-            delete_frame.add(delete_desc)
-
-            delete_btn = Button(text="Delete Command", variant="danger")
-            delete_btn.clicked.connect(self._on_delete)
-            delete_frame.add(delete_btn)
-        else:
-            delete_desc = Label("This is a built-in command and cannot be deleted.", variant="body")
-            delete_desc.setWordWrap(True)
-            delete_frame.add(delete_desc)
-
-        layout.addWidget(delete_frame)
-
-        # Focus entry field
-        self.entry.setFocus()
-
-    def _get_command_description(self) -> str:
-        """Get a detailed description of what the command does."""
-        if self.command.long_description:
-            return self.command.long_description
-        else:
-            # Fallback to generating description based on action type
-            if self.command.action_type == "hotkey":
-                return f"Triggers hotkey: {self.command.action_value or 'Not set'}"
-            elif self.command.action_type == "key":
-                return f"Simulates pressing the key: {self.command.action_value or 'Not set'}"
-            elif self.command.action_type == "key_sequence":
-                return f"Executes key sequence: {self.command.action_value or 'Not set'}"
-            elif self.command.action_type == "click":
-                return f"Performs a mouse click action: {self.command.action_value or 'Left click'}"
-            elif self.command.action_type == "scroll":
-                return f"Performs a scroll action: {self.command.action_value or 'Scroll'}"
-            elif self.command.action_type == "type":
-                return f"Types the text: {self.command.action_value or 'No text set'}"
-            else:
-                return f"Custom action: {self.command.action_value or 'No action defined'}"
-
-    def _on_save(self) -> None:
-        """Handle save button click."""
-        new_phrase = self.entry.text().strip()
-        if new_phrase and new_phrase != self.command.command_key:
-            self.result_action = "save"
-            self.new_phrase_value = new_phrase
-            self.accept()
-        else:
-            self.reject()
-
-    def _on_delete(self) -> None:
-        """Handle delete button click."""
-        if not self.command.is_custom:
-            return
-
-        self.result_action = "delete"
-        self.new_phrase_value = None
-        self.accept()
-
-    def get_result(self) -> Tuple[Optional[str], Optional[str]]:
-        """Get the dialog result."""
-        return self.result_action, self.new_phrase_value
-
-
 class QtCommandsView(QtBaseView):
-    """Qt-based commands management view - FULLY INTEGRATED.
+    """Qt-based commands management view.
 
     Features:
     - Add command form (command phrase + hotkey)
@@ -188,34 +69,33 @@ class QtCommandsView(QtBaseView):
         self._setup_commands_list_panel()
 
     def _setup_add_command_form(self) -> None:
-        """Setup add command form in left content area using systematic spacing."""
+        """Setup add command form in left content area."""
         content = self.layout.left_content
 
         # Command phrase input
-        command_phrase_label = Label("Command Phrase:", variant="small")
+        command_phrase_label = SmallLabel("Command Phrase:")
         content.add(command_phrase_label)
-        self.command_phrase_entry = Input(placeholder="Enter command phrase...")
+        self.command_phrase_entry = TextInput(placeholder="Enter command phrase...")
         content.add(self.command_phrase_entry)
 
         # Hotkey input
-        hotkey_label = Label("Hotkey:", variant="small")
+        hotkey_label = SmallLabel("Hotkey:")
         content.add(hotkey_label)
-        self.hotkey_entry = Input(placeholder="e.g. ctrl+alt+7")
+        self.hotkey_entry = TextInput(placeholder="e.g. ctrl+alt+7")
         content.add(self.hotkey_entry)
 
         # Add button
-        self.add_btn = Button(text="Add", variant="primary")
+        self.add_btn = PrimaryButton(text="Add")
         self.add_btn.clicked.connect(self._on_add_command_clicked)
         content.add(self.add_btn)
 
         content.add_stretch()
 
     def _setup_commands_list_panel(self) -> None:
-        """Setup commands list panel using systematic spacing."""
+        """Setup commands list panel."""
         content = self.layout.right_content
 
-        # Commands list widget with guaranteed transparent background
-        # Use TransparentWidget to prevent stylesheet and palette interference
+        # Commands list widget
         self.commands_list_widget = TransparentWidget()
         self.commands_list_layout = QVBoxLayout(self.commands_list_widget)
         self.commands_list_layout.setSpacing(theme.config.container.list_item_spacing)
@@ -227,7 +107,7 @@ class QtCommandsView(QtBaseView):
         content.add(scroll_area, stretch=1)
 
         # Reset to defaults button
-        self.reset_btn = Button(text="Reset", variant="danger")
+        self.reset_btn = DangerButton(text="Reset")
         self.reset_btn.clicked.connect(self._on_reset_clicked)
         content.add(self.reset_btn)
 
@@ -244,7 +124,6 @@ class QtCommandsView(QtBaseView):
     def _on_command_created(self, command_phrase: str) -> None:
         """Handle command created event."""
         try:
-            # Clear form
             self.command_phrase_entry.clear()
             self.hotkey_entry.clear()
             self.logger.info(f"Command created: {command_phrase}")
@@ -253,17 +132,11 @@ class QtCommandsView(QtBaseView):
 
     def _on_command_updated(self, old_phrase: str, new_phrase: str) -> None:
         """Handle command updated event."""
-        try:
-            self.logger.info(f"Command updated: {old_phrase} -> {new_phrase}")
-        except Exception as e:
-            self.logger.error(f"Error handling command updated: {e}", exc_info=True)
+        self.logger.info(f"Command updated: {old_phrase} -> {new_phrase}")
 
     def _on_command_deleted(self, command_phrase: str) -> None:
         """Handle command deleted event."""
-        try:
-            self.logger.info(f"Command deleted: {command_phrase}")
-        except Exception as e:
-            self.logger.error(f"Error handling command deleted: {e}", exc_info=True)
+        self.logger.info(f"Command deleted: {command_phrase}")
 
     def _on_validation_error(self, error_msg: str, command_phrase: str) -> None:
         """Handle validation error from controller."""
@@ -274,7 +147,7 @@ class QtCommandsView(QtBaseView):
         self._show_error(error_msg)
 
     def _display_commands(self, commands: List[AutomationCommand]) -> None:
-        """Display commands in a grouped list using systematic spacing."""
+        """Display commands in a grouped list."""
         # Clear existing items
         while self.commands_list_layout.count() > 0:
             item = self.commands_list_layout.takeAt(0)
@@ -282,25 +155,21 @@ class QtCommandsView(QtBaseView):
                 item.widget().deleteLater()
 
         if not commands:
-            # Show empty message
-            empty_label = Label("No commands available.", variant="body", color=theme.config.text.medium, align="center")
+            empty_label = BodyLabel("No commands available.", align="center", color=theme.config.text.medium)
             self.commands_list_layout.addWidget(empty_label)
         else:
             grouped_commands = self._group_commands(commands)
             sorted_groups = self._sort_groups(grouped_commands)
 
             for group_index, (group_name, group_commands) in enumerate(sorted_groups):
-                # Group header using systematic spacing
                 is_first = group_index == 0
                 group_header = GroupHeader(group_name, is_first=is_first)
                 self.commands_list_layout.addWidget(group_header)
 
-                # Commands in this group
                 sorted_commands = sorted(group_commands, key=lambda cmd: cmd.command_key.lower())
                 for command in sorted_commands:
-                    self._create_command_item_inline(command)
+                    self._create_command_item(command)
 
-        # Add stretch at the end
         self.commands_list_layout.addStretch()
 
     def _group_commands(self, commands: List[AutomationCommand]) -> Dict[str, List[AutomationCommand]]:
@@ -325,22 +194,18 @@ class QtCommandsView(QtBaseView):
 
         return sorted_groups
 
-    def _create_command_item_inline(self, command: AutomationCommand) -> None:
-        """Create a command list item using systematic spacing."""
-        # Create list item with systematic spacing
+    def _create_command_item(self, command: AutomationCommand) -> None:
+        """Create a command list item."""
         item = ListItem()
 
-        # Command phrase label - smaller font
-        phrase_label = Label(command.command_key, variant="small", color=theme.config.text.lightest)
+        phrase_label = SmallLabel(command.command_key, color=theme.config.text.lightest)
         item.add(phrase_label, stretch=1)
 
-        # Change button
-        change_btn = Button(text="Change", variant="primary")
+        change_btn = PrimaryButton(text="Change")
         change_btn.setFixedWidth(90)
         change_btn.clicked.connect(lambda checked, c=command: self._on_change_command(c))
         item.add(change_btn)
 
-        # Add to layout
         self.commands_list_layout.addWidget(item)
 
     def _on_change_command(self, command: AutomationCommand) -> None:

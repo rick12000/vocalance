@@ -1,6 +1,7 @@
-"""Qt-based settings view - FULLY INTEGRATED.
+"""Qt-based settings view.
 
 Displays application settings with management capabilities.
+Uses new component subclasses from components module.
 """
 
 import logging
@@ -8,14 +9,17 @@ from typing import Any, Dict, Optional
 
 from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
+from vocalance.app.ui.components.buttons import DangerButton
+from vocalance.app.ui.components.checkboxes import Checkbox
 from vocalance.app.ui.components.complex_components import FormGroup
+from vocalance.app.ui.components.inputs import TextInput
+from vocalance.app.ui.components.labels import BodyLabel, BoxTitleLabel, SubtitleLabel
 from vocalance.app.ui.components.layouts import Box, ScrollableContainer
-from vocalance.app.ui.components.simple_components import Button, Checkbox, Input, Label
 from vocalance.app.ui.qt_theme import theme
 
 
 class QtSettingsView(QWidget):
-    """Qt-based settings view - FULLY INTEGRATED.
+    """Qt-based settings view.
 
     Features:
     - Display all settings
@@ -67,14 +71,14 @@ class QtSettingsView(QWidget):
         self.left_box = Box(layout="vertical")
 
         # Title
-        self.left_box.add(Label(text="Settings Actions", variant="box_title"))
+        self.left_box.add(BoxTitleLabel(text="Settings Actions"))
 
         # Reset to defaults button
-        self.reset_btn = Button(text="Reset to Defaults", variant="danger", command=self._on_reset_clicked)
+        self.reset_btn = DangerButton(text="Reset to Defaults", command=self._on_reset_clicked)
         self.left_box.add(self.reset_btn)
 
         # Info label
-        self.info_label = Label("Settings loaded", variant="body", color="text.medium")
+        self.info_label = BodyLabel("Settings loaded", color=theme.config.text.medium)
         self.left_box.add(self.info_label)
 
         self.left_box.add_stretch()
@@ -83,7 +87,7 @@ class QtSettingsView(QWidget):
         self.right_box = Box(layout="vertical")
 
         # Title
-        self.right_box.add(Label(text="Settings", variant="box_title"))
+        self.right_box.add(BoxTitleLabel(text="Settings"))
 
         # Scrollable settings area
         self.scroll_container = ScrollableContainer()
@@ -107,31 +111,21 @@ class QtSettingsView(QWidget):
 
     def _on_setting_changed(self, key: str, value: Any) -> None:
         """Handle individual setting changed event."""
-        try:
-            self.settings[key] = value
-            self.logger.debug(f"Setting changed: {key} = {value}")
-        except Exception as e:
-            self.logger.error(f"Error handling setting changed: {e}", exc_info=True)
+        self.settings[key] = value
+        self.logger.debug(f"Setting changed: {key} = {value}")
 
     def _on_all_settings_changed(self, settings: Dict[str, Any]) -> None:
         """Handle all settings changed event."""
-        try:
-            self.settings = settings
-            self._refresh_settings_display()
-            self.logger.info("All settings updated")
-        except Exception as e:
-            self.logger.error(f"Error handling all settings changed: {e}", exc_info=True)
+        self.settings = settings
+        self._refresh_settings_display()
+        self.logger.info("All settings updated")
 
     def _on_settings_reset(self) -> None:
         """Handle settings reset event."""
-        try:
-            # Reload settings to get defaults
-            if self.controller:
-                self.controller.load_settings()
-            self.logger.info("Settings reset to defaults")
-            QMessageBox.information(self, "Success", "Settings reset to defaults!")
-        except Exception as e:
-            self.logger.error(f"Error handling settings reset: {e}", exc_info=True)
+        if self.controller:
+            self.controller.load_settings()
+        self.logger.info("Settings reset to defaults")
+        QMessageBox.information(self, "Success", "Settings reset to defaults!")
 
     def _on_error(self, error_msg: str) -> None:
         """Handle error from controller."""
@@ -139,9 +133,7 @@ class QtSettingsView(QWidget):
 
     def _refresh_settings_display(self) -> None:
         """Refresh the settings display with organized sections."""
-        # Clear existing widgets from scroll container
-        # (In a real app, we might want to update in place, but clearing is safer for refactor)
-        # Efficient clearing for QLayout
+        # Clear existing widgets
         while self.scroll_container.content_layout.count():
             item = self.scroll_container.content_layout.takeAt(0)
             if item.widget():
@@ -177,7 +169,7 @@ class QtSettingsView(QWidget):
         # Display each section with filtered settings
         for section_name, field_specs in visible_settings.items():
             # Section title
-            self.scroll_container.add(Label(section_name, variant="subtitle", color="text.light"))
+            self.scroll_container.add(SubtitleLabel(section_name, color=theme.config.text.light))
 
             # Section items
             for category, key, label_text in field_specs:
@@ -197,18 +189,13 @@ class QtSettingsView(QWidget):
                     checkbox = Checkbox(
                         text=label_text,
                         checked=value,
-                        command=lambda state, k=setting_key: self._on_setting_value_changed(
-                            k, state == 2
-                        ),  # Qt Check state 2 is Checked
+                        command=lambda state, k=setting_key: self._on_setting_value_changed(k, state == 2),
                     )
-                    # Checkbox needs a slight wrapper or just add directly
                     self.scroll_container.add(checkbox)
                     self.setting_widgets[setting_key] = checkbox
 
                 elif isinstance(value, (int, float, str)):
-                    # Use FormGroup
-                    inp = Input(str(value))
-                    # Connect editing finished
+                    inp = TextInput(str(value))
                     inp.editingFinished.connect(lambda k=setting_key, w=inp: self._on_setting_value_changed(k, w.text()))
 
                     group = FormGroup(label_text, inp)
@@ -233,9 +220,14 @@ class QtSettingsView(QWidget):
 
     def _on_reset_clicked(self) -> None:
         """Handle reset button clicked."""
-        reply = QMessageBox.question(self, "Reset Settings", "Reset all settings to defaults?", QMessageBox.Yes | QMessageBox.No)
+        reply = QMessageBox.question(
+            self,
+            "Reset Settings",
+            "Reset all settings to defaults?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             if self.controller:
                 self.controller.reset_to_defaults()
 
