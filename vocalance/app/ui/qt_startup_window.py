@@ -8,6 +8,7 @@ import logging
 import threading
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -58,9 +59,11 @@ class StartupWindow(QDialog):
         # Animation state
         self.is_animating = False
         self.animation_base_text = ""
-        self.animation_frame = 0
-        self.animation_frames = ["|", "/", "-", "\\"]
+        self.spinner_animation = None
         self.animation_timer = None
+        self.animation_frame = 0
+        # Spinner animation frames - rotating dots
+        self.animation_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
         # Asset services
         self.asset_cache = QtAssetCache(asset_paths_config=asset_paths_config)
@@ -85,15 +88,16 @@ class StartupWindow(QDialog):
             theme.config.components.startup_height,
         )
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        # Enable transparency for rounded corners effect
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
-        # Apply theme colors programmatically
+        # Store border radius for painting
+        self.border_radius = theme.config.radius.large
+
+        # Apply theme colors programmatically (for content inside rounded box)
         palette = self.palette()
-        from PySide6.QtGui import QColor, QPalette
-
-        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.background))
         self.setPalette(palette)
-        self.setAutoFillBackground(True)
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -110,13 +114,27 @@ class StartupWindow(QDialog):
         )
         main_layout.addWidget(self.logo_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Progress bar
+        # Progress bar - minimal, modern aesthetic
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMinimumHeight(theme.config.components.progress_bar_height)
+        self.progress_bar.setFixedHeight(2)  # Very thin bar
+
+        # Style progress bar with theme colors
+        progress_stylesheet = f"""
+        QProgressBar {{
+            background-color: {theme.config.shapes.dark};
+            border: none;
+            border-radius: 1px;
+        }}
+        QProgressBar::chunk {{
+            background-color: {theme.config.blue.blue_2};
+            border-radius: 1px;
+        }}
+        """
+        self.progress_bar.setStyleSheet(progress_stylesheet)
         main_layout.addWidget(self.progress_bar)
 
         # Status container (text + spinner)
@@ -133,20 +151,18 @@ class StartupWindow(QDialog):
         font = theme.get_font(size=theme.config.fonts.small)
         self.text_label.setFont(font)
         palette = self.text_label.palette()
-        from PySide6.QtGui import QColor, QPalette
-
         palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.shapes.light))
         self.text_label.setPalette(palette)
         status_layout.addWidget(self.text_label)
 
-        # Spinner
-        self.spinner_label = QLabel("\\", self)
-        spinner_font = theme.get_monospace_font(size=theme.config.fonts.small)
+        # Spinner - using rotating braille animation frames
+        self.spinner_label = QLabel("", self)
+        spinner_font = theme.get_font(size=theme.config.fonts.large)
         self.spinner_label.setFont(spinner_font)
         spinner_palette = self.spinner_label.palette()
-        spinner_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.shapes.light))
+        spinner_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.blue.blue_2))
         self.spinner_label.setPalette(spinner_palette)
-        self.spinner_label.setFixedWidth(theme.config.components.startup_spinner_width)
+        self.spinner_label.setMinimumWidth(30)
         status_layout.addWidget(self.spinner_label)
 
         # Add stretch after
@@ -168,6 +184,21 @@ class StartupWindow(QDialog):
             x = (screen_geometry.width() - self.width()) // 2
             y = (screen_geometry.height() - self.height()) // 2
             self.move(x, y)
+
+    def paintEvent(self, event) -> None:
+        """Paint rounded rectangle background for transparent window effect."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Create rounded rectangle path
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, self.width(), self.height(), self.border_radius, self.border_radius)
+
+        # Fill with background color
+        painter.fillPath(path, QColor(theme.config.shapes.background))
+
+        # Don't call super().paintEvent() to avoid double painting
+        # The layout will handle drawing the content
 
     def show(self) -> None:
         """Display the startup window."""
@@ -220,10 +251,10 @@ class StartupWindow(QDialog):
                 self.logger.error(f"Error updating progress: {e}")
 
     def _start_animation(self, base_text: str) -> None:
-        """Begin spinner animation.
+        """Begin spinner animation using rotating braille frames.
 
         Args:
-            base_text: Base status text (spinner appended).
+            base_text: Base status text (spinner displayed).
         """
         if self.is_closed:
             return
@@ -236,13 +267,14 @@ class StartupWindow(QDialog):
         if self.text_label:
             self.text_label.setText(base_text)
 
-        # Start animation timer
-        self.animation_timer = QTimer(self)
-        self.animation_timer.timeout.connect(self._update_animation_frame)
-        self.animation_timer.start(100)  # Update every 100ms
+        # Create timer-based animation for rotating spinner
+        if self.spinner_label:
+            self.animation_timer = QTimer(self)
+            self.animation_timer.timeout.connect(self._update_animation_frame)
+            self.animation_timer.start(80)  # 80ms per frame = smooth rotation
 
     def _update_animation_frame(self) -> None:
-        """Update spinner to next frame."""
+        """Update spinner to next animation frame."""
         if not self.is_animating or self.is_closed or not self.spinner_label:
             return
 
@@ -258,12 +290,12 @@ class StartupWindow(QDialog):
         self.is_animating = False
         self.animation_base_text = ""
 
-        if self.spinner_label:
-            self.spinner_label.setText("")
-
         if self.animation_timer:
             self.animation_timer.stop()
             self.animation_timer = None
+
+        if self.spinner_label:
+            self.spinner_label.setText("")
 
     def _close_impl(self) -> None:
         """Close window (must run in main thread).

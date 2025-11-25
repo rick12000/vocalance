@@ -50,25 +50,8 @@ class TextColors:
     light_blue_accent: str = "#2b3054"
 
     # Gradient colors for buttons and UI elements
-    gradient_colors: list = None  # Set in __post_init__
-    gradient_colors_dark: list = None  # Set in __post_init__
-    primary_fill_gradient: list = None  # Set in __post_init__
-    primary_fill_gradient_dark: list = None  # Set in __post_init__
-
-    def __post_init__(self):
-        """Initialize gradient color lists."""
-        # Default gradient: Used for borders and text
-        self.gradient_colors = ["#4E98FF", "#F97070"]
-
-        # Darker versions for hover/press state
-        self.gradient_colors_dark = ["#5c1a17", "#0d3a6d"]
-
-        # Primary fill gradient: Used for button/sidebar backgrounds
-        darkest = "#1c1c1c"  # ShapeColors.darkest
-        self.primary_fill_gradient = ["#4E98FF", darkest]
-
-        # Darker version for hover/press
-        self.primary_fill_gradient_dark = ["#5c1a17", "#0d0d0d"]
+    gradient_colors: list = field(default_factory=lambda: ["#4E98FF", "#F97070"])
+    gradient_colors_dark: list = field(default_factory=lambda: ["#5c1a17", "#0d3a6d"])
 
 
 @dataclass
@@ -255,8 +238,6 @@ class ThemeConfig:
     icon_properties: IconProperties = field(default_factory=IconProperties)
 
     font_family_primary: str = "DMSans"
-    font_family_secondary: str = "Segoe UI"
-    font_family_monospace: str = "Consolas"
 
 
 class ThemeManager:
@@ -282,7 +263,7 @@ class ThemeManager:
         """Get font family name."""
         if self.config.font_family_primary in self._loaded_fonts:
             return self.config.font_family_primary
-        return self.config.font_family_secondary
+        return self.config.font_family_primary
 
     def get_font(self, size: Any = "medium", weight: str = "regular", italic: bool = False, bold: bool = False) -> QFont:
         """Get a QFont object based on tokens."""
@@ -317,7 +298,7 @@ class ThemeManager:
         else:
             font_size = getattr(self.config.fonts, size, self.config.fonts.medium)
 
-        return QFont(self.config.font_family_monospace, font_size)
+        return QFont(self.get_font_family(), font_size)
 
     def get_color(self, color_key: str) -> str:
         """Get color hex code by key (e.g. 'text.lightest')."""

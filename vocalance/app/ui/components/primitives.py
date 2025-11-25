@@ -8,7 +8,7 @@ These are the atomic building blocks for all other components.
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPalette, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QPushButton, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -46,51 +46,6 @@ def _create_gradient(width: int, colors: list) -> QLinearGradient:
                 blend_ratio = step / stops_per_color
 
                 # Interpolate between current and next color
-                blended = QColor(
-                    int(current.red() * (1 - blend_ratio) + next_color.red() * blend_ratio),
-                    int(current.green() * (1 - blend_ratio) + next_color.green() * blend_ratio),
-                    int(current.blue() * (1 - blend_ratio) + next_color.blue() * blend_ratio),
-                )
-                gradient.setColorAt(blend_pos, blended)
-
-    return gradient
-
-
-def _create_radial_gradient(width: int, height: int, colors: list) -> QRadialGradient:
-    """Create smooth radial gradient from bottom-left corner with glow effect."""
-    # Center at bottom-left, radius extends to cover entire button
-    center_x = 0
-    center_y = height
-    radius = (width**2 + height**2) ** 0.5  # Diagonal distance covers button
-
-    gradient = QRadialGradient(center_x, center_y, radius)
-    if not colors:
-        return gradient
-
-    num = len(colors)
-    if num == 1:
-        gradient.setColorAt(0, QColor(colors[0]))
-        return gradient
-
-    # Add smooth blended stops
-    stops_per_color = 5
-
-    for i, color in enumerate(colors):
-        pos = i / (num - 1)
-
-        # Add main color stop
-        gradient.setColorAt(pos, QColor(color))
-
-        # Add intermediate stops for blend smoothing
-        if i < num - 1:
-            next_color = QColor(colors[i + 1])
-            current = QColor(color)
-
-            # Create blend steps
-            for step in range(1, stops_per_color):
-                blend_pos = pos + (1 / (num - 1)) * (step / stops_per_color)
-                blend_ratio = step / stops_per_color
-
                 blended = QColor(
                     int(current.red() * (1 - blend_ratio) + next_color.red() * blend_ratio),
                     int(current.green() * (1 - blend_ratio) + next_color.green() * blend_ratio),

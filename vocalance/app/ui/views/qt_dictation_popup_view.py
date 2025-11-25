@@ -10,7 +10,7 @@ import logging
 import threading
 from collections import deque
 
-from PySide6.QtCore import QMetaObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEasingCurve, QMetaObject, QPropertyAnimation, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QPainter, QTextCharFormat
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit, QVBoxLayout, QWidget
 
@@ -62,6 +62,15 @@ class QtDictationPopupView(QMainWindow):
 
         # Current display mode
         self.current_mode = None
+
+        # Animation properties
+        self._animation_in = None
+        self._animation_out = None
+        self._opacity_animation_in = None
+        self._opacity_animation_out = None
+        self._final_position = None
+        self._target_geometry = None
+        self._animation_duration_ms = 400  # Animation duration in milliseconds
 
         # Setup window
         self._setup_window()
@@ -202,26 +211,13 @@ class QtDictationPopupView(QMainWindow):
         QtDictationPopupView {{
             background-color: {theme.config.shapes.darkest};
             color: {theme.config.text.lightest};
-            border: 1px solid {theme.config.shapes.medium};
+            border: 2px solid {theme.config.blue.blue_2};
             border-radius: 8px;
         }}
 
         QtDictationPopupView QLabel {{
             color: {theme.config.text.light};
             font-size: {theme.config.fonts.medium}px;
-        }}
-
-        QtDictationPopupView QPlainTextEdit {{
-            background-color: {theme.config.shapes.dark};
-            color: {theme.config.text.light};
-            border: 1px solid {theme.config.shapes.medium};
-            border-radius: 4px;
-            padding: 5px;
-            font-size: {theme.config.fonts.medium}px;
-        }}
-
-        QtDictationPopupView QPlainTextEdit:focus {{
-            border: 1px solid {theme.config.shapes.accent};
         }}
         """
         self.setStyleSheet(stylesheet)
@@ -241,7 +237,7 @@ class QtDictationPopupView(QMainWindow):
             self.simple_widget.setVisible(True)
             self.current_mode = "simple"
             self._position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
-            self._show_window()
+            self._show_window_with_animation()
             # Animation runs automatically in widget
 
     @Slot()
@@ -258,7 +254,7 @@ class QtDictationPopupView(QMainWindow):
             self.smart_widget.setVisible(True)
             self._clear_smart_content()
             self._position_window(self.SMART_WIDTH, self.SMART_HEIGHT, "center_left")
-            self._show_window()
+            self._show_window_with_animation()
             self.logger.info(f"Smart dictation window shown, mode={self.current_mode}")
 
     @Slot()
@@ -280,7 +276,7 @@ class QtDictationPopupView(QMainWindow):
             self.visual_widget.setVisible(True)
             self._clear_visual_content()
             self._position_window(self.VISUAL_WIDTH, self.VISUAL_HEIGHT, "center_left")
-            self._show_window()
+            self._show_window_with_animation()
             self.logger.info(f"Visual dictation window shown, mode={self.current_mode}")
 
     @Slot()
@@ -301,7 +297,7 @@ class QtDictationPopupView(QMainWindow):
     def _do_hide_popup(self) -> None:
         """Internal hide popup - MUST run on main Qt thread."""
         with self._ui_lock:
-            self.hide()
+            self._hide_window_with_animation()
             self.current_mode = None
 
     def update_audio_level(self, level: float) -> None:
@@ -594,16 +590,154 @@ class QtDictationPopupView(QMainWindow):
             # Don't call setFocus() to prevent stealing focus from user's current task
             self.logger.debug(f"Dictation popup shown in {self.current_mode} mode")
 
+    def _show_window_with_animation(self) -> None:
+        """Show window with slide-up and fade-in animation."""
+        # Cancel any existing animations
+        if self._animation_in and self._animation_in.state() == QPropertyAnimation.State.Running:
+            self._animation_in.stop()
+        if self._animation_out and self._animation_out.state() == QPropertyAnimation.State.Running:
+            self._animation_out.stop()
+
+        # Use stored target geometry from _position_window
+        if not hasattr(self, "_target_geometry") or self._target_geometry is None:
+            # Fallback: just show without animation
+            self.logger.warning("No target geometry stored, showing without animation")
+            self._show_window()
+            return
+
+        target_geom = self._target_geometry
+        self._final_position = (target_geom.x(), target_geom.y())
+
+        # Calculate starting position: below the bottom of the screen
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QApplication
+
+        primary_screen = QApplication.primaryScreen()
+        if primary_screen:
+            screen_geom = primary_screen.availableGeometry()
+            # Start position: window completely below visible screen
+            start_y = screen_geom.height() + 20  # 20px below screen for smooth entry
+            start_geom = QRect(target_geom.x(), start_y, target_geom.width(), target_geom.height())
+        else:
+            # Fallback
+            start_geom = target_geom
+
+        # Set starting position BEFORE showing
+        self.setGeometry(start_geom)
+
+        # Show window with 0 opacity
+        self.setWindowOpacity(0.0)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+        self.logger.info(f"Animation: starting y={start_geom.y()}, target y={target_geom.y()}, mode={self.current_mode}")
+
+        # Create position animation (Y coordinate)
+        self._animation_in = QPropertyAnimation(self, b"geometry")
+        self._animation_in.setDuration(self._animation_duration_ms)
+        self._animation_in.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation_in.setStartValue(start_geom)
+        self._animation_in.setEndValue(target_geom)
+
+        # Create opacity animation (fade in) - store as instance variable to prevent garbage collection
+        self._opacity_animation_in = QPropertyAnimation(self, b"windowOpacity")
+        self._opacity_animation_in.setDuration(self._animation_duration_ms)
+        self._opacity_animation_in.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._opacity_animation_in.setStartValue(0.0)
+        self._opacity_animation_in.setEndValue(1.0)
+
+        # Start both animations
+        self._animation_in.start()
+        self._opacity_animation_in.start()
+
+        self.logger.info(f"Slide-up and fade-in animation started for {self.current_mode} mode")
+
+    def _hide_window_with_animation(self) -> None:
+        """Hide window with slide-down and fade-out animation."""
+        # Cancel any existing animations
+        if self._animation_in and self._animation_in.state() == QPropertyAnimation.State.Running:
+            self._animation_in.stop()
+        if self._animation_out and self._animation_out.state() == QPropertyAnimation.State.Running:
+            self._animation_out.stop()
+        if self._opacity_animation_in and self._opacity_animation_in.state() == QPropertyAnimation.State.Running:
+            self._opacity_animation_in.stop()
+        if self._opacity_animation_out and self._opacity_animation_out.state() == QPropertyAnimation.State.Running:
+            self._opacity_animation_out.stop()
+
+        if not self.isVisible():
+            self.logger.debug("Window not visible, skipping hide animation")
+            return
+
+        # Get current geometry
+        current_geom = self.geometry()
+
+        # Calculate end position: slide down below bottom of screen
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QApplication
+
+        primary_screen = QApplication.primaryScreen()
+        if primary_screen:
+            screen_geom = primary_screen.availableGeometry()
+            end_y = screen_geom.height() + 20  # 20px below screen for smooth exit
+            end_geom = QRect(current_geom.x(), end_y, current_geom.width(), current_geom.height())
+        else:
+            end_geom = current_geom
+
+        self.logger.info(f"Window hiding from y={current_geom.y()} to y={end_geom.y()}, opacity={self.windowOpacity()}")
+
+        # Create position animation (slide down)
+        self._animation_out = QPropertyAnimation(self, b"geometry")
+        self._animation_out.setDuration(self._animation_duration_ms)
+        self._animation_out.setEasingCurve(QEasingCurve.Type.InCubic)
+        self._animation_out.setStartValue(current_geom)
+        self._animation_out.setEndValue(end_geom)
+
+        # Create opacity animation (fade out) - store as instance variable
+        self._opacity_animation_out = QPropertyAnimation(self, b"windowOpacity")
+        self._opacity_animation_out.setDuration(self._animation_duration_ms)
+        self._opacity_animation_out.setEasingCurve(QEasingCurve.Type.InCubic)
+        self._opacity_animation_out.setStartValue(self.windowOpacity())  # Use current opacity, not assuming 1.0
+        self._opacity_animation_out.setEndValue(0.0)
+
+        # Connect finish signal to actually hide the window (disconnect first to avoid duplicates)
+        try:
+            self._animation_out.finished.disconnect()
+        except RuntimeError:
+            pass  # No connections to disconnect
+        self._animation_out.finished.connect(self._on_animation_finished)
+
+        # Start both animations
+        self._animation_out.start()
+        self._opacity_animation_out.start()
+
+        self.logger.info("Slide-down and fade-out animation started")
+
+    def _on_animation_finished(self) -> None:
+        """Called when hide animation finishes."""
+        self.hide()
+        self.setWindowOpacity(1.0)  # Reset opacity for next show
+
+        # Disconnect to prevent duplicate calls
+        try:
+            if self._animation_out:
+                self._animation_out.finished.disconnect(self._on_animation_finished)
+        except RuntimeError:
+            pass  # Already disconnected or no connection
+
+        self.logger.info("Hide animation finished, window hidden")
+
     def _position_window(self, width: int, height: int, position_type: str = "center_left") -> None:
-        """Position window on screen matching legacy positioning behavior."""
+        """Calculate and store target window position for animation."""
         # Get primary screen for positioning
+        from PySide6.QtCore import QRect
         from PySide6.QtWidgets import QApplication
 
         primary_screen = QApplication.primaryScreen()
 
         if not primary_screen:
             # Fallback positioning
-            self.setGeometry(100, 100, width, height)
+            self._target_geometry = QRect(100, 100, width, height)
             self.logger.warning("No screen available for positioning, using fallback")
             return
 
@@ -622,8 +756,9 @@ class QtDictationPopupView(QMainWindow):
             x = (screen_geom.width() - width) // 2
             y = (screen_geom.height() - height) // 2
 
-        self.setGeometry(x, y, width, height)
-        self.logger.debug(f"Positioned window at ({x}, {y}) with size ({width}, {height}), type={position_type}")
+        # Store target geometry for animation system (don't set yet - let animation handle it)
+        self._target_geometry = QRect(x, y, width, height)
+        self.logger.debug(f"Target position calculated: ({x}, {y}) with size ({width}, {height}), type={position_type}")
 
     def keyPressEvent(self, event) -> None:
         """Handle key press events - allow Escape to close."""
