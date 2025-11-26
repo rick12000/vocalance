@@ -7,6 +7,13 @@ Provides centralized theme configuration for PySide6 UI with:
 - Container and layout spacing hierarchy
 - Component dimensions and positioning
 - Runtime theme application and stylesheet management
+- Dual custom font system (Alata + DM Sans)
+
+FONTS:
+- Alata: Display font for titles, headers, and prominent text elements
+- DM Sans: Primary font for body text and general UI elements
+- Both fonts are loaded from custom directories, not system fonts
+- Components can specify display=True to use Alata, otherwise default to DM Sans
 
 SPACING HIERARCHY:
 1. Container Border (1px) - outermost boundary
@@ -16,17 +23,21 @@ SPACING HIERARCHY:
 5. Element Padding - internal padding within elements
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from PySide6.QtGui import QFont, QFontDatabase
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class FontSizes:
     """Font size design tokens."""
 
+    small: int = 10
     medium: int = 12
     large: int = 20
     xlarge: int = 24
@@ -40,9 +51,8 @@ class TextColors:
     lightest: str = "#e8d6d6"
     light: str = "#c3afaf"
     medium: str = "#7a7a7a"
-    # Gradient colors for buttons and UI elements
-    gradient_colors: list = field(default_factory=lambda: ["#4E98FF", "#F97070"])
-    gradient_colors_dark: list = field(default_factory=lambda: ["#5c1a17", "#0d3a6d"])
+    gradient_colors: list = field(default_factory=lambda: ["#2E6982", "#64C49E"])
+    title_gradient: list = field(default_factory=lambda: ["#2E6982", "#64C49E"])
 
 
 @dataclass
@@ -220,7 +230,9 @@ class ThemeConfig:
     header: HeaderLayout = field(default_factory=HeaderLayout)
     icon_properties: IconProperties = field(default_factory=IconProperties)
 
-    font_family_primary: str = "DMSans"
+    # Font family names (updated from TTF files after load_fonts() is called)
+    font_family_primary: str = "DM Sans"  # Default font for most UI elements
+    font_family_display: str = "Alata"  # Display font for titles and headers
 
 
 class ThemeManager:
@@ -275,33 +287,98 @@ class ThemeManager:
             self.load_stylesheet()
         return self._stylesheet
 
-    def load_fonts(self, fonts_dir: str) -> None:
-        """Load fonts from a directory."""
-        path = Path(fonts_dir)
-        if not path.exists():
-            return
+    def load_fonts(self, fonts_dir: str = None) -> None:
+        """Load custom fonts (Alata and DM Sans) from the fonts directory.
 
-        for font_file in path.glob("**/*.ttf"):
+        Args:
+            fonts_dir: Optional path to fonts directory. If None, uses default fonts location.
+        """
+        if fonts_dir is None:
+            fonts_base = Path(__file__).parent.parent / "assets" / "fonts"
+        else:
+            fonts_base = Path(fonts_dir).parent
+
+        # Load Alata (display font for titles)
+        alata_dir = fonts_base / "custom_Alata"
+        self._load_font_family(alata_dir, "Alata")
+
+        # Load DM Sans (primary font for body text)
+        dmsans_dir = fonts_base / "DM_Sans"
+        self._load_font_family(dmsans_dir, "DM Sans")
+
+        # Update config with loaded font families
+        if "DM Sans" in self._loaded_fonts:
+            self.config.font_family_primary = "DM Sans"
+        if "Alata" in self._loaded_fonts:
+            self.config.font_family_display = "Alata"
+
+        logger.info(f"Fonts loaded - Primary: {self.config.font_family_primary}, Display: {self.config.font_family_display}")
+
+    def _load_font_family(self, fonts_dir: Path, expected_family: str) -> bool:
+        """Load all TTF files from a font directory.
+
+        Args:
+            fonts_dir: Path to font directory
+            expected_family: Expected font family name for logging
+
+        Returns:
+            True if fonts were loaded successfully
+        """
+        if not fonts_dir.exists():
+            logger.warning(f"Font directory not found: {fonts_dir}")
+            return False
+
+        loaded_count = 0
+        for font_file in fonts_dir.glob("**/*.ttf"):
             font_id = QFontDatabase.addApplicationFont(str(font_file))
             if font_id != -1:
                 families = QFontDatabase.applicationFontFamilies(font_id)
                 self._loaded_fonts.update(families)
+                loaded_count += 1
+                logger.debug(f"Loaded font: {font_file.name} -> families: {families}")
+            else:
+                logger.warning(f"Failed to load font: {font_file}")
 
-    def get_font_family(self, weight: str = "regular") -> str:
-        """Get font family name."""
-        if self.config.font_family_primary in self._loaded_fonts:
-            return self.config.font_family_primary
+        if loaded_count > 0:
+            logger.info(f"Loaded {loaded_count} {expected_family} font files from {fonts_dir.name}")
+            return True
+        else:
+            logger.error(f"No fonts loaded from {fonts_dir}")
+            return False
+
+    def get_font_family(self, weight: str = "regular", display: bool = False) -> str:
+        """Get font family name from loaded fonts.
+
+        Args:
+            weight: Font weight (unused, kept for compatibility)
+            display: If True, returns display font (Alata). If False, returns primary font (DM Sans).
+
+        Returns:
+            The configured font family name.
+        """
+        if display:
+            return self.config.font_family_display
         return self.config.font_family_primary
 
-    def get_font(self, size: Any = "medium", weight: str = "regular", italic: bool = False, bold: bool = False) -> QFont:
-        """Get a QFont object based on tokens."""
+    def get_font(
+        self, size: Any = "medium", weight: str = "regular", italic: bool = False, bold: bool = False, display: bool = False
+    ) -> QFont:
+        """Get a QFont object based on tokens.
+
+        Args:
+            size: Font size (int or string like 'medium', 'large')
+            weight: Font weight ('regular', 'semibold', 'bold', 'light')
+            italic: Whether to italicize
+            bold: Whether to bold
+            display: If True, uses display font (Alata); if False, uses primary font (DM Sans)
+        """
         # Handle size being int or string
         if isinstance(size, int):
             font_size = size
         else:
             font_size = getattr(self.config.fonts, size, self.config.fonts.medium)
 
-        family = self.get_font_family(weight)
+        family = self.get_font_family(weight, display=display)
 
         font = QFont(family, font_size)
 
@@ -310,7 +387,7 @@ class ThemeManager:
         elif weight == "semibold":
             font.setWeight(QFont.Weight(530))  # Reduced from DemiBold (600) by ~17% (Medium equivalent)
         elif weight == "light":
-            font.setWeight(QFont.Weight(500))
+            font.setWeight(QFont.Weight(200))
 
         if italic:
             font.setItalic(True)

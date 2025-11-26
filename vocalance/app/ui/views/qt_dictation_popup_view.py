@@ -10,10 +10,11 @@ import logging
 import threading
 from collections import deque
 
-from PySide6.QtCore import QEasingCurve, QMetaObject, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QPainter, QTextCharFormat
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QTextCharFormat
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPlainTextEdit, QVBoxLayout, QWidget
 
+from vocalance.app.ui.components.labels import BoxTitleLabel
 from vocalance.app.ui.components.sound_wave_widget import SoundWaveWidget
 from vocalance.app.ui.qt_theme import theme
 
@@ -95,22 +96,28 @@ class QtDictationPopupView(QMainWindow):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def paintEvent(self, event) -> None:
-        """Draw rounded background for the window."""
+        """Draw rounded background with 3px gradient border."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Draw background
-        painter.setBrush(QColor(theme.config.shapes.darkest))
-        painter.setPen(Qt.PenStyle.NoPen)
-
-        # Rounded rect filling the entire window
         rect = self.rect()
+        border_width = 3
+
+        # Create gradient for border
+        gradient_colors = theme.config.text.gradient_colors
+        gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
+        gradient.setColorAt(0, QColor(gradient_colors[0]))
+        gradient.setColorAt(1, QColor(gradient_colors[1]))
+
+        # Draw outer rounded rect with gradient (this is the border)
+        painter.setBrush(gradient)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(rect, 16, 16)
 
-        # Optional: Draw subtle border
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QColor(theme.config.shapes.medium))
-        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 16, 16)
+        # Draw inner rounded rect with background color (creates border effect)
+        inner_rect = rect.adjusted(border_width, border_width, -border_width, -border_width)
+        painter.setBrush(QColor(theme.config.shapes.darkest))
+        painter.drawRoundedRect(inner_rect, 12, 12)
 
     def _create_ui(self) -> None:
         """Create UI elements."""
@@ -133,7 +140,7 @@ class QtDictationPopupView(QMainWindow):
         self.simple_widget.setVisible(False)
         main_layout.addWidget(self.simple_widget)
 
-        # Smart mode: Dictation + AI output (side by side like legacy)
+        # Smart mode: Dictation + AI output (side by side)
         self.smart_widget = QWidget()
         smart_main_layout = QVBoxLayout(self.smart_widget)
         smart_main_layout.setContentsMargins(0, 0, 0, 0)
@@ -151,13 +158,27 @@ class QtDictationPopupView(QMainWindow):
         dictation_layout.setContentsMargins(0, 0, 0, 0)
         dictation_layout.setSpacing(5)
 
-        dictation_label = QLabel("Dictation")
-        dictation_label.setFont(theme.get_font(size=theme.config.fonts.xlarge, weight="semibold"))
+        # Create title label with xlarge font and gradient
+        dictation_label = BoxTitleLabel("Dictation")
+        # Ensure enough horizontal space for gradient calculation
+        dictation_label.setMinimumWidth(200)
         dictation_layout.addWidget(dictation_label)
 
+        # Text box with dark background and more rounded corners
         self.dictation_box = QPlainTextEdit()
         self.dictation_box.setReadOnly(True)
         self.dictation_box.setMinimumWidth(350)
+        self.dictation_box.setStyleSheet(
+            f"""
+            QPlainTextEdit {{
+                background-color: {theme.config.shapes.dark};
+                border: none;
+                border-radius: {theme.config.radius.medium}px;
+                padding: {theme.config.spacing.small}px;
+                color: {theme.config.text.light};
+            }}
+        """
+        )
         dictation_layout.addWidget(self.dictation_box, 1)
 
         side_by_side_layout.addWidget(dictation_container, 1)
@@ -168,13 +189,27 @@ class QtDictationPopupView(QMainWindow):
         llm_layout.setContentsMargins(0, 0, 0, 0)
         llm_layout.setSpacing(5)
 
-        self.llm_label = QLabel("AI Output")
-        self.llm_label.setFont(theme.get_font(size=theme.config.fonts.xlarge, weight="semibold"))
+        # Create title label with xlarge font and gradient
+        self.llm_label = BoxTitleLabel("AI Output")
+        # Ensure enough horizontal space for gradient calculation
+        self.llm_label.setMinimumWidth(200)
         llm_layout.addWidget(self.llm_label)
 
+        # Text box with dark background and more rounded corners
         self.llm_box = QPlainTextEdit()
         self.llm_box.setReadOnly(True)
         self.llm_box.setMinimumWidth(350)
+        self.llm_box.setStyleSheet(
+            f"""
+            QPlainTextEdit {{
+                background-color: {theme.config.shapes.dark};
+                border: none;
+                border-radius: {theme.config.radius.medium}px;
+                padding: {theme.config.spacing.small}px;
+                color: {theme.config.text.light};
+            }}
+        """
+        )
         llm_layout.addWidget(self.llm_box, 1)
 
         side_by_side_layout.addWidget(llm_container, 1)
@@ -190,13 +225,27 @@ class QtDictationPopupView(QMainWindow):
         visual_layout.setContentsMargins(0, 0, 0, 0)
         visual_layout.setSpacing(10)
 
-        visual_label = QLabel("Dictation")
-        visual_label.setFont(theme.get_font(size=theme.config.fonts.xlarge, weight="semibold"))
+        # Create title label with xlarge font and gradient
+        visual_label = BoxTitleLabel("Dictation")
+        # Ensure enough horizontal space for gradient calculation
+        visual_label.setMinimumWidth(200)
         visual_layout.addWidget(visual_label)
 
+        # Text box with dark background and more rounded corners
         self.visual_dictation_box = QPlainTextEdit()
         self.visual_dictation_box.setReadOnly(True)
-        visual_layout.addWidget(self.visual_dictation_box)
+        self.visual_dictation_box.setStyleSheet(
+            f"""
+            QPlainTextEdit {{
+                background-color: {theme.config.shapes.dark};
+                border: none;
+                border-radius: {theme.config.radius.medium}px;
+                padding: {theme.config.spacing.small}px;
+                color: {theme.config.text.light};
+            }}
+        """
+        )
+        visual_layout.addWidget(self.visual_dictation_box, 1)
 
         self.visual_widget.setVisible(False)
         main_layout.addWidget(self.visual_widget, 1)
@@ -204,23 +253,13 @@ class QtDictationPopupView(QMainWindow):
     def _apply_styling(self) -> None:
         """Apply QSS styling.
 
-        Uses class-specific selectors to avoid affecting other QMainWindow,
-        QLabel, or QPlainTextEdit instances in the application.
+        Note: Window background/border is handled in paintEvent, not QSS.
+        Only setting inherited properties here.
+        Component-specific stylesheets (like for labels) handle their own styling.
+        Avoid window-level color property as it can interfere with custom paintEvent
+        gradient rendering in child widgets.
         """
-        stylesheet = f"""
-        QtDictationPopupView {{
-            background-color: {theme.config.shapes.darkest};
-            color: {theme.config.text.lightest};
-            border: 2px solid {theme.config.blue.blue_2};
-            border-radius: 8px;
-        }}
-
-        QtDictationPopupView QLabel {{
-            color: {theme.config.text.light};
-            font-size: {theme.config.fonts.medium}px;
-        }}
-        """
-        self.setStyleSheet(stylesheet)
+        # No stylesheet needed - individual components handle their own styling
 
     # Public API
 
@@ -398,25 +437,26 @@ class QtDictationPopupView(QMainWindow):
         cursor.insertText(text)
         end_pos = cursor.position()
 
-        # Apply GRAY color to the inserted text (partial = unstable)
+        # Apply medium color to the inserted text (partial = unstable)
         cursor.setPosition(start_pos)
         cursor.setPosition(end_pos, cursor.MoveMode.KeepAnchor)
-        gray_format = QTextCharFormat()
-        gray_format.setForeground(QColor("#888888"))  # Gray for partial
-        cursor.setCharFormat(gray_format)
+        partial_format = QTextCharFormat()
+        partial_format.setForeground(QColor(theme.config.text.medium))  # Medium color for partial
+        partial_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))  # No background (transparent)
+        cursor.setCharFormat(partial_format)
 
         # Store this segment's position for removal when final text arrives
         self._partial_segments[segment_id] = (start_pos, end_pos)
 
         text_box.setTextCursor(cursor)
         text_box.ensureCursorVisible()
-        self.logger.debug(f"Displayed GRAY partial text at {start_pos}-{end_pos}: '{text[:30]}...'")
+        self.logger.debug(f"Displayed medium-colored partial text at {start_pos}-{end_pos}: '{text[:30]}...'")
 
     def display_final_text(self, text: str, segment_id: str) -> None:
-        """Display final (stable) text in white for streaming dictation.
+        """Display final (stable) text in lightest color for streaming dictation.
 
         Final text replaces any partial text with the same segment_id and
-        is shown in white to indicate it will no longer change.
+        is shown in lightest color to indicate it will no longer change.
         Thread-safe - uses Qt Signal for cross-thread communication.
 
         Args:
@@ -459,14 +499,15 @@ class QtDictationPopupView(QMainWindow):
             del self._partial_segments[segment_id]
             self.logger.debug(f"Removed partial text for segment {segment_id} at {start_pos}-{end_pos}")
 
-        # Insert final text at end with WHITE formatting (stable/permanent)
+        # Insert final text at end with lightest color formatting (stable/permanent)
         cursor = text_box.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
 
-        # Create character format for WHITE text (final = stable)
-        white_format = QTextCharFormat()
-        white_format.setForeground(QColor(theme.config.text.light))  # White for final
-        cursor.setCharFormat(white_format)
+        # Create character format for lightest color text (final = stable)
+        final_format = QTextCharFormat()
+        final_format.setForeground(QColor(theme.config.shapes.lightest))  # Lightest color for final
+        final_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))  # No background (transparent)
+        cursor.setCharFormat(final_format)
 
         # Insert text with trailing space (matches legacy line 315)
         if text:
@@ -474,7 +515,7 @@ class QtDictationPopupView(QMainWindow):
 
         text_box.setTextCursor(cursor)
         text_box.ensureCursorVisible()
-        self.logger.debug(f"Displayed WHITE final text: '{text[:30]}...'")
+        self.logger.debug(f"Displayed lightest-colored final text: '{text[:30]}...'")
 
     def append_llm_token(self, token: str) -> None:
         """Append LLM output token with batching for smooth updates.

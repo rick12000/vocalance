@@ -7,7 +7,7 @@ Uses new label, button, and input subclasses.
 from typing import Optional, Tuple
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.inputs import TextInput
@@ -85,12 +85,8 @@ class Tile(BaseContainer):
         title_label = GroupHeaderLabel(title, align="center", color=theme.config.blue.blue_2)
         self.add(title_label)
 
-        # Content - small font, medium color (text that's less prominent)
+        # Content - medium font, medium color (text that's less prominent)
         content_label = SmallLabel(content, align="center", color=theme.config.text.medium)
-        # Make font even smaller
-        font = content_label.font()
-        font.setPointSize(theme.config.fonts.medium - 1)
-        content_label.setFont(font)
         content_label.setWordWrap(True)
         self.add(content_label, stretch=1)
 
@@ -199,10 +195,9 @@ class SidebarButton(QWidget):
         self.spacer.setVisible(False)  # Initially hidden
         layout.addWidget(self.spacer)
 
-        # Text label (initially hidden)
+        # Text label (initially hidden, uses Alata display font)
         self.text_label = BodyLabel(self._text_content)
-        font = self.text_label.font()
-        font.setWeight(QFont.Weight.DemiBold)
+        font = theme.get_font(size="medium", weight="semibold", display=True)
         self.text_label.setFont(font)
 
         # Setup opacity effect for smooth fade-in
@@ -367,10 +362,9 @@ class HeaderIconButton(QWidget):
         layout.setSpacing(0)  # We'll handle spacing via the spacer widget
         layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        # Text label (initially hidden, will expand from right to left)
+        # Text label (initially hidden, will expand from right to left, uses Alata display font)
         self.text_label = BodyLabel(self._text_content)
-        font = self.text_label.font()
-        font.setPointSize(theme.config.fonts.medium)
+        font = theme.get_font(size="medium", weight="regular", display=True)
         self.text_label.setFont(font)
 
         # Set text color to blue_1

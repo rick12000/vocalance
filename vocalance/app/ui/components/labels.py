@@ -2,6 +2,9 @@
 
 Each label class inherits from QLabel and applies its own styling.
 Styles only override what differs from the base QSS QLabel definition.
+
+Gradient-enabled labels (TitleLabel, BoxTitleLabel) use the GradientTextMixin
+to render text with smooth color transitions instead of solid colors.
 """
 
 from typing import Literal, Optional
@@ -11,10 +14,16 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QLabel, QWidget
 
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.ui.utils.qt_gradient_text import GradientTextMixin
 
 
-class TitleLabel(QLabel):
-    """Large bold title label. xxlarge size, bold weight, lightest color."""
+class TitleLabel(GradientTextMixin, QLabel):
+    """Large bold title label with gradient text. xxlarge size, bold weight.
+
+    By default, renders text with a gradient from theme.config.text.title_gradient.
+    The gradient can be disabled by passing use_gradient=False, which will revert
+    to solid color rendering using theme.config.text.lightest.
+    """
 
     def __init__(
         self,
@@ -22,23 +31,29 @@ class TitleLabel(QLabel):
         parent: Optional[QWidget] = None,
         align: Literal["left", "center", "right"] = "left",
         color: Optional[str] = None,
+        use_gradient: bool = True,
     ):
+        # Initialize mixin first, then QLabel
         super().__init__(text, parent)
 
-        # Apply font
-        self.setFont(theme.get_font(size="xxlarge", weight="bold"))
-
-        # Apply color via palette
-        final_color = color if color else theme.config.text.lightest
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
-        self.setPalette(palette)
+        # Apply font (use Alata display font for title)
+        self.setFont(theme.get_font(size="xxlarge", weight="bold", display=True))
 
         # Set alignment
         self._apply_alignment(align)
 
         # Transparent background
         self.setAutoFillBackground(False)
+
+        # Enable gradient by default (unless color override is provided)
+        if use_gradient and color is None:
+            self.enable_gradient(colors=theme.config.text.title_gradient, direction=Qt.Orientation.Horizontal)
+        else:
+            # Apply solid color via palette (gradient is disabled by default in mixin)
+            final_color = color if color else theme.config.text.lightest
+            palette = self.palette()
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
+            self.setPalette(palette)
 
     def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
         align_map = {
@@ -61,8 +76,8 @@ class SubtitleLabel(QLabel):
     ):
         super().__init__(text, parent)
 
-        # Apply font
-        self.setFont(theme.get_font(size="large", weight="semibold"))
+        # Apply font (use Alata display font for subtitle)
+        self.setFont(theme.get_font(size="large", weight="semibold", display=True))
 
         # Apply color via palette
         final_color = color if color else theme.config.text.light
@@ -122,7 +137,11 @@ class BodyLabel(QLabel):
 
 
 class SmallLabel(QLabel):
-    """Small text label. small size, regular weight, light color."""
+    """Small text label. medium size, regular weight, light color.
+
+    Note: Despite the name, uses medium font size (12pt) for consistency with UI design.
+    For actual small text, use BodyLabel or create a new component.
+    """
 
     def __init__(
         self,
@@ -134,7 +153,7 @@ class SmallLabel(QLabel):
         super().__init__(text, parent)
 
         # Apply font
-        self.setFont(theme.get_font(size="small", weight="regular"))
+        self.setFont(theme.get_font(size="medium", weight="regular"))
 
         # Apply color via palette
         final_color = color if color else theme.config.text.light
@@ -193,8 +212,13 @@ class GroupHeaderLabel(QLabel):
         self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
-class BoxTitleLabel(QLabel):
-    """Box title label. large size, semibold weight, lightest color."""
+class BoxTitleLabel(GradientTextMixin, QLabel):
+    """Box title label with gradient text. large size, semibold weight.
+
+    By default, renders text with a gradient from theme.config.text.title_gradient.
+    The gradient can be disabled by passing use_gradient=False, which will revert
+    to solid color rendering using theme.config.text.lightest.
+    """
 
     def __init__(
         self,
@@ -202,23 +226,29 @@ class BoxTitleLabel(QLabel):
         parent: Optional[QWidget] = None,
         align: Literal["left", "center", "right"] = "left",
         color: Optional[str] = None,
+        use_gradient: bool = True,
     ):
+        # Initialize mixin first, then QLabel
         super().__init__(text, parent)
 
-        # Apply font
-        self.setFont(theme.get_font(size="large", weight="semibold"))
-
-        # Apply color via palette
-        final_color = color if color else theme.config.text.lightest
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
-        self.setPalette(palette)
+        # Apply font (use Alata display font for box title)
+        self.setFont(theme.get_font(size="large", weight="semibold", display=True))
 
         # Set alignment
         self._apply_alignment(align)
 
         # Transparent background
         self.setAutoFillBackground(False)
+
+        # Enable gradient by default (unless color override is provided)
+        if use_gradient and color is None:
+            self.enable_gradient(colors=theme.config.text.title_gradient, direction=Qt.Orientation.Horizontal)
+        else:
+            # Apply solid color via palette (gradient is disabled by default in mixin)
+            final_color = color if color else theme.config.text.lightest
+            palette = self.palette()
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
+            self.setPalette(palette)
 
     def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
         align_map = {

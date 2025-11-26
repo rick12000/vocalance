@@ -470,7 +470,7 @@ class AssetPathsConfig(BaseModel):
             Path to fonts directory or None.
         """
         if self._assets_root:
-            return str(self._assets_root / "fonts" / "DM_Sans")
+            return str(self._assets_root / "fonts" / "custom_Alata")
         return None
 
     @property

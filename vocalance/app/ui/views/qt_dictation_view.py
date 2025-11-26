@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QRadioButton, Q
 
 from vocalance.app.ui.components.buttons import DeleteButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import PromptEditDialog
-from vocalance.app.ui.components.inputs import TextInput
+from vocalance.app.ui.components.inputs import ExpandableTextArea, TextInput
 from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
 from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentWidget, TwoColumnLayout
 from vocalance.app.ui.qt_theme import theme
@@ -82,7 +82,7 @@ class QtDictationView(QWidget):
         # Prompt instructions
         prompt_instructions_label = BodyLabel("Prompt Instructions:")
         content.add(prompt_instructions_label)
-        self.prompt_textbox = TextInput(
+        self.prompt_textbox = ExpandableTextArea(
             placeholder="e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' Adopt a professional tone and style."
         )
         content.add(self.prompt_textbox)

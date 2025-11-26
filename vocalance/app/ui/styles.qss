@@ -6,7 +6,8 @@
  * own class name as the selector.
  *
  * Design Tokens Reference (from qt_theme.py):
- * - Font: DMSans
+ * - Primary Font: DM Sans (loaded from DM_Sans directory)
+ * - Display Font: Alata (loaded from custom_Alata directory - used for titles)
  * - Text Colors: lightest=#e8d6d6, light=#c3afaf, medium=#7a7a7a
  * - Shape Colors: darkest=#131313, dark=#2a2a2a, medium=#393939, light=#404040
  * - Blue Colors: blue_1=#1f3760, blue_2=#a8c7fa
@@ -19,7 +20,7 @@
 
 QWidget {
     background: transparent;
-    font-family: "DMSans";
+    font-family: "DM Sans";
     font-size: 10px;
     color: #c3afaf;
 }
@@ -31,7 +32,7 @@ QWidget {
 QLabel {
     background: transparent;
     color: #c3afaf;
-    font-family: "DMSans";
+    font-family: "DM Sans";
     font-size: 10px;
 }
 
@@ -45,7 +46,7 @@ QPushButton {
     border: none;
     border-radius: 12px;
     padding: 2px 16px;
-    font-family: "DMSans";
+    font-family: "DM Sans";
     font-size: 10px;
     font-weight: 600;
     min-height: 24px;
@@ -74,7 +75,7 @@ QLineEdit {
     border: 1px solid #404040;
     border-radius: 8px;
     padding: 6px 10px;
-    font-family: "DMSans";
+    font-family: "DM Sans";
     font-size: 10px;
     min-height: 35px;
 }
@@ -94,7 +95,7 @@ QLineEdit::placeholder {
 QCheckBox {
     background: transparent;
     color: #c3afaf;
-    font-family: "DMSans";
+    font-family: "DM Sans";
     font-size: 10px;
     spacing: 8px;
 }
@@ -123,7 +124,7 @@ QCheckBox::indicator:checked {
 QRadioButton {
     background: transparent;
     color: #c3afaf;
-    font-family: "DMSans";
+    font-family: "DM Sans";
     font-size: 10px;
     spacing: 8px;
 }
@@ -256,7 +257,7 @@ QFrame {
 QDialog {
     background-color: #131313;
     color: #c3afaf;
-    font-family: "DMSans";
+    font-family: "DM Sans";
 }
 
 /* ==========================================================================
@@ -266,7 +267,7 @@ QDialog {
 QMessageBox {
     background-color: #131313;
     color: #c3afaf;
-    font-family: "DMSans";
+    font-family: "DM Sans";
 }
 
 QMessageBox QLabel {
@@ -303,6 +304,6 @@ QToolTip {
     border: 1px solid #393939;
     border-radius: 4px;
     padding: 4px 8px;
-    font-family: "DMSans";
+    font-family: "DM Sans";
     font-size: 10px;
 }

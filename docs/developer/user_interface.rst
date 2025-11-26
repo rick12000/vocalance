@@ -123,7 +123,7 @@ Concrete Controllers
 Theming and Styling
 ====================
 
-Vocalance uses CustomTkinter for a modern, dark-themed UI. All visual elements use a consistent color scheme and typography defined in `UITheme`. The `FontService` loads and caches custom fonts (Manrope) at startup, avoiding repeated disk I/O. The themed components (ThemedFrame, ThemedLabel, etc.) apply these colors and fonts automatically, ensuring consistency without repetitive configuration.
+Vocalance uses CustomTkinter for a modern, dark-themed UI. All visual elements use a consistent color scheme and typography defined in `UITheme`. The `FontService` loads and caches custom fonts (Alata) at startup, avoiding repeated disk I/O. The themed components (ThemedFrame, ThemedLabel, etc.) apply these colors and fonts automatically, ensuring consistency without repetitive configuration.
 
 When the user changes theme settings (if supported), the settings coordinator propagates the change to all affected services and widgets. Because UI elements use the themed components, a global theme change is reflected everywhere automatically.
 

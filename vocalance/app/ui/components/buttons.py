@@ -34,8 +34,8 @@ class PrimaryButton(QPushButton):
         # Set cursor
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Set font
-        self.setFont(theme.get_font("small", "semibold"))
+        # Set font (use Alata display font for button text)
+        self.setFont(theme.get_font("medium", "semibold", display=True))
 
         # Set height
         height = theme.config.components.button_height
@@ -126,8 +126,8 @@ class DangerButton(QPushButton):
         # Set cursor
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Set font
-        self.setFont(theme.get_font("small", "semibold"))
+        # Set font (use Alata display font for button text)
+        self.setFont(theme.get_font("medium", "semibold", display=True))
 
         # Set height
         height = theme.config.components.button_height
@@ -223,8 +223,8 @@ class GhostButton(QPushButton):
         # Set cursor
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Set font
-        self.setFont(theme.get_font("small", "semibold"))
+        # Set font (use Alata display font for button text)
+        self.setFont(theme.get_font("medium", "semibold", display=True))
 
         # Set height
         height = theme.config.components.button_height

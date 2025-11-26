@@ -101,8 +101,10 @@ class StartupWindow(QDialog):
 
         # Main layout
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(theme.config.container.box_spacing_between)
+        main_layout.setContentsMargins(
+            theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large
+        )
+        main_layout.setSpacing(theme.config.spacing.small)  # Reduced spacing between progress bar and status text
 
         # Logo
         self.logo_label = self.logo_service.create_logo_widget(
@@ -121,6 +123,7 @@ class StartupWindow(QDialog):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(2)  # Very thin bar
+        self.progress_bar.setFixedWidth(460)  # Fixed width to prevent horizontal shifts
 
         # Style progress bar with theme colors
         progress_stylesheet = f"""
@@ -135,40 +138,59 @@ class StartupWindow(QDialog):
         }}
         """
         self.progress_bar.setStyleSheet(progress_stylesheet)
-        main_layout.addWidget(self.progress_bar)
 
-        # Status container (text + spinner)
+        # Center the progress bar horizontally
+        progress_container = QWidget(self)
+        progress_layout = QHBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.addStretch()
+        progress_layout.addWidget(self.progress_bar)
+        progress_layout.addStretch()
+        main_layout.addWidget(progress_container)
+
+        # Status container (text + spinner) - truly centered
+        status_outer_container = QWidget(self)
+        status_outer_layout = QHBoxLayout(status_outer_container)
+        status_outer_layout.setContentsMargins(0, 0, 0, 0)
+        status_outer_layout.setSpacing(0)
+
+        # Add stretch before
+        status_outer_layout.addStretch()
+
+        # Inner container - no fixed width, content determines size
         status_container = QWidget(self)
         status_layout = QHBoxLayout(status_container)
         status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(theme.config.spacing.medium)
+        status_layout.setSpacing(theme.config.spacing.tiny)  # Minimal spacing between text and spinner
 
-        # Add stretch before
-        status_layout.addStretch()
-
-        # Status text
+        # Status text - centered alignment
         self.text_label = QLabel("Starting up", self)
-        font = theme.get_font(size=theme.config.fonts.medium)
+        font = theme.get_font(size=theme.config.fonts.small)
         self.text_label.setFont(font)
         palette = self.text_label.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.shapes.light))
         self.text_label.setPalette(palette)
+        self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        # Let text size naturally, no minimum width constraint
         status_layout.addWidget(self.text_label)
 
         # Spinner - using rotating braille animation frames
-        self.spinner_label = QLabel("", self)
+        self.spinner_label = QLabel(self.animation_frames[0], self)  # Start with first frame visible
         spinner_font = theme.get_font(size=theme.config.fonts.large)
         self.spinner_label.setFont(spinner_font)
         spinner_palette = self.spinner_label.palette()
         spinner_palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.blue.blue_2))
         self.spinner_label.setPalette(spinner_palette)
-        self.spinner_label.setMinimumWidth(30)
+        self.spinner_label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.spinner_label.setFixedWidth(30)  # Fixed width to prevent shifts
         status_layout.addWidget(self.spinner_label)
 
-        # Add stretch after
-        status_layout.addStretch()
+        status_outer_layout.addWidget(status_container)
 
-        main_layout.addWidget(status_container)
+        # Add stretch after
+        status_outer_layout.addStretch()
+
+        main_layout.addWidget(status_outer_container)
 
         # Add vertical stretch
         main_layout.addStretch()
@@ -240,32 +262,23 @@ class StartupWindow(QDialog):
 
                 # Update status text
                 if self.text_label and self.spinner_label and status:
+                    self.text_label.setText(status.rstrip("."))
+
                     if animate:
-                        self._start_animation(status.rstrip("."))
+                        self._start_animation()
                     else:
                         self._stop_animation()
-                        self.text_label.setText(status)
-                        self.spinner_label.setText("")
 
             except Exception as e:
                 self.logger.error(f"Error updating progress: {e}")
 
-    def _start_animation(self, base_text: str) -> None:
-        """Begin spinner animation using rotating braille frames.
-
-        Args:
-            base_text: Base status text (spinner displayed).
-        """
-        if self.is_closed:
+    def _start_animation(self) -> None:
+        """Begin spinner animation using rotating braille frames."""
+        if self.is_closed or self.is_animating:
             return
 
-        self._stop_animation()
         self.is_animating = True
-        self.animation_base_text = base_text
         self.animation_frame = 0
-
-        if self.text_label:
-            self.text_label.setText(base_text)
 
         # Create timer-based animation for rotating spinner
         if self.spinner_label:
@@ -287,6 +300,9 @@ class StartupWindow(QDialog):
 
     def _stop_animation(self) -> None:
         """Stop spinner animation."""
+        if not self.is_animating:
+            return
+
         self.is_animating = False
         self.animation_base_text = ""
 
@@ -294,8 +310,9 @@ class StartupWindow(QDialog):
             self.animation_timer.stop()
             self.animation_timer = None
 
+        # Keep spinner visible but static at first frame
         if self.spinner_label:
-            self.spinner_label.setText("")
+            self.spinner_label.setText(self.animation_frames[0])
 
     def _close_impl(self) -> None:
         """Close window (must run in main thread).
