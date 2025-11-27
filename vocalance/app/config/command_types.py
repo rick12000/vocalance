@@ -91,6 +91,16 @@ class DictationVisualStartCommand(DictationCommand):
     """
 
 
+class DictationHiddenStartCommand(DictationCommand):
+    """Command to start hidden dictation mode with silent accumulation.
+
+    Activates dictation that accumulates text in memory without displaying
+    partial/final text in UI. Shows only a sound wave indicator like standard
+    mode. Text is pasted when stopped, with buffer flushed to capture any
+    trailing audio.
+    """
+
+
 ActionType = Literal["hotkey", "key", "key_sequence", "click", "scroll"]
 
 
@@ -346,7 +356,12 @@ class SoundMapCommand(SoundCommand):
 
 
 DictationCommandType = Union[
-    DictationStartCommand, DictationStopCommand, DictationTypeCommand, DictationSmartStartCommand, DictationVisualStartCommand
+    DictationStartCommand,
+    DictationStopCommand,
+    DictationTypeCommand,
+    DictationSmartStartCommand,
+    DictationVisualStartCommand,
+    DictationHiddenStartCommand,
 ]
 
 AutomationCommandType = Union[ExactMatchCommand, ParameterizedCommand]

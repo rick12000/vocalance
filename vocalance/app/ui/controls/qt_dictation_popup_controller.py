@@ -50,6 +50,8 @@ class QtDictationPopupController:
             from vocalance.app.events.dictation_events import (
                 DictationStatusChangedEvent,
                 FinalDictationTextEvent,
+                HiddenDictationStartedEvent,
+                HiddenDictationStoppedEvent,
                 LLMProcessingCompletedEvent,
                 LLMProcessingStartedEvent,
                 LLMTokenGeneratedEvent,
@@ -67,11 +69,13 @@ class QtDictationPopupController:
             # Audio visualization
             self.event_bus.subscribe(AudioChunkEvent, self._on_audio_chunk)
 
-            # Smart/Visual dictation mode lifecycle
+            # Smart/Visual/Hidden dictation mode lifecycle
             self.event_bus.subscribe(SmartDictationStartedEvent, self._on_smart_started)
             self.event_bus.subscribe(SmartDictationStoppedEvent, self._on_smart_stopped)
             self.event_bus.subscribe(VisualDictationStartedEvent, self._on_visual_started)
             self.event_bus.subscribe(VisualDictationStoppedEvent, self._on_visual_stopped)
+            self.event_bus.subscribe(HiddenDictationStartedEvent, self._on_hidden_started)
+            self.event_bus.subscribe(HiddenDictationStoppedEvent, self._on_hidden_stopped)
 
             # Streaming dictation text events (partial/final for visual/smart modes)
             self.event_bus.subscribe(PartialDictationTextEvent, self._on_partial_text)
@@ -174,8 +178,8 @@ class QtDictationPopupController:
             self.logger.debug(f"DictationStatusChanged: is_active={is_active}, mode={mode}, show_ui={show_ui}")
 
             if is_active and show_ui:
-                # Show popup for standard/type modes (not smart/visual - they have their own events)
-                if mode not in ("smart", "visual"):
+                # Show popup for standard/type modes (not smart/visual/hidden - they have their own events)
+                if mode not in ("smart", "visual", "hidden"):
                     self.show_simple_listening()
             else:
                 # Hide popup when dictation becomes inactive
@@ -201,6 +205,20 @@ class QtDictationPopupController:
     async def _on_visual_stopped(self, event) -> None:
         """Handle visual dictation stopped event."""
         self.hide_popup()
+
+    async def _on_hidden_started(self, event) -> None:
+        """Handle hidden dictation started event.
+
+        Shows simple listening popup (sound wave only) for hidden mode,
+        since hidden mode doesn't display streaming text.
+        """
+        self.show_simple_listening()
+        self.logger.debug("Hidden dictation started - showing simple listening popup")
+
+    async def _on_hidden_stopped(self, event) -> None:
+        """Handle hidden dictation stopped event."""
+        self.hide_popup()
+        self.logger.debug("Hidden dictation stopped - hiding popup")
 
     async def _on_partial_text(self, event) -> None:
         """Handle partial dictation text event (gray/tentative text)."""

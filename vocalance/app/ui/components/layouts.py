@@ -556,6 +556,126 @@ class GroupHeader(QWidget):
             layout.addSpacing(bottom_margin)
 
 
+class CollapsibleSection(QWidget):
+    """Collapsible section with header and content area.
+
+    Features:
+    - Circular expand/collapse button with arrow icons (right when collapsed, down when expanded)
+    - Content area that shows/hides based on state
+    - Divider appears only when content is expanded
+    - Configurable to start expanded or collapsed
+    """
+
+    def __init__(self, title: str, is_first: bool = False, start_expanded: bool = False, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+        from vocalance.app.ui.components.buttons import CollapseButton, ExpandButton
+
+        self.is_expanded = start_expanded
+
+        # Transparent background
+        self.setAutoFillBackground(False)
+
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Top margin - first group has less
+        top_margin = (
+            theme.config.container.group_header_first_margin_top if is_first else theme.config.container.group_header_margin_top
+        )
+        if top_margin > 0:
+            main_layout.addSpacing(top_margin)
+
+        # Header container
+        header_widget = QWidget()
+        header_widget.setAutoFillBackground(False)
+
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(theme.config.spacing.small)
+
+        # Arrow button - show expand or collapse based on state
+        if self.is_expanded:
+            self.arrow_button = CollapseButton()
+        else:
+            self.arrow_button = ExpandButton()
+
+        self.arrow_button.clicked.connect(self._toggle_expanded)
+        header_layout.addWidget(self.arrow_button)
+
+        # Title label - use medium text color
+        from vocalance.app.ui.components.labels import GroupHeaderLabel
+
+        self.title_label = GroupHeaderLabel(title, color=theme.config.text.medium)
+        header_layout.addWidget(self.title_label, stretch=1)
+
+        main_layout.addWidget(header_widget)
+
+        # Add bottom spacing after header
+        main_layout.addSpacing(theme.config.container.group_header_margin_bottom)
+
+        # Divider - only show when expanded
+        self.divider = QWidget()
+        self.divider.setFixedHeight(1)
+        divider_palette = self.divider.palette()
+        divider_palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.medium))
+        self.divider.setPalette(divider_palette)
+        self.divider.setAutoFillBackground(True)
+        main_layout.addWidget(self.divider)
+        self.divider.setVisible(self.is_expanded)
+
+        # Bottom spacing after divider
+        bottom_margin = theme.config.container.divider_margin_bottom
+        if bottom_margin > 0:
+            self.divider_spacing = bottom_margin
+            main_layout.addSpacing(bottom_margin)
+        else:
+            self.divider_spacing = 0
+
+        # Content container
+        self.content_widget = TransparentWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(theme.config.container.list_item_spacing)
+
+        main_layout.addWidget(self.content_widget)
+
+        # Set initial visibility
+        self.content_widget.setVisible(self.is_expanded)
+
+    def _toggle_expanded(self):
+        """Toggle the expanded/collapsed state."""
+        self.is_expanded = not self.is_expanded
+        self.content_widget.setVisible(self.is_expanded)
+        self.divider.setVisible(self.is_expanded)
+
+        # Replace arrow button with the opposite state
+        from vocalance.app.ui.components.buttons import CollapseButton, ExpandButton
+
+        # Get the parent layout of the arrow button
+        parent_layout = self.arrow_button.parent().layout()
+
+        # Remove old button
+        parent_layout.removeWidget(self.arrow_button)
+        self.arrow_button.deleteLater()
+
+        # Create new button
+        if self.is_expanded:
+            self.arrow_button = CollapseButton()
+        else:
+            self.arrow_button = ExpandButton()
+
+        self.arrow_button.clicked.connect(self._toggle_expanded)
+        # Insert at position 0 (same as before)
+        parent_layout.insertWidget(0, self.arrow_button)
+
+    def add_item(self, widget: QWidget) -> None:
+        """Add a widget to the content area."""
+        self.content_layout.addWidget(widget)
+
+
 class ListForm(QWidget):
     """High-level component for scrollable list with items and group headers.
 

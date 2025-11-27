@@ -6,12 +6,14 @@ Uses new component subclasses from components module.
 
 from typing import List, Optional
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.buttons import DangerButton, DeleteButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import BaseDialog
 from vocalance.app.ui.components.inputs import TextInput
-from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
+from vocalance.app.ui.components.labels import BodyLabel, SectionTitle, SmallLabel
 from vocalance.app.ui.components.layouts import BaseContainer, ScrollableContainer, TransparentWidget, TwoColumnLayout
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.views.qt_base_view import QtBaseView
@@ -35,16 +37,31 @@ class SoundMappingDialog(BaseDialog):
 
     def _setup_ui(self) -> None:
         """Build the dialog UI."""
-        # Current mapping section
-        current_frame = BaseContainer()
+        from PySide6.QtGui import QColor, QPalette
+
+        # Set dialog background to darkest
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+
+        # Current mapping section - with dark background and rounded corners
+        current_frame = BaseContainer(
+            layout="vertical",
+            bg_color=theme.config.shapes.dark,
+            border_radius=theme.config.radius.rounded,
+        )
         current_layout = current_frame.layout()
         current_layout.setContentsMargins(
-            theme.config.spacing.medium, theme.config.spacing.medium, theme.config.spacing.medium, theme.config.spacing.medium
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
         )
         current_layout.setSpacing(theme.config.spacing.small)
 
-        current_title = SmallLabel("Current Mapping:", color=theme.config.text.light)
-        current_title.setFont(theme.get_font(size=theme.config.fonts.medium, weight="semibold"))
+        # Use SectionTitle for "Current Mapping"
+        current_title = SectionTitle("Current Mapping:")
         current_layout.addWidget(current_title)
 
         # Get current mapping
@@ -59,31 +76,94 @@ class SoundMappingDialog(BaseDialog):
 
         self._main_layout.addWidget(current_frame)
 
-        # Mapping selection section
-        mapping_frame = BaseContainer()
+        # Mapping selection section - with dark background and rounded corners
+        mapping_frame = BaseContainer(
+            layout="vertical",
+            bg_color=theme.config.shapes.dark,
+            border_radius=theme.config.radius.rounded,
+        )
         mapping_layout = mapping_frame.layout()
         mapping_layout.setContentsMargins(
-            theme.config.spacing.medium, theme.config.spacing.medium, theme.config.spacing.medium, theme.config.spacing.medium
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
         )
         mapping_layout.setSpacing(theme.config.spacing.medium)
 
-        # Command Type dropdown
-        type_label = SmallLabel("Command Type:", color=theme.config.text.light)
-        type_label.setFont(theme.get_font(size=theme.config.fonts.medium, weight="semibold"))
+        # Command Type dropdown - with medium font and color
+        type_label = SmallLabel("Command Type:", color=theme.config.text.medium)
         mapping_layout.addWidget(type_label)
 
         self.type_combo = QComboBox()
+        self.type_combo.setFont(theme.get_font(size="medium"))
+        self.type_combo.setStyleSheet(
+            f"""
+            QComboBox {{
+                background-color: {theme.config.shapes.medium};
+                color: {theme.config.text.medium};
+                border: none;
+                border-radius: {theme.config.radius.small}px;
+                padding: {theme.config.spacing.small}px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                background-color: {theme.config.shapes.medium};
+                width: 20px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                color: {theme.config.text.medium};
+                width: 16px;
+                height: 16px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {theme.config.shapes.dark};
+                color: {theme.config.text.light};
+                selection-background-color: {theme.config.shapes.medium};
+                border: 1px solid {theme.config.shapes.medium};
+            }}
+        """
+        )
         command_types = self.controller.get_mapping_command_types()
         self.type_combo.addItems(command_types)
         self.type_combo.currentTextChanged.connect(self._on_type_changed)
         mapping_layout.addWidget(self.type_combo)
 
-        # Command Value dropdown
-        value_label = SmallLabel("Command Value:", color=theme.config.text.light)
-        value_label.setFont(theme.get_font(size=theme.config.fonts.medium, weight="semibold"))
+        # Command Value dropdown - with medium font and color
+        value_label = SmallLabel("Command Value:", color=theme.config.text.medium)
         mapping_layout.addWidget(value_label)
 
         self.value_combo = QComboBox()
+        self.value_combo.setFont(theme.get_font(size="medium"))
+        self.value_combo.setStyleSheet(
+            f"""
+            QComboBox {{
+                background-color: {theme.config.shapes.medium};
+                color: {theme.config.text.medium};
+                border: none;
+                border-radius: {theme.config.radius.small}px;
+                padding: {theme.config.spacing.small}px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                background-color: {theme.config.shapes.medium};
+                width: 20px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                color: {theme.config.text.medium};
+                width: 16px;
+                height: 16px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {theme.config.shapes.dark};
+                color: {theme.config.text.light};
+                selection-background-color: {theme.config.shapes.medium};
+                border: 1px solid {theme.config.shapes.medium};
+            }}
+        """
+        )
         mapping_layout.addWidget(self.value_combo)
 
         # Buttons
@@ -151,6 +231,7 @@ class QtSoundsView(QtBaseView):
 
         self.sounds_list: List[str] = []
         self.current_training_sound = None
+        self.total_training_samples = 0
 
         self._setup_ui()
         self.logger.debug("QtSoundsView initialized")
@@ -188,7 +269,7 @@ class QtSoundsView(QtBaseView):
         # Sound name input
         sound_name_label = BodyLabel("Sound Name:")
         content.add(sound_name_label)
-        self.sound_name_input = TextInput(placeholder="e.g., doorbell")
+        self.sound_name_input = TextInput(placeholder="e.g. pop")
         self.sound_name_input.setMaxLength(50)
         content.add(self.sound_name_input)
 
@@ -205,13 +286,44 @@ class QtSoundsView(QtBaseView):
         self.start_training_btn.clicked.connect(self._on_start_training_clicked)
         content.add(self.start_training_btn)
 
-        # Progress bar
+        # Progress bar - minimal, modern aesthetic matching startup window
         self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(2)  # Very thin bar
         self.progress_bar.setVisible(False)
-        content.add(self.progress_bar)
 
-        # Status label
+        # Style progress bar with theme colors matching startup window
+        progress_stylesheet = f"""
+        QProgressBar {{
+            background-color: {theme.config.shapes.dark};
+            border: none;
+            border-radius: 1px;
+        }}
+        QProgressBar::chunk {{
+            background-color: {theme.config.blue.blue_2};
+            border-radius: 1px;
+        }}
+        """
+        self.progress_bar.setStyleSheet(progress_stylesheet)
+
+        # Add padding above progress bar
+        progress_container = QWidget()
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, theme.config.spacing.medium, 0, 0)
+        progress_layout.addWidget(self.progress_bar)
+        progress_layout.addStretch()
+        content.add(progress_container)
+
+        # Status label - center aligned with medium font size and medium color
         self.status_label = QLabel()
+        self.status_label.setFont(theme.get_font(size=theme.config.fonts.medium))
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        palette = self.status_label.palette()
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.medium))
+        self.status_label.setPalette(palette)
         self.status_label.setVisible(False)
         content.add(self.status_label)
 
@@ -250,8 +362,9 @@ class QtSoundsView(QtBaseView):
     def _on_training_started(self, sound_name: str, total_samples: int) -> None:
         """Handle training started event."""
         self.current_training_sound = sound_name
-        self.progress_bar.setValue(0)
-        self.progress_bar.setMaximum(total_samples)
+        self.total_training_samples = total_samples
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(5)  # Show 5% progress for first sample
         self.progress_bar.setVisible(True)
         self.status_label.setText(f"Recording sample 1 of {total_samples}")
         self.status_label.setVisible(True)
@@ -261,20 +374,42 @@ class QtSoundsView(QtBaseView):
         self.logger.info(f"Training started: {sound_name}")
 
     def _on_training_progress(self, sound_name: str, current: int, total: int) -> None:
-        """Handle training progress event."""
+        """Handle training progress event.
+
+        Flow:
+        - current=1: Just finished recording sample 1, show sample 2 label with proportional progress
+        - current=2-4: Show corresponding sample label with proportional progress
+        - current=5: Show sample 5 label with ~95% progress
+        - current>total: Show "Training..." with 100% progress
+        """
         if sound_name == self.current_training_sound:
-            self.progress_bar.setValue(current)
+            # current represents the sample that just finished recording
+            # So we show the NEXT sample the user should record
+            next_sample = current + 1
+
             if current < total:
-                self.status_label.setText(f"Recording sample {current + 1} of {total}")
+                # User just finished recording sample 'current', show label for next sample
+                # Progress calculation: 5% allocated to first sample, remaining 95% divided among samples 2-5
+                # After sample 1 done: show sample 2 with some progress
+                # After sample 2 done: show sample 3 with more progress
+                # etc.
+                if total > 1:
+                    progress_per_sample = 95 / total
+                    progress_value = 5 + (current * progress_per_sample)
+                else:
+                    progress_value = 100
+
+                self.progress_bar.setValue(int(progress_value))
+                self.status_label.setText(f"Recording sample {next_sample} of {total}")
             else:
-                self.progress_bar.setVisible(False)
+                # All samples recorded, show training in progress
+                self.progress_bar.setValue(100)
                 self.status_label.setText("Training...")
 
     def _on_training_completed(self, sound_name: str) -> None:
         """Handle training completed event."""
         self.progress_bar.setVisible(False)
-        self.status_label.setText(f"Training complete for '{sound_name}'!")
-        self.status_label.setVisible(True)
+        self.status_label.setVisible(False)
         self.start_training_btn.setEnabled(True)
         self.sound_name_input.setEnabled(True)
         self.samples_spinbox.setEnabled(True)

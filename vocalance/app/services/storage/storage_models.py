@@ -100,3 +100,13 @@ class CommandHistoryData(StorageData):
         if len(v) > max_entries:
             return v[-max_entries:]
         return v
+
+
+class DictationAliasData(StorageData):
+    """Storage model for dictation alias substitutions.
+
+    Maps activation phrases to substitution text. During dictation,
+    'insert {key}' patterns are replaced with the corresponding value.
+    """
+
+    aliases: Dict[str, str] = Field(default_factory=dict, description="Map of activation phrase to substitution text")

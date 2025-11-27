@@ -259,6 +259,46 @@ class BoxTitleLabel(GradientTextMixin, QLabel):
         self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
+class SectionTitle(QLabel):
+    """Section title label. large size, semibold weight, Alata display font, light color.
+
+    Used for organizational section headers within scrollable content areas.
+    Matches SubtitleLabel styling but is a distinct component for semantic clarity.
+    """
+
+    def __init__(
+        self,
+        text: str = "",
+        parent: Optional[QWidget] = None,
+        align: Literal["left", "center", "right"] = "left",
+        color: Optional[str] = None,
+    ):
+        super().__init__(text, parent)
+
+        # Apply font (use Alata display font for section titles)
+        self.setFont(theme.get_font(size="moderate", weight="semibold", display=True))
+
+        # Apply color via palette
+        final_color = color if color else theme.config.text.light
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
+        self.setPalette(palette)
+
+        # Set alignment
+        self._apply_alignment(align)
+
+        # Transparent background
+        self.setAutoFillBackground(False)
+
+    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
+        align_map = {
+            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            "center": Qt.AlignmentFlag.AlignCenter,
+            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        }
+        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
+
+
 class LargeLabel(QLabel):
     """Large text label. large size, regular weight, light color."""
 

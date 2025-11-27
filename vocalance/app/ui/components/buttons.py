@@ -433,3 +433,149 @@ class DeleteButton(DangerButton):
             target_rect = QRectF(x_pos, y_pos, icon_dim, icon_dim)
 
             self._renderer.render(painter, target_rect)
+
+
+class ExpandButton(PrimaryButton):
+    """Circular icon button with right arrow icon for expanding sections.
+
+    Uses the keyboard_arrow_right icon and renders as a perfect circle instead of pill shape.
+    Icon colored with blue_2, background with blue_1.
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        command=None,
+    ):
+        # Initialize with empty text
+        super().__init__("", parent, command)
+
+        # Calculate size: same height as primary button (24px)
+        button_size = theme.config.components.button_height
+        self.setFixedSize(button_size, button_size)
+
+        # CRITICAL: Remove all content margins to ensure proper centering
+        self.setContentsMargins(0, 0, 0, 0)
+
+        # Override border radius to make it circular (half of button size)
+        self._border_radius = button_size // 2
+
+        # Set up icon
+        assets_dir = Path(__file__).parent.parent.parent / "assets" / "icons"
+        icon_path = assets_dir / "keyboard_arrow_right_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.svg"
+
+        # Create vector renderer with blue_2 color
+        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.blue.blue_2)
+
+    def paintEvent(self, event):
+        """Custom paint for circular button with icon."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Use exact dimensions from self.rect() to match the widget geometry
+        rect = self.rect()
+        width = rect.width()
+        height = rect.height()
+
+        # Create circular path
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
+
+        # Determine background color based on state
+        if self._is_pressed:
+            bg_color = QColor(theme.config.shapes.darkest)
+        elif self._is_hovered:
+            bg_color = QColor(theme.config.blue.blue_1)
+        else:
+            bg_color = QColor(theme.config.blue.blue_1)
+
+        # Fill background
+        painter.fillPath(path, bg_color)
+
+        # Draw icon centered using vector renderer
+        if self._renderer.isValid():
+            # Calculate target icon size (60% of button)
+            icon_dim = int(width * 0.6)
+
+            # Calculate centered rect
+            x_pos = (width - icon_dim) / 2.0
+            y_pos = (height - icon_dim) / 2.0
+
+            from PySide6.QtCore import QRectF
+
+            target_rect = QRectF(x_pos, y_pos, icon_dim, icon_dim)
+
+            self._renderer.render(painter, target_rect)
+
+
+class CollapseButton(PrimaryButton):
+    """Circular icon button with down arrow icon for collapsing sections.
+
+    Uses the keyboard_arrow_down icon and renders as a perfect circle instead of pill shape.
+    Icon colored with blue_2, background with blue_1.
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        command=None,
+    ):
+        # Initialize with empty text
+        super().__init__("", parent, command)
+
+        # Calculate size: same height as primary button (24px)
+        button_size = theme.config.components.button_height
+        self.setFixedSize(button_size, button_size)
+
+        # CRITICAL: Remove all content margins to ensure proper centering
+        self.setContentsMargins(0, 0, 0, 0)
+
+        # Override border radius to make it circular (half of button size)
+        self._border_radius = button_size // 2
+
+        # Set up icon
+        assets_dir = Path(__file__).parent.parent.parent / "assets" / "icons"
+        icon_path = assets_dir / "keyboard_arrow_down_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.svg"
+
+        # Create vector renderer with blue_2 color
+        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.blue.blue_2)
+
+    def paintEvent(self, event):
+        """Custom paint for circular button with icon."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Use exact dimensions from self.rect() to match the widget geometry
+        rect = self.rect()
+        width = rect.width()
+        height = rect.height()
+
+        # Create circular path
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
+
+        # Determine background color based on state
+        if self._is_pressed:
+            bg_color = QColor(theme.config.shapes.darkest)
+        elif self._is_hovered:
+            bg_color = QColor(theme.config.blue.blue_1)
+        else:
+            bg_color = QColor(theme.config.blue.blue_1)
+
+        # Fill background
+        painter.fillPath(path, bg_color)
+
+        # Draw icon centered using vector renderer
+        if self._renderer.isValid():
+            # Calculate target icon size (60% of button)
+            icon_dim = int(width * 0.6)
+
+            # Calculate centered rect
+            x_pos = (width - icon_dim) / 2.0
+            y_pos = (height - icon_dim) / 2.0
+
+            from PySide6.QtCore import QRectF
+
+            target_rect = QRectF(x_pos, y_pos, icon_dim, icon_dim)
+
+            self._renderer.render(painter, target_rect)

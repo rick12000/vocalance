@@ -153,14 +153,24 @@ class QtSettingsController(QtBaseController):
     async def update_settings_async(self, settings: Dict[str, Any]) -> Tuple[bool, str]:
         """Update multiple settings asynchronously."""
         try:
-            success, message = await asyncio.to_thread(self.settings_service.update_settings, settings)
+            success = await self.settings_service.update_multiple_settings(settings)
             if success:
-                self._cached_settings.update(settings)
+                # Update cache with new values
+                for key, value in settings.items():
+                    parts = key.split(".")
+                    if len(parts) == 2:
+                        category, setting_key = parts
+                        if category not in self._cached_settings:
+                            self._cached_settings[category] = {}
+                        self._cached_settings[category][setting_key] = value
+
                 self.logger.info(f"Multiple settings updated: {len(settings)} items")
                 self.all_settings_changed.emit(self._cached_settings)
+                return True, "Settings updated successfully"
             else:
+                message = "Failed to update settings"
                 self.operation_error.emit(message)
-            return success, message
+                return False, message
         except Exception as e:
             self.logger.error(f"Error updating settings: {e}", exc_info=True)
             self.operation_error.emit(str(e))
@@ -188,6 +198,28 @@ class QtSettingsController(QtBaseController):
     def reset_to_defaults(self) -> None:
         """Reset all settings to defaults."""
         asyncio.run_coroutine_threadsafe(self.reset_to_defaults_async(), self.event_loop)
+
+    async def reset_section_settings_async(self, setting_keys: list) -> Tuple[bool, str]:
+        """Reset specific settings to defaults asynchronously."""
+        try:
+            # Reset each setting in the section
+            for setting_key in setting_keys:
+                success = await self.settings_service.reset_setting(setting_key)
+                if not success:
+                    self.logger.warning(f"Failed to reset setting: {setting_key}")
+
+            # Reload settings to get updated values
+            await self.load_settings_async()
+            self.logger.info(f"Section settings reset: {len(setting_keys)} settings")
+            return True, "Section reset successfully"
+        except Exception as e:
+            self.logger.error(f"Error resetting section settings: {e}", exc_info=True)
+            self.operation_error.emit(str(e))
+            return False, str(e)
+
+    def reset_section_settings(self, setting_keys: list) -> None:
+        """Reset specific settings to defaults."""
+        asyncio.run_coroutine_threadsafe(self.reset_section_settings_async(setting_keys), self.event_loop)
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a setting value from cache."""

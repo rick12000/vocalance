@@ -1,35 +1,98 @@
-"""Qt-based dictation view.
+"""Qt-based dictation view with tabbed sub-views.
 
-Displays dictation prompts management with add/edit/delete/select capabilities.
-Uses new component subclasses and dialogs from components module.
+Displays dictation prompts management and alias substitution management
+in a tabbed interface with horizontal menu navigation.
 """
 
 import logging
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QRadioButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QPushButton, QRadioButton, QStackedWidget, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.buttons import DeleteButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import PromptEditDialog
 from vocalance.app.ui.components.inputs import ExpandableTextArea, TextInput
 from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
-from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentWidget, TwoColumnLayout
+from vocalance.app.ui.components.layouts import (
+    BaseContainer,
+    ScrollableContainer,
+    TransparentBox,
+    TransparentWidget,
+    TwoColumnLayout,
+)
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.ui.views.qt_dictation_alias_sub_view import QtDictationAliasSubView
 
 
-class QtDictationView(QWidget):
-    """Qt-based dictation view.
+class TabButton(QPushButton):
+    """Styled pill-shaped tab button for horizontal menu navigation."""
 
-    Features:
-    - Add custom prompt form (title + instructions text area)
-    - Prompts list with radio buttons to select current
-    - Edit button for each prompt (opens edit dialog)
-    - Delete button for each prompt (disabled for default)
-    - Real-time updates from controller
+    def __init__(self, text: str, parent: Optional[QWidget] = None):
+        super().__init__(text, parent)
+        self._selected = False
+        self.setMinimumHeight(32)
+        self.setMinimumWidth(90)
+
+        # Set font directly - use display font with medium size
+        self.setFont(theme.get_font(size="medium", weight="semibold", display=True))
+
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        """Apply styling based on selection state - pill-shaped buttons."""
+        if self._selected:
+            # Selected state: dark background with full styling
+            self.setStyleSheet(
+                f"""
+                TabButton {{
+                    background-color: {theme.config.shapes.dark};
+                    color: {theme.config.text.light};
+                    border: none;
+                    border-radius: 16px;
+                    padding: 4px 16px;
+                }}
+                TabButton:hover {{
+                    background-color: {theme.config.shapes.dark};
+                }}
+                """
+            )
+        else:
+            # Unselected state: transparent background
+            self.setStyleSheet(
+                f"""
+                TabButton {{
+                    background-color: transparent;
+                    color: {theme.config.text.medium};
+                    border: none;
+                    border-radius: 16px;
+                    padding: 4px 16px;
+                }}
+                TabButton:hover {{
+                    background-color: {theme.config.shapes.dark};
+                    color: {theme.config.text.light};
+                }}
+                """
+            )
+
+    def set_selected(self, selected: bool) -> None:
+        """Set the selection state of the button."""
+        self._selected = selected
+        self._apply_style()
+
+    def is_selected(self) -> bool:
+        """Check if the button is selected."""
+        return self._selected
+
+
+class QtPromptsSubView(QWidget):
+    """Sub-view for managing dictation prompts.
+
+    This is the original prompts management functionality extracted as a sub-view.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
-        """Initialize dictation view."""
+        """Initialize prompts sub-view."""
         super().__init__(parent)
 
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -39,7 +102,6 @@ class QtDictationView(QWidget):
         self.prompt_radio_buttons = {}
 
         self._setup_ui()
-        self.logger.debug("QtDictationView initialized")
 
     def set_controller(self, controller) -> None:
         """Set the controller and connect signals."""
@@ -62,8 +124,8 @@ class QtDictationView(QWidget):
         main_layout.setSpacing(0)
 
         # Create two-column layout with titles
-        self.layout = TwoColumnLayout("Add Custom Prompt", "Manage Prompts", self)
-        main_layout.addWidget(self.layout)
+        self.layout_widget = TwoColumnLayout("Add Custom Prompt", "Manage Prompts", self)
+        main_layout.addWidget(self.layout_widget)
 
         # Setup panels
         self._setup_add_prompt_form()
@@ -71,7 +133,7 @@ class QtDictationView(QWidget):
 
     def _setup_add_prompt_form(self) -> None:
         """Setup add prompt form in left content area."""
-        content = self.layout.left_content
+        content = self.layout_widget.left_content
 
         # Prompt title input
         prompt_title_label = BodyLabel("Prompt Title:")
@@ -85,6 +147,10 @@ class QtDictationView(QWidget):
         self.prompt_textbox = ExpandableTextArea(
             placeholder="e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' Adopt a professional tone and style."
         )
+        # Add extra left padding to match prompt title input
+        margins = self.prompt_textbox.contentsMargins()
+        margins.setLeft(theme.config.components.input_padding_horizontal)
+        self.prompt_textbox.setContentsMargins(margins)
         content.add(self.prompt_textbox)
 
         # Add button
@@ -96,7 +162,7 @@ class QtDictationView(QWidget):
 
     def _setup_manage_prompts_panel(self) -> None:
         """Setup manage prompts panel in right content area."""
-        content = self.layout.right_content
+        content = self.layout_widget.right_content
 
         # Prompts list widget
         self.prompts_list_widget = TransparentWidget()
@@ -251,6 +317,128 @@ class QtDictationView(QWidget):
 
         if self.controller:
             self.controller.delete_prompt(prompt_id)
+
+    def _show_error(self, message: str) -> None:
+        """Show error message dialog."""
+        QMessageBox.critical(self, "Error", message)
+
+
+class QtDictationView(QWidget):
+    """Qt-based dictation view with tabbed sub-views.
+
+    Features:
+    - Horizontal menu with tab buttons (Prompts, Aliases)
+    - Stacked widget to switch between sub-views
+    - Prompts sub-view: Add/edit/delete/select prompts
+    - Aliases sub-view: Add/edit/delete alias substitutions
+    - Real-time updates from controllers
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        """Initialize dictation view."""
+        super().__init__(parent)
+
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.dictation_controller = None
+        self.alias_controller = None
+        self._tab_buttons: Dict[str, TabButton] = {}
+
+        self._setup_ui()
+        self.logger.debug("QtDictationView initialized")
+
+    def set_controller(self, controller) -> None:
+        """Set the dictation controller and connect to prompts sub-view."""
+        self.dictation_controller = controller
+        self.prompts_sub_view.set_controller(controller)
+
+    def set_alias_controller(self, controller) -> None:
+        """Set the alias controller and connect to aliases sub-view."""
+        self.alias_controller = controller
+        self.aliases_sub_view.set_controller(controller)
+
+    def _setup_ui(self) -> None:
+        """Build UI with horizontal menu and stacked sub-views."""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Horizontal menu row
+        self._setup_tab_menu()
+        main_layout.addWidget(self.tab_menu_widget)
+
+        # Add spacing after the tab menu
+        main_layout.addSpacing(theme.config.spacing.medium)
+
+        # Stacked widget for sub-views
+        self.stacked_widget = QStackedWidget()
+        main_layout.addWidget(self.stacked_widget, stretch=1)
+
+        # Create sub-views
+        self.prompts_sub_view = QtPromptsSubView()
+        self.aliases_sub_view = QtDictationAliasSubView()
+
+        # Add sub-views to stacked widget
+        self.stacked_widget.addWidget(self.prompts_sub_view)
+        self.stacked_widget.addWidget(self.aliases_sub_view)
+
+        # Select first tab by default
+        self._select_tab("Prompts")
+
+    def _setup_tab_menu(self) -> None:
+        """Setup horizontal pill-shaped tab menu with outer pill container."""
+        # Create a wrapper for centering
+        wrapper = TransparentBox(layout="horizontal", spacing=0)
+        wrapper_layout = wrapper.layout()
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Outer pill-shaped container using BaseContainer for robust custom painting
+        # Stylesheets can fail to render border-radius on transparent frames,
+        # but BaseContainer uses QPainter directly.
+        outer_container = BaseContainer(
+            layout="horizontal",
+            bg_color="transparent",
+            border_color=theme.config.shapes.medium,
+            border_radius=20,
+        )
+        outer_container.setMaximumWidth(500)
+
+        outer_layout = outer_container.layout()
+        outer_layout.setContentsMargins(8, 4, 8, 4)
+        # Use medium spacing between buttons
+        outer_layout.setSpacing(theme.config.spacing.medium)
+        outer_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Create tab buttons
+        tabs = ["Prompts", "Aliases"]
+
+        for tab_name in tabs:
+            btn = TabButton(tab_name)
+            btn.clicked.connect(lambda checked, name=tab_name: self._select_tab(name))
+            self._tab_buttons[tab_name] = btn
+            outer_layout.addWidget(btn)
+
+        # Add outer container to wrapper (centered)
+        wrapper_layout.addStretch()
+        wrapper_layout.addWidget(outer_container)
+        wrapper_layout.addStretch()
+
+        # Store wrapper as the main menu widget
+        self.tab_menu_widget = wrapper
+
+    def _select_tab(self, tab_name: str) -> None:
+        """Select a tab and show corresponding sub-view."""
+        # Update button states
+        for name, btn in self._tab_buttons.items():
+            btn.set_selected(name == tab_name)
+
+        # Show corresponding sub-view
+        if tab_name == "Prompts":
+            self.stacked_widget.setCurrentWidget(self.prompts_sub_view)
+        elif tab_name == "Aliases":
+            self.stacked_widget.setCurrentWidget(self.aliases_sub_view)
+
+        self.logger.debug(f"Selected tab: {tab_name}")
 
     def _show_error(self, message: str) -> None:
         """Show error message dialog."""

@@ -7,11 +7,11 @@ Uses new label, button, and input subclasses.
 from typing import Optional, Tuple
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPalette, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPixmap
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.inputs import TextInput
-from vocalance.app.ui.components.labels import BodyLabel, GroupHeaderLabel, SmallLabel
+from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
 from vocalance.app.ui.components.layouts import BaseContainer
 from vocalance.app.ui.qt_theme import theme
 
@@ -66,14 +66,14 @@ class FormGroup(QWidget):
 
 
 class Tile(BaseContainer):
-    """Tile component for instructions or info cards with rounded corners."""
+    """Tile component for instructions or info cards with rounded corners and gradient title text."""
 
     def __init__(self, title: str, content: str, parent: Optional[QWidget] = None):
         super().__init__(
             parent=parent,
             layout="vertical",
             bg_color="transparent",
-            border_color=theme.config.blue.blue_1,
+            border_color=theme.config.shapes.medium,
             border_radius=theme.config.radius.rounded,
         )
 
@@ -81,12 +81,96 @@ class Tile(BaseContainer):
         self._layout.setContentsMargins(padding, padding, padding, padding)
         self._layout.setSpacing(theme.config.spacing.small)
 
-        # Title - blue_2 color
-        title_label = GroupHeaderLabel(title, align="center", color=theme.config.blue.blue_2)
+        # Title - medium size with Alata display font and gradient text
+        from PySide6.QtGui import QBrush, QLinearGradient
+        from PySide6.QtWidgets import QSizePolicy
+
+        from vocalance.app.ui.utils.qt_gradient_text import GradientTextMixin
+
+        class CenteredGradientLabel(GradientTextMixin, QLabel):
+            """Gradient label with proper center alignment support."""
+
+            def paintEvent(self, event):
+                """Override paintEvent to render centered text with gradient."""
+                if not self._gradient_enabled or not self._gradient_colors:
+                    # Fall back to default QLabel painting
+                    QLabel.paintEvent(self, event)
+                    return
+
+                # Custom gradient painting with center alignment
+                painter = QPainter(self)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+                text = self.text()
+                if not text:
+                    painter.end()
+                    return
+
+                painter.setFont(self.font())
+
+                # Get content rectangle
+                content_rect = self.contentsRect()
+                if content_rect.isEmpty():
+                    content_rect = self.rect()
+
+                # Calculate text position based on alignment
+                font_metrics = painter.fontMetrics()
+                text_width = font_metrics.horizontalAdvance(text)
+                text_height = font_metrics.height()
+                alignment = self.alignment()
+
+                # Determine horizontal position
+                if alignment & Qt.AlignmentFlag.AlignRight:
+                    text_x = content_rect.right() - text_width
+                elif alignment & Qt.AlignmentFlag.AlignHCenter or alignment & Qt.AlignmentFlag.AlignCenter:
+                    text_x = content_rect.x() + (content_rect.width() - text_width) / 2
+                else:  # AlignLeft (default)
+                    text_x = content_rect.x()
+
+                # Determine vertical position
+                if alignment & Qt.AlignmentFlag.AlignBottom:
+                    text_y = content_rect.bottom() - text_height
+                elif alignment & Qt.AlignmentFlag.AlignVCenter or alignment & Qt.AlignmentFlag.AlignCenter:
+                    text_y = content_rect.y() + (content_rect.height() - text_height) / 2
+                else:  # AlignTop (default)
+                    text_y = content_rect.y()
+
+                # Create gradient for text
+                gradient = QLinearGradient(text_x, text_y, text_x + text_width, text_y)
+                num_colors = len(self._gradient_colors)
+                for i, color in enumerate(self._gradient_colors):
+                    position = i / (num_colors - 1) if num_colors > 1 else 0
+                    gradient.setColorAt(position, QColor(color))
+
+                # Create text path at calculated position
+                path = QPainterPath()
+                path.addText(text_x, text_y + font_metrics.ascent(), self.font(), text)
+
+                # Draw text with gradient
+                brush = QBrush(gradient)
+                painter.setBrush(brush)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawPath(path)
+
+                painter.end()
+
+        title_label = CenteredGradientLabel(title)
+        title_label.setFont(theme.get_font(size="moderate", weight="semibold", display=True))
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setAutoFillBackground(False)
+        title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        title_label.enable_gradient(colors=theme.config.text.gradient_colors, direction=Qt.Orientation.Horizontal)
         self.add(title_label)
 
-        # Content - medium font, medium color (text that's less prominent)
-        content_label = SmallLabel(content, align="center", color=theme.config.text.medium)
+        # Content - small font, medium color (text that's less prominent)
+        content_label = QLabel(content)
+        content_label.setFont(theme.get_font(size="small", weight="regular"))
+        content_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        palette = content_label.palette()
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(theme.config.text.medium))
+        content_label.setPalette(palette)
+        content_label.setAutoFillBackground(False)
         content_label.setWordWrap(True)
         self.add(content_label, stretch=1)
 

@@ -10,8 +10,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
-from vocalance.app.ui.components.inputs import TextInput
-from vocalance.app.ui.components.labels import BodyLabel, SubtitleLabel
+from vocalance.app.ui.components.inputs import ExpandableTextArea, TextInput
+from vocalance.app.ui.components.labels import BodyLabel, SectionTitle, SmallLabel
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -155,11 +155,19 @@ class CommandEditDialog(BaseDialog):
     def _setup_ui(self) -> None:
         """Build the dialog UI."""
         # Import Box here to avoid circular imports
+        from PySide6.QtGui import QColor, QPalette
+
         from vocalance.app.ui.components.layouts import Box
+
+        # Set dialog background to darkest
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
 
         # Description section
         desc_frame = Box()
-        desc_title = SubtitleLabel("Description")
+        desc_title = SectionTitle("Description")
         desc_frame.add(desc_title)
 
         desc_text = self._get_command_description()
@@ -171,7 +179,9 @@ class CommandEditDialog(BaseDialog):
 
         # Edit section
         edit_frame = Box()
-        edit_title = SubtitleLabel("Edit Command Phrase")
+
+        # Format "Edit Command Phrase" as a normal label like in commands view
+        edit_title = SmallLabel("Edit Command Phrase:", color=theme.config.text.medium)
         edit_frame.add(edit_title)
 
         self.entry = TextInput()
@@ -187,7 +197,7 @@ class CommandEditDialog(BaseDialog):
 
         # Delete section
         delete_frame = Box()
-        delete_title = SubtitleLabel("Delete Command")
+        delete_title = SectionTitle("Delete Command")
         delete_frame.add(delete_title)
 
         if self.command.is_custom:
@@ -284,23 +294,49 @@ class PromptEditDialog(BaseDialog):
 
     def _setup_ui(self) -> None:
         """Build the dialog UI."""
-        # Title input
-        title_label = BodyLabel("Prompt Title:")
-        self._main_layout.addWidget(title_label)
+        from PySide6.QtGui import QColor, QPalette
+
+        from vocalance.app.ui.components.layouts import BaseContainer
+
+        # Set dialog background to darkest
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+
+        # Single container for all content
+        main_container = BaseContainer(
+            layout="vertical",
+            bg_color=theme.config.shapes.dark,
+            border_radius=theme.config.radius.rounded,
+        )
+        container_layout = main_container.layout()
+        container_layout.setContentsMargins(
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+            theme.config.container.box_padding,
+        )
+        container_layout.setSpacing(theme.config.spacing.medium)
+
+        # Prompt Title label and input form at top
+        title_label = SmallLabel("Prompt Title:", color=theme.config.text.medium)
+        container_layout.addWidget(title_label)
 
         self.title_entry = TextInput()
         self.title_entry.setText(self.prompt_data.get("name", ""))
-        self._main_layout.addWidget(self.title_entry)
+        container_layout.addWidget(self.title_entry)
 
-        # Prompt instructions
-        instructions_label = BodyLabel("Prompt Instructions:")
-        self._main_layout.addWidget(instructions_label)
+        # Prompt Instructions label (right after title input)
+        instructions_label = SmallLabel("Prompt Instructions:", color=theme.config.text.medium)
+        container_layout.addWidget(instructions_label)
 
-        self.prompt_textbox = TextInput()
+        # Prompt instructions form - large and stretchable like in the dictation view
+        self.prompt_textbox = ExpandableTextArea(placeholder="Enter prompt instructions...")
         self.prompt_textbox.setText(self.prompt_data.get("text", ""))
-        self._main_layout.addWidget(self.prompt_textbox)
+        container_layout.addWidget(self.prompt_textbox, 1)  # Add stretch to fill available space
 
-        # Buttons
+        # Buttons at the bottom
         button_layout = QHBoxLayout()
         button_layout.setSpacing(theme.config.spacing.medium)
 
@@ -312,7 +348,9 @@ class PromptEditDialog(BaseDialog):
         cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(cancel_btn)
 
-        self._main_layout.addLayout(button_layout)
+        container_layout.addLayout(button_layout)
+
+        self._main_layout.addWidget(main_container)
 
     def _on_save(self) -> None:
         """Handle save button click."""

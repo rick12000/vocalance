@@ -39,6 +39,7 @@ class FontSizes:
 
     small: int = 10
     medium: int = 12
+    moderate: int = 16
     large: int = 20
     xlarge: int = 24
     xxlarge: int = 30
@@ -199,7 +200,7 @@ class HeaderLayout:
     title_offset_y: int = 10
     title_y_offset: int = 0
     spacing: int = 2  # Reduced spacing between title and subtitle
-    padding_bottom: int = 20  # Space after header content (subtitle)
+    padding_bottom: int = 8  # Space after header content (subtitle) - reduced from 20
     icon_size: int = 55  # Size of header icon button
     text_icon_spacing: int = 20  # Space between text and icon in header button
 

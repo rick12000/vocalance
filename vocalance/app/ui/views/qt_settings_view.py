@@ -5,15 +5,16 @@ Uses new component subclasses from components module.
 """
 
 import logging
+from functools import partial
 from typing import Any, Dict, Optional
 
 from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.buttons import DangerButton
+from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
 from vocalance.app.ui.components.checkboxes import Checkbox
 from vocalance.app.ui.components.complex_components import FormGroup
 from vocalance.app.ui.components.inputs import TextInput
-from vocalance.app.ui.components.labels import BodyLabel, BoxTitleLabel, SubtitleLabel
+from vocalance.app.ui.components.labels import BoxTitleLabel, SectionTitle
 from vocalance.app.ui.components.layouts import Box, ScrollableContainer
 from vocalance.app.ui.qt_theme import theme
 
@@ -22,9 +23,9 @@ class QtSettingsView(QWidget):
     """Qt-based settings view.
 
     Features:
-    - Display all settings
-    - Update individual settings
-    - Reset to defaults
+    - Display all settings in sections
+    - Save settings per section
+    - Reset to defaults per section
     - Real-time updates from controller
     """
 
@@ -36,6 +37,7 @@ class QtSettingsView(QWidget):
         self.controller = None
         self.settings: Dict[str, Any] = {}
         self.setting_widgets = {}
+        self.section_widgets = {}  # Track widgets per section
 
         self._setup_ui()
         self.logger.debug("QtSettingsView initialized")
@@ -56,48 +58,24 @@ class QtSettingsView(QWidget):
         self.controller.load_settings()
 
     def _setup_ui(self) -> None:
-        """Build two-box layout."""
+        """Build single-box layout with per-section controls."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(
             theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large
         )
         main_layout.setSpacing(theme.config.spacing.large)
 
-        # Create two-box layout
-        boxes_layout = QHBoxLayout()
-        boxes_layout.setSpacing(theme.config.spacing.large)
-
-        # LEFT BOX - Actions
-        self.left_box = Box(layout="vertical")
+        # Single box for settings
+        self.settings_box = Box(layout="vertical")
 
         # Title
-        self.left_box.add(BoxTitleLabel(text="Settings Actions"))
-
-        # Reset to defaults button
-        self.reset_btn = DangerButton(text="Reset to Defaults", command=self._on_reset_clicked)
-        self.left_box.add(self.reset_btn)
-
-        # Info label
-        self.info_label = BodyLabel("Settings loaded", color=theme.config.text.medium)
-        self.left_box.add(self.info_label)
-
-        self.left_box.add_stretch()
-
-        # RIGHT BOX - Settings list
-        self.right_box = Box(layout="vertical")
-
-        # Title
-        self.right_box.add(BoxTitleLabel(text="Settings"))
+        self.settings_box.add(BoxTitleLabel(text="Settings"))
 
         # Scrollable settings area
         self.scroll_container = ScrollableContainer()
-        self.right_box.add(self.scroll_container, stretch=1)
+        self.settings_box.add(self.scroll_container, stretch=1)
 
-        # Add boxes to main layout
-        boxes_layout.addWidget(self.left_box, 0)
-        boxes_layout.addWidget(self.right_box, 1)
-
-        main_layout.addLayout(boxes_layout)
+        main_layout.addWidget(self.settings_box)
 
     def _on_settings_loaded(self, settings: Dict[str, Any]) -> None:
         """Handle settings loaded from controller."""
@@ -121,18 +99,18 @@ class QtSettingsView(QWidget):
         self.logger.info("All settings updated")
 
     def _on_settings_reset(self) -> None:
-        """Handle settings reset event."""
+        """Handle settings reset event from controller."""
         if self.controller:
             self.controller.load_settings()
-        self.logger.info("Settings reset to defaults")
-        QMessageBox.information(self, "Success", "Settings reset to defaults!")
+        self.logger.info("Settings reset event received")
+        # Note: specific section messages are shown by the reset button handlers
 
     def _on_error(self, error_msg: str) -> None:
         """Handle error from controller."""
         self._show_error(error_msg)
 
     def _refresh_settings_display(self) -> None:
-        """Refresh the settings display with organized sections."""
+        """Refresh the settings display with organized sections and per-section controls."""
         # Clear existing widgets
         while self.scroll_container.content_layout.count():
             item = self.scroll_container.content_layout.takeAt(0)
@@ -140,6 +118,7 @@ class QtSettingsView(QWidget):
                 item.widget().deleteLater()
 
         self.setting_widgets.clear()
+        self.section_widgets.clear()
 
         # Define which settings to display
         visible_settings = {
@@ -164,12 +143,12 @@ class QtSettingsView(QWidget):
             ],
         }
 
-        total_count = 0
-
         # Display each section with filtered settings
         for section_name, field_specs in visible_settings.items():
+            section_widgets_dict = {}
+
             # Section title
-            self.scroll_container.add(SubtitleLabel(section_name, color=theme.config.text.light))
+            self.scroll_container.add(SectionTitle(section_name))
 
             # Section items
             for category, key, label_text in field_specs:
@@ -181,55 +160,170 @@ class QtSettingsView(QWidget):
                 if value is None:
                     continue
 
-                total_count += 1
                 setting_key = f"{category}.{key}"
 
                 # Create widgets based on type
+                # CRITICAL: Check bool BEFORE int/float because isinstance(True, int) == True in Python!
                 if isinstance(value, bool):
                     checkbox = Checkbox(
                         text=label_text,
                         checked=value,
-                        command=lambda state, k=setting_key: self._on_setting_value_changed(k, state == 2),
+                        command=lambda state, k=setting_key: None,  # Don't save on change
                     )
                     self.scroll_container.add(checkbox)
                     self.setting_widgets[setting_key] = checkbox
+                    section_widgets_dict[setting_key] = checkbox
 
                 elif isinstance(value, (int, float, str)):
                     inp = TextInput(str(value))
-                    inp.editingFinished.connect(lambda k=setting_key, w=inp: self._on_setting_value_changed(k, w.text()))
+                    # Don't connect to auto-save on editing finished
 
                     group = FormGroup(label_text, inp)
                     self.scroll_container.add(group)
                     self.setting_widgets[setting_key] = inp
+                    section_widgets_dict[setting_key] = inp
+
+            # Store section widgets mapping
+            self.section_widgets[section_name] = {"fields": field_specs, "widgets": section_widgets_dict}
+
+            # Add button row for this section
+            button_layout = QHBoxLayout()
+            button_layout.setSpacing(theme.config.spacing.medium)
+
+            # Save button - use partial to avoid lambda closure issues
+            save_btn = PrimaryButton(text="Save", command=partial(self._on_save_section_clicked, section_name))
+            button_layout.addWidget(save_btn)
+
+            # Reset to defaults button - use partial to avoid lambda closure issues
+            reset_btn = DangerButton(text="Reset to Defaults", command=partial(self._on_reset_section_clicked, section_name))
+            button_layout.addWidget(reset_btn)
+
+            button_layout.addStretch()
+
+            # Add button row to scroll container
+            self.scroll_container.content_layout.addLayout(button_layout)
+
+            # Add spacing between sections
+            self.scroll_container.content_layout.addSpacing(theme.config.spacing.large)
 
         # Add stretch at end
         self.scroll_container.add_stretch()
 
-        # Update info
-        self.info_label.setText(f"{total_count} settings")
-
-    def _on_setting_value_changed(self, key: str, value: Any) -> None:
-        """Handle setting value changed."""
+    def _on_save_section_clicked(self, section_name: str) -> None:
+        """Handle save button clicked for a specific section."""
         try:
-            if self.controller:
-                self.controller.update_setting(key, value)
-                self.logger.debug(f"Setting updated: {key} = {value}")
-        except Exception as e:
-            self.logger.error(f"Error updating setting: {e}", exc_info=True)
-            self._show_error(f"Error updating setting: {e}")
+            if not self.controller:
+                return
 
-    def _on_reset_clicked(self) -> None:
-        """Handle reset button clicked."""
+            # Get widgets for this section
+            section_info = self.section_widgets.get(section_name)
+            if not section_info:
+                self.logger.warning(f"Section not found: {section_name}")
+                return
+
+            # Define expected types for each setting
+            setting_types = self._get_setting_types()
+
+            # Collect settings to save from this section
+            settings_to_save = {}
+            for setting_key, widget in section_info["widgets"].items():
+                # Get current value from widget
+                if isinstance(widget, Checkbox):
+                    value = widget.isChecked()
+                elif isinstance(widget, TextInput):
+                    text_value = widget.text().strip()
+
+                    # Get the expected type for this setting
+                    expected_type = setting_types.get(setting_key)
+                    if expected_type is None:
+                        self._show_error(f"Unknown setting type for {setting_key}")
+                        return
+
+                    # Convert text input to the expected type
+                    try:
+                        if expected_type == int:
+                            value = int(text_value)
+                        elif expected_type == float:
+                            value = float(text_value)
+                        elif expected_type == bool:
+                            # Handle bool strings
+                            if text_value.lower() in ("true", "1", "yes", "on"):
+                                value = True
+                            elif text_value.lower() in ("false", "0", "no", "off"):
+                                value = False
+                            else:
+                                self._show_error(f"Invalid boolean value for {setting_key}. Use: true/false, yes/no, on/off, 1/0")
+                                return
+                        else:  # str
+                            value = text_value
+                    except ValueError:
+                        self._show_error(f"Invalid value for {setting_key}. Expected {expected_type.__name__}, got: {text_value}")
+                        return
+                else:
+                    continue
+
+                settings_to_save[setting_key] = value
+
+            # Save all settings in this section
+            if settings_to_save:
+                self.controller.update_settings(settings_to_save)
+                self.logger.info(f"Saved {len(settings_to_save)} settings from section: {section_name}")
+                QMessageBox.information(self, "Success", f"{section_name} saved successfully!")
+
+        except Exception as e:
+            self.logger.error(f"Error saving section {section_name}: {e}", exc_info=True)
+            self._show_error(f"Error saving settings: {e}")
+
+    def _on_reset_section_clicked(self, section_name: str) -> None:
+        """Handle reset button clicked for a specific section."""
         reply = QMessageBox.question(
             self,
-            "Reset Settings",
-            "Reset all settings to defaults?",
+            "Reset Section",
+            f"Reset {section_name} to defaults?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            if self.controller:
-                self.controller.reset_to_defaults()
+            try:
+                if not self.controller:
+                    return
+
+                # Get settings keys for this section
+                section_info = self.section_widgets.get(section_name)
+                if not section_info:
+                    return
+
+                setting_keys = list(section_info["widgets"].keys())
+
+                # Reset settings for this section
+                self.controller.reset_section_settings(setting_keys)
+                self.logger.info(f"Reset section to defaults: {section_name}")
+
+                # Show success message
+                QMessageBox.information(self, "Success", f"{section_name} reset to defaults!")
+
+            except Exception as e:
+                self.logger.error(f"Error resetting section: {e}", exc_info=True)
+                self._show_error(f"Error resetting section: {e}")
+
+    def _get_setting_types(self) -> Dict[str, type]:
+        """Define the expected type for each setting."""
+        return {
+            # LLM Model Settings
+            "llm.context_length": int,
+            "llm.max_tokens": int,
+            # Grid Settings
+            "grid.default_rect_count": int,
+            # Markov Chain Settings
+            "markov_predictor.enabled": bool,
+            "markov_predictor.confidence_threshold": float,
+            # Sound Recognizer Settings
+            "sound_recognizer.confidence_threshold": float,
+            "sound_recognizer.vote_threshold": float,
+            # Voice Settings
+            "vad.dictation_silent_chunks_for_end": int,
+            "vad.command_silent_chunks_for_end": int,
+        }
 
     def _show_error(self, message: str) -> None:
         """Show error message dialog."""

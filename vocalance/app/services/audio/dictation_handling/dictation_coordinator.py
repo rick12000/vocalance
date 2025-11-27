@@ -11,6 +11,7 @@ from typing import Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
+    DictationHiddenStartCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -26,6 +27,8 @@ from vocalance.app.events.dictation_events import (
     DictationModeDisableOthersEvent,
     DictationStatusChangedEvent,
     FinalDictationTextEvent,
+    HiddenDictationStartedEvent,
+    HiddenDictationStoppedEvent,
     LLMProcessingCompletedEvent,
     LLMProcessingFailedEvent,
     LLMProcessingReadyEvent,
@@ -39,6 +42,7 @@ from vocalance.app.events.dictation_events import (
     VisualDictationStartedEvent,
     VisualDictationStoppedEvent,
 )
+from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
 from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
 from vocalance.app.services.audio.dictation_handling.text_input_service import (
@@ -65,6 +69,7 @@ class DictationMode(Enum):
     SMART: LLM-enhanced dictation with formatting and editing.
     TYPE: Direct typing of recognized text without formatting.
     VISUAL: Accumulated dictation with UI display but no LLM processing.
+    HIDDEN: Silent accumulation without UI display, pastes on stop.
     """
 
     INACTIVE = "inactive"
@@ -72,6 +77,7 @@ class DictationMode(Enum):
     SMART = "smart"
     TYPE = "type"
     VISUAL = "visual"
+    HIDDEN = "hidden"
 
 
 class DictationState(Enum):
@@ -191,6 +197,7 @@ class DictationCoordinator:
         self.text_service = TextInputService(config=config.dictation)
         self.llm_service = LLMService(event_bus=event_bus, config=config)
         self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
+        self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
 
         # Track last text for smart dictation window concatenation logic
         self._last_smart_dictation_text: Optional[str] = None
@@ -274,6 +281,7 @@ class DictationCoordinator:
                 self.text_service.initialize(),
                 self.llm_service.initialize(),
                 self.agentic_service.initialize(),
+                self.alias_service.initialize(),
                 return_exceptions=True,
             )
 
@@ -325,14 +333,17 @@ class DictationCoordinator:
                 if self._current_state != DictationState.RECORDING:
                     return
 
-                # Skip smart/visual modes - they use streaming flow
-                if session.mode in (DictationMode.SMART, DictationMode.VISUAL):
+                # Skip smart/visual/hidden modes - they use streaming flow
+                if session.mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                     logger.debug(f"Skipping VAD-based text for streaming mode: {session.mode.value}")
                     return
 
             cleaned_text = self._clean_text(text)
             if not cleaned_text:
                 return
+
+            # Apply alias substitutions to all dictation modes
+            cleaned_text = self.alias_service.apply_substitutions(cleaned_text)
 
             if not self._should_apply_formatting(mode=session.mode):
                 cleaned_text = remove_formatting(text=cleaned_text, is_first_word_of_session=session.is_first_segment)
@@ -435,6 +446,8 @@ class DictationCoordinator:
                 await self._start_session(DictationMode.SMART)
             elif isinstance(command, DictationVisualStartCommand):
                 await self._start_session(DictationMode.VISUAL)
+            elif isinstance(command, DictationHiddenStartCommand):
+                await self._start_session(DictationMode.HIDDEN)
 
         except Exception as e:
             logger.error(f"Command handling error: {e}", exc_info=True)
@@ -457,7 +470,7 @@ class DictationCoordinator:
             logger.error(f"LLM processing ready handling error: {e}", exc_info=True)
 
     async def _handle_audio_chunk_for_streaming(self, event: AudioChunkEvent) -> None:
-        """Route audio chunks to streaming buffer for smart/visual modes.
+        """Route audio chunks to streaming buffer for smart/visual/hidden modes.
 
         Args:
             event: AudioChunkEvent containing 50ms audio chunk.
@@ -467,11 +480,11 @@ class DictationCoordinator:
                 session = self._current_session
                 buffer = self._streaming_buffer
 
-            # Only process if we're in streaming mode (smart/visual) and have a buffer
+            # Only process if we're in streaming mode (smart/visual/hidden) and have a buffer
             if not session or not buffer:
                 return
 
-            if session.mode not in (DictationMode.SMART, DictationMode.VISUAL):
+            if session.mode not in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                 return
 
             # Add chunk to streaming buffer
@@ -505,7 +518,7 @@ class DictationCoordinator:
                         logger.debug("Streaming loop: No session or buffer, exiting")
                         break
 
-                    if session.mode not in (DictationMode.SMART, DictationMode.VISUAL):
+                    if session.mode not in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                         logger.debug("Streaming loop: Not in streaming mode, exiting")
                         break
 
@@ -598,16 +611,23 @@ class DictationCoordinator:
                     self._streaming_segment_id = ""
                 else:
                     # Emit as partial (gray text) ONLY IF CHANGED
+                    # Skip UI events for hidden mode - only accumulate text internally
                     if self._streaming_current_out != self._streaming_prev_out:
                         self._streaming_prev_out = self._streaming_current_out
                         text = self._strip_overlap(self._streaming_current_out)
 
-                        if text:
+                        if text and session.mode != DictationMode.HIDDEN:
                             segment_id = self._streaming_segment_id or str(uuid.uuid4())
                             self._streaming_segment_id = segment_id
 
-                            await self._publish_event(PartialDictationTextEvent(text=text, segment_id=segment_id))
-                            logger.debug(f"Partial text ({self._streaming_same_output_count}/3): '{text[:50]}...'")
+                            # Apply alias substitutions to streaming text for visual/smart modes
+                            text_with_substitutions = self.alias_service.apply_substitutions(text)
+                            await self._publish_event(
+                                PartialDictationTextEvent(text=text_with_substitutions, segment_id=segment_id)
+                            )
+                            logger.debug(
+                                f"Partial text ({self._streaming_same_output_count}/3): '{text_with_substitutions[:50]}...'"
+                            )
                     else:
                         self._streaming_prev_out = self._streaming_current_out
 
@@ -634,8 +654,13 @@ class DictationCoordinator:
         # Use existing segment ID if available (to match partial text), or generate new one
         segment_id = self._streaming_segment_id or str(uuid.uuid4())
 
-        # Emit final event
-        await self._publish_event(FinalDictationTextEvent(text=text, segment_id=segment_id))
+        # Skip UI event for hidden mode - only accumulate text internally
+        with self._state_lock:
+            session = self._current_session
+        if session and session.mode != DictationMode.HIDDEN:
+            # Apply alias substitutions to streaming text for visual/smart modes
+            text_with_substitutions = self.alias_service.apply_substitutions(text)
+            await self._publish_event(FinalDictationTextEvent(text=text_with_substitutions, segment_id=segment_id))
 
         logger.info(f"Finalized completed segment: '{text}' (end: {end_time:.2f}s)")
 
@@ -664,8 +689,13 @@ class DictationCoordinator:
         # Generate segment ID (reuse if exists)
         segment_id = self._streaming_segment_id or str(uuid.uuid4())
 
-        # Emit final event
-        await self._publish_event(FinalDictationTextEvent(text=text, segment_id=segment_id))
+        # Skip UI event for hidden mode - only accumulate text internally
+        with self._state_lock:
+            session = self._current_session
+        if session and session.mode != DictationMode.HIDDEN:
+            # Apply alias substitutions to streaming text for visual/smart modes
+            text_with_substitutions = self.alias_service.apply_substitutions(text)
+            await self._publish_event(FinalDictationTextEvent(text=text_with_substitutions, segment_id=segment_id))
 
         logger.info(f"Finalized incomplete segment: '{text}'")
 
@@ -685,34 +715,184 @@ class DictationCoordinator:
         self._streaming_same_output_count = 0
         self._streaming_segment_id = ""
 
+    async def _flush_remaining_audio_buffer(self, mode: DictationMode) -> None:
+        """Flush any remaining untranscribed audio in the buffer and transcribe it.
+
+        Called when stopping dictation to ensure we don't lose the last bit of
+        speech before the stop word. This is especially important for hidden mode
+        where we want to capture everything the user said.
+
+        IMPORTANT: This only processes NEW audio that hasn't been transcribed yet.
+        The streaming buffer tracks what's been transcribed via timestamp_offset,
+        and we use get_untranscribed_duration() to check if there's actually new audio.
+
+        Args:
+            mode: Current dictation mode.
+        """
+        if not self._streaming_buffer or not self._stt_service:
+            return
+
+        try:
+            # First check if there's actually untranscribed audio
+            untranscribed_duration = await self._streaming_buffer.get_untranscribed_duration()
+
+            # For hidden mode, flush even very short segments (> 0.1s)
+            # For other modes, only flush if there's meaningful audio (> 0.3s)
+            min_duration = 0.1 if mode == DictationMode.HIDDEN else 0.3
+
+            if untranscribed_duration < min_duration:
+                logger.debug(f"No significant untranscribed audio to flush: {untranscribed_duration:.2f}s < {min_duration}s")
+                return
+
+            logger.info(f"Flushing {untranscribed_duration:.2f}s of untranscribed audio")
+
+            # Get audio for transcription (includes context from timestamp_offset)
+            audio_result = await self._streaming_buffer.get_audio_for_transcription()
+
+            if not audio_result:
+                logger.debug("No audio available for flush transcription")
+                return
+
+            audio_bytes, total_duration = audio_result
+
+            # Perform final transcription
+            segments, confidence = await self._stt_service.recognize_streaming(
+                audio_bytes=audio_bytes, sample_rate=self.config.audio.sample_rate
+            )
+
+            if not segments:
+                logger.debug("No speech detected in flushed audio")
+                return
+
+            # CRITICAL: Only process text that is NEW (not already in finalized text)
+            # The transcription includes context, so we must strip overlap carefully
+            for seg in segments:
+                raw_text = seg["text"].strip()
+                if not raw_text:
+                    continue
+
+                # Strip any overlap with already finalized text
+                # This prevents duplication from the context audio
+                text = self._strip_overlap(raw_text)
+
+                if not text:
+                    logger.debug(f"Segment '{raw_text[:30]}...' fully overlaps with finalized text, skipping")
+                    continue
+
+                # IMPORTANT: Skip UI events for flushed text to prevent duplicated/misleading
+                # recognition in the visual UI. The streaming loop already shows incremental
+                # text to the user. The flush is only for final capture, not UI display.
+                # This avoids confusing users with stripped/deduplicated text appearing at the end.
+
+                logger.info(f"Flushed new transcription: '{text}'")
+
+                # Add to STT context
+                await self._stt_service.add_finalized_segment(text)
+
+                # Update finalized text accumulator
+                if self._streaming_finalized_text:
+                    self._streaming_finalized_text += " " + text
+                else:
+                    self._streaming_finalized_text = text
+
+        except Exception as e:
+            logger.error(f"Error flushing remaining audio buffer: {e}", exc_info=True)
+
+    def _remove_stop_word(self, text: str) -> str:
+        """Remove stop word from text for hidden mode finalization.
+
+        Removes the stop trigger word (e.g., "amber") from the final text.
+        This ensures hidden mode captures everything except the stop word itself.
+
+        Args:
+            text: Text potentially containing the stop word.
+
+        Returns:
+            Text with stop word removed and trailing whitespace cleaned.
+        """
+        stop_word = self.config.dictation.stop_trigger
+        if not stop_word or not text:
+            return text
+
+        # Remove stop word case-insensitively (with word boundaries)
+        import re
+
+        # Create pattern that matches stop word with word boundaries, case-insensitive
+        pattern = r"\b" + re.escape(stop_word) + r"\b"
+        result = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+        # Clean up extra whitespace
+        result = " ".join(result.split())
+        return result
+
+    def _normalize_for_comparison(self, text: str) -> list[str]:
+        """Normalize text for overlap comparison - removes punctuation.
+
+        This ensures that variations like "the goal here is," vs "the goal here is"
+        are correctly identified as overlapping, preventing duplication from
+        Whisper's inconsistent punctuation.
+
+        Args:
+            text: Text to normalize.
+
+        Returns:
+            List of lowercase words with punctuation removed.
+        """
+        import re
+
+        cleaned = re.sub(r"[^\w\s]", "", text.lower())
+        return cleaned.split()
+
     def _strip_overlap(self, text: str) -> str:
         """Strip overlapping prefix that matches finalized text.
+
+        Uses punctuation-insensitive comparison to handle Whisper's inconsistent
+        punctuation (e.g., "the goal here is," vs "the goal here is").
+
+        Handles two overlap scenarios:
+        1. Full containment: New text starts with all of finalized text
+        2. Suffix-prefix overlap: Last N words of finalized match first N words of new text
 
         Args:
             text: New predicted text that may overlap with finalized text.
 
         Returns:
-            Text with overlapping prefix removed.
+            Text with overlapping prefix removed, or empty string if fully overlapping.
         """
         if not self._streaming_finalized_text or not text:
             return text
 
-        # Simple word-level overlap detection
-        finalized_words = self._streaming_finalized_text.lower().split()
-        text_words = text.split()
-        text_words_lower = [w.lower() for w in text_words]
+        # Use normalized (punctuation-free) comparison for matching
+        finalized_normalized = self._normalize_for_comparison(self._streaming_finalized_text)
+        text_words = text.split()  # Keep original words for output (preserves punctuation)
+        text_normalized = self._normalize_for_comparison(text)
 
-        # Find longest matching suffix of finalized that matches prefix of new text
-        max_overlap = min(len(finalized_words), len(text_words))
+        # Case 1: Check if new text starts with all of finalized text (full re-transcription)
+        # This happens when Whisper re-transcribes from the beginning with context
+        if len(text_normalized) >= len(finalized_normalized):
+            if text_normalized[: len(finalized_normalized)] == finalized_normalized:
+                # New text contains all of finalized text at the start
+                remaining_words = text_words[len(finalized_normalized) :]
+                result = " ".join(remaining_words)
+                if result:
+                    logger.debug(f"Stripped full finalized text ({len(finalized_normalized)} words) from start of prediction")
+                    return result
+                else:
+                    logger.debug("New text is identical to finalized text, returning empty")
+                    return ""
+
+        # Case 2: Suffix-prefix overlap - find longest matching suffix of finalized
+        # that matches prefix of new text
+        max_overlap = min(len(finalized_normalized), len(text_normalized))
         overlap_length = 0
 
         for i in range(1, max_overlap + 1):
             # Check if last i words of finalized match first i words of new text
-            if finalized_words[-i:] == text_words_lower[:i]:
+            if finalized_normalized[-i:] == text_normalized[:i]:
                 overlap_length = i
 
         if overlap_length > 0:
-            # Remove overlapping prefix
+            # Remove overlapping prefix (use original word count for slicing)
             remaining_words = text_words[overlap_length:]
             result = " ".join(remaining_words)
             if result:
@@ -728,11 +908,17 @@ class DictationCoordinator:
     async def _stop_streaming_mode(self, session: DictationSession) -> None:
         """Stop streaming dictation mode and handle finalization.
 
+        Ensures all audio is transcribed before pasting:
+        1. Cancel the streaming transcription loop
+        2. Clear partial state to prevent duplication
+        3. Flush remaining audio buffer to STT (force transcribe)
+        4. Paste accumulated text
+
         Args:
             session: Current dictation session.
         """
         try:
-            # Cancel streaming task
+            # Cancel streaming task first to stop the regular transcription loop
             if self._streaming_task and not self._streaming_task.done():
                 self._streaming_task.cancel()
                 try:
@@ -741,12 +927,29 @@ class DictationCoordinator:
                     pass
                 self._streaming_task = None
 
-            # Finalize any remaining incomplete segment
-            if self._streaming_current_out:
-                await self._finalize_incomplete_segment()
+            # CRITICAL FIX: Clear partial recognition state BEFORE flush to prevent duplication.
+            # The flush will transcribe the complete remaining audio, which is more accurate
+            # than the partial in _streaming_current_out. Without this, both the flush AND
+            # the partial get added to finalized_text, causing repetition.
+            self._streaming_current_out = ""
+            self._streaming_prev_out = ""
+            self._streaming_same_output_count = 0
+            self._streaming_segment_id = ""
 
-            # Get all finalized text
+            # Flush remaining audio - this is the ONLY source of final trailing text
+            if self._streaming_buffer and self._stt_service:
+                await self._flush_remaining_audio_buffer(session.mode)
+
+            # Get all finalized text and apply alias substitutions
             final_text = self._streaming_finalized_text
+
+            # For hidden mode, remove the stop word from the final text
+            # Hidden mode uses silent capture, so the stop word shouldn't be included
+            if session.mode == DictationMode.HIDDEN and final_text:
+                final_text = self._remove_stop_word(final_text)
+            if final_text:
+                final_text = self.alias_service.apply_substitutions(final_text)
+                logger.debug(f"Applied alias substitutions to final text: {len(final_text)} chars")
 
             # Clean up streaming state
             if self._streaming_buffer:
@@ -754,10 +957,6 @@ class DictationCoordinator:
                 self._streaming_buffer = None
 
             self._streaming_finalized_text = ""
-            self._streaming_segment_id = ""
-            self._streaming_current_out = ""
-            self._streaming_prev_out = ""
-            self._streaming_same_output_count = 0
             self._streaming_end_time_for_same_output = None
 
             # Update session state
@@ -774,7 +973,7 @@ class DictationCoordinator:
                         agentic_prompt=agentic_prompt,
                     )
                 else:
-                    # Visual mode or no text: finalize directly
+                    # Visual/Hidden mode or no text: finalize directly
                     self._current_session = None
                     self._set_state(DictationState.IDLE)
 
@@ -799,6 +998,14 @@ class DictationCoordinator:
                     await self.text_service.input_text(final_text)
                 else:
                     await self._publish_event(VisualDictationStoppedEvent(accumulated_text=""))
+                await self._finalize_session(session)
+            elif session.mode == DictationMode.HIDDEN:
+                # Hidden mode: paste accumulated text silently
+                if final_text:
+                    await self._publish_event(HiddenDictationStoppedEvent(accumulated_text=final_text))
+                    await self.text_service.input_text(final_text)
+                else:
+                    await self._publish_event(HiddenDictationStoppedEvent(accumulated_text=""))
                 await self._finalize_session(session)
 
             logger.info(f"Streaming {session.mode.value} mode stopped, finalized text: {len(final_text)} chars")
@@ -888,8 +1095,8 @@ class DictationCoordinator:
             await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
 
-            # Initialize streaming for smart/visual modes
-            if mode in (DictationMode.SMART, DictationMode.VISUAL):
+            # Initialize streaming for smart/visual/hidden modes
+            if mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                 self._streaming_buffer = StreamingAudioBuffer(sample_rate=self.config.audio.sample_rate)
                 self._streaming_finalized_text = ""
                 self._streaming_segment_id = ""
@@ -906,11 +1113,13 @@ class DictationCoordinator:
                 self._streaming_task = asyncio.create_task(self._streaming_transcription_loop())
                 logger.info(f"Initialized streaming dictation for {mode.value} mode")
 
+            # Emit mode-specific start events
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
-
-            if mode == DictationMode.VISUAL:
+            elif mode == DictationMode.VISUAL:
                 await self._publish_event(VisualDictationStartedEvent())
+            elif mode == DictationMode.HIDDEN:
+                await self._publish_event(HiddenDictationStartedEvent())
 
             if mode == DictationMode.TYPE:
                 self._type_silence_task = asyncio.create_task(self._monitor_type_silence())
@@ -926,7 +1135,12 @@ class DictationCoordinator:
                 self._set_state(DictationState.IDLE)
 
     async def _stop_session(self) -> None:
-        """Stop dictation session with proper cleanup"""
+        """Stop dictation session with proper cleanup.
+
+        Routes to appropriate handler based on mode:
+        - SMART/VISUAL/HIDDEN: Use streaming mode handler
+        - STANDARD/TYPE: Use simple VAD-based handler
+        """
         try:
             with self._state_lock:
                 session = self._current_session
@@ -940,62 +1154,17 @@ class DictationCoordinator:
                 if session.mode == DictationMode.TYPE:
                     self._cancel_type_silence_task()
 
-                # Stop streaming for smart/visual modes
-                if session.mode in (DictationMode.SMART, DictationMode.VISUAL):
+                # Streaming modes (smart/visual/hidden) handle their own finalization
+                if session.mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                     await self._stop_streaming_mode(session)
-                    return  # Early return - streaming modes handle their own finalization
+                    return
 
-                if session.mode == DictationMode.SMART:
-                    if session.accumulated_text:
-                        self._set_state(DictationState.PROCESSING_LLM)
+                # Non-streaming modes (standard/type): simple cleanup
+                self._current_session = None
+                self._set_state(DictationState.IDLE)
 
-                        agentic_prompt = self.agentic_service.get_current_prompt() or "Fix grammar and improve clarity."
-                        llm_session_id = str(uuid.uuid4())
-                        self._pending_llm_session = LLMSession(
-                            session_id=llm_session_id,
-                            raw_text=session.accumulated_text,
-                            agentic_prompt=agentic_prompt,
-                        )
-                    else:
-                        self._current_session = None
-                        self._set_state(DictationState.IDLE)
-                elif session.mode == DictationMode.VISUAL:
-                    # Visual mode: accumulate text and paste directly without LLM
-                    self._current_session = None
-                    self._set_state(DictationState.IDLE)
-                else:
-                    self._current_session = None
-                    self._set_state(DictationState.IDLE)
-
-            if session and session.mode == DictationMode.VISUAL:
-                # Visual mode: paste accumulated text if any, then finalize
-                if session.accumulated_text:
-                    logger.info(f"Publishing VisualDictationStoppedEvent with text: '{session.accumulated_text[:50]}...'")
-                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=session.accumulated_text))
-                    logger.info("VisualDictationStoppedEvent published - pasting accumulated text")
-                    await self.text_service.input_text(session.accumulated_text)
-                else:
-                    logger.info("Visual dictation stopped with no accumulated text")
-                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=""))
-                # Always finalize the session to return to command mode
-                await self._finalize_session(session)
-            elif session and session.mode == DictationMode.SMART and session.accumulated_text:
-                await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation processing"))
-
-                logger.info(f"Publishing SmartDictationStoppedEvent with text: '{session.accumulated_text[:50]}...'")
-                await self._publish_event(SmartDictationStoppedEvent(raw_text=session.accumulated_text))
-                logger.info("SmartDictationStoppedEvent published successfully")
-
-                logger.info(f"Publishing LLMProcessingStartedEvent with session ID: {self._pending_llm_session.session_id}")
-                await self._publish_event(
-                    LLMProcessingStartedEvent(
-                        raw_text=session.accumulated_text,
-                        agentic_prompt=self._pending_llm_session.agentic_prompt,
-                        session_id=self._pending_llm_session.session_id,
-                    )
-                )
-                logger.info("LLMProcessingStartedEvent published - waiting for UI ready signal...")
-            elif session:
+            # Finalize non-streaming session
+            if session:
                 await self._finalize_session(session)
 
         except Exception as e:
@@ -1154,6 +1323,7 @@ class DictationCoordinator:
             cfg.type_trigger.lower(),
             cfg.smart_start_trigger.lower(),
             cfg.visual_start_trigger.lower(),
+            cfg.hidden_start_trigger.lower(),
         }
 
         words = [w for w in text.split() if w.lower().strip('.,!?;:"()[]{}') not in triggers]
@@ -1243,6 +1413,7 @@ class DictationCoordinator:
             await self.text_service.shutdown()
             await self.llm_service.shutdown()
             await self.agentic_service.shutdown()
+            await self.alias_service.shutdown()
 
             # Clear pending sessions under lock
             with self._state_lock:

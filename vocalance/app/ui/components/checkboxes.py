@@ -69,53 +69,63 @@ class Checkbox(QCheckBox):
 
     def paintEvent(self, event):
         """Custom paint for checkbox indicator."""
-        # Let QCheckBox handle text
-        super().paintEvent(event)
+        try:
+            # Let QCheckBox handle text
+            super().paintEvent(event)
 
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Calculate indicator position
-        indicator_rect = self.style().subElementRect(
-            self.style().SubElement.SE_CheckBoxIndicator, self.style().itemOptionFromWidget(self), self
-        )
+            # Calculate indicator position - simplified approach
+            # Position indicator on the left side of the widget
+            indicator_rect_left = self.contentsRect().left()
+            indicator_rect_top = (self.contentsRect().height() - self._indicator_size) // 2
+            indicator_rect = self.contentsRect()
+            indicator_rect.setLeft(indicator_rect_left)
+            indicator_rect.setTop(indicator_rect_top)
+            indicator_rect.setWidth(self._indicator_size)
+            indicator_rect.setHeight(self._indicator_size)
 
-        # Determine colors based on state
-        if self.isChecked():
-            bg_color = self._indicator_checked_bg_color
-            border_color = self._indicator_checked_border_color
-        else:
-            bg_color = self._indicator_bg_color
-            border_color = self._indicator_hover_border_color if self._is_hovered else self._indicator_border_color
+            # Determine colors based on state
+            if self.isChecked():
+                bg_color = self._indicator_checked_bg_color
+                border_color = self._indicator_checked_border_color
+            else:
+                bg_color = self._indicator_bg_color
+                border_color = self._indicator_hover_border_color if self._is_hovered else self._indicator_border_color
 
-        # Draw indicator background
-        path = QPainterPath()
-        path.addRoundedRect(
-            indicator_rect.x(),
-            indicator_rect.y(),
-            self._indicator_size,
-            self._indicator_size,
-            self._indicator_border_radius,
-            self._indicator_border_radius,
-        )
-        painter.fillPath(path, QColor(bg_color))
+            # Draw indicator background
+            path = QPainterPath()
+            path.addRoundedRect(
+                indicator_rect.x(),
+                indicator_rect.y(),
+                self._indicator_size,
+                self._indicator_size,
+                self._indicator_border_radius,
+                self._indicator_border_radius,
+            )
+            painter.fillPath(path, QColor(bg_color))
 
-        # Draw border
-        painter.setPen(QColor(border_color))
-        painter.drawRoundedRect(
-            indicator_rect.x(),
-            indicator_rect.y(),
-            self._indicator_size - 1,
-            self._indicator_size - 1,
-            self._indicator_border_radius,
-            self._indicator_border_radius,
-        )
+            # Draw border
+            painter.setPen(QColor(border_color))
+            painter.drawRoundedRect(
+                indicator_rect.x(),
+                indicator_rect.y(),
+                self._indicator_size - 1,
+                self._indicator_size - 1,
+                self._indicator_border_radius,
+                self._indicator_border_radius,
+            )
 
-        # Draw checkmark if checked
-        if self.isChecked():
-            painter.setPen(QColor(theme.config.shapes.darkest))
-            # Draw a simple checkmark
-            check_x = indicator_rect.x() + 4
-            check_y = indicator_rect.y() + 9
-            painter.drawLine(check_x, check_y, check_x + 3, check_y + 3)
-            painter.drawLine(check_x + 3, check_y + 3, check_x + 10, check_y - 4)
+            # Draw checkmark if checked
+            if self.isChecked():
+                painter.setPen(QColor(theme.config.shapes.darkest))
+                # Draw a simple checkmark
+                check_x = indicator_rect.x() + 4
+                check_y = indicator_rect.y() + 9
+                painter.drawLine(check_x, check_y, check_x + 3, check_y + 3)
+                painter.drawLine(check_x + 3, check_y + 3, check_x + 10, check_y - 4)
+        except Exception:
+            # Fallback: just use default painting
+            super().paintEvent(event)
+            return

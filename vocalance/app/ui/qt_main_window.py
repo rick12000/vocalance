@@ -101,6 +101,7 @@ class VocalanceMainWindow(QMainWindow):
             self.marks_controller = None
             self.sound_controller = None
             self.dictation_controller = None
+            self.dictation_alias_controller = None
             self.settings_controller = None
             self.commands_controller = None
             self.grid_controller = None
@@ -479,6 +480,8 @@ class VocalanceMainWindow(QMainWindow):
                 view = QtDictationView()
                 if self.dictation_controller:
                     view.set_controller(self.dictation_controller)
+                if self.dictation_alias_controller:
+                    view.set_alias_controller(self.dictation_alias_controller)
                 return view
 
             elif tab_name == "Settings":
@@ -533,6 +536,7 @@ class VocalanceMainWindow(QMainWindow):
                 "marks_controller",
                 "sound_controller",
                 "dictation_controller",
+                "dictation_alias_controller",
                 "settings_controller",
                 "commands_controller",
                 "grid_controller",
@@ -604,6 +608,7 @@ class VocalanceMainWindow(QMainWindow):
         """Initialize all controllers now that services are available."""
         try:
             from vocalance.app.ui.controls.qt_commands_controller import QtCommandsController
+            from vocalance.app.ui.controls.qt_dictation_alias_controller import QtDictationAliasController
             from vocalance.app.ui.controls.qt_dictation_controller import QtDictationController
             from vocalance.app.ui.controls.qt_grid_controller import QtGridController
             from vocalance.app.ui.controls.qt_marks_controller import QtMarksController
@@ -630,6 +635,12 @@ class VocalanceMainWindow(QMainWindow):
                 self.dictation_controller = QtDictationController(
                     self.event_bus, self.event_loop, self._dictation_service, self.config, self
                 )
+
+                # Initialize alias controller using the alias service from dictation coordinator
+                if hasattr(self._dictation_service, "alias_service"):
+                    self.dictation_alias_controller = QtDictationAliasController(
+                        self.event_bus, self.event_loop, self._dictation_service.alias_service, self
+                    )
 
             if hasattr(self, "_settings_service") and self._settings_service:
                 self.settings_controller = QtSettingsController(
@@ -679,5 +690,8 @@ class VocalanceMainWindow(QMainWindow):
             self._view_cache["Commands"].set_controller(self.commands_controller)
         if self.dictation_controller and "Dictation" in self._view_cache:
             self._view_cache["Dictation"].set_controller(self.dictation_controller)
+            # Also connect alias controller to the dictation view
+            if self.dictation_alias_controller:
+                self._view_cache["Dictation"].set_alias_controller(self.dictation_alias_controller)
         if self.settings_controller and "Settings" in self._view_cache:
             self._view_cache["Settings"].set_controller(self.settings_controller)

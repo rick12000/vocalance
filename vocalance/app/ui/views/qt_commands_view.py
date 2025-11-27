@@ -14,7 +14,13 @@ from vocalance.app.ui.components.buttons import ChangeButton, DangerButton, Prim
 from vocalance.app.ui.components.dialogs import CommandEditDialog
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
-from vocalance.app.ui.components.layouts import GroupHeader, ListItem, ScrollableContainer, TransparentWidget, TwoColumnLayout
+from vocalance.app.ui.components.layouts import (
+    CollapsibleSection,
+    ListItem,
+    ScrollableContainer,
+    TransparentWidget,
+    TwoColumnLayout,
+)
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.views.qt_base_view import QtBaseView
 
@@ -147,7 +153,7 @@ class QtCommandsView(QtBaseView):
         self._show_error(error_msg)
 
     def _display_commands(self, commands: List[AutomationCommand]) -> None:
-        """Display commands in a grouped list."""
+        """Display commands in a grouped list with collapsible sections."""
         # Clear existing items
         while self.commands_list_layout.count() > 0:
             item = self.commands_list_layout.takeAt(0)
@@ -163,12 +169,16 @@ class QtCommandsView(QtBaseView):
 
             for group_index, (group_name, group_commands) in enumerate(sorted_groups):
                 is_first = group_index == 0
-                group_header = GroupHeader(group_name, is_first=is_first)
-                self.commands_list_layout.addWidget(group_header)
+                # Create collapsible section (starts collapsed by default)
+                collapsible_section = CollapsibleSection(group_name, is_first=is_first, start_expanded=False)
 
+                # Add commands to the section
                 sorted_commands = sorted(group_commands, key=lambda cmd: cmd.command_key.lower())
                 for command in sorted_commands:
-                    self._create_command_item(command)
+                    command_item = self._create_command_item_widget(command)
+                    collapsible_section.add_item(command_item)
+
+                self.commands_list_layout.addWidget(collapsible_section)
 
         self.commands_list_layout.addStretch()
 
@@ -194,8 +204,8 @@ class QtCommandsView(QtBaseView):
 
         return sorted_groups
 
-    def _create_command_item(self, command: AutomationCommand) -> None:
-        """Create a command list item."""
+    def _create_command_item_widget(self, command: AutomationCommand) -> QWidget:
+        """Create a command list item widget."""
         item = ListItem()
 
         phrase_label = SmallLabel(command.command_key, color=theme.config.text.medium)
@@ -204,7 +214,7 @@ class QtCommandsView(QtBaseView):
         change_btn = ChangeButton(command=lambda checked, c=command: self._on_change_command(c))
         item.add(change_btn)
 
-        self.commands_list_layout.addWidget(item)
+        return item
 
     def _on_change_command(self, command: AutomationCommand) -> None:
         """Handle change button clicked - show edit dialog."""

@@ -463,6 +463,52 @@ class DictationAudioListener:
             self.silent_chunks_for_end = chunks
             logger.info(f"Dictation: Updated silent_chunks_for_end to {chunks} (~{chunks * 50}ms)")
 
+    async def force_flush_buffer(self) -> None:
+        """Force flush the current audio buffer, bypassing minimum duration check.
+
+        Used by hidden dictation mode to capture trailing audio when the user
+        says the stop word, ensuring no audio is lost even if it doesn't meet
+        normal publishing criteria.
+
+        Force finalizes any in-progress recording, even if still receiving speech,
+        to capture audio spoken right before the stop word.
+
+        Thread-safe: Acquires state lock for atomic buffer access.
+        """
+        async with self._state_lock:
+            logger.info(
+                f"DictationAudioListener: force_flush_buffer called - buffer has {len(self._audio_buffer)} chunks, "
+                f"is_recording: {self._is_recording}, consecutive_silent: {self._consecutive_silent_chunks}"
+            )
+
+            if not self._audio_buffer:
+                logger.info("DictationAudioListener: No buffer to flush - buffer is empty")
+                return
+
+            # Check if buffer meets minimum duration (unless we're force-flushing)
+            # For force flush, we bypass the min duration check entirely
+            duration_chunks = len(self._audio_buffer)
+
+            logger.info(
+                f"DictationAudioListener: Force flushing buffer with {duration_chunks} chunks "
+                f"(min normally required: {self.min_duration_chunks})"
+            )
+
+            # Concatenate buffer and convert to bytes
+            audio_data = np.concatenate(self._audio_buffer)
+            audio_bytes = audio_data.tobytes()
+            duration_seconds = len(audio_data) / self.sample_rate
+
+            # Emit event (bypassing min duration check)
+            event = DictationAudioSegmentReadyEvent(audio_bytes=audio_bytes, sample_rate=self.sample_rate)
+            await self.event_bus.publish(event)
+            logger.info(
+                f"Dictation buffer force-flushed: {duration_seconds:.3f}s, "
+                f"{len(self._audio_buffer)} chunks, {len(audio_bytes)} bytes"
+            )
+
+            self._reset_state()
+
 
 class SoundAudioListener:
     """Listens to AudioChunkEvents and accumulates them for sound recognition.
