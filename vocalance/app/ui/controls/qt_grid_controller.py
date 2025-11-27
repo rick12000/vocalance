@@ -267,21 +267,6 @@ class QtGridController(QtBaseController):
         else:
             self.logger.error(f"Grid interaction failed: {event_data.operation} - {event_data.reason}")
 
-    # --- Click Tracking Integration ---
-
-    async def initialize_click_cache(self) -> None:
-        """Load historical click data from storage into cache. Thread-safe."""
-        if not self.storage_service:
-            self.logger.warning("Storage service not available for click cache")
-            return
-
-        if self.grid_view and hasattr(self.grid_view, "initialize_click_cache"):
-            try:
-                await self.grid_view.initialize_click_cache()
-                self.logger.info("Grid click cache initialized")
-            except Exception as e:
-                self.logger.error(f"Error initializing click cache: {e}", exc_info=True)
-
     def cleanup(self) -> None:
         """Clean up resources when controller is destroyed."""
         try:

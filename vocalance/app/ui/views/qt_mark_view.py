@@ -54,19 +54,22 @@ class QtMarkView(QWidget):
             | Qt.WindowType.Tool
             | Qt.WindowType.NoDropShadowWindowHint
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        # Use class-specific selector to avoid affecting other QWidget instances
-        self.setStyleSheet("QtMarkView { background-color: #262626; }")  # grey15
-        self.setWindowOpacity(0.8)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        # Don't use setWindowOpacity - it affects all content including circles
+        # Instead, we'll paint a semi-transparent background in paintEvent
 
         # Visual properties
-        fill_color = getattr(theme, "themed_mark_fill_color", "#FF0000")
-        outline_color = getattr(theme, "themed_mark_outline_color", "#FFFFFF")
-        self.mark_fill_color = QColor(fill_color)
-        self.mark_fill_color.setAlpha(200)
-        self.mark_outline_color = QColor(outline_color)
-        self.text_color = QColor("#FFFFFF")
-        self.font = QFont("Arial", 10, QFont.Weight.Bold)
+        # Background - semi-transparent for overlay effect
+        self.background_color = QColor(theme.config.shapes.dark)
+        self.background_color.setAlpha(204)  # 80% opacity (204/255)
+
+        # Mark elements - fully opaque for consistent appearance
+        self.mark_fill_color = QColor(theme.config.shapes.darkest)
+        self.mark_fill_color.setAlpha(255)  # 100% opacity
+        self.mark_border_color = QColor(theme.config.blue.blue_2)
+        self.mark_border_color.setAlpha(255)  # 100% opacity
+        self.text_color = QColor(theme.config.text.medium)
+        self.font = QFont(theme.config.font_family_primary, theme.config.fonts.small, QFont.Weight.DemiBold)
 
         # Controller callback
         self.controller_callback = None
@@ -227,10 +230,13 @@ class QtMarkView(QWidget):
             self.update()
 
     def paintEvent(self, event) -> None:
-        """Paint marks on screen - following legacy Tkinter approach (no bounds checking)."""
+        """Paint marks on screen with semi-transparent background and fully opaque marks."""
         self.logger.info(f"paintEvent called: active={self._is_active}, marks_count={len(self.marks)}")
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw semi-transparent background first
+        painter.fillRect(self.rect(), self.background_color)
 
         if len(self.marks) == 0:
             self.logger.warning(f"paintEvent: No marks to paint (self.marks={self.marks})")
@@ -262,9 +268,12 @@ class QtMarkView(QWidget):
                 relative_x = logical_x - overlay_x
                 relative_y = logical_y - overlay_y
 
-                # Draw mark circle
-                radius = 5
-                painter.setPen(QPen(self.mark_outline_color, 2))
+                # Draw mark circle with solid border and fill
+                radius = 4
+                border_width = 2
+
+                # Draw circle with solid border (blue_2) and solid fill (darkest)
+                painter.setPen(QPen(self.mark_border_color, border_width))
                 painter.setBrush(self.mark_fill_color)
                 painter.drawEllipse(QPoint(int(relative_x), int(relative_y)), radius, radius)
 

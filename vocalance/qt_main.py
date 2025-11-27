@@ -206,6 +206,7 @@ class FastServiceInitializer:
                 progress_tracker.update_status_animated(status="Initializing click tracking")
 
             click_tracker = ClickTrackerService(event_bus=self.event_bus, config=self.config, storage=storage)
+            await click_tracker.initialize()
 
             with self._services_lock:
                 self.services["click_tracker"] = click_tracker
@@ -726,6 +727,7 @@ async def _shutdown_services_in_order(services: Dict[str, Any]) -> list[str]:
         "stt",
         "dictation",
         "markov_predictor",
+        "click_tracker",
         "audio",
         "storage",
     ]
@@ -1118,6 +1120,8 @@ async def main() -> None:
             main_window.set_command_management_service(services["command_management"])
         if "dictation" in services:
             main_window.set_dictation_service(services["dictation"])
+        if "click_tracker" in services:
+            main_window.set_click_tracker_service(services["click_tracker"])
 
         # Initialize controllers now that services are available
         main_window.initialize_controllers_with_services()

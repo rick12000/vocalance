@@ -1,5 +1,6 @@
 import logging
 import random
+import threading
 import time
 from typing import Any, Dict, List
 
@@ -32,10 +33,15 @@ def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> Lis
 
 
 class ClickTrackerService:
-    """Click tracking service with debounced storage for grid optimization.
+    """Click tracking service with in-memory cache and startup/shutdown persistence.
 
-    Records mouse clicks with position and timestamp, aggregates click counts per
-    grid cell, and provides click frequency data for grid layout optimization.
+    Architecture:
+    - Maintains in-memory list of all clicks for fast access
+    - Loads clicks from storage on initialization (startup)
+    - Adds new clicks only to memory during session
+    - Writes all clicks to storage only on shutdown
+
+    This provides low-latency click tracking while ensuring persistence across sessions.
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
@@ -50,12 +56,39 @@ class ClickTrackerService:
         self._config = config
         self._storage = storage
 
+        # Thread-safe in-memory click cache
+        self._lock = threading.RLock()
+        self._clicks: List[GridClickEvent] = []
+        self._loaded = False
+
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="ClickTrackerService")
 
         logger.debug("ClickTrackerService initialized")
 
+    async def initialize(self) -> None:
+        """Load click history from storage into memory cache.
+
+        Called once on application startup to populate the in-memory cache.
+        """
+        try:
+            logger.info("Loading click history from storage...")
+            clicks_data = await self._storage.read(model_type=GridClicksData)
+
+            with self._lock:
+                self._clicks = list(clicks_data.clicks)
+                self._loaded = True
+
+            logger.info(f"Loaded {len(self._clicks)} clicks from storage into memory cache")
+
+        except Exception as e:
+            logger.error(f"Failed to load click history from storage: {e}", exc_info=True)
+            with self._lock:
+                self._clicks = []
+                self._loaded = True
+
     def setup_subscriptions(self) -> None:
+        """Set up event subscriptions for click tracking."""
         subscriptions = [
             (PerformMouseClickEventData, self._handle_mouse_click),
             (RequestClickCountsForGridEventData, self._handle_click_counts_request),
@@ -67,32 +100,39 @@ class ClickTrackerService:
         logger.debug("ClickTrackerService subscriptions set up")
 
     async def _handle_mouse_click(self, event_data: PerformMouseClickEventData) -> None:
+        """Handle mouse click event by adding to in-memory cache only.
+
+        NO storage I/O here - just fast memory append.
+        """
         timestamp = time.time()
-
-        # Load current clicks, append new one, save
-        clicks_data = await self._storage.read(model_type=GridClicksData)
         new_click = GridClickEvent(x=event_data.x, y=event_data.y, timestamp=timestamp, cell_id=None)
-        clicks_data.clicks.append(new_click)
-        success = await self._storage.write(data=clicks_data)
 
-        if success:
-            click_logged_event = ClickLoggedEventData(x=event_data.x, y=event_data.y, timestamp=timestamp)
-            self.event_publisher.publish(click_logged_event)
-            logger.debug(f"Click logged: ({event_data.x}, {event_data.y})")
+        with self._lock:
+            self._clicks.append(new_click)
+            click_count = len(self._clicks)
+
+        # Publish event for any listeners
+        click_logged_event = ClickLoggedEventData(x=event_data.x, y=event_data.y, timestamp=timestamp)
+        self.event_publisher.publish(click_logged_event)
+
+        logger.debug(f"Click logged to memory cache: ({event_data.x}, {event_data.y}) - total: {click_count}")
 
     async def _handle_click_counts_request(self, event_data: RequestClickCountsForGridEventData) -> None:
-        clicks_data = await self._storage.read(model_type=GridClicksData)
-        all_clicks = [click.model_dump() for click in clicks_data.clicks]
+        """Calculate click counts from in-memory cache - no storage I/O."""
+        with self._lock:
+            all_clicks = [click.model_dump() for click in self._clicks]
+
         processed_rects = self._calculate_click_counts(all_clicks, event_data.rect_definitions)
 
         response_event = ClickCountsForGridEventData(request_id=event_data.request_id, processed_rects_with_clicks=processed_rects)
 
         self.event_publisher.publish(response_event)
-        logger.debug(f"Published click counts for request {event_data.request_id}")
+        logger.debug(f"Published click counts for request {event_data.request_id} (from memory cache)")
 
     def _calculate_click_counts(
         self, all_clicks: List[Dict[str, Any]], rect_definitions: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
+        """Calculate click counts per rectangle."""
         processed_rects = []
 
         for rect_def in rect_definitions:
@@ -110,15 +150,28 @@ class ClickTrackerService:
         return processed_rects
 
     def _is_click_in_rect(self, click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
+        """Check if click is within rectangle bounds."""
         try:
             click_x, click_y = click.get("x", 0), click.get("y", 0)
             return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
         except (TypeError, ValueError):
             return False
 
+    def get_all_clicks_sync(self) -> List[Dict[str, Any]]:
+        """Get all clicks from memory cache synchronously.
+
+        Used by grid view for prioritization - no async/storage overhead.
+
+        Returns:
+            List of click dictionaries with x, y, timestamp, cell_id
+        """
+        with self._lock:
+            return [click.model_dump() for click in self._clicks]
+
     async def get_click_statistics(self) -> Dict[str, Any]:
-        clicks_data = await self._storage.read(model_type=GridClicksData)
-        all_clicks = [click.model_dump() for click in clicks_data.clicks]
+        """Get click statistics from in-memory cache."""
+        with self._lock:
+            all_clicks = [click.model_dump() for click in self._clicks]
 
         if not all_clicks:
             return {"total_clicks": 0}
@@ -137,6 +190,34 @@ class ClickTrackerService:
             "source_distribution": source_counts,
         }
 
+    async def shutdown(self) -> None:
+        """Save all clicks from memory to storage on shutdown.
+
+        Called once on application shutdown to persist all session data.
+        """
+        try:
+            with self._lock:
+                clicks_to_save = list(self._clicks)
+
+            if not clicks_to_save:
+                logger.info("No clicks to save on shutdown")
+                return
+
+            logger.info(f"Saving {len(clicks_to_save)} clicks to storage on shutdown...")
+
+            clicks_data = GridClicksData(clicks=clicks_to_save)
+            success = await self._storage.write(data=clicks_data)
+
+            if success:
+                logger.info(f"Successfully saved {len(clicks_to_save)} clicks to storage")
+            else:
+                logger.error("Failed to save clicks to storage on shutdown")
+
+        except Exception as e:
+            logger.error(f"Error saving clicks on shutdown: {e}", exc_info=True)
+
     async def cleanup(self) -> None:
+        """Clean up resources and save data."""
         self.subscription_manager.unsubscribe_all()
+        await self.shutdown()
         logger.info("ClickTrackerService cleanup complete")

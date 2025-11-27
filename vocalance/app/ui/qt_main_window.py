@@ -597,6 +597,9 @@ class VocalanceMainWindow(QMainWindow):
     def set_dictation_service(self, dictation_service) -> None:
         self._dictation_service = dictation_service
 
+    def set_click_tracker_service(self, click_tracker_service) -> None:
+        self._click_tracker_service = click_tracker_service
+
     def initialize_controllers_with_services(self) -> None:
         """Initialize all controllers now that services are available."""
         try:
@@ -659,10 +662,10 @@ class VocalanceMainWindow(QMainWindow):
                 self.marks_controller.set_mark_view(self.mark_view)
 
             if self.grid_controller and hasattr(self, "_grid_service") and self._grid_service:
-                self.grid_view = QtGridView(self.event_bus, self.event_loop, self._storage_service, self.config)
+                click_tracker = getattr(self, "_click_tracker_service", None)
+                self.grid_view = QtGridView(self.event_bus, self.event_loop, click_tracker, self.config)
                 self.grid_view.set_controller_callback(self.grid_controller)
                 self.grid_controller.set_grid_view(self.grid_view)
-                asyncio.run_coroutine_threadsafe(self.grid_controller.initialize_click_cache(), self.event_loop)
 
         except Exception as e:
             self.logger.error(f"Error initializing overlay views: {e}", exc_info=True)
