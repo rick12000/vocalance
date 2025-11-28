@@ -362,7 +362,7 @@ class VocalanceMainWindow(QMainWindow):
         icon_pixmap = load_sidebar_icon(
             icon_filename=icon_filename,
             icons_dir=self.asset_cache.get_icons_dir(),
-            target_color=theme.config.blue.blue_1,
+            target_color=theme.config.shapes.accent,
             icon_size=theme.config.header.icon_size,
         )
 

@@ -49,30 +49,30 @@ class FontSizes:
 class TextColors:
     """Text color design tokens."""
 
-    lightest: str = "#e8d6d6"
-    light: str = "#c3afaf"
-    medium: str = "#7a7a7a"
-    gradient_colors: list = field(default_factory=lambda: ["#2E6982", "#64C49E"])
-    title_gradient: list = field(default_factory=lambda: ["#2E6982", "#64C49E"])
+    lightest: str = "#f4f4f5"
+    light: str = "#a1a1aa"
+    medium: str = "#52525b"
+    gradient_colors: list = field(default_factory=lambda: ["#696AC2", "#CCD8E3"])
+    title_gradient: list = field(default_factory=lambda: ["#696AC2", "#CCD8E3"])
 
 
 @dataclass
 class ShapeColors:
     """Shape/background color design tokens."""
 
-    accent: str = "#a3a3a3"
-    lightest: str = "#504e5c"
-    light: str = "#3c3a45"
-    medium: str = "#313038"
-    dark: str = "#232229"
-    darkest: str = "#1d1c21"
+    accent: str = "#71717a"
+    lightest: str = "#52525b"
+    light: str = "#3f3f46"
+    medium: str = "#1d1d22"
+    dark: str = "#141417"
+    darkest: str = "#0f0f11"
 
 
 @dataclass
 class BlueColors:
     """Blue color design tokens."""
 
-    blue_1: str = "#1f3760"
+    blue_1: str = "#1d1d22"
     blue_2: str = "#a8c7fa"
 
 
@@ -111,11 +111,11 @@ class ContainerLayout:
     # Box containers (primary content boxes)
     box_padding: int = 20  # Padding from border to content
     box_spacing_between: int = 20  # Space between adjacent boxes
-    box_title_spacing: int = 20  # Space after box title before content
+    box_title_spacing: int = 16  # Space after box title before content
 
     # Content inside boxes
     content_horizontal_margin: int = 0  # Additional horizontal margin for content (titles align with border + padding)
-    content_vertical_spacing: int = 8  # Space between stacked content items
+    content_vertical_spacing: int = 14  # Space between stacked content items
 
     # List items
     list_item_padding_vertical: int = 4  # Vertical padding within each list item
@@ -200,14 +200,14 @@ class HeaderLayout:
     title_offset_y: int = 10
     title_y_offset: int = 0
     spacing: int = 2  # Reduced spacing between title and subtitle
-    padding_bottom: int = 8  # Space after header content (subtitle) - reduced from 20
+    padding_bottom: int = 20  # Space after header content (subtitle) - reduced from 20
     icon_size: int = 55  # Size of header icon button
     text_icon_spacing: int = 20  # Space between text and icon in header button
 
 
 @dataclass
 class IconProperties:
-    color: str = "#a3a3a3"
+    color: str = "#71717a"
     full_logo_filename: str = "grey_icon_full_size.png"
     icon_logo_filename: str = "grey_icon_full_size.png"
     full_logo_apply_monochrome: bool = False
