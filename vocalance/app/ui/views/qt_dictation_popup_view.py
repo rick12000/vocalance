@@ -12,10 +12,12 @@ from collections import deque
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QTextCharFormat
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
 from vocalance.app.ui.components.sound_wave_widget import SoundWaveWidget
+from vocalance.app.ui.components.spinner_widget import SpinnerWidget
+from vocalance.app.ui.components.text_display import TextDisplayContainer
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -35,6 +37,7 @@ class QtDictationPopupView(QMainWindow):
     _signal_final_text = Signal(str, str)  # text, segment_id
     _signal_llm_token = Signal(str)  # token
     _signal_audio_level = Signal(float)  # audio level
+    _signal_show_llm_processing = Signal()  # Signal to show LLM processing on main thread
 
     # Window sizes (determined by the sound wave widget)
     SIMPLE_WIDTH = 60  # Exact fit for sound wave widget
@@ -64,6 +67,9 @@ class QtDictationPopupView(QMainWindow):
         # Current display mode
         self.current_mode = None
 
+        # Border color state (for stop word indication)
+        self._border_is_orange = False
+
         # Animation properties
         self._animation_in = None
         self._animation_out = None
@@ -83,6 +89,7 @@ class QtDictationPopupView(QMainWindow):
         self._signal_final_text.connect(self._do_display_final_text)
         self._signal_llm_token.connect(self._do_append_llm_token)
         self._signal_audio_level.connect(self._do_update_audio_level)
+        self._signal_show_llm_processing.connect(self._do_show_llm_processing, Qt.ConnectionType.QueuedConnection)
 
         self.logger.info("QtDictationPopupView initialized")
 
@@ -96,23 +103,30 @@ class QtDictationPopupView(QMainWindow):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def paintEvent(self, event) -> None:
-        """Draw rounded background with 3px gradient border."""
+        """Draw rounded background with 3px gradient or orange border."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
         border_width = 3
 
-        # Create gradient for border
-        gradient_colors = theme.config.text.gradient_colors
-        gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
-        gradient.setColorAt(0, QColor(gradient_colors[0]))
-        gradient.setColorAt(1, QColor(gradient_colors[1]))
+        # Use orange border if stop word detected, otherwise use gradient
+        if self._border_is_orange:
+            # Solid orange border
+            painter.setBrush(QColor(theme.config.shapes.orange))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(rect, 16, 16)
+        else:
+            # Create gradient for border
+            gradient_colors = theme.config.text.gradient_colors
+            gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
+            gradient.setColorAt(0, QColor(gradient_colors[0]))
+            gradient.setColorAt(1, QColor(gradient_colors[1]))
 
-        # Draw outer rounded rect with gradient (this is the border)
-        painter.setBrush(gradient)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(rect, 16, 16)
+            # Draw outer rounded rect with gradient (this is the border)
+            painter.setBrush(gradient)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(rect, 16, 16)
 
         # Draw inner rounded rect with background color (creates border effect)
         inner_rect = rect.adjusted(border_width, border_width, -border_width, -border_width)
@@ -164,22 +178,11 @@ class QtDictationPopupView(QMainWindow):
         dictation_label.setMinimumWidth(200)
         dictation_layout.addWidget(dictation_label)
 
-        # Text box with dark background and more rounded corners
-        self.dictation_box = QPlainTextEdit()
-        self.dictation_box.setReadOnly(True)
-        self.dictation_box.setMinimumWidth(350)
-        self.dictation_box.setStyleSheet(
-            f"""
-            QPlainTextEdit {{
-                background-color: {theme.config.shapes.dark};
-                border: none;
-                border-radius: {theme.config.radius.medium}px;
-                padding: {theme.config.spacing.small}px;
-                color: {theme.config.text.light};
-            }}
-        """
-        )
-        dictation_layout.addWidget(self.dictation_box, 1)
+        # Text box for dictation - inside a dark rounded container
+        dictation_container_widget = TextDisplayContainer()
+        dictation_container_widget.setMinimumWidth(350)
+        self.dictation_box = dictation_container_widget.text_edit
+        dictation_layout.addWidget(dictation_container_widget, 1)
 
         side_by_side_layout.addWidget(dictation_container, 1)
 
@@ -189,28 +192,33 @@ class QtDictationPopupView(QMainWindow):
         llm_layout.setContentsMargins(0, 0, 0, 0)
         llm_layout.setSpacing(5)
 
-        # Create title label with xlarge font and gradient
-        self.llm_label = BoxTitleLabel("AI Output")
-        # Ensure enough horizontal space for gradient calculation
-        self.llm_label.setMinimumWidth(200)
-        llm_layout.addWidget(self.llm_label)
+        # Create title row with label on left, spinner on right
+        llm_title_container = QWidget()
+        llm_title_layout = QHBoxLayout(llm_title_container)
+        # Right margin matches the padding of the LLM text box (spacing.small = 8px)
+        llm_title_layout.setContentsMargins(0, 0, 8, 0)
+        llm_title_layout.setSpacing(8)
 
-        # Text box with dark background and more rounded corners
-        self.llm_box = QPlainTextEdit()
-        self.llm_box.setReadOnly(True)
-        self.llm_box.setMinimumWidth(350)
-        self.llm_box.setStyleSheet(
-            f"""
-            QPlainTextEdit {{
-                background-color: {theme.config.shapes.dark};
-                border: none;
-                border-radius: {theme.config.radius.medium}px;
-                padding: {theme.config.spacing.small}px;
-                color: {theme.config.text.light};
-            }}
-        """
-        )
-        llm_layout.addWidget(self.llm_box, 1)
+        # Create title label with xlarge font and gradient (left side)
+        self.llm_label = BoxTitleLabel("AI Output")
+        self.llm_label.setMinimumWidth(200)
+        llm_title_layout.addWidget(self.llm_label)
+
+        # Add stretch to push spinner to the right
+        llm_title_layout.addStretch()
+
+        # Create spinner widget on the right (starts hidden)
+        self.llm_spinner = SpinnerWidget(parent=llm_title_container, size=24)
+        self.llm_spinner.setVisible(False)
+        llm_title_layout.addWidget(self.llm_spinner, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        llm_layout.addWidget(llm_title_container)
+
+        # Text box for LLM output - inside a dark rounded container
+        llm_container_widget = TextDisplayContainer()
+        llm_container_widget.setMinimumWidth(350)
+        self.llm_box = llm_container_widget.text_edit
+        llm_layout.addWidget(llm_container_widget, 1)
 
         side_by_side_layout.addWidget(llm_container, 1)
 
@@ -231,21 +239,10 @@ class QtDictationPopupView(QMainWindow):
         visual_label.setMinimumWidth(200)
         visual_layout.addWidget(visual_label)
 
-        # Text box with dark background and more rounded corners
-        self.visual_dictation_box = QPlainTextEdit()
-        self.visual_dictation_box.setReadOnly(True)
-        self.visual_dictation_box.setStyleSheet(
-            f"""
-            QPlainTextEdit {{
-                background-color: {theme.config.shapes.dark};
-                border: none;
-                border-radius: {theme.config.radius.medium}px;
-                padding: {theme.config.spacing.small}px;
-                color: {theme.config.text.light};
-            }}
-        """
-        )
-        visual_layout.addWidget(self.visual_dictation_box, 1)
+        # Text box for visual dictation - inside a dark rounded container
+        visual_container_widget = TextDisplayContainer()
+        self.visual_dictation_box = visual_container_widget.text_edit
+        visual_layout.addWidget(visual_container_widget, 1)
 
         self.visual_widget.setVisible(False)
         main_layout.addWidget(self.visual_widget, 1)
@@ -264,6 +261,30 @@ class QtDictationPopupView(QMainWindow):
     # Public API
 
     @Slot()
+    def set_border_orange(self) -> None:
+        """Set border to orange (stop word detected) - thread-safe."""
+        QMetaObject.invokeMethod(self, "_do_set_border_orange", Qt.ConnectionType.QueuedConnection)
+
+    @Slot()
+    def _do_set_border_orange(self) -> None:
+        """Internal set border orange - MUST run on main Qt thread."""
+        with self._ui_lock:
+            self._border_is_orange = True
+            self.update()  # Trigger repaint
+
+    @Slot()
+    def reset_border_color(self) -> None:
+        """Reset border to gradient color - thread-safe."""
+        QMetaObject.invokeMethod(self, "_do_reset_border_color", Qt.ConnectionType.QueuedConnection)
+
+    @Slot()
+    def _do_reset_border_color(self) -> None:
+        """Internal reset border color - MUST run on main Qt thread."""
+        with self._ui_lock:
+            self._border_is_orange = False
+            self.update()  # Trigger repaint
+
+    @Slot()
     def show_simple_listening(self) -> None:
         """Show simple listening indicator - thread-safe."""
         QMetaObject.invokeMethod(self, "_do_show_simple", Qt.ConnectionType.QueuedConnection)
@@ -273,6 +294,7 @@ class QtDictationPopupView(QMainWindow):
         """Internal show simple - MUST run on main Qt thread."""
         with self._ui_lock:
             self._hide_all_modes()
+            self._border_is_orange = False  # Reset border color for new session
             self.simple_widget.setVisible(True)
             self.current_mode = "simple"
             self._position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
@@ -289,6 +311,7 @@ class QtDictationPopupView(QMainWindow):
         """Internal show smart - MUST run on main Qt thread."""
         with self._ui_lock:
             self._hide_all_modes()
+            self._border_is_orange = False  # Reset border color for new session
             self.current_mode = "smart"
             self.smart_widget.setVisible(True)
             self._clear_smart_content()
@@ -304,6 +327,7 @@ class QtDictationPopupView(QMainWindow):
     @Slot()
     def show_llm_processing(self) -> None:
         """Show LLM processing mode (keep smart layout, just update label) - thread-safe."""
+        # Use QMetaObject.invokeMethod with QueuedConnection to marshal to main Qt thread
         QMetaObject.invokeMethod(self, "_do_show_llm_processing", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
@@ -311,6 +335,7 @@ class QtDictationPopupView(QMainWindow):
         """Internal show visual - MUST run on main Qt thread."""
         with self._ui_lock:
             self._hide_all_modes()
+            self._border_is_orange = False  # Reset border color for new session
             self.current_mode = "visual"
             self.visual_widget.setVisible(True)
             self._clear_visual_content()
@@ -325,7 +350,10 @@ class QtDictationPopupView(QMainWindow):
         # This is called after dictation stops and before LLM processing starts
         if self.current_mode == "smart":
             self.llm_label.setText("Processing...")
-            self.logger.debug("Switched to LLM processing mode")
+            # Start spinner when LLM processing begins
+            if hasattr(self, "llm_spinner"):
+                self.llm_spinner.start()
+            self.logger.debug("Switched to LLM processing mode with spinner")
 
     @Slot()
     def hide_popup(self) -> None:
@@ -336,6 +364,9 @@ class QtDictationPopupView(QMainWindow):
     def _do_hide_popup(self) -> None:
         """Internal hide popup - MUST run on main Qt thread."""
         with self._ui_lock:
+            # Stop spinner when hiding popup
+            if hasattr(self, "llm_spinner"):
+                self.llm_spinner.stop()
             self._hide_window_with_animation()
             self.current_mode = None
 
@@ -426,24 +457,25 @@ class QtDictationPopupView(QMainWindow):
         # Clear the dictionary
         self._partial_segments.clear()
 
-        # Now insert new partial text at end with GRAY formatting
+        # Now insert new partial text at end with MEDIUM color formatting
         cursor = text_box.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
+
+        # Create format for partial text (medium color = visible/current input)
+        partial_format = QTextCharFormat()
+        partial_format.setForeground(QColor(theme.config.text.medium))
+        partial_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+
+        # CRITICAL: Reset cursor format to partial format (not inheriting from previous text)
+        # This is at source - we explicitly set what format should be used
+        cursor.setCharFormat(partial_format)
 
         # Store position before insertion
         start_pos = cursor.position()
 
-        # Insert text
+        # Insert text with the format explicitly set on cursor
         cursor.insertText(text)
         end_pos = cursor.position()
-
-        # Apply medium color to the inserted text (partial = unstable)
-        cursor.setPosition(start_pos)
-        cursor.setPosition(end_pos, cursor.MoveMode.KeepAnchor)
-        partial_format = QTextCharFormat()
-        partial_format.setForeground(QColor(theme.config.text.medium))  # Medium color for partial
-        partial_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))  # No background (transparent)
-        cursor.setCharFormat(partial_format)
 
         # Store this segment's position for removal when final text arrives
         self._partial_segments[segment_id] = (start_pos, end_pos)
@@ -499,19 +531,23 @@ class QtDictationPopupView(QMainWindow):
             del self._partial_segments[segment_id]
             self.logger.debug(f"Removed partial text for segment {segment_id} at {start_pos}-{end_pos}")
 
-        # Insert final text at end with lightest color formatting (stable/permanent)
+        # Insert final text at end with light color formatting (stable/permanent)
         cursor = text_box.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
 
-        # Create character format for lightest color text (final = stable)
+        # Create character format for light color text (final = stable)
         final_format = QTextCharFormat()
-        final_format.setForeground(QColor(theme.config.shapes.lightest))  # Lightest color for final
+        final_format.setForeground(QColor(theme.config.text.light))  # Light color for final
         final_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))  # No background (transparent)
         cursor.setCharFormat(final_format)
 
         # Insert text with trailing space (matches legacy line 315)
         if text:
             cursor.insertText(text + " ")
+
+        # Ensure format is applied
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.clearSelection()
 
         text_box.setTextCursor(cursor)
         text_box.ensureCursorVisible()
@@ -555,9 +591,11 @@ class QtDictationPopupView(QMainWindow):
                 self.logger.debug(f"Scheduled token buffer flush ({len(self._token_buffer)} tokens buffered)")
 
     def _flush_token_buffer(self) -> None:
-        """Flush buffered tokens to LLM output box.
+        """Flush buffered tokens to LLM output box with color formatting.
 
         Must be called from main Qt thread only (scheduled via QTimer.singleShot).
+        Only the last token is shown in medium color (fading effect).
+        All other historical tokens are shown in lightest color.
         """
         self.logger.debug(f"_flush_token_buffer CALLED: mode={self.current_mode}, buffer_size={len(self._token_buffer)}")
 
@@ -586,9 +624,39 @@ class QtDictationPopupView(QMainWindow):
                 self._pending_flush = False
             return
 
+        # Get the full text with new tokens appended
         cursor = self.llm_box.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
         cursor.insertText(batched)
+
+        # Now reformat ALL text: lightest for all, but medium for the LAST token
+        full_text = self.llm_box.toPlainText()
+
+        if full_text:
+            # Select all text and set to light color first
+            cursor.select(cursor.SelectionType.Document)
+            light_format = QTextCharFormat()
+            light_format.setForeground(QColor(theme.config.text.light))
+            light_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+            cursor.setCharFormat(light_format)
+
+            # Clear selection before formatting last tokens
+            cursor.clearSelection()
+
+            # Now format just the last token in medium color
+            if batched:  # Only format if we added new tokens
+                last_token_start = len(full_text) - len(batched)
+                cursor.setPosition(last_token_start)
+                cursor.setPosition(len(full_text), cursor.MoveMode.KeepAnchor)
+
+                medium_format = QTextCharFormat()
+                medium_format.setForeground(QColor(theme.config.text.medium))
+                medium_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+                cursor.setCharFormat(medium_format)
+
+        # Move cursor to end for proper positioning
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.clearSelection()
         self.llm_box.setTextCursor(cursor)
         self.llm_box.ensureCursorVisible()
 
@@ -598,9 +666,19 @@ class QtDictationPopupView(QMainWindow):
             self._pending_flush = False
 
     def update_llm_status(self, status: str) -> None:
-        """Update LLM output label status."""
+        """Update LLM output label status and manage spinner.
+
+        Args:
+            status: Status text to display. If "Complete!" or similar, stops spinner.
+        """
         if self.current_mode == "smart":
             self.llm_label.setText(status)
+            # Stop spinner when LLM completes
+            if hasattr(self, "llm_spinner"):
+                if status in ("Complete!", "AI Output", "Error"):
+                    self.llm_spinner.stop()
+                elif status == "Processing...":
+                    self.llm_spinner.start()
 
     # Internal methods
 
@@ -615,6 +693,9 @@ class QtDictationPopupView(QMainWindow):
         self.dictation_box.clear()
         self.llm_box.clear()
         self.llm_label.setText("AI Output")
+        # Ensure spinner is hidden when clearing
+        if hasattr(self, "llm_spinner"):
+            self.llm_spinner.stop()
         with self._ui_lock:
             self._token_buffer.clear()
 

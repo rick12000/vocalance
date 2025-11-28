@@ -49,6 +49,7 @@ class QtDictationPopupController:
             from vocalance.app.events.core_events import AudioChunkEvent
             from vocalance.app.events.dictation_events import (
                 DictationStatusChangedEvent,
+                DictationStopWordDetectedEvent,
                 FinalDictationTextEvent,
                 HiddenDictationStartedEvent,
                 HiddenDictationStoppedEvent,
@@ -88,6 +89,9 @@ class QtDictationPopupController:
             self.event_bus.subscribe(LLMProcessingStartedEvent, self._on_llm_started)
             self.event_bus.subscribe(LLMProcessingCompletedEvent, self._on_llm_completed)
             self.event_bus.subscribe(LLMTokenGeneratedEvent, self._on_llm_token)
+
+            # Stop word detection event
+            self.event_bus.subscribe(DictationStopWordDetectedEvent, self._on_stop_word_detected)
 
             self.logger.debug("Dictation popup event subscriptions configured")
         except Exception as e:
@@ -288,6 +292,25 @@ class QtDictationPopupController:
 
         QTimer.singleShot(1500, self.hide_popup)  # 1500ms = 1.5s
         self.logger.debug("Scheduled popup hide after 1.5s delay")
+
+    async def _on_stop_word_detected(self, event) -> None:
+        """Handle stop word detection event.
+
+        Changes the border color to orange instantly when stop word is detected.
+        Only applies to hidden and visual dictation modes.
+        """
+        try:
+            mode = getattr(event, "mode", None)
+            self.logger.info(f"Stop word detected in {mode} mode - changing border to orange")
+
+            # Only change border for hidden and visual modes
+            if mode in ("hidden", "visual"):
+                self.popup_view.set_border_orange()
+                self.logger.debug(f"Border color changed to orange for {mode} mode")
+            else:
+                self.logger.debug(f"Stop word detected in {mode} mode - not changing border (not hidden/visual)")
+        except Exception as e:
+            self.logger.error(f"Error handling stop word detection: {e}", exc_info=True)
 
     async def _on_audio_chunk(self, event) -> None:
         """Handle audio chunk for visualization."""

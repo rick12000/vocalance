@@ -66,6 +66,7 @@ class ShapeColors:
     medium: str = "#1d1d22"
     dark: str = "#141417"
     darkest: str = "#0f0f11"
+    orange: str = "#ff8c00"  # Orange color for dictation stop word indicator
 
 
 @dataclass

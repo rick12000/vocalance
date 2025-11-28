@@ -229,3 +229,14 @@ class DictationAliasActionRequest(BaseEvent):
     key: Optional[str] = Field(default=None, description="Alias activation phrase")
     value: Optional[str] = Field(default=None, description="Alias substitution text")
     priority: EventPriority = EventPriority.NORMAL
+
+
+class DictationStopWordDetectedEvent(BaseEvent):
+    """Event fired when the dictation stop word is detected.
+
+    Published by STT service when the stop trigger is recognized during dictation.
+    UI should change the border color to orange to indicate the stop word was heard.
+    """
+
+    mode: Literal["standard", "type", "smart", "visual", "hidden"] = Field(description="Current dictation mode")
+    priority: EventPriority = EventPriority.HIGH
