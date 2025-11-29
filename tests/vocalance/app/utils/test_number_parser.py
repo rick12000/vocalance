@@ -46,8 +46,6 @@ def test_normalize_homophones(text, expected):
     [
         ("four hundred and nine", "four hundred nine"),
         ("twenty and three", "twenty three"),
-        # Note: "one and done" - 'done' is not a number word, so 'and' should stay
-        # This test expectation was incorrect
         ("one and done", "one and done"),
         ("red and blue", "red and blue"),  # 'and' not between numbers kept
     ],

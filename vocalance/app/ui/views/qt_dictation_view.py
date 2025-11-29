@@ -147,10 +147,6 @@ class QtPromptsSubView(QWidget):
         self.prompt_textbox = ExpandableTextArea(
             placeholder="e.g. Format as an email. Start with 'Dear [Recipient Name],' and end with 'Best, Jim.' Adopt a professional tone and style."
         )
-        # Add extra left padding to match prompt title input
-        margins = self.prompt_textbox.contentsMargins()
-        margins.setLeft(theme.config.components.input_padding_horizontal)
-        self.prompt_textbox.setContentsMargins(margins)
         content.add(self.prompt_textbox)
 
         # Add button

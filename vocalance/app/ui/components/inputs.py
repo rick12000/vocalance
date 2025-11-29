@@ -121,15 +121,16 @@ class ExpandableTextArea(QPlainTextEdit):
         # Set font
         self.setFont(theme.get_font("medium"))
 
-        # Disable word wrap for consistent height calculation
-        self.setWordWrapMode(QTextOption.WrapMode.NoWrap)
+        # Enable word wrap for text to wrap within container width
+        self.setWordWrapMode(QTextOption.WrapMode.WordWrap)
 
         # Calculate minimum height based on placeholder text
         self._calculate_height_from_placeholder()
 
-        # Set padding
-        padding = theme.config.components.input_padding_horizontal
-        self.setContentsMargins(padding, padding, padding, padding)
+        # Set padding with increased left padding
+        left_padding = theme.config.components.input_padding_horizontal * 2
+        vertical_padding = theme.config.components.input_padding_vertical
+        self.setContentsMargins(left_padding, vertical_padding, theme.config.components.input_padding_horizontal, vertical_padding)
 
         # Apply colors via palette
         palette = self.palette()

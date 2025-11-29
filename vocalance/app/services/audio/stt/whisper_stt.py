@@ -300,70 +300,185 @@ class WhisperSTT:
         async with self._model_lock:
             return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
 
+    def _is_hallucination(self, text: str, no_speech_prob: float, avg_logprob: Optional[float]) -> bool:
+        """Detect Whisper hallucinations using multiple heuristics.
+
+        Whisper hallucinations typically have:
+        1. High no_speech_prob (no actual speech)
+        2. Low avg_logprob (model uncertainty)
+        3. Repetitive patterns (e.g., "4.4.4.4.4", ". . . . .")
+        4. Only punctuation/symbols
+        5. Very short with high uncertainty
+
+        Args:
+            text: The transcribed text to check.
+            no_speech_prob: Probability that segment contains no speech.
+            avg_logprob: Average log probability of the tokens.
+
+        Returns:
+            True if the text appears to be a hallucination.
+        """
+        if not text:
+            return True
+
+        # High no_speech_prob indicates no actual speech
+        if no_speech_prob > 0.6:
+            return True
+
+        # Low avg_logprob indicates model uncertainty (hallucination indicator)
+        if avg_logprob is not None and avg_logprob < -0.8:
+            return True
+
+        # Detect repetitive patterns (e.g., "4.4.4.4", ". . . . .")
+        # Count unique characters vs total length
+        stripped = text.replace(" ", "")
+        if len(stripped) > 3:
+            unique_chars = len(set(stripped))
+            # If text is mostly the same 1-2 characters repeated, it's likely garbage
+            if unique_chars <= 2:
+                return True
+            # Check for repeating 2-3 char patterns
+            if len(stripped) > 6:
+                pattern_2 = stripped[:2]
+                pattern_3 = stripped[:3]
+                if stripped.count(pattern_2) > len(stripped) / 3:
+                    return True
+                if stripped.count(pattern_3) > len(stripped) / 4:
+                    return True
+
+        # Only punctuation/symbols (no actual words)
+        alpha_chars = sum(1 for c in text if c.isalpha())
+        if alpha_chars == 0 and len(text) > 1:
+            return True
+
+        # Dots and spaces pattern (". . . ." or similar)
+        dots_spaces = sum(1 for c in text if c in ". ")
+        if len(text) > 3 and dots_spaces / len(text) > 0.7:
+            return True
+
+        # Very short text with moderate uncertainty
+        if len(text) < 3 and no_speech_prob > 0.4:
+            return True
+
+        return False
+
     def recognize_streaming_sync(
-        self, audio_bytes: bytes, context_segments: Optional[List[str]] = None, sample_rate: Optional[int] = None
-    ) -> Tuple[str, float]:
-        """Streaming speech recognition - NO VAD filter.
+        self,
+        audio_bytes: bytes,
+        context_segments: Optional[List[str]] = None,
+        sample_rate: Optional[int] = None,
+        return_segments: bool = False,
+    ) -> Tuple[str, float, Optional[List[Dict[str, Any]]]]:
+        """Streaming speech recognition with segment timestamps.
 
         For streaming dictation, we MUST NOT use VAD filter because:
         1. VAD removes audio during silence, causing data loss
         2. We need to preserve ALL audio to maintain context
         3. Silence handling should be done at the coordinator level, not here
 
+        Returns segment timestamps for accurate offset tracking and finalization.
+        Includes robust hallucination detection to prevent gibberish output.
+
         Args:
             audio_bytes: Raw audio data to transcribe.
-            context_segments: Optional context (unused, kept for API compatibility).
+            context_segments: Optional context for initial_prompt.
             sample_rate: Optional sample rate override.
+            return_segments: If True, return detailed segment info with timestamps.
 
         Returns:
-            Tuple of (text, confidence) - the transcribed text and confidence score.
+            Tuple of (text, confidence, segments) where segments is a list of:
+            [{"text": str, "start": float, "end": float, "no_speech_prob": float}, ...]
+            or None if return_segments is False.
         """
         if sample_rate and sample_rate != self._sample_rate:
             logger.warning(f"Sample rate mismatch. Expected {self._sample_rate}, got {sample_rate}")
 
         if not audio_bytes or not self._model:
-            return "", 0.0
+            return "", 0.0, None if return_segments else None
 
         duration_sec = len(audio_bytes) / (self._sample_rate * 2)
         if duration_sec < 0.3:  # Minimum 300ms for meaningful transcription
-            return "", 0.0
+            return "", 0.0, None if return_segments else None
 
         recognition_start = time.time()
         audio_np = self._prepare_audio(audio_bytes)
 
-        # NO VAD filter - we need ALL audio to maintain context
-        # VAD causes data loss during silence which breaks streaming
+        # Build initial_prompt from context segments
+        # Only use context if it's not corrupted (no hallucination patterns)
+        initial_prompt = None
+        if context_segments and len(context_segments) > 0:
+            # Filter out any corrupted context segments before using
+            clean_context = [
+                seg
+                for seg in context_segments[-3:]
+                if not self._is_hallucination(seg, 0.0, None)  # Check for pattern-based hallucinations
+            ]
+            if clean_context:
+                initial_prompt = " ".join(clean_context)
+                logger.debug(f"Using context prompt: '{initial_prompt[:50]}...'")
+
+        # VAD helps filter silence and prevents hallucinations during quiet periods
+        # faster-whisper VadOptions: threshold (not onset), min_silence_duration_ms, speech_pad_ms
         options = {
             "language": "en",
             "beam_size": 3 if duration_sec > 3.0 else 1,  # Greedy for short audio
             "temperature": 0.0,
             "no_speech_threshold": 0.6,
-            "condition_on_previous_text": False,
+            "condition_on_previous_text": True,  # Enable context conditioning
             "word_timestamps": False,
-            "vad_filter": False,  # CRITICAL: No VAD for streaming
+            "vad_filter": True,  # VAD is critical for silence handling
+            "vad_parameters": {
+                "threshold": 0.4,  # More sensitive than default 0.5 to catch speech earlier
+                "min_silence_duration_ms": 200,  # Don't cut during short pauses in speech
+                "speech_pad_ms": 300,  # Add 300ms padding BEFORE detected speech to capture starts
+            },
         }
+
+        if initial_prompt:
+            options["initial_prompt"] = initial_prompt
 
         segments_iter, info = self._model.transcribe(audio_np, **options)
 
-        # Combine all segment texts
+        # Collect segments with timestamps
         texts = []
+        segment_details = []
         confidence_sum = 0.0
         count = 0
+        last_end_time = 0.0
 
         for seg in segments_iter:
             text = seg.text.strip()
-            if text:
-                # Basic quality filter - skip obvious hallucinations
-                if seg.no_speech_prob > 0.8:
-                    continue
-                texts.append(text)
-                confidence_sum += 1.0 - seg.no_speech_prob
-                count += 1
+            if not text:
+                continue
+
+            no_speech_prob = seg.no_speech_prob
+            avg_logprob = getattr(seg, "avg_logprob", None)
+
+            # Comprehensive hallucination detection
+            if self._is_hallucination(text, no_speech_prob, avg_logprob):
+                logger.debug(f"Filtered hallucination: '{text[:30]}...' (no_speech={no_speech_prob:.2f}, logprob={avg_logprob})")
+                continue
+
+            texts.append(text)
+            confidence_sum += 1.0 - no_speech_prob
+            count += 1
+
+            # Track segment timestamps for offset management
+            segment_details.append(
+                {
+                    "text": text,
+                    "start": seg.start,
+                    "end": seg.end,
+                    "no_speech_prob": no_speech_prob,
+                    "avg_logprob": avg_logprob,
+                }
+            )
+            last_end_time = max(last_end_time, seg.end)
 
         recognition_time = time.time() - recognition_start
 
         if not texts:
-            return "", 0.0
+            return "", 0.0, [] if return_segments else None
 
         combined_text = " ".join(texts)
         # Light cleanup - collapse whitespace
@@ -373,26 +488,37 @@ class WhisperSTT:
 
         logger.debug(
             f"Streaming: '{combined_text[:50]}...' "
-            f"(conf={avg_confidence:.2f}, time={recognition_time:.3f}s, dur={duration_sec:.1f}s)"
+            f"(conf={avg_confidence:.2f}, time={recognition_time:.3f}s, dur={duration_sec:.1f}s, "
+            f"last_end={last_end_time:.2f}s)"
         )
 
-        return combined_text, avg_confidence
+        if return_segments:
+            return combined_text, avg_confidence, segment_details
+        return combined_text, avg_confidence, None
 
     async def recognize_streaming(
-        self, audio_bytes: bytes, context_segments: Optional[List[str]] = None, sample_rate: Optional[int] = None
-    ) -> Tuple[str, float]:
-        """Async streaming speech recognition.
+        self,
+        audio_bytes: bytes,
+        context_segments: Optional[List[str]] = None,
+        sample_rate: Optional[int] = None,
+        return_segments: bool = False,
+    ) -> Tuple[str, float, Optional[List[Dict[str, Any]]]]:
+        """Async streaming speech recognition with segment timestamps.
 
         Args:
             audio_bytes: Raw audio data to transcribe.
-            context_segments: Optional context (unused).
+            context_segments: Optional context for initial_prompt.
             sample_rate: Optional sample rate override.
+            return_segments: If True, return detailed segment info with timestamps.
 
         Returns:
-            Tuple of (text, confidence) - the transcribed text and confidence score.
+            Tuple of (text, confidence, segments) - the transcribed text, confidence,
+            and optionally segment details with timestamps.
         """
         async with self._model_lock:
-            return await asyncio.to_thread(self.recognize_streaming_sync, audio_bytes, context_segments, sample_rate)
+            return await asyncio.to_thread(
+                self.recognize_streaming_sync, audio_bytes, context_segments, sample_rate, return_segments
+            )
 
     def _normalize_text(self, text: str) -> str:
         """Normalize transcribed text by removing filler words and duplicates.

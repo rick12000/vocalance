@@ -276,9 +276,6 @@ class SoundRecognizer:
 
             await self._load_model_data_async()
 
-            # NOTE: ESC-50 copying moved to warm_start_esc50_samples() for app startup
-            # This prevents blocking first training with file I/O
-
             logger.info(f"SoundRecognizer initialized: {len(self.embeddings)} embeddings")
             return True
 

@@ -202,17 +202,19 @@ class DictationCoordinator:
         # Track last text for smart dictation window concatenation logic
         self._last_smart_dictation_text: Optional[str] = None
 
-        # Streaming dictation state for smart/visual modes (WhisperLive approach)
+        # Streaming dictation state for smart/visual modes
         self._streaming_buffer: Optional[StreamingAudioBuffer] = None
         self._streaming_task: Optional[asyncio.Task] = None
         self._streaming_segment_id: str = ""
-        self._streaming_finalized_text: str = ""
+        self._streaming_finalized_text: str = ""  # Concatenated final text for output
+        self._streaming_finalized_segments: list[str] = []  # List of finalized segments
 
-        # Same-output detection (WhisperLive approach)
+        # Same-output detection
         self._streaming_current_out: str = ""  # Current incomplete segment text
         self._streaming_prev_out: str = ""  # Previous incomplete segment text
         self._streaming_same_output_count: int = 0  # Repetition counter
-        self._streaming_end_time_for_same_output: Optional[float] = None  # Timestamp when repetition started
+        self._streaming_end_time_for_same_output: Optional[float] = None  # Timestamp when repetition FIRST occurred
+        self._streaming_timestamp_offset: float = 0.0  # Cumulative offset for processed audio
 
         self._stt_service = None  # Will be injected via set_stt_service
 
@@ -496,40 +498,154 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"Error handling audio chunk for streaming: {e}", exc_info=True)
 
+    def _texts_are_similar(self, text1: str, text2: str, threshold: float = 0.8) -> bool:
+        """Check if two texts are similar enough to be considered the same output.
+
+        Whisper often returns slightly different text for the same audio:
+        - "showing the transformed output." vs "showing the transformed"
+        - "and then showing" vs "and showing"
+
+        This uses a simple overlap-based similarity to handle these variations.
+
+        Args:
+            text1: First text to compare.
+            text2: Second text to compare.
+            threshold: Minimum similarity ratio (0.0 to 1.0).
+
+        Returns:
+            True if texts are similar enough.
+        """
+        if not text1 or not text2:
+            return False
+
+        t1 = text1.strip().lower()
+        t2 = text2.strip().lower()
+
+        # Exact match
+        if t1 == t2:
+            return True
+
+        # One is a prefix/suffix of the other (common with trailing words)
+        if t1.startswith(t2) or t2.startswith(t1):
+            shorter = min(len(t1), len(t2))
+            longer = max(len(t1), len(t2))
+            if shorter / longer >= threshold:
+                return True
+
+        # Word-based overlap for longer texts
+        words1 = set(t1.split())
+        words2 = set(t2.split())
+        if len(words1) >= 3 and len(words2) >= 3:
+            intersection = len(words1 & words2)
+            union = len(words1 | words2)
+            if union > 0 and intersection / union >= threshold:
+                return True
+
+        return False
+
+    def _is_gibberish_text(self, text: str, strict: bool = False) -> bool:
+        """Secondary gibberish detection at coordinator level.
+
+        This provides a safety net in case hallucinations slip through the STT layer.
+        Checks for common Whisper hallucination patterns that indicate no real speech.
+
+        Args:
+            text: Text to check for gibberish patterns.
+            strict: If True, use stricter filtering (for partials shown to user).
+
+        Returns:
+            True if the text appears to be gibberish/hallucination.
+        """
+        if not text or not text.strip():
+            return True
+
+        text = text.strip()
+
+        # Only punctuation/dots/symbols (very common hallucination)
+        alpha_count = sum(1 for c in text if c.isalpha())
+        if alpha_count == 0:
+            return True
+
+        # For strict mode (partials), require at least 2 alpha chars
+        if strict and alpha_count < 2:
+            return True
+
+        # Repetitive patterns (e.g., "4.4.4.4", ". . . . .")
+        stripped = text.replace(" ", "")
+        if len(stripped) > 3:
+            unique_chars = len(set(stripped))
+            # Stricter: if mostly same chars repeated
+            if unique_chars <= 2:
+                return True
+            # For strict mode, also catch 3 unique chars in long strings
+            if strict and len(stripped) > 10 and unique_chars <= 3:
+                return True
+
+        # Check for repeating short patterns (e.g., "4.4.4", ". . .")
+        if len(stripped) > 5:
+            for pattern_len in range(1, 4):
+                if pattern_len >= len(stripped):
+                    continue
+                pattern = stripped[:pattern_len]
+                repetitions = stripped.count(pattern)
+                threshold = len(stripped) / (pattern_len + 0.5) if strict else len(stripped) / (pattern_len + 1)
+                if repetitions > threshold:
+                    return True
+
+        # Very low alpha ratio (mostly symbols/numbers in repetitive pattern)
+        alpha_ratio = alpha_count / len(text)
+        if len(text) > 5 and alpha_ratio < (0.4 if strict else 0.3):
+            return True
+
+        # Strict mode: check for suspicious short patterns like ". . . ."
+        if strict:
+            # Count dots and spaces vs other chars
+            dots_spaces = sum(1 for c in text if c in ". ")
+            if len(text) > 3 and dots_spaces / len(text) > 0.6:
+                return True
+
+        return False
+
     async def _streaming_transcription_loop(self) -> None:
-        """Simple streaming transcription loop.
+        """Streaming transcription loop for continuous processing.
 
-        Architecture:
-        1. Accumulate ALL audio in buffer (never trim during speech)
-        2. Every 200ms, send entire buffer to Whisper (NO VAD)
-        3. Display Whisper's output directly as partial
-        4. Finalize on: stop word OR 4s silence with stable output
-
-        Key principles:
-        - Whisper sees ALL audio every time (no trimming = no data loss)
-        - No VAD = no audio removal during silence
-        - Partials update immediately when Whisper returns
-        - Buffer only clears on explicit finalization
+        Processes audio in a continuous loop, sleeping only when insufficient audio is available.
+        Handles multi-segment processing, finalizing all but the last segment immediately.
+        Detects same-output repetition for the last segment.
         """
         try:
-            LOOP_INTERVAL = 0.2  # 200ms between transcriptions
-            MIN_AUDIO_SECONDS = 0.3  # Minimum audio to transcribe
-            SILENCE_FINALIZE_SECONDS = 4.0  # Finalize after 4s silence
-            STABLE_COUNT_FOR_FINALIZE = 5  # Need 5 identical outputs (1s) before silence finalization
+            MIN_AUDIO_SECONDS = 1.0
+            SAME_OUTPUT_THRESHOLD = 7
+            NO_SPEECH_THRESH = 0.45
 
-            logger.info(f"Starting streaming loop (interval={LOOP_INTERVAL}s, silence_finalize={SILENCE_FINALIZE_SECONDS}s)")
+            # Conservative offset advancement settings
+            MAX_CONSECUTIVE_EMPTY = 8  # After 8 empty results (~2s), assume true silence
+            CONSERVATIVE_ADVANCE_SECONDS = 0.5  # Only advance by 0.5s at a time
+            MAX_UNPROCESSED_BEFORE_CLIP = 15.0  # Only clip if unprocessed > 15s
 
-            # State
-            current_text = ""  # Current Whisper output (shown as partial)
-            previous_text = ""  # For stability detection
-            stable_count = 0
+            logger.info(
+                f"Starting streaming loop (continuous, min_audio={MIN_AUDIO_SECONDS}s, same_output_threshold={SAME_OUTPUT_THRESHOLD})"
+            )
+
+            # State tracking for streaming transcription
+            current_out = ""  # Current incomplete segment text
+            prev_out = ""  # Previous incomplete segment text
+            same_output_count = 0  # Repetition counter
+            end_time_for_same_output: Optional[float] = None  # Timestamp when repetition FIRST occurred
             segment_id = ""
-            last_new_text_time = time.time()  # When text last changed
+
+            # List of all processed text segments for duplicate detection
+            all_text_segments: list[str] = []
+
+            # Track finalized segments separately for UI emission
+            finalized_segments: list[str] = []
+
+            # Silence detection - track consecutive empty results
+            consecutive_empty_results = 0
+            time.time()
 
             while True:
-                await asyncio.sleep(LOOP_INTERVAL)
-
-                # Check session is still valid
+                # Check session is still valid FIRST (before any processing)
                 with self._state_lock:
                     session = self._current_session
                     buffer = self._streaming_buffer
@@ -542,85 +658,282 @@ class DictationCoordinator:
                         logger.debug("Streaming loop: Not in streaming mode, exiting")
                         break
 
-                # Get ALL audio from buffer
-                audio_result = await buffer.get_audio()
+                # Get unprocessed audio for transcription
+                audio_result = await buffer.get_audio_for_transcription()
 
                 if not audio_result:
-                    # No audio yet, check for silence finalization
-                    if current_text and stable_count >= STABLE_COUNT_FOR_FINALIZE:
-                        silence_duration = time.time() - last_new_text_time
-                        if silence_duration >= SILENCE_FINALIZE_SECONDS:
-                            logger.info(f"Finalizing after {silence_duration:.1f}s silence: '{current_text[:50]}...'")
-                            await self._emit_final_text(current_text, segment_id, session)
-                            # Reset for next utterance
-                            current_text = ""
-                            previous_text = ""
-                            stable_count = 0
-                            segment_id = ""
-                            await buffer.clear()
+                    # No audio yet - brief sleep and continue
+                    await asyncio.sleep(0.05)
                     continue
 
                 audio_bytes, duration = audio_result
 
                 # Skip if not enough audio
                 if duration < MIN_AUDIO_SECONDS:
+                    await asyncio.sleep(0.1)  # Wait for more audio to arrive
                     continue
 
-                # Transcribe entire buffer (NO VAD - we handle silence ourselves)
+                # Transcribe with segment timestamps
                 if not self._stt_service:
+                    await asyncio.sleep(0.1)
                     continue
 
-                text, confidence = await self._stt_service.recognize_streaming(
-                    audio_bytes=audio_bytes, sample_rate=self.config.audio.sample_rate
+                # Get current timestamp_offset for absolute timestamp calculation
+                current_timestamp_offset = await buffer.get_timestamp_offset()
+
+                # Check if unprocessed audio is approaching context limit - force finalization
+                # This prevents losing partial text when audio exceeds Whisper's window
+                unprocessed_duration = await buffer.get_unprocessed_duration()
+                MAX_UNPROCESSED_BEFORE_FORCE_FINALIZE = 20.0  # Force finalize at 20s
+
+                if unprocessed_duration > MAX_UNPROCESSED_BEFORE_FORCE_FINALIZE and current_out:
+                    # Force finalize the current partial to prevent loss
+                    if not self._is_gibberish_text(current_out):
+                        is_duplicate = (
+                            any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
+                            if all_text_segments
+                            else False
+                        )
+                        if not is_duplicate:
+                            all_text_segments.append(current_out.strip())
+                            finalized_segments.append(current_out.strip())
+                            await self._emit_final_text_append(current_out.strip(), segment_id, session)
+                            logger.info(
+                                f"Force finalized due to long unprocessed audio ({unprocessed_duration:.1f}s): '{current_out[:50]}...'"
+                            )
+
+                            # Advance offset to the end of what we finalized
+                            # Use the end_time_for_same_output if available, otherwise estimate
+                            if end_time_for_same_output is not None:
+                                await buffer.advance_timestamp_offset(end_time_for_same_output)
+
+                            # Reset state for next segment
+                            current_out = ""
+                            prev_out = ""
+                            same_output_count = 0
+                            end_time_for_same_output = None
+                            segment_id = str(uuid.uuid4())
+
+                text, confidence, segments = await self._stt_service.recognize_streaming(
+                    audio_bytes=audio_bytes,
+                    sample_rate=self.config.audio.sample_rate,
+                    return_segments=True,
                 )
 
-                # Track stability for silence finalization
-                if text == previous_text:
-                    stable_count += 1
+                if not segments:
+                    # No valid segments returned - BUT DON'T advance full offset!
+                    # VAD may have filtered audio that contains speech START
+                    consecutive_empty_results += 1
+
+                    # Only advance offset conservatively after prolonged silence
+                    # This prevents losing speech that VAD filtered at the beginning
+                    unprocessed_duration = await buffer.get_unprocessed_duration()
+
+                    if consecutive_empty_results >= MAX_CONSECUTIVE_EMPTY:
+                        # True prolonged silence - safe to advance conservatively
+                        if unprocessed_duration > MAX_UNPROCESSED_BEFORE_CLIP:
+                            # Only clip if we have a lot of unprocessed audio
+                            advance_amount = min(CONSERVATIVE_ADVANCE_SECONDS, unprocessed_duration - 2.0)
+                            if advance_amount > 0:
+                                await buffer.advance_timestamp_offset(advance_amount)
+                                logger.debug(f"Prolonged silence: advanced offset by {advance_amount:.2f}s")
+
+                        # Finalize any pending valid text before clearing
+                        if current_out and not self._is_gibberish_text(current_out):
+                            is_duplicate = (
+                                any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
+                                if all_text_segments
+                                else False
+                            )
+                            if not is_duplicate:
+                                all_text_segments.append(current_out.strip())
+                                finalized_segments.append(current_out.strip())
+                                await self._emit_final_text_append(current_out.strip(), segment_id, session)
+                                logger.debug(f"Finalized due to silence: '{current_out[:50]}...'")
+
+                        # Reset state for silence period
+                        current_out = ""
+                        prev_out = ""
+                        same_output_count = 0
+                        end_time_for_same_output = None
+                        segment_id = str(uuid.uuid4())
+                        consecutive_empty_results = 0  # Reset counter after handling
+
+                    await asyncio.sleep(0.2)  # Wait for voice activity
+                    continue
+
+                # We got segments - reset silence counter and update last valid time
+                consecutive_empty_results = 0
+                time.time()
+
+                offset_to_advance: Optional[float] = None
+                all_segments_gibberish = (
+                    True  # Track if all segments are gibberish                # Process complete segments (all but last)
+                )
+                # If multiple segments and last segment is valid, finalize all but last immediately
+                if len(segments) > 1:
+                    last_seg_no_speech = segments[-1].get("no_speech_prob", 0)
+                    if last_seg_no_speech <= NO_SPEECH_THRESH:
+                        for seg in segments[:-1]:
+                            seg_text = seg["text"].strip()
+                            seg_no_speech = seg.get("no_speech_prob", 0)
+                            seg_start = seg["start"]
+                            seg_end = seg["end"]
+
+                            # Always append to all_text_segments for tracking
+                            if seg_text:
+                                all_text_segments.append(seg_text)
+
+                            # Skip if start >= end
+                            if seg_start >= seg_end:
+                                continue
+
+                            # Skip if no_speech_prob too high
+                            if seg_no_speech > NO_SPEECH_THRESH:
+                                continue
+                            if not seg_text:
+                                continue
+
+                            # Secondary gibberish check - safety net
+                            if self._is_gibberish_text(seg_text):
+                                logger.debug(f"Filtered gibberish segment: '{seg_text[:30]}...'")
+                                continue
+
+                            # Calculate absolute timestamps
+                            absolute_start = current_timestamp_offset + seg_start
+                            absolute_end = current_timestamp_offset + min(duration, seg_end)
+
+                            # Duplicate check against all_text_segments using fuzzy matching
+                            # This catches near-duplicates that differ by a few words
+                            is_duplicate = (
+                                any(self._texts_are_similar(ts, seg_text, 0.8) for ts in all_text_segments[-10:])
+                                if len(all_text_segments) > 1
+                                else False
+                            )
+                            if is_duplicate:
+                                logger.debug(f"Skipping duplicate segment: '{seg_text[:30]}...'")
+                                continue
+
+                            # Finalize this complete segment immediately
+                            finalized_segments.append(seg_text)
+                            await self._emit_final_text_append(seg_text, str(uuid.uuid4()), session)
+                            logger.debug(
+                                f"Finalized complete segment [{absolute_start:.2f}s-{absolute_end:.2f}s]: '{seg_text[:50]}...'"
+                            )
+
+                            # Track offset for advancement
+                            offset_to_advance = min(duration, seg_end)
+                            all_segments_gibberish = False  # We found a valid segment
+
+                # Process last segment
+                last_segment = segments[-1]
+                last_seg_no_speech = last_segment.get("no_speech_prob", 0)
+                last_seg_end = last_segment["end"]
+
+                if last_seg_no_speech <= NO_SPEECH_THRESH:
+                    # Set current_out first
+                    candidate_text = last_segment["text"].strip()
+                    # Filter gibberish before setting current_out (use strict mode for partials)
+                    if self._is_gibberish_text(candidate_text, strict=True):
+                        logger.debug(f"Filtered gibberish last segment: '{candidate_text[:30]}...'")
+                        current_out = ""
+                    else:
+                        current_out = candidate_text
+                        all_segments_gibberish = False  # At least one valid segment
                 else:
-                    stable_count = 0
-                    if text:
-                        last_new_text_time = time.time()
-                previous_text = text
+                    current_out = ""
 
-                # Check for silence finalization (text stable + enough silence)
-                if current_text and stable_count >= STABLE_COUNT_FOR_FINALIZE:
-                    silence_duration = time.time() - last_new_text_time
-                    if silence_duration >= SILENCE_FINALIZE_SECONDS:
-                        logger.info(f"Finalizing after {silence_duration:.1f}s silence (during transcription)")
-                        await self._emit_final_text(current_text, segment_id, session)
-                        # Reset
-                        current_text = ""
-                        previous_text = ""
-                        stable_count = 0
-                        segment_id = ""
-                        await buffer.clear()
-                        continue
+                # If ALL segments were gibberish, advance offset to prevent getting stuck
+                # This is critical to break out of hallucination loops
+                if all_segments_gibberish and offset_to_advance is None:
+                    # Advance by a small amount to move past the problematic audio
+                    advance_amount = min(duration, 2.0)  # Advance up to 2 seconds
+                    await buffer.advance_timestamp_offset(advance_amount)
+                    logger.warning(f"All segments gibberish, advancing offset by {advance_amount:.2f}s to break loop")
+                    # Reset same-output tracking to prevent corruption
+                    same_output_count = 0
+                    prev_out = ""
+                    end_time_for_same_output = None
+                    continue
 
-                # Update current text if Whisper returned something
-                if text:
-                    current_text = text
+                # Same-output detection
+                # Use fuzzy matching because Whisper often returns slightly different text:
+                # "showing the transformed output." vs "showing the transformed"
+                if current_out != "" and self._texts_are_similar(current_out, prev_out, threshold=0.75):
+                    same_output_count += 1
+                    # Capture end time on first repetition
+                    if end_time_for_same_output is None:
+                        end_time_for_same_output = last_seg_end
+                else:
+                    same_output_count = 0
+                    end_time_for_same_output = None
 
-                    # Generate segment ID if needed
+                # Finalize if same output repeated enough
+                if same_output_count > SAME_OUTPUT_THRESHOLD:
+                    # Check against all_text_segments using fuzzy matching
+                    is_duplicate = (
+                        any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
+                        if all_text_segments
+                        else False
+                    )
+
+                    if not is_duplicate and current_out.strip():
+                        all_text_segments.append(current_out.strip())
+                        finalized_segments.append(current_out.strip())
+                        await self._emit_final_text_append(current_out.strip(), segment_id, session)
+                        logger.debug(f"Finalized after {same_output_count} same outputs: '{current_out[:50]}...'")
+
+                    # Reset state
+                    current_out = ""
+                    offset_to_advance = min(duration, end_time_for_same_output) if end_time_for_same_output else None
+                    same_output_count = 0
+                    end_time_for_same_output = None
+                    segment_id = str(uuid.uuid4())
+                else:
+                    # Update prev_out only when not finalizing
+                    prev_out = current_out
+
+                # Advance offset if we finalized anything
+                if offset_to_advance is not None:
+                    await buffer.advance_timestamp_offset(offset_to_advance)
+
+                # STEP 6: Emit partial for incomplete segment (skip for hidden mode)
+                # Only emit if we have valid non-gibberish text
+                if current_out and session.mode != DictationMode.HIDDEN:
                     if not segment_id:
                         segment_id = str(uuid.uuid4())
+                    text_with_subs = self.alias_service.apply_substitutions(current_out)
+                    await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
 
-                    # Emit partial immediately (skip for hidden mode)
-                    if session.mode != DictationMode.HIDDEN:
-                        text_with_subs = self.alias_service.apply_substitutions(text)
-                        await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
+                # Brief yield to allow other tasks to run (prevents UI freeze)
+                # But keep it minimal for responsiveness
+                await asyncio.sleep(0.01)
 
         except asyncio.CancelledError:
-            # Save current text before exiting
-            if current_text:
-                self._streaming_finalized_text = current_text
-                logger.info(f"Loop cancelled, saved {len(current_text)} chars")
+            # Save current unfinalized text before exiting
+            if current_out.strip() and not self._is_gibberish_text(current_out):
+                # Check for duplicate using fuzzy matching
+                is_duplicate = (
+                    any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
+                    if all_text_segments
+                    else False
+                )
+                if not is_duplicate:
+                    if self._streaming_finalized_text:
+                        self._streaming_finalized_text += " " + current_out.strip()
+                    else:
+                        self._streaming_finalized_text = current_out.strip()
+                    logger.info(f"Loop cancelled, saved remaining: '{current_out[:50]}...'")
             logger.info("Streaming transcription loop cancelled")
         except Exception as e:
             logger.error(f"Error in streaming transcription loop: {e}", exc_info=True)
 
     async def _emit_final_text(self, text: str, segment_id: str, session) -> None:
-        """Emit final text event and update state."""
+        """Emit final text event and update state (DEPRECATED - use _emit_final_text_append).
+
+        WARNING: This method OVERWRITES _streaming_finalized_text. Use _emit_final_text_append
+        for proper accumulation in streaming mode.
+        """
         if not text:
             return
 
@@ -629,10 +942,52 @@ class DictationCoordinator:
             text_with_subs = self.alias_service.apply_substitutions(text)
             await self._publish_event(FinalDictationTextEvent(text=text_with_subs, segment_id=segment_id or str(uuid.uuid4())))
 
-        # Update accumulator
+        # Update accumulator (OVERWRITES - legacy behavior)
         self._streaming_finalized_text = text
 
         # Add to STT context
+        if self._stt_service:
+            await self._stt_service.add_finalized_segment(text)
+
+    async def _emit_final_text_append(self, text: str, segment_id: str, session) -> None:
+        """Emit final text event and append to accumulated state.
+
+        This method appends new text to the accumulator instead of overwriting it, preventing data loss.
+        Also maintains segment list for deduplication.
+
+        Args:
+            text: New finalized text to append.
+            segment_id: Segment ID for UI matching.
+            session: Current dictation session.
+        """
+        if not text or not text.strip():
+            return
+
+        text = text.strip()
+
+        # Duplicate check: don't add if identical to last segment
+        if self._streaming_finalized_segments:
+            if self._streaming_finalized_segments[-1].strip().lower() == text.lower():
+                logger.debug(f"Skipping duplicate segment: '{text[:30]}...'")
+                return
+
+        # Emit final event (skip for hidden mode)
+        if session.mode != DictationMode.HIDDEN:
+            text_with_subs = self.alias_service.apply_substitutions(text)
+            await self._publish_event(FinalDictationTextEvent(text=text_with_subs, segment_id=segment_id or str(uuid.uuid4())))
+
+        # Add to segment list
+        self._streaming_finalized_segments.append(text)
+
+        # Append to accumulator to prevent data loss
+        if self._streaming_finalized_text:
+            self._streaming_finalized_text += " " + text
+        else:
+            self._streaming_finalized_text = text
+
+        logger.debug(f"Appended finalized segment #{len(self._streaming_finalized_segments)}: '{text[:30]}...'")
+
+        # Add to STT context for better subsequent transcriptions
         if self._stt_service:
             await self._stt_service.add_finalized_segment(text)
 
@@ -670,6 +1025,8 @@ class DictationCoordinator:
         """Flush any remaining audio in the buffer and transcribe it.
 
         Called when stopping dictation to ensure we don't lose speech.
+        Uses deduplication against last finalized segment.
+        Also removes stop word from flushed text to prevent duplicate stop words.
 
         Args:
             mode: Current dictation mode.
@@ -678,17 +1035,17 @@ class DictationCoordinator:
             return
 
         try:
-            # Get buffer duration
-            buffer_duration = await self._streaming_buffer.get_duration()
+            # Get unprocessed audio duration
+            unprocessed_duration = await self._streaming_buffer.get_unprocessed_duration()
 
-            if buffer_duration < 0.3:
-                logger.debug(f"No significant audio to flush: {buffer_duration:.2f}s")
+            if unprocessed_duration < 0.3:
+                logger.debug(f"No significant unprocessed audio to flush: {unprocessed_duration:.2f}s")
                 return
 
-            logger.info(f"Flushing {buffer_duration:.2f}s of audio")
+            logger.info(f"Flushing {unprocessed_duration:.2f}s of unprocessed audio")
 
-            # Get all audio
-            audio_result = await self._streaming_buffer.get_audio()
+            # Get unprocessed audio
+            audio_result = await self._streaming_buffer.get_audio_for_transcription()
 
             if not audio_result:
                 logger.debug("No audio available for flush")
@@ -697,27 +1054,53 @@ class DictationCoordinator:
             audio_bytes, duration = audio_result
 
             # Transcribe
-            text, confidence = await self._stt_service.recognize_streaming(
-                audio_bytes=audio_bytes, sample_rate=self.config.audio.sample_rate
+            text, confidence, segments = await self._stt_service.recognize_streaming(
+                audio_bytes=audio_bytes,
+                sample_rate=self.config.audio.sample_rate,
+                return_segments=True,
             )
 
-            if not text:
+            if not text or not text.strip():
                 logger.debug("No speech detected in flushed audio")
                 return
 
-            # Strip overlap with finalized text
-            text = self._strip_overlap(text)
+            text = text.strip()
 
-            if not text:
-                logger.debug("Flushed text fully overlaps with finalized, skipping")
+            # Remove stop word from flushed text BEFORE adding to finalized
+            # This prevents "amber amber" duplication when stop word is in flush
+            text = self._remove_stop_word(text)
+            if not text or not text.strip():
+                logger.debug("Flushed text was only stop word, skipping")
                 return
+            text = text.strip()
+
+            # Duplicate check against last finalized segment
+            if self._streaming_finalized_segments:
+                last_segment = self._streaming_finalized_segments[-1].strip().lower()
+                if text.lower() == last_segment:
+                    logger.debug("Flushed text is duplicate of last segment, skipping")
+                    return
+                # Also check if flush text is contained in or contains last segment
+                if text.lower() in last_segment or last_segment in text.lower():
+                    # Use overlap stripping for partial matches
+                    text = self._strip_overlap(text)
+                    if not text:
+                        logger.debug("Flushed text fully overlaps with finalized, skipping")
+                        return
+                # Check fuzzy similarity for near-duplicates
+                if self._texts_are_similar(text, last_segment, threshold=0.8):
+                    logger.debug("Flushed text is similar to last segment, skipping")
+                    return
 
             logger.info(f"Flushed transcription: '{text}'")
+
+            # Add to segment list
+            self._streaming_finalized_segments.append(text)
 
             # Add to STT context
             await self._stt_service.add_finalized_segment(text)
 
-            # Update finalized text accumulator
+            # APPEND to finalized text accumulator
             if self._streaming_finalized_text:
                 self._streaming_finalized_text += " " + text
             else:
@@ -837,16 +1220,16 @@ class DictationCoordinator:
         """Stop streaming dictation mode and handle finalization.
 
         Ensures all audio is transcribed before pasting:
-        1. Cancel the streaming transcription loop
-        2. Clear partial state to prevent duplication
-        3. Flush remaining audio buffer to STT (force transcribe)
+        1. Cancel the streaming transcription loop (loop saves remaining text on cancel)
+        2. Flush remaining audio buffer to STT (force transcribe any trailing audio)
+        3. Collect all accumulated finalized text
         4. Paste accumulated text
 
         Args:
             session: Current dictation session.
         """
         try:
-            # Cancel streaming task first to stop the regular transcription loop
+            # Cancel streaming task - the loop will save any unfinalized text on CancelledError
             if self._streaming_task and not self._streaming_task.done():
                 self._streaming_task.cancel()
                 try:
@@ -855,29 +1238,27 @@ class DictationCoordinator:
                     pass
                 self._streaming_task = None
 
-            # CRITICAL FIX: Clear partial recognition state BEFORE flush to prevent duplication.
-            # The flush will transcribe the complete remaining audio, which is more accurate
-            # than the partial in _streaming_current_out. Without this, both the flush AND
-            # the partial get added to finalized_text, causing repetition.
+            # Clear streaming state variables (the loop already saved text to _streaming_finalized_text)
             self._streaming_current_out = ""
             self._streaming_prev_out = ""
             self._streaming_same_output_count = 0
             self._streaming_segment_id = ""
 
-            # Flush remaining audio - this is the ONLY source of final trailing text
+            # Flush remaining audio - appends to _streaming_finalized_text
             if self._streaming_buffer and self._stt_service:
                 await self._flush_remaining_audio_buffer(session.mode)
 
-            # Get all finalized text and apply alias substitutions
+            # Get all finalized text (accumulated via append, not overwrite)
             final_text = self._streaming_finalized_text
 
             # For hidden mode, remove the stop word from the final text
-            # Hidden mode uses silent capture, so the stop word shouldn't be included
             if session.mode == DictationMode.HIDDEN and final_text:
                 final_text = self._remove_stop_word(final_text)
             if final_text:
                 final_text = self.alias_service.apply_substitutions(final_text)
-                logger.debug(f"Applied alias substitutions to final text: {len(final_text)} chars")
+                # Clean up any double spaces from concatenation
+                final_text = " ".join(final_text.split())
+                logger.debug(f"Final text after cleanup: {len(final_text)} chars")
 
             # Clean up streaming state
             if self._streaming_buffer:
@@ -885,7 +1266,9 @@ class DictationCoordinator:
                 self._streaming_buffer = None
 
             self._streaming_finalized_text = ""
+            self._streaming_finalized_segments = []
             self._streaming_end_time_for_same_output = None
+            self._streaming_timestamp_offset = 0.0
 
             # Update session state
             with self._state_lock:
@@ -936,7 +1319,9 @@ class DictationCoordinator:
                     await self._publish_event(HiddenDictationStoppedEvent(accumulated_text=""))
                 await self._finalize_session(session)
 
-            logger.info(f"Streaming {session.mode.value} mode stopped, finalized text: {len(final_text)} chars")
+            logger.info(
+                f"Streaming {session.mode.value} mode stopped, finalized text: {len(final_text) if final_text else 0} chars"
+            )
 
         except Exception as e:
             logger.error(f"Error stopping streaming mode: {e}", exc_info=True)
@@ -1027,11 +1412,13 @@ class DictationCoordinator:
             if mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                 self._streaming_buffer = StreamingAudioBuffer(sample_rate=self.config.audio.sample_rate)
                 self._streaming_finalized_text = ""
+                self._streaming_finalized_segments = []
                 self._streaming_segment_id = ""
                 self._streaming_current_out = ""
                 self._streaming_prev_out = ""
                 self._streaming_same_output_count = 0
                 self._streaming_end_time_for_same_output = None
+                self._streaming_timestamp_offset = 0.0
 
                 # Clear STT context for fresh session
                 if self._stt_service:

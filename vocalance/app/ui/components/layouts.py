@@ -668,7 +668,6 @@ class CollapsibleSection(QWidget):
             self.arrow_button = ExpandButton()
 
         self.arrow_button.clicked.connect(self._toggle_expanded)
-        # Insert at position 0 (same as before)
         parent_layout.insertWidget(0, self.arrow_button)
 
     def add_item(self, widget: QWidget) -> None:

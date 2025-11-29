@@ -349,37 +349,46 @@ class SpeechToTextService:
             else:
                 logger.info("STT service now in COMMAND mode - normal command processing enabled")
 
-    async def recognize_streaming(self, audio_bytes: bytes, sample_rate: int) -> Tuple[List[dict], float]:
-        """Perform streaming recognition with segment timestamps.
+    async def recognize_streaming(
+        self, audio_bytes: bytes, sample_rate: int, return_segments: bool = False
+    ) -> Tuple[str, float, Optional[List[dict]]]:
+        """Perform streaming recognition with optional segment timestamps.
 
         Used by streaming dictation modes (smart/visual) for continuous transcription
-        with overlapping audio chunks. Returns segments with timestamps for precise
-        offset tracking.
+        with overlapping audio chunks. Returns text and optionally segments with
+        timestamps for precise offset tracking.
 
         Args:
             audio_bytes: Raw audio data to transcribe.
             sample_rate: Sample rate of the audio.
+            return_segments: If True, return detailed segment info with timestamps.
 
         Returns:
-            Tuple of (segments_list, confidence_score) where segments_list contains:
-            [{"text": str, "start": float, "end": float, "completed": bool}, ...]
+            Tuple of (text, confidence, segments) where:
+            - text: Combined transcribed text
+            - confidence: Average confidence score
+            - segments: List of segment dicts if return_segments=True, else None
+              [{"text": str, "start": float, "end": float, "no_speech_prob": float}, ...]
         """
         if not self._engines_initialized or not self.whisper_engine:
             logger.error("STT engines not initialized")
-            return [], 0.0
+            return "", 0.0, None
 
         # Get context segments for initial_prompt
         async with self._context_lock:
             context_list = list(self._context_segments)
 
-        # Call Whisper streaming method - returns segments with timestamps
-        segments, confidence = await self.whisper_engine.recognize_streaming(
-            audio_bytes=audio_bytes, context_segments=context_list, sample_rate=sample_rate
+        # Call Whisper streaming method - returns text, confidence, and optionally segments
+        text, confidence, segments = await self.whisper_engine.recognize_streaming(
+            audio_bytes=audio_bytes,
+            context_segments=context_list,
+            sample_rate=sample_rate,
+            return_segments=return_segments,
         )
 
         # DON'T add to context here - let coordinator add only completed/finalized segments
 
-        return segments, confidence
+        return text, confidence, segments
 
     async def add_finalized_segment(self, text: str) -> None:
         """Add a finalized segment to the streaming context.
