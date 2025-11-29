@@ -83,6 +83,10 @@ class StreamingAudioBuffer:
         self.timestamp_offset: float = 0.0  # How much audio has been processed
         self.frames_offset: float = 0.0  # How much audio has been trimmed
 
+        # Forced finalization tracking
+        self._forced_finalization_triggered: bool = False
+        self._unprocessed_audio_duration: float = 0.0
+
         logger.debug("StreamingAudioBuffer initialized (WhisperLive methodology)")
 
     async def add_chunk(self, audio_chunk: np.ndarray) -> None:
@@ -92,6 +96,8 @@ class StreamingAudioBuffer:
         1. If buffer > 45s, trim 30s and advance frames_offset
         2. If timestamp_offset < frames_offset, sync them (no speech detected)
         3. Append new audio to buffer
+
+        FORCED FINALIZATION: Before trimming, detect if unprocessed audio is about to be lost.
 
         Args:
             audio_chunk: Numpy array of int16 or float32 audio samples.
@@ -103,8 +109,28 @@ class StreamingAudioBuffer:
             if audio_chunk.dtype == np.int16:
                 audio_chunk = audio_chunk.astype(np.float32) / 32768.0
 
+            # FORCED FINALIZATION CHECK: Detect unprocessed audio before trim
+            # Calculate how much unprocessed audio we have (audio between timestamp_offset and end of buffer)
+            if self._buffer is not None:
+                unprocessed_offset_in_buffer = max(0, int((self.timestamp_offset - self.frames_offset) * self.RATE))
+                self._unprocessed_audio_duration = (len(self._buffer) - unprocessed_offset_in_buffer) / self.RATE
+            else:
+                self._unprocessed_audio_duration = 0.0
+
             # WhisperLive: if frames_np.shape[0] > 45*RATE
             if self._buffer is not None and len(self._buffer) > self.MAX_BUFFER_SECONDS * self.RATE:
+                # FORCED FINALIZATION TRIGGER: Detect if we're about to lose unfinalized audio
+                if self.timestamp_offset < self.frames_offset + self.TRIM_SECONDS:
+                    # This means: audio from frames_offset to frames_offset+TRIM_SECONDS is unfinalized
+                    lost_audio_duration = (self.frames_offset + self.TRIM_SECONDS) - self.timestamp_offset
+                    if lost_audio_duration > 0.5:  # Only trigger if > 0.5s of unfinalized audio
+                        logger.warning(
+                            f"FORCED FINALIZATION TRIGGER: {lost_audio_duration:.2f}s of unfinalized audio "
+                            f"about to be discarded (timestamp_offset={self.timestamp_offset:.2f}s, "
+                            f"frames_offset={self.frames_offset:.2f}s)"
+                        )
+                        self._forced_finalization_triggered = True
+
                 # WhisperLive: frames_offset += 30.0
                 self.frames_offset += self.TRIM_SECONDS
                 # WhisperLive: frames_np = frames_np[int(30*RATE):]
@@ -208,6 +234,26 @@ class StreamingAudioBuffer:
             Seconds since last add_chunk() call.
         """
         return time.time() - self._last_chunk_time
+
+    async def get_unprocessed_audio_duration(self) -> float:
+        """Get duration of unfinalized audio that could be lost on next trim.
+
+        Returns:
+            Duration in seconds of unprocessed audio.
+        """
+        async with self._lock:
+            return self._unprocessed_audio_duration
+
+    async def check_and_clear_forced_finalization_flag(self) -> bool:
+        """Check if forced finalization was triggered, and clear the flag.
+
+        Returns:
+            True if forced finalization was triggered, False otherwise.
+        """
+        async with self._lock:
+            triggered = self._forced_finalization_triggered
+            self._forced_finalization_triggered = False
+            return triggered
 
     def get_last_chunk_time(self) -> float:
         """Get timestamp of last chunk.

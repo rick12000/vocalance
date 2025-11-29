@@ -535,6 +535,10 @@ class DictationCoordinator:
             end_time_for_same_output: Optional[float] = None  # FIRST repetition time (WhisperLive: self.end_time_for_same_output)
             segment_id = str(uuid.uuid4())
 
+            # Forced finalization: Track if we've forced finalization in this iteration
+            # to avoid double-finalizing the same text
+            force_finalization_applied_this_loop = False
+
             while True:
                 # Check session is still valid
                 with self._state_lock:
@@ -549,11 +553,49 @@ class DictationCoordinator:
                         logger.debug("Streaming loop: Not in streaming mode, exiting")
                         break
 
+                # Check for forced finalization trigger from buffer
+                forced_finalization_needed = await buffer.check_and_clear_forced_finalization_flag()
+
+                # FORCED FINALIZATION: If buffer is about to trim unfinalized audio, force-finalize now
+                if forced_finalization_needed and current_out and not force_finalization_applied_this_loop:
+                    logger.warning(
+                        f"FORCED FINALIZATION: Force-finalizing unfinalized text before buffer trim: " f"'{current_out[:60]}...'"
+                    )
+                    is_duplicate = False
+                    if text:
+                        if text[-1].strip() == current_out.strip():
+                            is_duplicate = True
+                            logger.debug(f"Forced finalization: duplicate, skipping: '{current_out[:30]}...'")
+
+                    if not is_duplicate and current_out.strip():
+                        text.append(current_out.strip())
+                        await self._emit_final_text_append(current_out.strip(), segment_id, session)
+                        logger.info(f"FORCED finalized text: '{current_out[:50]}...'")
+
+                    # CRITICAL: Advance offset by the last segment end to prevent re-processing
+                    # Use end_time_for_same_output (captured at first repetition) or fallback to 0.5s
+                    offset_to_advance = end_time_for_same_output if end_time_for_same_output else 0.5
+                    await buffer.advance_timestamp_offset(max(0.1, offset_to_advance))
+                    logger.info(f"Advanced offset by {offset_to_advance:.2f}s (forced finalization)")
+
+                    # Reset state
+                    current_out = ""
+                    prev_out = ""
+                    same_output_count = 0
+                    end_time_for_same_output = None
+                    segment_id = str(uuid.uuid4())
+                    force_finalization_applied_this_loop = True
+
+                    # Skip this iteration to avoid re-processing before buffer trims
+                    await asyncio.sleep(0.05)
+                    continue
+
                 # Get unprocessed audio (NO OVERLAP - matches WhisperLive)
                 audio_result = await buffer.get_audio_for_transcription()
 
                 if not audio_result:
                     await asyncio.sleep(0.05)
+                    force_finalization_applied_this_loop = False  # Reset for next iteration
                     continue
 
                 audio_bytes, duration = audio_result
@@ -561,10 +603,12 @@ class DictationCoordinator:
                 # Skip if not enough audio
                 if duration < MIN_AUDIO_SECONDS:
                     await asyncio.sleep(0.1)
+                    force_finalization_applied_this_loop = False  # Reset for next iteration
                     continue
 
                 if not self._stt_service:
                     await asyncio.sleep(0.1)
+                    force_finalization_applied_this_loop = False  # Reset for next iteration
                     continue
 
                 # Transcribe
@@ -626,7 +670,12 @@ class DictationCoordinator:
 
                 # WhisperLive: if segment.no_speech_prob <= no_speech_thresh: current_out = segment.text
                 if last_seg_no_speech <= NO_SPEECH_THRESH:
-                    current_out = last_seg_text
+                    # Check for hallucinations before using this segment
+                    if self._is_hallucination(last_seg_text, prev_out):
+                        logger.warning(f"Detected hallucination, discarding: '{last_seg_text[:50]}...'")
+                        current_out = ""
+                    else:
+                        current_out = last_seg_text
                 else:
                     current_out = ""
 
@@ -680,6 +729,9 @@ class DictationCoordinator:
                 if current_out and session.mode != DictationMode.HIDDEN:
                     text_with_subs = self.alias_service.apply_substitutions(current_out)
                     await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
+
+                # Reset forced finalization flag for next iteration
+                force_finalization_applied_this_loop = False
 
                 # Brief yield
                 await asyncio.sleep(0.01)
@@ -790,6 +842,48 @@ class DictationCoordinator:
             self._streaming_finalized_text += " " + text
         else:
             self._streaming_finalized_text = text
+
+    def _is_hallucination(self, text: str, prev_text: str = "") -> bool:
+        """Detect if text is likely a hallucination from Whisper.
+
+        Hallucinations typically manifest as:
+        - Repetition of single characters (e.g., "的 的 的 的...")
+        - Repetition of short patterns (e.g., "nd nd nd nd...")
+        - Non-ASCII character spam when speaking English
+
+        Args:
+            text: Text to check
+            prev_text: Previous text for context
+
+        Returns:
+            True if likely hallucination, False otherwise
+        """
+        if not text or len(text) < 3:
+            return False
+
+        # Check for repeated single characters/patterns
+        words = text.split()
+        if len(words) > 10:
+            # Count unique words in last 10 words
+            last_words = words[-10:]
+            unique_words = set(last_words)
+
+            # If only 1-2 unique words repeated, likely hallucination
+            if len(unique_words) <= 2:
+                # Check if they're very short (like "nd" or "的")
+                if all(len(w) <= 2 for w in unique_words):
+                    logger.debug(f"Detected hallucination: repeated short words: {unique_words}")
+                    return True
+
+        # Check for high ratio of non-ASCII characters when previous text was ASCII
+        if prev_text and not any(ord(c) > 127 for c in prev_text):
+            # Previous text was ASCII
+            ascii_count = sum(1 for c in text if ord(c) < 128)
+            if len(text) > 10 and ascii_count < len(text) * 0.3:
+                logger.debug("Detected hallucination: high non-ASCII ratio after ASCII text")
+                return True
+
+        return False
 
     async def _flush_remaining_audio_buffer(self, mode: DictationMode) -> None:
         """Flush any remaining audio in the buffer and transcribe it.
