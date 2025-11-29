@@ -497,19 +497,39 @@ class DictationCoordinator:
             logger.error(f"Error handling audio chunk for streaming: {e}", exc_info=True)
 
     async def _streaming_transcription_loop(self) -> None:
-        """500ms streaming transcription loop with WhisperLive segment-based logic.
+        """Simple streaming transcription loop.
 
-        Uses segment timestamps from Whisper to:
-        - Finalize complete segments immediately (white text)
-        - Track incomplete segment for same-output detection (gray text)
-        - Advance timestamp after EVERY transcription using segment.end times
+        Architecture:
+        1. Accumulate ALL audio in buffer (never trim during speech)
+        2. Every 200ms, send entire buffer to Whisper (NO VAD)
+        3. Display Whisper's output directly as partial
+        4. Finalize on: stop word OR 4s silence with stable output
+
+        Key principles:
+        - Whisper sees ALL audio every time (no trimming = no data loss)
+        - No VAD = no audio removal during silence
+        - Partials update immediately when Whisper returns
+        - Buffer only clears on explicit finalization
         """
         try:
-            logger.info("Starting streaming transcription loop (500ms interval with segment timestamps)")
+            LOOP_INTERVAL = 0.2  # 200ms between transcriptions
+            MIN_AUDIO_SECONDS = 0.3  # Minimum audio to transcribe
+            SILENCE_FINALIZE_SECONDS = 4.0  # Finalize after 4s silence
+            STABLE_COUNT_FOR_FINALIZE = 5  # Need 5 identical outputs (1s) before silence finalization
+
+            logger.info(f"Starting streaming loop (interval={LOOP_INTERVAL}s, silence_finalize={SILENCE_FINALIZE_SECONDS}s)")
+
+            # State
+            current_text = ""  # Current Whisper output (shown as partial)
+            previous_text = ""  # For stability detection
+            stable_count = 0
+            segment_id = ""
+            last_new_text_time = time.time()  # When text last changed
 
             while True:
-                await asyncio.sleep(0.5)  # 500ms interval
+                await asyncio.sleep(LOOP_INTERVAL)
 
+                # Check session is still valid
                 with self._state_lock:
                     session = self._current_session
                     buffer = self._streaming_buffer
@@ -522,209 +542,134 @@ class DictationCoordinator:
                         logger.debug("Streaming loop: Not in streaming mode, exiting")
                         break
 
-                # Get UNTRANSCRIBED audio from buffer (offset-based)
-                audio_result = await buffer.get_audio_for_transcription()
+                # Get ALL audio from buffer
+                audio_result = await buffer.get_audio()
 
                 if not audio_result:
-                    # No untranscribed audio available
+                    # No audio yet, check for silence finalization
+                    if current_text and stable_count >= STABLE_COUNT_FOR_FINALIZE:
+                        silence_duration = time.time() - last_new_text_time
+                        if silence_duration >= SILENCE_FINALIZE_SECONDS:
+                            logger.info(f"Finalizing after {silence_duration:.1f}s silence: '{current_text[:50]}...'")
+                            await self._emit_final_text(current_text, segment_id, session)
+                            # Reset for next utterance
+                            current_text = ""
+                            previous_text = ""
+                            stable_count = 0
+                            segment_id = ""
+                            await buffer.clear()
                     continue
 
                 audio_bytes, duration = audio_result
 
-                if duration < 1.0:
-                    # Not enough untranscribed audio yet (minimum 1 second)
+                # Skip if not enough audio
+                if duration < MIN_AUDIO_SECONDS:
                     continue
 
-                # Check for silence timeout (2+ seconds without new audio chunks)
-                last_chunk_time = buffer.get_last_chunk_time()
-                silence_duration = time.time() - last_chunk_time
-
-                if silence_duration > 2.0:
-                    # Finalize any pending incomplete segment before silence
-                    if self._streaming_current_out and self._streaming_same_output_count < 3:
-                        logger.debug(f"Silence detected ({silence_duration:.1f}s), finalizing pending text")
-                        await self._finalize_incomplete_segment()
-                    # Continue loop but don't transcribe silence
-                    continue
-
-                # Perform streaming recognition - returns segments with timestamps
+                # Transcribe entire buffer (NO VAD - we handle silence ourselves)
                 if not self._stt_service:
-                    logger.warning("STT service not set, cannot perform streaming recognition")
                     continue
 
-                segments, confidence = await self._stt_service.recognize_streaming(
+                text, confidence = await self._stt_service.recognize_streaming(
                     audio_bytes=audio_bytes, sample_rate=self.config.audio.sample_rate
                 )
 
-                if not segments:
-                    # No speech detected - don't advance, wait for actual transcription
-                    # (WhisperLive approach: prevents skipping over speech Whisper temporarily missed)
-                    continue
-
-                logger.debug(f"Received {len(segments)} segments (confidence: {confidence:.3f})")
-
-                # Track offset for timestamp advancement (offset into current audio chunk)
-                offset = None
-
-                # Process complete segments (all except last if multiple segments)
-                if len(segments) > 1:
-                    for seg in segments[:-1]:
-                        if seg["completed"]:
-                            # Strip overlap and finalize immediately
-                            text = self._strip_overlap(seg["text"])
-                            if text:
-                                await self._finalize_completed_segment(text, seg["end"])
-                            # Use min(duration, seg["end"]) for offset (WhisperLive pattern)
-                            offset = min(duration, seg["end"])
-                            # Reset segment ID after finalizing completed segment
-                            self._streaming_segment_id = ""
-
-                # Process last segment (may be incomplete)
-                last_seg = segments[-1]
-                self._streaming_current_out = last_seg["text"]
-
-                # Same-output detection (compare RAW text, not stripped)
-                if self._streaming_current_out.strip() == self._streaming_prev_out.strip() and self._streaming_current_out:
-                    self._streaming_same_output_count += 1
-
-                    # Capture end time when repetition first starts
-                    if self._streaming_end_time_for_same_output is None:
-                        self._streaming_end_time_for_same_output = last_seg["end"]
-
-                    await asyncio.sleep(0.1)  # Brief wait for voice activity
+                # Track stability for silence finalization
+                if text == previous_text:
+                    stable_count += 1
                 else:
-                    self._streaming_same_output_count = 0
-                    self._streaming_end_time_for_same_output = None
-
-                # If same output repeated 3+ times, finalize it
-                if self._streaming_same_output_count >= 3:
-                    text = self._strip_overlap(self._streaming_current_out)
+                    stable_count = 0
                     if text:
-                        await self._finalize_completed_segment(text, self._streaming_end_time_for_same_output)
+                        last_new_text_time = time.time()
+                previous_text = text
 
-                    self._streaming_current_out = ""
-                    # Use min(duration, end_time) for offset (WhisperLive pattern)
-                    offset = min(duration, self._streaming_end_time_for_same_output)
-                    self._streaming_same_output_count = 0
-                    self._streaming_end_time_for_same_output = None
-                    # Reset segment ID after finalization
-                    self._streaming_segment_id = ""
-                else:
-                    # Emit as partial (gray text) ONLY IF CHANGED
-                    # Skip UI events for hidden mode - only accumulate text internally
-                    if self._streaming_current_out != self._streaming_prev_out:
-                        self._streaming_prev_out = self._streaming_current_out
-                        text = self._strip_overlap(self._streaming_current_out)
+                # Check for silence finalization (text stable + enough silence)
+                if current_text and stable_count >= STABLE_COUNT_FOR_FINALIZE:
+                    silence_duration = time.time() - last_new_text_time
+                    if silence_duration >= SILENCE_FINALIZE_SECONDS:
+                        logger.info(f"Finalizing after {silence_duration:.1f}s silence (during transcription)")
+                        await self._emit_final_text(current_text, segment_id, session)
+                        # Reset
+                        current_text = ""
+                        previous_text = ""
+                        stable_count = 0
+                        segment_id = ""
+                        await buffer.clear()
+                        continue
 
-                        if text and session.mode != DictationMode.HIDDEN:
-                            segment_id = self._streaming_segment_id or str(uuid.uuid4())
-                            self._streaming_segment_id = segment_id
+                # Update current text if Whisper returned something
+                if text:
+                    current_text = text
 
-                            # Apply alias substitutions to streaming text for visual/smart modes
-                            text_with_substitutions = self.alias_service.apply_substitutions(text)
-                            await self._publish_event(
-                                PartialDictationTextEvent(text=text_with_substitutions, segment_id=segment_id)
-                            )
-                            logger.debug(
-                                f"Partial text ({self._streaming_same_output_count}/3): '{text_with_substitutions[:50]}...'"
-                            )
-                    else:
-                        self._streaming_prev_out = self._streaming_current_out
+                    # Generate segment ID if needed
+                    if not segment_id:
+                        segment_id = str(uuid.uuid4())
 
-                # CRITICAL: Advance timestamp after EVERY transcription
-                if offset is not None:
-                    await buffer.advance_timestamp(offset)
-                    logger.debug(f"Advanced timestamp_offset by {offset:.2f}s (of {duration:.2f}s chunk)")
+                    # Emit partial immediately (skip for hidden mode)
+                    if session.mode != DictationMode.HIDDEN:
+                        text_with_subs = self.alias_service.apply_substitutions(text)
+                        await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
 
         except asyncio.CancelledError:
+            # Save current text before exiting
+            if current_text:
+                self._streaming_finalized_text = current_text
+                logger.info(f"Loop cancelled, saved {len(current_text)} chars")
             logger.info("Streaming transcription loop cancelled")
         except Exception as e:
             logger.error(f"Error in streaming transcription loop: {e}", exc_info=True)
 
-    async def _finalize_completed_segment(self, text: str, end_time: float) -> None:
-        """Finalize a completed segment (white text).
-
-        Args:
-            text: Segment text (already stripped of overlap).
-            end_time: Segment end timestamp for offset advancement.
-        """
+    async def _emit_final_text(self, text: str, segment_id: str, session) -> None:
+        """Emit final text event and update state."""
         if not text:
             return
 
-        # Use existing segment ID if available (to match partial text), or generate new one
-        segment_id = self._streaming_segment_id or str(uuid.uuid4())
+        # Emit final event (skip for hidden mode)
+        if session.mode != DictationMode.HIDDEN:
+            text_with_subs = self.alias_service.apply_substitutions(text)
+            await self._publish_event(FinalDictationTextEvent(text=text_with_subs, segment_id=segment_id or str(uuid.uuid4())))
 
-        # Skip UI event for hidden mode - only accumulate text internally
-        with self._state_lock:
-            session = self._current_session
-        if session and session.mode != DictationMode.HIDDEN:
-            # Apply alias substitutions to streaming text for visual/smart modes
-            text_with_substitutions = self.alias_service.apply_substitutions(text)
-            await self._publish_event(FinalDictationTextEvent(text=text_with_substitutions, segment_id=segment_id))
-
-        logger.info(f"Finalized completed segment: '{text}' (end: {end_time:.2f}s)")
-
-        # Add to STT context for future predictions
-        if self._stt_service:
-            await self._stt_service.add_finalized_segment(text)
-
-        # Update finalized text accumulator
-        if self._streaming_finalized_text:
-            self._streaming_finalized_text += " " + text
-        else:
-            self._streaming_finalized_text = text
-
-    async def _finalize_incomplete_segment(self) -> None:
-        """Finalize pending incomplete segment (due to silence or stop).
-
-        Finalizes the current_out text that hasn't reached threshold yet.
-        """
-        if not self._streaming_current_out:
-            return
-
-        text = self._strip_overlap(self._streaming_current_out)
-        if not text:
-            return
-
-        # Generate segment ID (reuse if exists)
-        segment_id = self._streaming_segment_id or str(uuid.uuid4())
-
-        # Skip UI event for hidden mode - only accumulate text internally
-        with self._state_lock:
-            session = self._current_session
-        if session and session.mode != DictationMode.HIDDEN:
-            # Apply alias substitutions to streaming text for visual/smart modes
-            text_with_substitutions = self.alias_service.apply_substitutions(text)
-            await self._publish_event(FinalDictationTextEvent(text=text_with_substitutions, segment_id=segment_id))
-
-        logger.info(f"Finalized incomplete segment: '{text}'")
+        # Update accumulator
+        self._streaming_finalized_text = text
 
         # Add to STT context
         if self._stt_service:
             await self._stt_service.add_finalized_segment(text)
 
-        # Update finalized text accumulator
+    async def _finalize_text(self, text: str, segment_id: str, session) -> None:
+        """Finalize text (convert partial to final).
+
+        Args:
+            text: Text to finalize.
+            segment_id: Segment ID for UI matching.
+            session: Current dictation session.
+        """
+        if not text:
+            return
+
+        segment_id = segment_id or str(uuid.uuid4())
+
+        # Emit final event (skip for hidden mode)
+        if session.mode != DictationMode.HIDDEN:
+            text_with_subs = self.alias_service.apply_substitutions(text)
+            await self._publish_event(FinalDictationTextEvent(text=text_with_subs, segment_id=segment_id))
+
+        logger.info(f"Finalized: '{text}'")
+
+        # Add to context
+        if self._stt_service:
+            await self._stt_service.add_finalized_segment(text)
+
+        # Update accumulator
         if self._streaming_finalized_text:
             self._streaming_finalized_text += " " + text
         else:
             self._streaming_finalized_text = text
 
-        # Reset state
-        self._streaming_current_out = ""
-        self._streaming_prev_out = ""
-        self._streaming_same_output_count = 0
-        self._streaming_segment_id = ""
-
     async def _flush_remaining_audio_buffer(self, mode: DictationMode) -> None:
-        """Flush any remaining untranscribed audio in the buffer and transcribe it.
+        """Flush any remaining audio in the buffer and transcribe it.
 
-        Called when stopping dictation to ensure we don't lose the last bit of
-        speech before the stop word. This is especially important for hidden mode
-        where we want to capture everything the user said.
-
-        IMPORTANT: This only processes NEW audio that hasn't been transcribed yet.
-        The streaming buffer tracks what's been transcribed via timestamp_offset,
-        and we use get_untranscribed_duration() to check if there's actually new audio.
+        Called when stopping dictation to ensure we don't lose speech.
 
         Args:
             mode: Current dictation mode.
@@ -733,67 +678,50 @@ class DictationCoordinator:
             return
 
         try:
-            # First check if there's actually untranscribed audio
-            untranscribed_duration = await self._streaming_buffer.get_untranscribed_duration()
+            # Get buffer duration
+            buffer_duration = await self._streaming_buffer.get_duration()
 
-            # For hidden mode, flush even very short segments (> 0.1s)
-            # For other modes, only flush if there's meaningful audio (> 0.3s)
-            min_duration = 0.1 if mode == DictationMode.HIDDEN else 0.3
-
-            if untranscribed_duration < min_duration:
-                logger.debug(f"No significant untranscribed audio to flush: {untranscribed_duration:.2f}s < {min_duration}s")
+            if buffer_duration < 0.3:
+                logger.debug(f"No significant audio to flush: {buffer_duration:.2f}s")
                 return
 
-            logger.info(f"Flushing {untranscribed_duration:.2f}s of untranscribed audio")
+            logger.info(f"Flushing {buffer_duration:.2f}s of audio")
 
-            # Get audio for transcription (includes context from timestamp_offset)
-            audio_result = await self._streaming_buffer.get_audio_for_transcription()
+            # Get all audio
+            audio_result = await self._streaming_buffer.get_audio()
 
             if not audio_result:
-                logger.debug("No audio available for flush transcription")
+                logger.debug("No audio available for flush")
                 return
 
-            audio_bytes, total_duration = audio_result
+            audio_bytes, duration = audio_result
 
-            # Perform final transcription
-            segments, confidence = await self._stt_service.recognize_streaming(
+            # Transcribe
+            text, confidence = await self._stt_service.recognize_streaming(
                 audio_bytes=audio_bytes, sample_rate=self.config.audio.sample_rate
             )
 
-            if not segments:
+            if not text:
                 logger.debug("No speech detected in flushed audio")
                 return
 
-            # CRITICAL: Only process text that is NEW (not already in finalized text)
-            # The transcription includes context, so we must strip overlap carefully
-            for seg in segments:
-                raw_text = seg["text"].strip()
-                if not raw_text:
-                    continue
+            # Strip overlap with finalized text
+            text = self._strip_overlap(text)
 
-                # Strip any overlap with already finalized text
-                # This prevents duplication from the context audio
-                text = self._strip_overlap(raw_text)
+            if not text:
+                logger.debug("Flushed text fully overlaps with finalized, skipping")
+                return
 
-                if not text:
-                    logger.debug(f"Segment '{raw_text[:30]}...' fully overlaps with finalized text, skipping")
-                    continue
+            logger.info(f"Flushed transcription: '{text}'")
 
-                # IMPORTANT: Skip UI events for flushed text to prevent duplicated/misleading
-                # recognition in the visual UI. The streaming loop already shows incremental
-                # text to the user. The flush is only for final capture, not UI display.
-                # This avoids confusing users with stripped/deduplicated text appearing at the end.
+            # Add to STT context
+            await self._stt_service.add_finalized_segment(text)
 
-                logger.info(f"Flushed new transcription: '{text}'")
-
-                # Add to STT context
-                await self._stt_service.add_finalized_segment(text)
-
-                # Update finalized text accumulator
-                if self._streaming_finalized_text:
-                    self._streaming_finalized_text += " " + text
-                else:
-                    self._streaming_finalized_text = text
+            # Update finalized text accumulator
+            if self._streaming_finalized_text:
+                self._streaming_finalized_text += " " + text
+            else:
+                self._streaming_finalized_text = text
 
         except Exception as e:
             logger.error(f"Error flushing remaining audio buffer: {e}", exc_info=True)

@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QLabel, QWidget
 
 from vocalance.app.ui.qt_theme import theme
-from vocalance.app.ui.utils.qt_gradient_text import GradientTextMixin
+from vocalance.app.ui.utils.qt_gradient_text import GradientDirection, GradientTextMixin
 
 
 class TitleLabel(GradientTextMixin, QLabel):
@@ -47,7 +47,7 @@ class TitleLabel(GradientTextMixin, QLabel):
 
         # Enable gradient by default (unless color override is provided)
         if use_gradient and color is None:
-            self.enable_gradient(colors=theme.config.text.title_gradient, direction=Qt.Orientation.Horizontal)
+            self.enable_gradient(colors=theme.config.text.title_gradient, direction=GradientDirection.DIAGONAL)
         else:
             # Apply solid color via palette (gradient is disabled by default in mixin)
             final_color = color if color else theme.config.text.lightest
@@ -242,7 +242,7 @@ class BoxTitleLabel(GradientTextMixin, QLabel):
 
         # Enable gradient by default (unless color override is provided)
         if use_gradient and color is None:
-            self.enable_gradient(colors=theme.config.text.title_gradient, direction=Qt.Orientation.Horizontal)
+            self.enable_gradient(colors=theme.config.text.title_gradient, direction=GradientDirection.DIAGONAL)
         else:
             # Apply solid color via palette (gradient is disabled by default in mixin)
             final_color = color if color else theme.config.text.lightest

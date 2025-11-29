@@ -51,9 +51,9 @@ class TextColors:
 
     lightest: str = "#f4f4f5"
     light: str = "#a1a1aa"
-    medium: str = "#52525b"
-    gradient_colors: list = field(default_factory=lambda: ["#696AC2", "#CCD8E3"])
-    title_gradient: list = field(default_factory=lambda: ["#696AC2", "#CCD8E3"])
+    medium: str = "#61616b"
+    gradient_colors: list = field(default_factory=lambda: ["#696AC2", "#a8c7fa", "#b8d3ff"])
+    title_gradient: list = field(default_factory=lambda: ["#696AC2", "#a8c7fa", "#b8d3ff"])
 
 
 @dataclass
@@ -61,11 +61,11 @@ class ShapeColors:
     """Shape/background color design tokens."""
 
     accent: str = "#71717a"
-    lightest: str = "#52525b"
-    light: str = "#3f3f46"
-    medium: str = "#1d1d22"
-    dark: str = "#141417"
-    darkest: str = "#0f0f11"
+    lightest: str = "#393946"
+    light: str = "#2d2d34"
+    medium: str = "#1a1a1c"
+    dark: str = "#131314"
+    darkest: str = "#0e0e0f"
     orange: str = "#ff8c00"  # Orange color for dictation stop word indicator
 
 
@@ -73,8 +73,8 @@ class ShapeColors:
 class BlueColors:
     """Blue color design tokens."""
 
-    blue_1: str = "#1d1d22"
-    blue_2: str = "#a8c7fa"
+    blue_1: str = "#1f1f22"
+    blue_2: str = "#8a8ac8"
 
 
 @dataclass

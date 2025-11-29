@@ -253,7 +253,7 @@ class VocalanceMainWindow(QMainWindow):
         """Create sidebar logo with transparent background.
 
         Uses fixed-width container matching collapsed sidebar to keep logo
-        positioned consistently during animation.
+        positioned consistently during animation. Logo is aligned with button icons.
         """
         from PySide6.QtWidgets import QHBoxLayout
 
@@ -284,10 +284,17 @@ class VocalanceMainWindow(QMainWindow):
         self.sidebar_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sidebar_logo.setAutoFillBackground(False)
 
-        # Center logo within fixed-width area
+        # Position logo to align with button icons
+        # Button icons are offset by container padding, so shift logo right to match
         logo_area_layout.addStretch()
         logo_area_layout.addWidget(self.sidebar_logo, alignment=Qt.AlignmentFlag.AlignCenter)
         logo_area_layout.addStretch()
+
+        # Shift logo positioning to match button icon alignment
+        # Button icon center is at 50px from left edge of sidebar
+        # Logo currently centers at 40px, so shift right by 10px
+        # Left margin needed: solve M + (80-M)/2 = 50 → M = 20px
+        logo_area_layout.setContentsMargins(20, 0, 0, 0)
 
         logo_layout.addWidget(logo_area)
         logo_layout.addStretch()  # Push logo area to left

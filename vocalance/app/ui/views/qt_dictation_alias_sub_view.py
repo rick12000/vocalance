@@ -245,7 +245,7 @@ class QtDictationAliasSubView(QWidget):
 
         if not aliases:
             empty_label = BodyLabel(
-                "No available aliases. Create aliases in the left panel.", align="center", color=theme.config.text.medium
+                "No available aliases.\nCreate aliases in the left panel.", align="center", color=theme.config.text.medium
             )
             self.aliases_list_layout.addWidget(empty_label)
         else:

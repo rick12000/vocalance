@@ -73,7 +73,7 @@ class Tile(BaseContainer):
             parent=parent,
             layout="vertical",
             bg_color="transparent",
-            border_color=theme.config.shapes.medium,
+            border_color=theme.config.shapes.accent,
             border_radius=theme.config.radius.rounded,
         )
 
@@ -416,8 +416,8 @@ class HeaderIconButton(QWidget):
         self._text_icon_spacing = text_icon_spacing if text_icon_spacing is not None else theme.config.spacing.medium
 
         # Colors - blue_1 for both text and icon, no background
-        self._icon_color = theme.config.blue.blue_1
-        self._text_color = theme.config.blue.blue_1
+        self._icon_color = theme.config.blue.blue_2
+        self._text_color = theme.config.blue.blue_2
 
         # Icon size - can be customized, defaults to 40px
         self._icon_size = icon_size if icon_size is not None else 40

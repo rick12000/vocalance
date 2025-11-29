@@ -16,11 +16,19 @@ Example:
             self.enable_gradient(["#4E98FF", "#F97070"])
 """
 
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QLabel
+
+
+class GradientDirection:
+    """Gradient direction constants for more intuitive gradient specification."""
+
+    HORIZONTAL = "horizontal"
+    VERTICAL = "vertical"
+    DIAGONAL = "diagonal"
 
 
 class GradientTextMixin:
@@ -48,16 +56,18 @@ class GradientTextMixin:
         super().__init__(*args, **kwargs)
         self._gradient_enabled = False
         self._gradient_colors: List[str] = []
-        self._gradient_direction: Qt.Orientation = Qt.Orientation.Horizontal
+        self._gradient_direction: str = GradientDirection.HORIZONTAL
 
-    def enable_gradient(self, colors: List[str], direction: Qt.Orientation = Qt.Orientation.Horizontal) -> None:
+    def enable_gradient(self, colors: List[str], direction: Union[str, Qt.Orientation] = GradientDirection.HORIZONTAL) -> None:
         """Enable gradient text rendering with the specified colors.
 
         Args:
             colors: List of color hex codes (e.g., ["#4E98FF", "#F97070"])
                    Minimum 2 colors required for a gradient.
-            direction: Gradient direction (Horizontal or Vertical).
-                      Horizontal = left-to-right, Vertical = top-to-bottom.
+            direction: Gradient direction. Can be:
+                      - String: "horizontal", "vertical", or "diagonal"
+                      - Qt.Orientation: Horizontal or Vertical (legacy support)
+                      Default: "horizontal" (left-to-right)
 
         Raises:
             ValueError: If fewer than 2 colors are provided.
@@ -67,7 +77,14 @@ class GradientTextMixin:
 
         self._gradient_enabled = True
         self._gradient_colors = colors
-        self._gradient_direction = direction
+
+        # Convert Qt.Orientation to string direction for consistency
+        if isinstance(direction, Qt.Orientation):
+            self._gradient_direction = (
+                GradientDirection.HORIZONTAL if direction == Qt.Orientation.Horizontal else GradientDirection.VERTICAL
+            )
+        else:
+            self._gradient_direction = direction
 
         # Force repaint to show gradient
         if isinstance(self, QLabel):
@@ -182,12 +199,18 @@ class GradientTextMixin:
             text_y = text_rect.y()
 
         # Create gradient based on actual text dimensions and position
-        if self._gradient_direction == Qt.Orientation.Horizontal:
+        if self._gradient_direction == GradientDirection.HORIZONTAL or self._gradient_direction == Qt.Orientation.Horizontal:
             # Gradient from start of text to end of text (horizontal)
             gradient = QLinearGradient(text_x, text_y, text_x + text_width, text_y)
-        else:
+        elif self._gradient_direction == GradientDirection.VERTICAL or self._gradient_direction == Qt.Orientation.Vertical:
             # Gradient from top of text to bottom of text (vertical)
             gradient = QLinearGradient(text_x, text_y, text_x, text_y + text_height)
+        elif self._gradient_direction == GradientDirection.DIAGONAL:
+            # Gradient from top-left to bottom-right (diagonal) for modern blended appearance
+            gradient = QLinearGradient(text_x, text_y, text_x + text_width, text_y + text_height)
+        else:
+            # Fallback to horizontal
+            gradient = QLinearGradient(text_x, text_y, text_x + text_width, text_y)
 
         # Add color stops evenly distributed
         num_colors = len(self._gradient_colors)

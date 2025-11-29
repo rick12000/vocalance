@@ -9,8 +9,8 @@ ChangeButton and DeleteButton are circular icon-based variants.
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QPushButton, QWidget
 
@@ -84,24 +84,29 @@ class PrimaryButton(QPushButton):
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
-        """Custom paint for primary button appearance."""
+        """Custom paint for primary button appearance with gradient border."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Create rounded rectangle path
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, self.width(), self.height(), self._border_radius, self._border_radius)
+        rect = self.rect()
+        border_width = 1
 
-        # Determine background color based on state
-        if self._is_pressed:
-            bg_color = QColor(theme.config.shapes.darkest)
-        elif self._is_hovered:
-            bg_color = QColor(theme.config.blue.blue_1)
-        else:
-            bg_color = QColor(theme.config.blue.blue_1)
+        # Create gradient for border
+        gradient_colors = theme.config.text.gradient_colors
+        gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
+        gradient.setColorAt(0, QColor(gradient_colors[0]))
+        gradient.setColorAt(1, QColor(gradient_colors[1]))
 
-        # Fill background
-        painter.fillPath(path, bg_color)
+        # Draw 1px gradient border using pen
+        border_path = QPainterPath()
+        border_path.addRoundedRect(0.5, 0.5, rect.width() - 1, rect.height() - 1, self._border_radius, self._border_radius)
+
+        pen = QPen(gradient, border_width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.GlobalColor.transparent)
+        painter.drawPath(border_path)
 
         # Draw text with blue_2 color
         painter.setPen(QColor(theme.config.blue.blue_2))
@@ -320,7 +325,7 @@ class ChangeButton(PrimaryButton):
         icon_path = assets_dir / "add_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.svg"
 
         # Create vector renderer
-        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.blue.blue_2)
+        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.text.light)
 
     def paintEvent(self, event):
         """Custom paint for circular button with icon."""
@@ -338,11 +343,11 @@ class ChangeButton(PrimaryButton):
 
         # Determine background color based on state
         if self._is_pressed:
-            bg_color = QColor(theme.config.shapes.darkest)
+            bg_color = QColor(theme.config.shapes.medium)
         elif self._is_hovered:
-            bg_color = QColor(theme.config.blue.blue_1)
+            bg_color = QColor(theme.config.shapes.medium)
         else:
-            bg_color = QColor(theme.config.blue.blue_1)
+            bg_color = QColor(theme.config.shapes.medium)
 
         # Fill background
         painter.fillPath(path, bg_color)
@@ -439,7 +444,7 @@ class ExpandButton(PrimaryButton):
     """Circular icon button with right arrow icon for expanding sections.
 
     Uses the keyboard_arrow_right icon and renders as a perfect circle instead of pill shape.
-    Icon colored with blue_2, background with blue_1.
+    Icon colored with shapes light, background transparent with shapes light border.
     """
 
     def __init__(
@@ -464,8 +469,8 @@ class ExpandButton(PrimaryButton):
         assets_dir = Path(__file__).parent.parent.parent / "assets" / "icons"
         icon_path = assets_dir / "keyboard_arrow_right_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.svg"
 
-        # Create vector renderer with blue_2 color
-        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.blue.blue_2)
+        # Create vector renderer with shapes light color
+        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.shapes.light)
 
     def paintEvent(self, event):
         """Custom paint for circular button with icon."""
@@ -477,20 +482,20 @@ class ExpandButton(PrimaryButton):
         width = rect.width()
         height = rect.height()
 
-        # Create circular path
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
+        # Create circular path for background
+        bg_path = QPainterPath()
+        bg_path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
 
-        # Determine background color based on state
-        if self._is_pressed:
-            bg_color = QColor(theme.config.shapes.darkest)
-        elif self._is_hovered:
-            bg_color = QColor(theme.config.blue.blue_1)
-        else:
-            bg_color = QColor(theme.config.blue.blue_1)
+        # Fill background with transparent
+        painter.fillPath(bg_path, Qt.GlobalColor.transparent)
 
-        # Fill background
-        painter.fillPath(path, bg_color)
+        # Draw 1px border with shapes light color
+        border_path = QPainterPath()
+        border_path.addRoundedRect(0.5, 0.5, width - 1, height - 1, self._border_radius, self._border_radius)
+
+        pen = QPen(QColor(theme.config.shapes.light), 1.0)
+        painter.setPen(pen)
+        painter.drawPath(border_path)
 
         # Draw icon centered using vector renderer
         if self._renderer.isValid():
@@ -512,7 +517,7 @@ class CollapseButton(PrimaryButton):
     """Circular icon button with down arrow icon for collapsing sections.
 
     Uses the keyboard_arrow_down icon and renders as a perfect circle instead of pill shape.
-    Icon colored with blue_2, background with blue_1.
+    Icon colored with shapes light, background transparent with shapes light border.
     """
 
     def __init__(
@@ -537,8 +542,8 @@ class CollapseButton(PrimaryButton):
         assets_dir = Path(__file__).parent.parent.parent / "assets" / "icons"
         icon_path = assets_dir / "keyboard_arrow_down_500dp_E3E3E3_FILL0_wght400_GRAD0_opsz48.svg"
 
-        # Create vector renderer with blue_2 color
-        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.blue.blue_2)
+        # Create vector renderer with shapes light color
+        self._renderer = _create_recolored_renderer(str(icon_path), theme.config.shapes.light)
 
     def paintEvent(self, event):
         """Custom paint for circular button with icon."""
@@ -550,20 +555,20 @@ class CollapseButton(PrimaryButton):
         width = rect.width()
         height = rect.height()
 
-        # Create circular path
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
+        # Create circular path for background
+        bg_path = QPainterPath()
+        bg_path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
 
-        # Determine background color based on state
-        if self._is_pressed:
-            bg_color = QColor(theme.config.shapes.darkest)
-        elif self._is_hovered:
-            bg_color = QColor(theme.config.blue.blue_1)
-        else:
-            bg_color = QColor(theme.config.blue.blue_1)
+        # Fill background with transparent
+        painter.fillPath(bg_path, Qt.GlobalColor.transparent)
 
-        # Fill background
-        painter.fillPath(path, bg_color)
+        # Draw 1px border with shapes light color
+        border_path = QPainterPath()
+        border_path.addRoundedRect(0.5, 0.5, width - 1, height - 1, self._border_radius, self._border_radius)
+
+        pen = QPen(QColor(theme.config.shapes.light), 1.0)
+        painter.setPen(pen)
+        painter.drawPath(border_path)
 
         # Draw icon centered using vector renderer
         if self._renderer.isValid():

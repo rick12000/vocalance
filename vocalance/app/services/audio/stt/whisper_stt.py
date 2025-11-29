@@ -134,6 +134,8 @@ class WhisperSTT:
     def _get_transcription_options(self, audio_duration: float) -> Dict[str, Any]:
         """Get transcription options dynamically adjusted for audio duration.
 
+        Optimized for streaming with aggressive speed settings for short audio.
+
         Args:
             audio_duration: Duration of audio segment in seconds.
 
@@ -150,7 +152,12 @@ class WhisperSTT:
             "vad_filter": False,
         }
 
-        if audio_duration < 5.0:
+        # Aggressive speed optimization for short streaming audio
+        if audio_duration < 2.0:
+            # Very short audio (< 2s): minimize beam size for speed
+            options["beam_size"] = 1  # Greedy decoding for maximum speed
+        elif audio_duration < 5.0:
+            # Medium audio (2-5s): slightly reduced beam
             options["beam_size"] = max(1, self._beam_size - 1)
 
         return options
@@ -255,7 +262,8 @@ class WhisperSTT:
             return ""
 
         duration_sec = len(audio_bytes) / (self._sample_rate * 2)
-        if duration_sec < 0.3:
+        # Minimum audio duration for recognition (0.2s for regular, streaming uses 0.15s)
+        if duration_sec < 0.2:
             return ""
 
         recognition_start = time.time()
@@ -294,156 +302,97 @@ class WhisperSTT:
 
     def recognize_streaming_sync(
         self, audio_bytes: bytes, context_segments: Optional[List[str]] = None, sample_rate: Optional[int] = None
-    ) -> Tuple[List[dict], float]:
-        """Synchronous streaming speech recognition with segment timestamps.
+    ) -> Tuple[str, float]:
+        """Streaming speech recognition - NO VAD filter.
 
-        Designed for continuous streaming transcription where predictions are made
-        on overlapping audio chunks. Returns segment list with timestamps for
-        accurate offset tracking (WhisperLive approach).
+        For streaming dictation, we MUST NOT use VAD filter because:
+        1. VAD removes audio during silence, causing data loss
+        2. We need to preserve ALL audio to maintain context
+        3. Silence handling should be done at the coordinator level, not here
 
         Args:
             audio_bytes: Raw audio data to transcribe.
-            context_segments: List of recent transcription texts for context (last 5-10 segments).
+            context_segments: Optional context (unused, kept for API compatibility).
             sample_rate: Optional sample rate override.
 
         Returns:
-            Tuple of (segments_list, confidence_score) where segments_list contains:
-            [{"text": str, "start": float, "end": float, "completed": bool}, ...]
+            Tuple of (text, confidence) - the transcribed text and confidence score.
         """
         if sample_rate and sample_rate != self._sample_rate:
             logger.warning(f"Sample rate mismatch. Expected {self._sample_rate}, got {sample_rate}")
 
         if not audio_bytes or not self._model:
-            return [], 0.0
+            return "", 0.0
 
         duration_sec = len(audio_bytes) / (self._sample_rate * 2)
-        if duration_sec < 0.3:
-            return [], 0.0
+        if duration_sec < 0.3:  # Minimum 300ms for meaningful transcription
+            return "", 0.0
 
         recognition_start = time.time()
-
-        # Build initial_prompt from context segments
-        initial_prompt = None
-        if context_segments and len(context_segments) > 0:
-            # Use last 3-5 segments for context, limited to ~200 chars to avoid token limits
-            recent_context = " ".join(context_segments[-5:])
-            if len(recent_context) > 200:
-                recent_context = recent_context[-200:]
-            initial_prompt = recent_context.strip()
-
         audio_np = self._prepare_audio(audio_bytes)
-        options = self._get_transcription_options(duration_sec)
 
-        # Add initial_prompt for context
-        if initial_prompt:
-            options["initial_prompt"] = initial_prompt
-            options["condition_on_previous_text"] = True
+        # NO VAD filter - we need ALL audio to maintain context
+        # VAD causes data loss during silence which breaks streaming
+        options = {
+            "language": "en",
+            "beam_size": 3 if duration_sec > 3.0 else 1,  # Greedy for short audio
+            "temperature": 0.0,
+            "no_speech_threshold": 0.6,
+            "condition_on_previous_text": False,
+            "word_timestamps": False,
+            "vad_filter": False,  # CRITICAL: No VAD for streaming
+        }
 
         segments_iter, info = self._model.transcribe(audio_np, **options)
 
-        # Convert segments iterator to list and extract segment info with timestamps
-        segment_list = []
-        confidence_scores = []
+        # Combine all segment texts
+        texts = []
+        confidence_sum = 0.0
+        count = 0
 
         for seg in segments_iter:
-            # Filter hallucinations using quality metrics
-            if not self._is_segment_quality_acceptable(seg):
-                continue
-
             text = seg.text.strip()
-            if not text:
-                continue
-
-            # Apply light normalization
-            text = self._normalize_text_streaming(text)
-            if not text:
-                continue
-
-            segment_list.append(
-                {
-                    "text": text,
-                    "start": seg.start,
-                    "end": seg.end,
-                    "completed": False,  # Will mark all but last as completed
-                    "no_speech_prob": seg.no_speech_prob,
-                    "avg_logprob": seg.avg_logprob,
-                    "compression_ratio": seg.compression_ratio,
-                }
-            )
-
-            # Track confidence (use inverse of no_speech_prob as proxy)
-            confidence_scores.append(1.0 - seg.no_speech_prob)
+            if text:
+                # Basic quality filter - skip obvious hallucinations
+                if seg.no_speech_prob > 0.8:
+                    continue
+                texts.append(text)
+                confidence_sum += 1.0 - seg.no_speech_prob
+                count += 1
 
         recognition_time = time.time() - recognition_start
 
-        if not segment_list:
-            return [], 0.0
+        if not texts:
+            return "", 0.0
 
-        # Mark all segments except the last as completed
-        # Last segment might be incomplete (word cutoff at end of audio)
-        for seg in segment_list[:-1]:
-            seg["completed"] = True
+        combined_text = " ".join(texts)
+        # Light cleanup - collapse whitespace
+        combined_text = re.sub(r"\s+", " ", combined_text).strip()
 
-        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
+        avg_confidence = confidence_sum / count if count > 0 else 0.0
 
-        total_text = " ".join([seg["text"] for seg in segment_list])
         logger.debug(
-            f"Whisper streaming: {len(segment_list)} segments, '{total_text[:50]}...' "
-            f"(conf: {avg_confidence:.3f}, time: {recognition_time:.3f}s)"
+            f"Streaming: '{combined_text[:50]}...' "
+            f"(conf={avg_confidence:.2f}, time={recognition_time:.3f}s, dur={duration_sec:.1f}s)"
         )
 
-        return segment_list, avg_confidence
+        return combined_text, avg_confidence
 
     async def recognize_streaming(
         self, audio_bytes: bytes, context_segments: Optional[List[str]] = None, sample_rate: Optional[int] = None
-    ) -> Tuple[List[dict], float]:
-        """Async streaming speech recognition with segment timestamps.
+    ) -> Tuple[str, float]:
+        """Async streaming speech recognition.
 
         Args:
             audio_bytes: Raw audio data to transcribe.
-            context_segments: List of recent transcription texts for context.
+            context_segments: Optional context (unused).
             sample_rate: Optional sample rate override.
 
         Returns:
-            Tuple of (segments_list, confidence_score) where segments_list contains:
-            [{"text": str, "start": float, "end": float, "completed": bool}, ...]
+            Tuple of (text, confidence) - the transcribed text and confidence score.
         """
         async with self._model_lock:
             return await asyncio.to_thread(self.recognize_streaming_sync, audio_bytes, context_segments, sample_rate)
-
-    def _normalize_text_streaming(self, text: str) -> str:
-        """Lighter normalization for streaming mode to preserve detail.
-
-        Unlike regular normalization, this preserves more filler words and
-        only removes egregious duplicates, since partial predictions benefit
-        from seeing the model's full output.
-
-        Args:
-            text: Raw transcribed text.
-
-        Returns:
-            Lightly normalized text string.
-        """
-        if not text:
-            return ""
-
-        text = text.strip()
-        if not text:
-            return ""
-
-        # Only collapse excessive whitespace
-        text = re.sub(r"\s+", " ", text)
-
-        # Remove consecutive duplicate words (but keep single occurrences)
-        words = text.split()
-        if len(words) > 1:
-            result = [words[0]]
-            for word in words[1:]:
-                if word.lower() != result[-1].lower():
-                    result.append(word)
-            text = " ".join(result)
-
-        return text.strip()
 
     def _normalize_text(self, text: str) -> str:
         """Normalize transcribed text by removing filler words and duplicates.

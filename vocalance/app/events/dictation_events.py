@@ -195,8 +195,9 @@ class FinalDictationTextEvent(BaseEvent):
     """Event fired for finalized streaming dictation text.
 
     Emitted during streaming dictation (smart/visual modes) when text prediction
-    has stabilized (3+ consecutive identical predictions). UI should display this
-    as white/permanent text that will no longer be edited.
+    has stabilized (4+ consecutive identical predictions at 200ms intervals, i.e.,
+    800ms of stable output). UI should display this as white/permanent text that
+    will no longer be edited.
 
     Attributes:
         text: Final transcription text that will not change.
