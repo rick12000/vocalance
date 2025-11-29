@@ -175,6 +175,45 @@ class Tile(BaseContainer):
         self.add(content_label, stretch=1)
 
 
+class IconWidget(QWidget):
+    """Widget that renders an icon pixmap with high-quality scaling.
+
+    Used to replace QLabel for icons to ensure strict size constraints
+    and high-quality rendering regardless of source pixmap DPI.
+    """
+
+    def __init__(self, pixmap: Optional[QPixmap], size: int, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._pixmap = pixmap
+        # Enforce fixed size logic
+        self.setFixedSize(size, size)
+        # Transparent background
+        self.setAutoFillBackground(False)
+        # Let mouse events pass through to parent button
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def set_pixmap(self, pixmap: QPixmap):
+        """Update the displayed pixmap."""
+        self._pixmap = pixmap
+        self.update()
+
+    def paintEvent(self, event):
+        """Paint the pixmap scaled to the widget's fixed size."""
+        if not self._pixmap or self._pixmap.isNull():
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw pixmap into the full widget rect
+        # The widget size is fixed to the target logical size.
+        # QPainter handles the scaling from the source pixmap to this rect.
+        # This guarantees the icon NEVER exceeds the specified size.
+        painter.drawPixmap(self.rect(), self._pixmap)
+        painter.end()
+
+
 class SidebarButton(QWidget):
     """Sidebar navigation button with icon and text.
 
@@ -238,7 +277,6 @@ class SidebarButton(QWidget):
         Design: Icon area has fixed width matching collapsed sidebar.
         Text appears next to icon area when expanded.
         """
-        from PySide6.QtWidgets import QLabel
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(self._button_padding, self._button_padding, self._button_padding, self._button_padding)
@@ -254,22 +292,14 @@ class SidebarButton(QWidget):
         icon_area_layout.setSpacing(0)
 
         if icon_pixmap:
-            # Use QLabel directly for icon display
-            self.icon_label = QLabel("")
-            self.icon_label.setPixmap(
-                icon_pixmap.scaled(
-                    theme.config.sidebar.button_icon_size,
-                    theme.config.sidebar.button_icon_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+            # Use IconWidget for robust scaling instead of QLabel
+            self.icon_widget = IconWidget(icon_pixmap, theme.config.sidebar.button_icon_size)
             # Center icon within the fixed icon area
             icon_area_layout.addStretch()
-            icon_area_layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
+            icon_area_layout.addWidget(self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter)
             icon_area_layout.addStretch()
         else:
-            self.icon_label = None
+            self.icon_widget = None
 
         layout.addWidget(self.icon_area)
 
@@ -312,28 +342,15 @@ class SidebarButton(QWidget):
             self.text_label.setPalette(palette)
 
         # Update icon color based on state
-        if self.icon_label and self._default_icon:
+        if self.icon_widget and self._default_icon:
             if self._hovered or self._selected:
                 # Use blue_2 color on hover/select
                 icon_color = theme.config.blue.blue_2
-                self.icon_label.setPixmap(
-                    self._color_pixmap(self._default_icon, icon_color).scaled(
-                        theme.config.sidebar.button_icon_size,
-                        theme.config.sidebar.button_icon_size,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-                )
+                colored_pixmap = self._color_pixmap(self._default_icon, icon_color)
+                self.icon_widget.set_pixmap(colored_pixmap)
             else:
                 # Use default icon (shapes.accent color)
-                self.icon_label.setPixmap(
-                    self._default_icon.scaled(
-                        theme.config.sidebar.button_icon_size,
-                        theme.config.sidebar.button_icon_size,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-                )
+                self.icon_widget.set_pixmap(self._default_icon)
 
         self.update()
 
@@ -472,20 +489,11 @@ class HeaderIconButton(QWidget):
             # Color the icon with blue_1
             colored_icon = self._color_pixmap(icon_pixmap, self._icon_color)
 
-            self.icon_label = QLabel()
-            self.icon_label.setPixmap(
-                colored_icon.scaled(
-                    self._icon_size,
-                    self._icon_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-            self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.icon_label.setFixedSize(self._icon_size, self._icon_size)  # Fixed size for consistent layout
-            layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
+            # Use IconWidget for robust scaling
+            self.icon_widget = IconWidget(colored_icon, self._icon_size)
+            layout.addWidget(self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter)
         else:
-            self.icon_label = None
+            self.icon_widget = None
 
     def _setup_animation(self):
         """Setup animation for text expansion."""

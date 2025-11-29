@@ -164,14 +164,18 @@ def load_sidebar_icon(
         high_dpi: If True, scale to device pixel ratio for sharp rendering.
 
     Returns:
-        QPixmap or None if loading failed.
+        QPixmap or None if loading failed. Already scaled to logical size with DPR set.
     """
     try:
         device_pixel_ratio = get_device_pixel_ratio() if high_dpi else 1.0
         icon_path = icons_dir / icon_filename
 
-        # Scale to physical pixels for high-DPI displays
-        physical_size = (int(icon_size * device_pixel_ratio), int(icon_size * device_pixel_ratio))
+        # For high-DPI support: scale to physical pixels during transformation
+        # This ensures the image is loaded at the correct resolution for crisp rendering
+        if high_dpi:
+            physical_size = (int(icon_size * device_pixel_ratio), int(icon_size * device_pixel_ratio))
+        else:
+            physical_size = (icon_size, icon_size)
 
         pixmap = transform_monochrome_icon(
             icon_path=icon_path,
@@ -179,6 +183,7 @@ def load_sidebar_icon(
             size=physical_size,
             force_all_pixels=True,  # Force all pixels to target color for consistent appearance
             preserve_aspect_ratio=True,
+            device_pixel_ratio=device_pixel_ratio if high_dpi else None,
         )
 
         if pixmap and high_dpi:

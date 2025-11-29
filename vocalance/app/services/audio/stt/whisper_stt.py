@@ -300,68 +300,6 @@ class WhisperSTT:
         async with self._model_lock:
             return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
 
-    def _is_hallucination(self, text: str, no_speech_prob: float, avg_logprob: Optional[float]) -> bool:
-        """Detect Whisper hallucinations using multiple heuristics.
-
-        Whisper hallucinations typically have:
-        1. High no_speech_prob (no actual speech)
-        2. Low avg_logprob (model uncertainty)
-        3. Repetitive patterns (e.g., "4.4.4.4.4", ". . . . .")
-        4. Only punctuation/symbols
-        5. Very short with high uncertainty
-
-        Args:
-            text: The transcribed text to check.
-            no_speech_prob: Probability that segment contains no speech.
-            avg_logprob: Average log probability of the tokens.
-
-        Returns:
-            True if the text appears to be a hallucination.
-        """
-        if not text:
-            return True
-
-        # High no_speech_prob indicates no actual speech
-        if no_speech_prob > 0.6:
-            return True
-
-        # Low avg_logprob indicates model uncertainty (hallucination indicator)
-        if avg_logprob is not None and avg_logprob < -0.8:
-            return True
-
-        # Detect repetitive patterns (e.g., "4.4.4.4", ". . . . .")
-        # Count unique characters vs total length
-        stripped = text.replace(" ", "")
-        if len(stripped) > 3:
-            unique_chars = len(set(stripped))
-            # If text is mostly the same 1-2 characters repeated, it's likely garbage
-            if unique_chars <= 2:
-                return True
-            # Check for repeating 2-3 char patterns
-            if len(stripped) > 6:
-                pattern_2 = stripped[:2]
-                pattern_3 = stripped[:3]
-                if stripped.count(pattern_2) > len(stripped) / 3:
-                    return True
-                if stripped.count(pattern_3) > len(stripped) / 4:
-                    return True
-
-        # Only punctuation/symbols (no actual words)
-        alpha_chars = sum(1 for c in text if c.isalpha())
-        if alpha_chars == 0 and len(text) > 1:
-            return True
-
-        # Dots and spaces pattern (". . . ." or similar)
-        dots_spaces = sum(1 for c in text if c in ". ")
-        if len(text) > 3 and dots_spaces / len(text) > 0.7:
-            return True
-
-        # Very short text with moderate uncertainty
-        if len(text) < 3 and no_speech_prob > 0.4:
-            return True
-
-        return False
-
     def recognize_streaming_sync(
         self,
         audio_bytes: bytes,
@@ -369,15 +307,13 @@ class WhisperSTT:
         sample_rate: Optional[int] = None,
         return_segments: bool = False,
     ) -> Tuple[str, float, Optional[List[Dict[str, Any]]]]:
-        """Streaming speech recognition with segment timestamps.
+        """Streaming speech recognition matching WhisperLive's methodology.
 
-        For streaming dictation, we MUST NOT use VAD filter because:
-        1. VAD removes audio during silence, causing data loss
-        2. We need to preserve ALL audio to maintain context
-        3. Silence handling should be done at the coordinator level, not here
-
-        Returns segment timestamps for accurate offset tracking and finalization.
-        Includes robust hallucination detection to prevent gibberish output.
+        WhisperLive's approach (from faster_whisper_backend.py):
+        - vad_filter=True with default parameters
+        - no_speech_threshold=0.45 (WhisperLive default)
+        - condition_on_previous_text=True
+        - NO complex hallucination detection - relies only on no_speech_prob
 
         Args:
             audio_bytes: Raw audio data to transcribe.
@@ -403,35 +339,26 @@ class WhisperSTT:
         recognition_start = time.time()
         audio_np = self._prepare_audio(audio_bytes)
 
-        # Build initial_prompt from context segments
-        # Only use context if it's not corrupted (no hallucination patterns)
+        # Build initial_prompt from context segments (WhisperLive uses this)
         initial_prompt = None
         if context_segments and len(context_segments) > 0:
-            # Filter out any corrupted context segments before using
-            clean_context = [
-                seg
-                for seg in context_segments[-3:]
-                if not self._is_hallucination(seg, 0.0, None)  # Check for pattern-based hallucinations
-            ]
+            # Use last 5 segments for context
+            clean_context = [seg.strip() for seg in context_segments[-5:] if seg and seg.strip()]
             if clean_context:
                 initial_prompt = " ".join(clean_context)
-                logger.debug(f"Using context prompt: '{initial_prompt[:50]}...'")
+                logger.debug(f"Using context prompt ({len(clean_context)} segments): '{initial_prompt[:50]}...'")
 
-        # VAD helps filter silence and prevents hallucinations during quiet periods
-        # faster-whisper VadOptions: threshold (not onset), min_silence_duration_ms, speech_pad_ms
+        # WhisperLive transcription parameters (from faster_whisper_backend.py)
+        # Key: vad_filter=True with DEFAULT parameters (not custom aggressive ones)
         options = {
             "language": "en",
-            "beam_size": 3 if duration_sec > 3.0 else 1,  # Greedy for short audio
+            "beam_size": 5,  # WhisperLive default
             "temperature": 0.0,
-            "no_speech_threshold": 0.6,
-            "condition_on_previous_text": True,  # Enable context conditioning
+            "no_speech_threshold": 0.45,  # WhisperLive default (more permissive than 0.6)
+            "condition_on_previous_text": True,  # WhisperLive uses this
             "word_timestamps": False,
-            "vad_filter": True,  # VAD is critical for silence handling
-            "vad_parameters": {
-                "threshold": 0.4,  # More sensitive than default 0.5 to catch speech earlier
-                "min_silence_duration_ms": 200,  # Don't cut during short pauses in speech
-                "speech_pad_ms": 300,  # Add 300ms padding BEFORE detected speech to capture starts
-            },
+            "vad_filter": True,  # WhisperLive uses VAD with default parameters
+            # Note: WhisperLive does NOT customize vad_parameters - uses defaults
         }
 
         if initial_prompt:
@@ -439,12 +366,12 @@ class WhisperSTT:
 
         segments_iter, info = self._model.transcribe(audio_np, **options)
 
-        # Collect segments with timestamps
+        # Collect ALL segments - WhisperLive does not filter here
+        # Filtering is done at the coordinator level using no_speech_prob
         texts = []
         segment_details = []
         confidence_sum = 0.0
         count = 0
-        last_end_time = 0.0
 
         for seg in segments_iter:
             text = seg.text.strip()
@@ -454,11 +381,8 @@ class WhisperSTT:
             no_speech_prob = seg.no_speech_prob
             avg_logprob = getattr(seg, "avg_logprob", None)
 
-            # Comprehensive hallucination detection
-            if self._is_hallucination(text, no_speech_prob, avg_logprob):
-                logger.debug(f"Filtered hallucination: '{text[:30]}...' (no_speech={no_speech_prob:.2f}, logprob={avg_logprob})")
-                continue
-
+            # WhisperLive does NOT filter segments here - it returns ALL segments
+            # The coordinator filters using no_speech_prob threshold
             texts.append(text)
             confidence_sum += 1.0 - no_speech_prob
             count += 1
@@ -473,7 +397,6 @@ class WhisperSTT:
                     "avg_logprob": avg_logprob,
                 }
             )
-            last_end_time = max(last_end_time, seg.end)
 
         recognition_time = time.time() - recognition_start
 
@@ -481,7 +404,6 @@ class WhisperSTT:
             return "", 0.0, [] if return_segments else None
 
         combined_text = " ".join(texts)
-        # Light cleanup - collapse whitespace
         combined_text = re.sub(r"\s+", " ", combined_text).strip()
 
         avg_confidence = confidence_sum / count if count > 0 else 0.0
@@ -489,7 +411,7 @@ class WhisperSTT:
         logger.debug(
             f"Streaming: '{combined_text[:50]}...' "
             f"(conf={avg_confidence:.2f}, time={recognition_time:.3f}s, dur={duration_sec:.1f}s, "
-            f"last_end={last_end_time:.2f}s)"
+            f"segments={count})"
         )
 
         if return_segments:

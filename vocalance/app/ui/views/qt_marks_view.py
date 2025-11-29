@@ -12,7 +12,7 @@ from vocalance.app.events.mark_events import MarkData
 from vocalance.app.ui.components.buttons import DangerButton, DeleteButton, PrimaryButton
 from vocalance.app.ui.components.complex_components import Tile
 from vocalance.app.ui.components.dialogs import askyesno
-from vocalance.app.ui.components.labels import SmallLabel
+from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
 from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentBox, TwoColumnLayout
 from vocalance.app.ui.qt_theme import theme
 
@@ -107,9 +107,18 @@ class QtMarksView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        # Add marks
-        for mark in marks:
-            self.marks_scroll.add(self._create_mark_widget(mark))
+        if not marks:
+            # Display empty state message
+            empty_label = BodyLabel(
+                "No available marks.\nRead left panel to create marks.",
+                align="center",
+                color=theme.config.text.medium,
+            )
+            self.marks_scroll.add(empty_label)
+        else:
+            # Add marks
+            for mark in marks:
+                self.marks_scroll.add(self._create_mark_widget(mark))
 
         self.marks_scroll.add_stretch()
 

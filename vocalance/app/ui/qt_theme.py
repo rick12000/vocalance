@@ -181,7 +181,7 @@ class SidebarLayout:
     button_padding_left: int = 10
     button_padding_right: int = 10
     button_spacing_vertical: int = 6
-    button_icon_size: int = 70
+    button_icon_size: int = 38  # Reduced from 70 to match logo size and fit in container
     button_min_height: int = 50
     logo_max_size: int = 38
     logo_padding_top: int = 0
@@ -202,7 +202,7 @@ class HeaderLayout:
     title_y_offset: int = 0
     spacing: int = 2  # Reduced spacing between title and subtitle
     padding_bottom: int = 20  # Space after header content (subtitle) - reduced from 20
-    icon_size: int = 55  # Size of header icon button
+    icon_size: int = 40  # Reduced from 55 to be proportional to sidebar icons
     text_icon_spacing: int = 20  # Space between text and icon in header button
 
 
@@ -298,10 +298,10 @@ class ThemeManager:
         if fonts_dir is None:
             fonts_base = Path(__file__).parent.parent / "assets" / "fonts"
         else:
-            fonts_base = Path(fonts_dir).parent
+            fonts_base = Path(fonts_dir).resolve()
 
         # Load Alata (display font for titles)
-        alata_dir = fonts_base / "custom_Alata"
+        alata_dir = fonts_base / "Alata"
         self._load_font_family(alata_dir, "Alata")
 
         # Load DM Sans (primary font for body text)
@@ -324,28 +324,27 @@ class ThemeManager:
             expected_family: Expected font family name for logging
 
         Returns:
-            True if fonts were loaded successfully
+            True if at least one font was loaded successfully, False otherwise
         """
+        fonts_dir = fonts_dir.resolve()
+
         if not fonts_dir.exists():
             logger.warning(f"Font directory not found: {fonts_dir}")
             return False
 
         loaded_count = 0
         for font_file in fonts_dir.glob("**/*.ttf"):
-            font_id = QFontDatabase.addApplicationFont(str(font_file))
+            font_id = QFontDatabase.addApplicationFont(str(font_file.absolute()))
             if font_id != -1:
                 families = QFontDatabase.applicationFontFamilies(font_id)
                 self._loaded_fonts.update(families)
                 loaded_count += 1
-                logger.debug(f"Loaded font: {font_file.name} -> families: {families}")
-            else:
-                logger.warning(f"Failed to load font: {font_file}")
 
         if loaded_count > 0:
-            logger.info(f"Loaded {loaded_count} {expected_family} font files from {fonts_dir.name}")
+            logger.info(f"Loaded {loaded_count} {expected_family} font files")
             return True
         else:
-            logger.error(f"No fonts loaded from {fonts_dir}")
+            logger.warning(f"No fonts loaded from {expected_family} directory")
             return False
 
     def get_font_family(self, weight: str = "regular", display: bool = False) -> str:
@@ -373,6 +372,9 @@ class ThemeManager:
             italic: Whether to italicize
             bold: Whether to bold
             display: If True, uses display font (Alata); if False, uses primary font (DM Sans)
+
+        Returns:
+            QFont object using the custom loaded font family
         """
         # Handle size being int or string
         if isinstance(size, int):

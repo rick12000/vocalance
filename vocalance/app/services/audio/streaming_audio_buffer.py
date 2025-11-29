@@ -1,11 +1,16 @@
-"""Streaming audio buffer with dual offset tracking.
+"""Streaming audio buffer matching WhisperLive's methodology.
 
-Implements offset management for streaming audio:
-- frames_offset: How much audio has been trimmed from the buffer
-- timestamp_offset: How much audio has been processed/finalized
+Implements WhisperLive's exact offset management for streaming audio:
+- frames_np (buffer): The audio buffer (grows continuously, trims at 45s)
+- frames_offset: How much audio has been trimmed from start (advances by 30s when buffer > 45s)
+- timestamp_offset: How much audio has been "processed" (advances when segments finalize)
 
-Audio returned for transcription is: buffer[timestamp_offset - frames_offset:]
-This ensures we only transcribe unprocessed audio.
+Key principle: NO OVERLAP PARAMETER
+WhisperLive sends buffer[timestamp_offset:] to Whisper. The "overlap" comes naturally because:
+1. Whisper returns segments with relative timestamps (0-30s)
+2. Only COMPLETE segments advance timestamp_offset
+3. The LAST segment (incomplete) does NOT advance the offset
+4. Next transcription re-processes the incomplete segment's audio
 """
 
 import asyncio
@@ -35,19 +40,19 @@ class StreamingSegment:
 
 
 class StreamingAudioBuffer:
-    """Streaming audio buffer with dual offset tracking.
+    """Streaming audio buffer matching WhisperLive's ServeClientBase exactly.
 
-    Key design principles:
-    1. frames_offset tracks how much audio has been trimmed from buffer start
-    2. timestamp_offset tracks how much audio has been processed/finalized
-    3. get_audio_for_transcription() returns buffer[timestamp_offset - frames_offset:]
-    4. After finalization, timestamp_offset += segment_end_time
-    5. Buffer auto-trims when > 45s, advancing frames_offset
+    WhisperLive's approach (from base.py):
+    1. frames_np grows continuously with add_frames()
+    2. When buffer > 45s, trim 30s and advance frames_offset by 30
+    3. If timestamp_offset < frames_offset after trim, sync them
+    4. get_audio_chunk_for_processing() returns buffer[(timestamp_offset - frames_offset):]
+    5. timestamp_offset advances ONLY when segments are finalized
 
     This ensures:
     - Only unprocessed audio is sent to Whisper
-    - No re-transcription of already-finalized content
-    - Proper context preservation
+    - Incomplete segments get re-transcribed with more audio context
+    - No artificial overlap parameter needed
 
     Attributes:
         sample_rate: Audio sample rate in Hz.
@@ -57,12 +62,12 @@ class StreamingAudioBuffer:
 
     RATE = 16000
 
-    # Trim when > 45s, keep last 15s (trim 30s)
+    # Match WhisperLive: Trim when > 45s, trim 30s (keep last 15s)
     MAX_BUFFER_SECONDS = 45.0
     TRIM_SECONDS = 30.0
 
     def __init__(self, sample_rate: int = 16000):
-        """Initialize buffer with dual offset tracking.
+        """Initialize buffer with dual offset tracking (matches WhisperLive).
 
         Args:
             sample_rate: Audio sample rate in Hz.
@@ -74,17 +79,19 @@ class StreamingAudioBuffer:
         self._lock = asyncio.Lock()
         self._last_chunk_time = time.time()
 
-        # Dual offset tracking
+        # Dual offset tracking (matches WhisperLive's frames_offset and timestamp_offset)
         self.timestamp_offset: float = 0.0  # How much audio has been processed
         self.frames_offset: float = 0.0  # How much audio has been trimmed
 
-        logger.debug("StreamingAudioBuffer initialized with dual offset tracking")
+        logger.debug("StreamingAudioBuffer initialized (WhisperLive methodology)")
 
     async def add_chunk(self, audio_chunk: np.ndarray) -> None:
-        """Add audio chunk to buffer.
+        """Add audio chunk to buffer (matches WhisperLive's add_frames).
 
-        Auto-trims buffer if it exceeds MAX_BUFFER_SECONDS, advancing frames_offset.
-        Also syncs timestamp_offset if it falls behind frames_offset.
+        WhisperLive's add_frames() logic:
+        1. If buffer > 45s, trim 30s and advance frames_offset
+        2. If timestamp_offset < frames_offset, sync them (no speech detected)
+        3. Append new audio to buffer
 
         Args:
             audio_chunk: Numpy array of int16 or float32 audio samples.
@@ -92,64 +99,83 @@ class StreamingAudioBuffer:
         async with self._lock:
             self._last_chunk_time = time.time()
 
-            # Convert to float32 if needed
+            # Convert to float32 if needed (WhisperLive expects float32)
             if audio_chunk.dtype == np.int16:
                 audio_chunk = audio_chunk.astype(np.float32) / 32768.0
 
+            # WhisperLive: if frames_np.shape[0] > 45*RATE
             if self._buffer is not None and len(self._buffer) > self.MAX_BUFFER_SECONDS * self.RATE:
-                # Trim oldest TRIM_SECONDS of audio
+                # WhisperLive: frames_offset += 30.0
                 self.frames_offset += self.TRIM_SECONDS
+                # WhisperLive: frames_np = frames_np[int(30*RATE):]
                 trim_samples = int(self.TRIM_SECONDS * self.RATE)
                 self._buffer = self._buffer[trim_samples:]
 
-                # Sync timestamp_offset if it fell behind (no speech detected)
+                # WhisperLive: if timestamp_offset < frames_offset: timestamp_offset = frames_offset
+                # "this basically means that there is no speech as timestamp offset hasnt updated"
                 if self.timestamp_offset < self.frames_offset:
+                    logger.debug(
+                        f"timestamp_offset ({self.timestamp_offset:.2f}s) behind frames_offset "
+                        f"({self.frames_offset:.2f}s) - syncing (no speech detected)"
+                    )
                     self.timestamp_offset = self.frames_offset
 
                 logger.debug(
-                    f"Buffer auto-trimmed: frames_offset={self.frames_offset:.2f}s, timestamp_offset={self.timestamp_offset:.2f}s"
+                    f"Buffer trimmed: frames_offset={self.frames_offset:.2f}s, " f"timestamp_offset={self.timestamp_offset:.2f}s"
                 )
 
-            # Append to buffer
+            # WhisperLive: if frames_np is None: frames_np = frame_np.copy()
+            # else: frames_np = np.concatenate((frames_np, frame_np), axis=0)
             if self._buffer is None:
                 self._buffer = audio_chunk.copy()
             else:
                 self._buffer = np.concatenate([self._buffer, audio_chunk])
 
     async def get_audio_for_transcription(self) -> Optional[tuple[bytes, float]]:
-        """Get unprocessed audio for transcription.
+        """Get unprocessed audio for transcription (matches WhisperLive's get_audio_chunk_for_processing).
 
-        Returns audio from timestamp_offset onwards, NOT the entire buffer.
-        This is the key difference from our previous implementation.
+        WhisperLive's exact logic:
+            samples_take = max(0, (timestamp_offset - frames_offset) * RATE)
+            input_bytes = frames_np[int(samples_take):].copy()
+            duration = input_bytes.shape[0] / RATE
+            return input_bytes, duration
+
+        NO OVERLAP PARAMETER - WhisperLive doesn't use one. The natural overlap comes from:
+        - Only complete segments advance timestamp_offset
+        - Incomplete segments get re-transcribed with more context
 
         Returns:
             Tuple of (audio_bytes, duration) or None if not enough audio.
-            - audio_bytes: Audio data from timestamp_offset onwards
-            - duration: Duration of returned audio in seconds
         """
         async with self._lock:
-            if self._buffer is None or len(self._buffer) == 0:
+            if self._buffer is None:
                 return None
 
-            # Calculate samples to skip (already processed)
-            samples_to_skip = max(0, int((self.timestamp_offset - self.frames_offset) * self.RATE))
+            # WhisperLive: samples_take = max(0, (timestamp_offset - frames_offset) * RATE)
+            samples_take = max(0, int((self.timestamp_offset - self.frames_offset) * self.RATE))
+            # WhisperLive: input_bytes = frames_np[int(samples_take):].copy()
+            input_bytes = self._buffer[samples_take:].copy()
+            # WhisperLive: duration = input_bytes.shape[0] / RATE
+            duration = len(input_bytes) / self.RATE
 
-            # Get unprocessed portion
-            if samples_to_skip >= len(self._buffer):
+            if len(input_bytes) == 0:
                 return None
 
-            unprocessed_audio = self._buffer[samples_to_skip:].copy()
-            duration = len(unprocessed_audio) / self.RATE
+            # Convert to int16 bytes for our STT service
+            audio_int16 = (input_bytes * 32768.0).astype(np.int16)
 
-            # Convert to int16 bytes
-            audio_int16 = (unprocessed_audio * 32768.0).astype(np.int16)
+            logger.debug(
+                f"get_audio_for_transcription: samples_take={samples_take}, "
+                f"duration={duration:.2f}s, timestamp_offset={self.timestamp_offset:.2f}s"
+            )
 
             return audio_int16.tobytes(), duration
 
     async def advance_timestamp_offset(self, offset_advance: float) -> None:
         """Advance timestamp_offset after finalizing segments.
 
-        This is called after segments are finalized.
+        WhisperLive advances timestamp_offset by segment.end time (relative to chunk start),
+        NOT by the full duration. This is called after segments are finalized.
 
         Args:
             offset_advance: Seconds to advance the timestamp offset.
@@ -233,65 +259,32 @@ class StreamingAudioBuffer:
         async with self._lock:
             return self.frames_offset
 
-    async def clip_audio_if_no_valid_segment(self, duration: float) -> None:
-        """Clip audio if no valid segment for too long.
+    async def clip_audio_if_no_valid_segment(self) -> None:
+        """Clip audio if no valid segment for too long (matches WhisperLive's clip_audio_if_no_valid_segment).
 
-        If unprocessed audio is very long (>20s), advance timestamp_offset to skip most of it.
-        This prevents losing speech that VAD might have filtered.
+        WhisperLive's logic:
+            if frames_np[(timestamp_offset - frames_offset)*RATE:].shape[0] > 25 * RATE:
+                duration = frames_np.shape[0] / RATE
+                timestamp_offset = frames_offset + duration - 5
 
-        Args:
-            duration: Current audio chunk duration.
+        This clips to keep only the last 5 seconds when unprocessed audio exceeds 25s.
         """
         async with self._lock:
             if self._buffer is None:
                 return
 
+            # WhisperLive: frames_np[int((timestamp_offset - frames_offset)*RATE):].shape[0] > 25 * RATE
             samples_to_skip = int((self.timestamp_offset - self.frames_offset) * self.RATE)
             unprocessed_samples = len(self._buffer) - samples_to_skip
 
-            # Only clip if > 20s unprocessed
-            if unprocessed_samples > 20 * self.RATE:
+            if unprocessed_samples > 25 * self.RATE:
+                # WhisperLive: duration = frames_np.shape[0] / RATE
                 total_duration = len(self._buffer) / self.RATE
-                new_offset = self.frames_offset + total_duration - 8
-                advance_amount = new_offset - self.timestamp_offset
-                self.timestamp_offset = new_offset
+                # WhisperLive: timestamp_offset = frames_offset + duration - 5
+                new_timestamp_offset = self.frames_offset + total_duration - 5
+                advance_amount = new_timestamp_offset - self.timestamp_offset
+                self.timestamp_offset = new_timestamp_offset
                 logger.warning(
-                    f"Clipped {advance_amount:.2f}s of audio due to no valid segment, new timestamp_offset: {self.timestamp_offset:.2f}s"
+                    f"Clipped {advance_amount:.2f}s of audio (no valid segment), "
+                    f"new timestamp_offset: {self.timestamp_offset:.2f}s"
                 )
-
-    async def advance_timestamp_offset_conservative(self, max_advance: float = 0.5) -> float:
-        """Conservatively advance timestamp offset for silence handling.
-
-        Unlike advance_timestamp_offset which adds a specific amount,
-        this method advances by a small amount to prevent audio loss
-        during silence while still making progress.
-
-        Args:
-            max_advance: Maximum seconds to advance (default 0.5s).
-
-        Returns:
-            Actual amount advanced.
-        """
-        async with self._lock:
-            if self._buffer is None:
-                return 0.0
-
-            unprocessed = await self._get_unprocessed_duration_unlocked()
-
-            # Only advance if we have significant unprocessed audio
-            # and leave at least 2s of audio for next transcription
-            if unprocessed > 3.0:
-                advance = min(max_advance, unprocessed - 2.0)
-                if advance > 0:
-                    self.timestamp_offset += advance
-                    logger.debug(f"Conservative advance: {advance:.2f}s, unprocessed remaining: {unprocessed - advance:.2f}s")
-                    return advance
-            return 0.0
-
-    async def _get_unprocessed_duration_unlocked(self) -> float:
-        """Get unprocessed duration without acquiring lock (for internal use)."""
-        if self._buffer is None:
-            return 0.0
-        total_duration = len(self._buffer) / self.RATE
-        processed_in_buffer = self.timestamp_offset - self.frames_offset
-        return max(0, total_duration - processed_in_buffer)

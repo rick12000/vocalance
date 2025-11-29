@@ -498,154 +498,45 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"Error handling audio chunk for streaming: {e}", exc_info=True)
 
-    def _texts_are_similar(self, text1: str, text2: str, threshold: float = 0.8) -> bool:
-        """Check if two texts are similar enough to be considered the same output.
-
-        Whisper often returns slightly different text for the same audio:
-        - "showing the transformed output." vs "showing the transformed"
-        - "and then showing" vs "and showing"
-
-        This uses a simple overlap-based similarity to handle these variations.
-
-        Args:
-            text1: First text to compare.
-            text2: Second text to compare.
-            threshold: Minimum similarity ratio (0.0 to 1.0).
-
-        Returns:
-            True if texts are similar enough.
-        """
-        if not text1 or not text2:
-            return False
-
-        t1 = text1.strip().lower()
-        t2 = text2.strip().lower()
-
-        # Exact match
-        if t1 == t2:
-            return True
-
-        # One is a prefix/suffix of the other (common with trailing words)
-        if t1.startswith(t2) or t2.startswith(t1):
-            shorter = min(len(t1), len(t2))
-            longer = max(len(t1), len(t2))
-            if shorter / longer >= threshold:
-                return True
-
-        # Word-based overlap for longer texts
-        words1 = set(t1.split())
-        words2 = set(t2.split())
-        if len(words1) >= 3 and len(words2) >= 3:
-            intersection = len(words1 & words2)
-            union = len(words1 | words2)
-            if union > 0 and intersection / union >= threshold:
-                return True
-
-        return False
-
-    def _is_gibberish_text(self, text: str, strict: bool = False) -> bool:
-        """Secondary gibberish detection at coordinator level.
-
-        This provides a safety net in case hallucinations slip through the STT layer.
-        Checks for common Whisper hallucination patterns that indicate no real speech.
-
-        Args:
-            text: Text to check for gibberish patterns.
-            strict: If True, use stricter filtering (for partials shown to user).
-
-        Returns:
-            True if the text appears to be gibberish/hallucination.
-        """
-        if not text or not text.strip():
-            return True
-
-        text = text.strip()
-
-        # Only punctuation/dots/symbols (very common hallucination)
-        alpha_count = sum(1 for c in text if c.isalpha())
-        if alpha_count == 0:
-            return True
-
-        # For strict mode (partials), require at least 2 alpha chars
-        if strict and alpha_count < 2:
-            return True
-
-        # Repetitive patterns (e.g., "4.4.4.4", ". . . . .")
-        stripped = text.replace(" ", "")
-        if len(stripped) > 3:
-            unique_chars = len(set(stripped))
-            # Stricter: if mostly same chars repeated
-            if unique_chars <= 2:
-                return True
-            # For strict mode, also catch 3 unique chars in long strings
-            if strict and len(stripped) > 10 and unique_chars <= 3:
-                return True
-
-        # Check for repeating short patterns (e.g., "4.4.4", ". . .")
-        if len(stripped) > 5:
-            for pattern_len in range(1, 4):
-                if pattern_len >= len(stripped):
-                    continue
-                pattern = stripped[:pattern_len]
-                repetitions = stripped.count(pattern)
-                threshold = len(stripped) / (pattern_len + 0.5) if strict else len(stripped) / (pattern_len + 1)
-                if repetitions > threshold:
-                    return True
-
-        # Very low alpha ratio (mostly symbols/numbers in repetitive pattern)
-        alpha_ratio = alpha_count / len(text)
-        if len(text) > 5 and alpha_ratio < (0.4 if strict else 0.3):
-            return True
-
-        # Strict mode: check for suspicious short patterns like ". . . ."
-        if strict:
-            # Count dots and spaces vs other chars
-            dots_spaces = sum(1 for c in text if c in ". ")
-            if len(text) > 3 and dots_spaces / len(text) > 0.6:
-                return True
-
-        return False
-
     async def _streaming_transcription_loop(self) -> None:
-        """Streaming transcription loop for continuous processing.
+        """Streaming transcription loop matching WhisperLive's methodology exactly.
 
-        Processes audio in a continuous loop, sleeping only when insufficient audio is available.
-        Handles multi-segment processing, finalizing all but the last segment immediately.
-        Detects same-output repetition for the last segment.
+        WhisperLive's approach (from base.py speech_to_text and update_segments):
+        1. Get unprocessed audio from buffer[timestamp_offset:]
+        2. Transcribe with Whisper
+        3. If len(segments) > 1 and last segment valid: finalize all but last, advance offset
+        4. Last segment becomes current_out (partial)
+        5. Same-output detection: EXACT string match, capture end_time on FIRST repetition
+        6. On threshold hit: finalize using end_time_for_same_output (not current end_time)
+        7. Empty results: advance full duration and sleep 0.25s
+
+        Key differences from previous implementation:
+        - NO gibberish filtering (rely on no_speech_prob only)
+        - EXACT string comparison for same-output (not fuzzy)
+        - Simple duplicate check (exact match with last segment)
+        - Empty results advance full duration (WhisperLive behavior)
         """
         try:
+            # WhisperLive defaults
             MIN_AUDIO_SECONDS = 1.0
-            SAME_OUTPUT_THRESHOLD = 7
-            NO_SPEECH_THRESH = 0.45
-
-            # Conservative offset advancement settings
-            MAX_CONSECUTIVE_EMPTY = 8  # After 8 empty results (~2s), assume true silence
-            CONSERVATIVE_ADVANCE_SECONDS = 0.5  # Only advance by 0.5s at a time
-            MAX_UNPROCESSED_BEFORE_CLIP = 15.0  # Only clip if unprocessed > 15s
+            SAME_OUTPUT_THRESHOLD = 10  # WhisperLive default
+            NO_SPEECH_THRESH = 0.45  # WhisperLive default
 
             logger.info(
-                f"Starting streaming loop (continuous, min_audio={MIN_AUDIO_SECONDS}s, same_output_threshold={SAME_OUTPUT_THRESHOLD})"
+                f"Starting streaming loop (WhisperLive methodology, "
+                f"same_output_threshold={SAME_OUTPUT_THRESHOLD}, no_speech_thresh={NO_SPEECH_THRESH})"
             )
 
-            # State tracking for streaming transcription
-            current_out = ""  # Current incomplete segment text
-            prev_out = ""  # Previous incomplete segment text
-            same_output_count = 0  # Repetition counter
-            end_time_for_same_output: Optional[float] = None  # Timestamp when repetition FIRST occurred
-            segment_id = ""
-
-            # List of all processed text segments for duplicate detection
-            all_text_segments: list[str] = []
-
-            # Track finalized segments separately for UI emission
-            finalized_segments: list[str] = []
-
-            # Silence detection - track consecutive empty results
-            consecutive_empty_results = 0
-            time.time()
+            # State tracking - matches WhisperLive's ServeClientBase exactly
+            text: list[str] = []  # All finalized text segments (WhisperLive: self.text)
+            current_out = ""  # Current incomplete segment (WhisperLive: self.current_out)
+            prev_out = ""  # Previous incomplete segment (WhisperLive: self.prev_out)
+            same_output_count = 0  # Repetition counter (WhisperLive: self.same_output_count)
+            end_time_for_same_output: Optional[float] = None  # FIRST repetition time (WhisperLive: self.end_time_for_same_output)
+            segment_id = str(uuid.uuid4())
 
             while True:
-                # Check session is still valid FIRST (before any processing)
+                # Check session is still valid
                 with self._state_lock:
                     session = self._current_session
                     buffer = self._streaming_buffer
@@ -658,11 +549,10 @@ class DictationCoordinator:
                         logger.debug("Streaming loop: Not in streaming mode, exiting")
                         break
 
-                # Get unprocessed audio for transcription
+                # Get unprocessed audio (NO OVERLAP - matches WhisperLive)
                 audio_result = await buffer.get_audio_for_transcription()
 
                 if not audio_result:
-                    # No audio yet - brief sleep and continue
                     await asyncio.sleep(0.05)
                     continue
 
@@ -670,254 +560,134 @@ class DictationCoordinator:
 
                 # Skip if not enough audio
                 if duration < MIN_AUDIO_SECONDS:
-                    await asyncio.sleep(0.1)  # Wait for more audio to arrive
+                    await asyncio.sleep(0.1)
                     continue
 
-                # Transcribe with segment timestamps
                 if not self._stt_service:
                     await asyncio.sleep(0.1)
                     continue
 
-                # Get current timestamp_offset for absolute timestamp calculation
-                current_timestamp_offset = await buffer.get_timestamp_offset()
-
-                # Check if unprocessed audio is approaching context limit - force finalization
-                # This prevents losing partial text when audio exceeds Whisper's window
-                unprocessed_duration = await buffer.get_unprocessed_duration()
-                MAX_UNPROCESSED_BEFORE_FORCE_FINALIZE = 20.0  # Force finalize at 20s
-
-                if unprocessed_duration > MAX_UNPROCESSED_BEFORE_FORCE_FINALIZE and current_out:
-                    # Force finalize the current partial to prevent loss
-                    if not self._is_gibberish_text(current_out):
-                        is_duplicate = (
-                            any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
-                            if all_text_segments
-                            else False
-                        )
-                        if not is_duplicate:
-                            all_text_segments.append(current_out.strip())
-                            finalized_segments.append(current_out.strip())
-                            await self._emit_final_text_append(current_out.strip(), segment_id, session)
-                            logger.info(
-                                f"Force finalized due to long unprocessed audio ({unprocessed_duration:.1f}s): '{current_out[:50]}...'"
-                            )
-
-                            # Advance offset to the end of what we finalized
-                            # Use the end_time_for_same_output if available, otherwise estimate
-                            if end_time_for_same_output is not None:
-                                await buffer.advance_timestamp_offset(end_time_for_same_output)
-
-                            # Reset state for next segment
-                            current_out = ""
-                            prev_out = ""
-                            same_output_count = 0
-                            end_time_for_same_output = None
-                            segment_id = str(uuid.uuid4())
-
-                text, confidence, segments = await self._stt_service.recognize_streaming(
+                # Transcribe
+                _, _, segments = await self._stt_service.recognize_streaming(
                     audio_bytes=audio_bytes,
                     sample_rate=self.config.audio.sample_rate,
                     return_segments=True,
                 )
 
+                # WhisperLive: if result is None or result[0] is None: timestamp_offset += duration; sleep(0.25)
                 if not segments:
-                    # No valid segments returned - BUT DON'T advance full offset!
-                    # VAD may have filtered audio that contains speech START
-                    consecutive_empty_results += 1
-
-                    # Only advance offset conservatively after prolonged silence
-                    # This prevents losing speech that VAD filtered at the beginning
-                    unprocessed_duration = await buffer.get_unprocessed_duration()
-
-                    if consecutive_empty_results >= MAX_CONSECUTIVE_EMPTY:
-                        # True prolonged silence - safe to advance conservatively
-                        if unprocessed_duration > MAX_UNPROCESSED_BEFORE_CLIP:
-                            # Only clip if we have a lot of unprocessed audio
-                            advance_amount = min(CONSERVATIVE_ADVANCE_SECONDS, unprocessed_duration - 2.0)
-                            if advance_amount > 0:
-                                await buffer.advance_timestamp_offset(advance_amount)
-                                logger.debug(f"Prolonged silence: advanced offset by {advance_amount:.2f}s")
-
-                        # Finalize any pending valid text before clearing
-                        if current_out and not self._is_gibberish_text(current_out):
-                            is_duplicate = (
-                                any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
-                                if all_text_segments
-                                else False
-                            )
-                            if not is_duplicate:
-                                all_text_segments.append(current_out.strip())
-                                finalized_segments.append(current_out.strip())
-                                await self._emit_final_text_append(current_out.strip(), segment_id, session)
-                                logger.debug(f"Finalized due to silence: '{current_out[:50]}...'")
-
-                        # Reset state for silence period
-                        current_out = ""
-                        prev_out = ""
-                        same_output_count = 0
-                        end_time_for_same_output = None
-                        segment_id = str(uuid.uuid4())
-                        consecutive_empty_results = 0  # Reset counter after handling
-
-                    await asyncio.sleep(0.2)  # Wait for voice activity
+                    # WhisperLive advances full duration on empty results
+                    await buffer.advance_timestamp_offset(duration)
+                    logger.debug(f"No segments, advanced offset by {duration:.2f}s (WhisperLive behavior)")
+                    await asyncio.sleep(0.25)
                     continue
 
-                # We got segments - reset silence counter and update last valid time
-                consecutive_empty_results = 0
-                time.time()
+                # Track offset to advance
+                offset: Optional[float] = None
 
-                offset_to_advance: Optional[float] = None
-                all_segments_gibberish = (
-                    True  # Track if all segments are gibberish                # Process complete segments (all but last)
-                )
-                # If multiple segments and last segment is valid, finalize all but last immediately
+                # WhisperLive: Process segments from update_segments()
+                # if len(segments) > 1 and segments[-1].no_speech_prob <= no_speech_thresh:
                 if len(segments) > 1:
                     last_seg_no_speech = segments[-1].get("no_speech_prob", 0)
                     if last_seg_no_speech <= NO_SPEECH_THRESH:
+                        # Finalize all but last segment
                         for seg in segments[:-1]:
                             seg_text = seg["text"].strip()
                             seg_no_speech = seg.get("no_speech_prob", 0)
-                            seg_start = seg["start"]
                             seg_end = seg["end"]
 
-                            # Always append to all_text_segments for tracking
-                            if seg_text:
-                                all_text_segments.append(seg_text)
-
-                            # Skip if start >= end
-                            if seg_start >= seg_end:
-                                continue
-
-                            # Skip if no_speech_prob too high
+                            # WhisperLive: if segment.no_speech_prob > no_speech_thresh: continue
                             if seg_no_speech > NO_SPEECH_THRESH:
                                 continue
+
                             if not seg_text:
                                 continue
 
-                            # Secondary gibberish check - safety net
-                            if self._is_gibberish_text(seg_text):
-                                logger.debug(f"Filtered gibberish segment: '{seg_text[:30]}...'")
-                                continue
+                            # WhisperLive: Simple duplicate check - if self.text[-1] != segment.text
+                            is_duplicate = False
+                            if text:
+                                if text[-1].strip() == seg_text:
+                                    logger.debug(f"Skipping duplicate: '{seg_text[:30]}...'")
+                                    is_duplicate = True
 
-                            # Calculate absolute timestamps
-                            absolute_start = current_timestamp_offset + seg_start
-                            absolute_end = current_timestamp_offset + min(duration, seg_end)
+                            if not is_duplicate:
+                                text.append(seg_text)
+                                await self._emit_final_text_append(seg_text, str(uuid.uuid4()), session)
+                                logger.debug(f"Finalized segment: '{seg_text[:50]}...'")
 
-                            # Duplicate check against all_text_segments using fuzzy matching
-                            # This catches near-duplicates that differ by a few words
-                            is_duplicate = (
-                                any(self._texts_are_similar(ts, seg_text, 0.8) for ts in all_text_segments[-10:])
-                                if len(all_text_segments) > 1
-                                else False
-                            )
-                            if is_duplicate:
-                                logger.debug(f"Skipping duplicate segment: '{seg_text[:30]}...'")
-                                continue
-
-                            # Finalize this complete segment immediately
-                            finalized_segments.append(seg_text)
-                            await self._emit_final_text_append(seg_text, str(uuid.uuid4()), session)
-                            logger.debug(
-                                f"Finalized complete segment [{absolute_start:.2f}s-{absolute_end:.2f}s]: '{seg_text[:50]}...'"
-                            )
-
-                            # Track offset for advancement
-                            offset_to_advance = min(duration, seg_end)
-                            all_segments_gibberish = False  # We found a valid segment
+                            # WhisperLive: offset = segment.end
+                            offset = seg_end
 
                 # Process last segment
                 last_segment = segments[-1]
                 last_seg_no_speech = last_segment.get("no_speech_prob", 0)
+                last_seg_text = last_segment["text"].strip()
                 last_seg_end = last_segment["end"]
 
+                # WhisperLive: if segment.no_speech_prob <= no_speech_thresh: current_out = segment.text
                 if last_seg_no_speech <= NO_SPEECH_THRESH:
-                    # Set current_out first
-                    candidate_text = last_segment["text"].strip()
-                    # Filter gibberish before setting current_out (use strict mode for partials)
-                    if self._is_gibberish_text(candidate_text, strict=True):
-                        logger.debug(f"Filtered gibberish last segment: '{candidate_text[:30]}...'")
-                        current_out = ""
-                    else:
-                        current_out = candidate_text
-                        all_segments_gibberish = False  # At least one valid segment
+                    current_out = last_seg_text
                 else:
                     current_out = ""
 
-                # If ALL segments were gibberish, advance offset to prevent getting stuck
-                # This is critical to break out of hallucination loops
-                if all_segments_gibberish and offset_to_advance is None:
-                    # Advance by a small amount to move past the problematic audio
-                    advance_amount = min(duration, 2.0)  # Advance up to 2 seconds
-                    await buffer.advance_timestamp_offset(advance_amount)
-                    logger.warning(f"All segments gibberish, advancing offset by {advance_amount:.2f}s to break loop")
-                    # Reset same-output tracking to prevent corruption
-                    same_output_count = 0
-                    prev_out = ""
-                    end_time_for_same_output = None
-                    continue
-
-                # Same-output detection
-                # Use fuzzy matching because Whisper often returns slightly different text:
-                # "showing the transformed output." vs "showing the transformed"
-                if current_out != "" and self._texts_are_similar(current_out, prev_out, threshold=0.75):
+                # WhisperLive: Same-output detection (EXACT STRING MATCH)
+                # if current_out.strip() == prev_out.strip() and current_out.strip() != '':
+                if current_out.strip() == prev_out.strip() and current_out.strip() != "":
                     same_output_count += 1
-                    # Capture end time on first repetition
+                    # WhisperLive: Capture end time on FIRST repetition only
                     if end_time_for_same_output is None:
                         end_time_for_same_output = last_seg_end
+                        logger.debug(f"Same output #{same_output_count}, captured end_time={end_time_for_same_output:.2f}s")
                 else:
                     same_output_count = 0
                     end_time_for_same_output = None
 
-                # Finalize if same output repeated enough
+                # WhisperLive: Finalize on threshold
+                # if same_output_count > same_output_threshold:
                 if same_output_count > SAME_OUTPUT_THRESHOLD:
-                    # Check against all_text_segments using fuzzy matching
-                    is_duplicate = (
-                        any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
-                        if all_text_segments
-                        else False
-                    )
+                    # WhisperLive: if len(self.text) and self.text[-1] != current_out
+                    is_duplicate = False
+                    if text:
+                        if text[-1].strip() == current_out.strip():
+                            is_duplicate = True
+                            logger.debug(f"Same-output duplicate, skipping: '{current_out[:30]}...'")
 
                     if not is_duplicate and current_out.strip():
-                        all_text_segments.append(current_out.strip())
-                        finalized_segments.append(current_out.strip())
+                        text.append(current_out.strip())
                         await self._emit_final_text_append(current_out.strip(), segment_id, session)
-                        logger.debug(f"Finalized after {same_output_count} same outputs: '{current_out[:50]}...'")
+                        logger.info(f"Finalized after {same_output_count} same outputs: '{current_out[:50]}...'")
+
+                    # WhisperLive: offset = end_time_for_same_output (use FIRST occurrence time)
+                    offset = end_time_for_same_output
 
                     # Reset state
                     current_out = ""
-                    offset_to_advance = min(duration, end_time_for_same_output) if end_time_for_same_output else None
+                    prev_out = ""
                     same_output_count = 0
                     end_time_for_same_output = None
                     segment_id = str(uuid.uuid4())
                 else:
-                    # Update prev_out only when not finalizing
+                    # Update prev_out for next iteration
                     prev_out = current_out
 
-                # Advance offset if we finalized anything
-                if offset_to_advance is not None:
-                    await buffer.advance_timestamp_offset(offset_to_advance)
+                # WhisperLive: Advance offset if we finalized anything
+                # if offset is not None: timestamp_offset += offset
+                if offset is not None:
+                    await buffer.advance_timestamp_offset(offset)
+                    logger.debug(f"Advanced offset by {offset:.2f}s")
 
-                # STEP 6: Emit partial for incomplete segment (skip for hidden mode)
-                # Only emit if we have valid non-gibberish text
+                # Emit partial for UI (skip for hidden mode)
                 if current_out and session.mode != DictationMode.HIDDEN:
-                    if not segment_id:
-                        segment_id = str(uuid.uuid4())
                     text_with_subs = self.alias_service.apply_substitutions(current_out)
                     await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
 
-                # Brief yield to allow other tasks to run (prevents UI freeze)
-                # But keep it minimal for responsiveness
+                # Brief yield
                 await asyncio.sleep(0.01)
 
         except asyncio.CancelledError:
-            # Save current unfinalized text before exiting
-            if current_out.strip() and not self._is_gibberish_text(current_out):
-                # Check for duplicate using fuzzy matching
-                is_duplicate = (
-                    any(self._texts_are_similar(ts, current_out, 0.8) for ts in all_text_segments[-5:])
-                    if all_text_segments
-                    else False
-                )
+            # Save remaining partial text
+            if current_out.strip():
+                is_duplicate = text and text[-1].strip() == current_out.strip()
                 if not is_duplicate:
                     if self._streaming_finalized_text:
                         self._streaming_finalized_text += " " + current_out.strip()
