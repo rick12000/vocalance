@@ -1,28 +1,3 @@
-"""Qt theme system with QSS stylesheets and theme management.
-
-Provides centralized theme configuration for PySide6 UI with:
-- Design tokens: Text colors (lightest, light, medium), Shape colors (accent through darkest)
-- Blue accent colors for interactive elements
-- Spacing and border radius scales
-- Container and layout spacing hierarchy
-- Component dimensions and positioning
-- Runtime theme application and stylesheet management
-- Dual custom font system (Alata + DM Sans)
-
-FONTS:
-- Alata: Display font for titles, headers, and prominent text elements
-- DM Sans: Primary font for body text and general UI elements
-- Both fonts are loaded from custom directories, not system fonts
-- Components can specify display=True to use Alata, otherwise default to DM Sans
-
-SPACING HIERARCHY:
-1. Container Border (1px) - outermost boundary
-2. Container Padding - space between border and content (box_padding)
-3. Content Margin - space for content inside containers
-4. Item Spacing - space between items in lists/grids
-5. Element Padding - internal padding within elements
-"""
-
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path

@@ -1,9 +1,3 @@
-"""Qt-based main application window.
-
-Main window with sidebar navigation and stacked content area for tabs.
-Replaces CustomTkinter AppControlRoom with Qt-native implementation.
-"""
-
 import asyncio
 import logging
 import threading

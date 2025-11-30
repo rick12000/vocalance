@@ -46,22 +46,18 @@ class CommandAudioListener:
         self.config = config
         self.sample_rate = config.audio.sample_rate
 
-        # VAD parameters (expressed as multiples of 50ms base unit)
-        # Command mode: responsive, short timeouts
         self.energy_threshold = config.vad.command_energy_threshold
         self.silence_threshold = self.energy_threshold * config.vad.silence_threshold_multiplier
         self.silent_chunks_for_end = config.vad.command_silent_chunks_for_end
         self.pre_roll_chunks = config.vad.command_pre_roll_buffers
-        self.min_duration_chunks = int(config.vad.command_min_recording_duration / 0.05)  # Convert to chunks
+        self.min_duration_chunks = int(config.vad.command_min_recording_duration / 0.05)
         self.max_duration_chunks = int(config.vad.command_max_recording_duration / 0.05)
 
-        # Adaptive noise floor
         self.adaptive_margin_multiplier = config.vad.command_adaptive_margin_multiplier
         self._noise_floor = config.vad.noise_floor_initial_value
         self._noise_samples = []
         self._max_noise_samples = config.vad.max_noise_samples
 
-        # Buffering state (protected by _state_lock)
         self._pre_roll_buffer = []
         self._audio_buffer = []
         self._is_recording = False
@@ -69,7 +65,6 @@ class CommandAudioListener:
         self._speech_detected_timestamp = None
         self._first_speech_in_buffer = True
 
-        # Async lock for state protection (event handlers are async)
         self._state_lock = asyncio.Lock()
 
         logger.debug(
@@ -92,7 +87,6 @@ class CommandAudioListener:
             event: AudioChunkEvent containing 50ms audio chunk.
         """
         try:
-            # Convert bytes and calculate energy OUTSIDE lock for better performance
             chunk = np.frombuffer(event.audio_chunk, dtype=np.int16)
             energy = self._calculate_energy(chunk)
         except Exception as e:
@@ -101,28 +95,22 @@ class CommandAudioListener:
 
         async with self._state_lock:
             try:
-                # Update noise floor if still collecting samples
                 if energy <= self.energy_threshold and len(self._noise_samples) < self._max_noise_samples:
                     self._update_noise_floor(energy)
 
                 if not self._is_recording:
-                    # STATE: Waiting for speech
-                    # Maintain pre-roll buffer
                     self._pre_roll_buffer.append(chunk)
                     if len(self._pre_roll_buffer) > self.pre_roll_chunks:
                         self._pre_roll_buffer.pop(0)
 
-                    # Check for speech onset
                     if energy > self.energy_threshold:
                         self._is_recording = True
                         self._speech_detected_timestamp = event.timestamp
 
-                        # Include full pre-roll buffer - Vosk needs onset context
                         self._audio_buffer.extend(self._pre_roll_buffer)
                         self._audio_buffer.append(chunk)
                         self._consecutive_silent_chunks = 0
 
-                        # Emit AudioDetectedEvent for Markov prediction (once per audio segment)
                         if self._first_speech_in_buffer:
                             audio_detected_event = AudioDetectedEvent(timestamp=event.timestamp)
                             await self.event_bus.publish(audio_detected_event)
@@ -131,14 +119,11 @@ class CommandAudioListener:
                         logger.debug("Command: Speech detected, started recording")
 
                 else:
-                    # STATE: Recording active speech
                     self._audio_buffer.append(chunk)
 
-                    # Check for silence
                     if energy < self.silence_threshold:
                         self._consecutive_silent_chunks += 1
 
-                        # Check if silence timeout reached
                         if self._consecutive_silent_chunks >= self.silent_chunks_for_end:
                             logger.debug(f"Command: Silence detected ({self._consecutive_silent_chunks} chunks)")
                             await self._finalize_segment()
@@ -146,7 +131,6 @@ class CommandAudioListener:
                     else:
                         self._consecutive_silent_chunks = 0
 
-                    # Check max duration
                     if len(self._audio_buffer) >= self.max_duration_chunks:
                         logger.debug("Command: Max duration reached")
                         await self._finalize_segment()
@@ -165,22 +149,17 @@ class CommandAudioListener:
             self._reset_state()
             return
 
-        # Check minimum duration
         if len(self._audio_buffer) < self.min_duration_chunks:
             logger.debug(f"Command segment too short: {len(self._audio_buffer)} chunks " f"< {self.min_duration_chunks} minimum")
             self._reset_state()
             return
 
-        # Preserve all audio including natural trailing silence
-        # No trimming of trailing silence - let Vosk handle natural audio patterns
         trimmed_buffer = self._audio_buffer
 
-        # Concatenate buffer and convert to bytes
         audio_data = np.concatenate(trimmed_buffer)
         audio_bytes = audio_data.tobytes()
         duration = len(audio_data) / self.sample_rate
 
-        # Emit event
         event = CommandAudioSegmentReadyEvent(audio_bytes=audio_bytes, sample_rate=self.sample_rate)
         await self.event_bus.publish(event)
         logger.info(f"Command segment ready: {duration:.3f}s, " f"{len(trimmed_buffer)} chunks, {len(audio_bytes)} bytes")
@@ -270,8 +249,6 @@ class DictationAudioListener:
         self.config = config
         self.sample_rate = config.audio.sample_rate
 
-        # VAD parameters (expressed as multiples of 50ms base unit)
-        # Dictation mode: longer timeouts, tolerant of pauses
         self.energy_threshold = config.vad.dictation_energy_threshold
         self.silence_threshold = self.energy_threshold * config.vad.silence_threshold_multiplier
         self.silent_chunks_for_end = config.vad.dictation_silent_chunks_for_end
@@ -279,20 +256,17 @@ class DictationAudioListener:
         self.min_duration_chunks = int(config.vad.dictation_min_recording_duration / 0.05)
         self.max_duration_chunks = int(config.vad.dictation_max_recording_duration / 0.05)
 
-        # Adaptive noise floor
         self.adaptive_margin_multiplier = config.vad.dictation_adaptive_margin_multiplier
         self._noise_floor = config.vad.noise_floor_initial_value
         self._noise_samples = []
         self._max_noise_samples = config.vad.max_noise_samples
 
-        # Buffering state (protected by _state_lock)
         self._pre_roll_buffer = []
         self._audio_buffer = []
         self._is_recording = False
         self._consecutive_silent_chunks = 0
         self._speech_detected_timestamp = None
 
-        # Async lock for state protection (event handlers are async)
         self._state_lock = asyncio.Lock()
 
         logger.debug(
@@ -316,7 +290,6 @@ class DictationAudioListener:
             event: AudioChunkEvent containing 50ms audio chunk.
         """
         try:
-            # Convert bytes and calculate energy OUTSIDE lock for better performance
             chunk = np.frombuffer(event.audio_chunk, dtype=np.int16)
             energy = self._calculate_energy(chunk)
         except Exception as e:
@@ -325,18 +298,14 @@ class DictationAudioListener:
 
         async with self._state_lock:
             try:
-                # Update noise floor if still collecting samples
                 if energy <= self.energy_threshold and len(self._noise_samples) < self._max_noise_samples:
                     self._update_noise_floor(energy)
 
                 if not self._is_recording:
-                    # STATE: Waiting for speech
-                    # Maintain pre-roll buffer
                     self._pre_roll_buffer.append(chunk)
                     if len(self._pre_roll_buffer) > self.pre_roll_chunks:
                         self._pre_roll_buffer.pop(0)
 
-                    # Check for speech onset
                     if energy > self.energy_threshold:
                         self._is_recording = True
                         self._speech_detected_timestamp = event.timestamp
@@ -346,14 +315,11 @@ class DictationAudioListener:
                         logger.debug("Dictation: Speech detected, started recording")
 
                 else:
-                    # STATE: Recording active speech
                     self._audio_buffer.append(chunk)
 
-                    # Check for silence
                     if energy < self.silence_threshold:
                         self._consecutive_silent_chunks += 1
 
-                        # Check if silence timeout reached
                         if self._consecutive_silent_chunks >= self.silent_chunks_for_end:
                             logger.debug(f"Dictation: Silence detected ({self._consecutive_silent_chunks} chunks)")
                             await self._finalize_segment()
@@ -361,7 +327,6 @@ class DictationAudioListener:
                     else:
                         self._consecutive_silent_chunks = 0
 
-                    # Check max duration
                     if len(self._audio_buffer) >= self.max_duration_chunks:
                         logger.debug("Dictation: Max duration reached")
                         await self._finalize_segment()
@@ -381,9 +346,7 @@ class DictationAudioListener:
         """
         async with self._state_lock:
             if event.dictation_mode_active:
-                # Clear all buffers when entering dictation mode
                 self._reset_state()
-                # Also explicitly clear pre-roll buffer to ensure no stale pre-trigger audio
                 self._pre_roll_buffer.clear()
                 logger.debug("DictationAudioListener: Cleared buffers on dictation activation - pre-trigger audio discarded")
 
@@ -393,18 +356,15 @@ class DictationAudioListener:
             self._reset_state()
             return
 
-        # Check minimum duration
         if len(self._audio_buffer) < self.min_duration_chunks:
             logger.debug(f"Dictation segment too short: {len(self._audio_buffer)} chunks " f"< {self.min_duration_chunks} minimum")
             self._reset_state()
             return
 
-        # Concatenate buffer and convert to bytes
         audio_data = np.concatenate(self._audio_buffer)
         audio_bytes = audio_data.tobytes()
         duration = len(audio_data) / self.sample_rate
 
-        # Emit event
         event = DictationAudioSegmentReadyEvent(audio_bytes=audio_bytes, sample_rate=self.sample_rate)
         await self.event_bus.publish(event)
         logger.info(f"Dictation segment ready: {duration:.3f}s, " f"{len(self._audio_buffer)} chunks, {len(audio_bytes)} bytes")
@@ -470,9 +430,6 @@ class DictationAudioListener:
         says the stop word, ensuring no audio is lost even if it doesn't meet
         normal publishing criteria.
 
-        Force finalizes any in-progress recording, even if still receiving speech,
-        to capture audio spoken right before the stop word.
-
         Thread-safe: Acquires state lock for atomic buffer access.
         """
         async with self._state_lock:
@@ -485,8 +442,6 @@ class DictationAudioListener:
                 logger.info("DictationAudioListener: No buffer to flush - buffer is empty")
                 return
 
-            # Check if buffer meets minimum duration (unless we're force-flushing)
-            # For force flush, we bypass the min duration check entirely
             duration_chunks = len(self._audio_buffer)
 
             logger.info(
@@ -494,12 +449,10 @@ class DictationAudioListener:
                 f"(min normally required: {self.min_duration_chunks})"
             )
 
-            # Concatenate buffer and convert to bytes
             audio_data = np.concatenate(self._audio_buffer)
             audio_bytes = audio_data.tobytes()
             duration_seconds = len(audio_data) / self.sample_rate
 
-            # Emit event (bypassing min duration check)
             event = DictationAudioSegmentReadyEvent(audio_bytes=audio_bytes, sample_rate=self.sample_rate)
             await self.event_bus.publish(event)
             logger.info(
@@ -538,30 +491,25 @@ class SoundAudioListener:
         self.config = config
         self.sample_rate = config.audio.sample_rate
 
-        # VAD parameters (using sound-specific thresholds for optimal sound detection)
         self.energy_threshold = config.vad.sound_energy_threshold
         self.silence_threshold = self.energy_threshold * config.vad.silence_threshold_multiplier
-        self.silent_chunks_for_end = 2  # 100ms of silence to end sound segment
-        self.min_duration_chunks = 2  # 100ms minimum sound duration
-        self.max_duration_chunks = 20  # 1000ms maximum to prevent memory buildup
-        self.pre_roll_chunks = 2  # 100ms pre-roll to capture sound attack/onset
+        self.silent_chunks_for_end = 2
+        self.min_duration_chunks = 2
+        self.max_duration_chunks = 20
+        self.pre_roll_chunks = 2
 
-        # Adaptive noise floor
         self.adaptive_margin_multiplier = config.vad.sound_adaptive_margin_multiplier
         self._noise_floor = config.vad.noise_floor_initial_value
         self._noise_samples = []
         self._max_noise_samples = config.vad.max_noise_samples
 
-        # Buffering state (protected by _state_lock)
-        self._pre_roll_buffer = []  # NEW: Pre-roll buffer for capturing sound onset
+        self._pre_roll_buffer = []
         self._audio_buffer = []
         self._is_recording = False
         self._consecutive_silent_chunks = 0
 
-        # Mode awareness to skip during dictation
         self._dictation_active = False
 
-        # Async lock for state protection
         self._state_lock = asyncio.Lock()
 
         logger.debug(
@@ -586,7 +534,6 @@ class SoundAudioListener:
             event: AudioChunkEvent containing 50ms audio chunk.
         """
         try:
-            # Convert bytes and calculate energy OUTSIDE lock for better performance
             chunk = np.frombuffer(event.audio_chunk, dtype=np.int16)
             energy = self._calculate_energy(chunk)
         except Exception as e:
@@ -595,7 +542,6 @@ class SoundAudioListener:
 
         async with self._state_lock:
             try:
-                # Skip if dictation is active (don't interfere with dictation processing)
                 if self._dictation_active:
                     if self._audio_buffer or self._pre_roll_buffer:
                         self._audio_buffer.clear()
@@ -605,21 +551,16 @@ class SoundAudioListener:
                         logger.debug("Sound: Cleared buffer due to dictation mode activation")
                     return
 
-                # Update noise floor if still collecting samples
                 if energy <= self.energy_threshold and len(self._noise_samples) < self._max_noise_samples:
                     self._update_noise_floor(energy)
 
                 if not self._is_recording:
-                    # STATE: Waiting for sound
-                    # Maintain pre-roll buffer to capture sound onset/attack
                     self._pre_roll_buffer.append(chunk)
                     if len(self._pre_roll_buffer) > self.pre_roll_chunks:
                         self._pre_roll_buffer.pop(0)
 
-                    # Check for sound onset (above energy threshold)
                     if energy > self.energy_threshold:
                         self._is_recording = True
-                        # Include pre-roll buffer to capture sound attack
                         self._audio_buffer.extend(self._pre_roll_buffer)
                         self._audio_buffer.append(chunk)
                         self._consecutive_silent_chunks = 0
@@ -627,14 +568,11 @@ class SoundAudioListener:
                             f"Sound: Detected sound onset (energy: {energy:.6f}), included {len(self._pre_roll_buffer)} pre-roll chunks"
                         )
                 else:
-                    # STATE: Recording active sound
                     self._audio_buffer.append(chunk)
 
-                    # Check for silence
                     if energy < self.silence_threshold:
                         self._consecutive_silent_chunks += 1
 
-                        # Check if silence timeout reached
                         if self._consecutive_silent_chunks >= self.silent_chunks_for_end:
                             logger.debug(f"Sound: Silence detected ({self._consecutive_silent_chunks} chunks)")
                             await self._finalize_segment()
@@ -642,7 +580,6 @@ class SoundAudioListener:
                     else:
                         self._consecutive_silent_chunks = 0
 
-                    # Check max duration to prevent memory buildup
                     if len(self._audio_buffer) >= self.max_duration_chunks:
                         logger.debug("Sound: Max duration reached")
                         await self._finalize_segment()
@@ -657,18 +594,15 @@ class SoundAudioListener:
             self._reset_state()
             return
 
-        # Check minimum duration
         if len(self._audio_buffer) < self.min_duration_chunks:
             logger.debug(f"Sound segment too short: {len(self._audio_buffer)} chunks " f"< {self.min_duration_chunks} minimum")
             self._reset_state()
             return
 
-        # Concatenate buffer and convert to bytes
         audio_segment = np.concatenate(self._audio_buffer)
         audio_bytes = audio_segment.tobytes()
         duration = len(audio_segment) / self.sample_rate
 
-        # Emit sound recognition event
         sound_event = ProcessAudioChunkForSoundRecognitionEvent(audio_chunk=audio_bytes, sample_rate=self.sample_rate)
         await self.event_bus.publish(sound_event)
 

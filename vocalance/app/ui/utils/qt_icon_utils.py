@@ -1,10 +1,3 @@
-"""Qt icon transformation utilities for PySide6.
-
-Provides icon loading and recoloring functionality compatible with Qt/PySide6,
-porting the legacy PIL-based icon transformation logic.
-Supports high-DPI displays with automatic scaling.
-"""
-
 import logging
 from pathlib import Path
 from typing import Optional, Tuple

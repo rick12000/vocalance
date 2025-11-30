@@ -1,8 +1,3 @@
-"""Qt-based dictation controller - EXACT LEGACY MATCH.
-
-Business logic controller for dictation functionality with agentic prompts management.
-"""
-
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional

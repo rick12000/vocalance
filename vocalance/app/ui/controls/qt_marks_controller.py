@@ -1,8 +1,3 @@
-"""Qt-based marks controller - EXACT LEGACY MATCH.
-
-Manages mark visualization overlay and mark data loading/manipulation matching legacy CustomTkinter implementation.
-"""
-
 import asyncio
 import logging
 import threading

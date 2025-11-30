@@ -1,9 +1,3 @@
-"""Qt-based grid visualization view - SIMPLIFIED AND THREAD-SAFE.
-
-Frameless overlay window for displaying numbered grid cells with smart prioritization.
-Uses proper PySide6 patterns for cross-thread GUI operations.
-"""
-
 import asyncio
 import logging
 import math

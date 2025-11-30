@@ -1,9 +1,3 @@
-"""Input component subclasses with inheritance-based styling.
-
-Each input class inherits from QLineEdit and applies its own styling.
-Styles are applied programmatically using QPalette and text margins.
-"""
-
 from typing import Optional
 
 from PySide6.QtGui import QColor, QPalette, QTextOption

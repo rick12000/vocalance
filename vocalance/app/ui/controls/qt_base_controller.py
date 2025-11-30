@@ -1,8 +1,3 @@
-"""Base Qt controller with signal-based event handling.
-
-All controllers inherit from this base to get signal/slot support.
-"""
-
 import logging
 from typing import Any, Optional
 

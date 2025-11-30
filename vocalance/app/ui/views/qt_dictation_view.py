@@ -1,9 +1,3 @@
-"""Qt-based dictation view with tabbed sub-views.
-
-Displays dictation prompts management and alias substitution management
-in a tabbed interface with horizontal menu navigation.
-"""
-
 import logging
 from typing import Any, Dict, List, Optional
 

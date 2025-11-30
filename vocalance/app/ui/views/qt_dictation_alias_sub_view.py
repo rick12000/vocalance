@@ -1,8 +1,3 @@
-"""Qt-based dictation alias management sub-view.
-
-Provides UI for managing dictation alias substitutions with add/edit/delete capabilities.
-"""
-
 import logging
 from typing import Dict, Optional
 

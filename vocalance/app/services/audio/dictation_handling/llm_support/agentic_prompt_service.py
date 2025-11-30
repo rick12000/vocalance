@@ -18,7 +18,17 @@ logger = logging.getLogger(__name__)
 
 
 class AgenticPromptService:
-    """Streamlined prompt management service using unified storage with thread safety"""
+    """Manages agentic prompts for LLM-based dictation formatting.
+
+    Provides prompt creation, editing, deletion, and selection with persistent storage.
+    Ensures a default prompt always exists for fallback formatting. All operations are
+    thread-safe using RLock for concurrent access protection.
+
+    Attributes:
+        prompts: Dictionary mapping prompt IDs to AgenticPrompt objects.
+        current_prompt_id: ID of the currently selected prompt for processing.
+        event_bus: EventBus for publishing prompt updates.
+    """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
         self.event_bus = event_bus

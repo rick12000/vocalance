@@ -1,9 +1,3 @@
-"""Qt-based asset cache for images, icons, and resources.
-
-Provides thread-safe asset loading using Qt's resource system.
-Replaces CustomTkinter-based AssetCache with QPixmap and QIcon.
-"""
-
 import logging
 import threading
 from pathlib import Path

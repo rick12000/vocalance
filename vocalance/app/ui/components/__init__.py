@@ -1,8 +1,3 @@
-"""UI Components module.
-
-Provides reusable Qt component subclasses with consistent styling.
-"""
-
 # Buttons
 from vocalance.app.ui.components.buttons import DangerButton, GhostButton, PrimaryButton
 

@@ -1,9 +1,3 @@
-"""Qt-based settings view.
-
-Displays application settings with management capabilities.
-Uses new component subclasses from components module.
-"""
-
 import logging
 from functools import partial
 from typing import Any, Dict, Optional

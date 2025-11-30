@@ -1,8 +1,3 @@
-"""Qt-based dictation popup controller.
-
-Manages the dictation popup view and coordinates with dictation coordinator service.
-"""
-
 import asyncio
 import logging
 

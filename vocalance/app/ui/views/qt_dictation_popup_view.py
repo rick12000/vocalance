@@ -1,11 +1,3 @@
-"""Qt-based dictation popup view for streaming transcription display.
-
-Provides real-time dictation text display with three modes:
-- Simple: Listening indicator with spinner animation
-- Smart: Dictation pane + AI output pane
-- Visual: Single dictation pane for visual commands
-"""
-
 import logging
 import threading
 from collections import deque

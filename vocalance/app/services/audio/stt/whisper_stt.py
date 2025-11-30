@@ -188,17 +188,14 @@ class WhisperSTT:
         Returns:
             True if segment is acceptable, False if it should be filtered out.
         """
-        # Check if segment is mostly silence or noise
         if segment.no_speech_prob > self._no_speech_threshold:
             logger.debug(f"Skipping silent segment: no_speech_prob={segment.no_speech_prob:.3f}")
             return False
 
-        # Check if segment has low confidence (likely hallucination)
         if segment.avg_logprob is not None and segment.avg_logprob < self._logprob_threshold:
             logger.debug(f"Skipping low-confidence segment: avg_logprob={segment.avg_logprob:.3f}")
             return False
 
-        # Check if segment has high compression ratio (repetitive/gibberish)
         if segment.compression_ratio > self._compression_ratio_threshold:
             logger.debug(f"Skipping repetitive segment: compression_ratio={segment.compression_ratio:.2f}")
             return False
@@ -307,13 +304,13 @@ class WhisperSTT:
         sample_rate: Optional[int] = None,
         return_segments: bool = False,
     ) -> Tuple[str, float, Optional[List[Dict[str, Any]]]]:
-        """Streaming speech recognition matching WhisperLive's methodology.
+        """Streaming speech recognition with optimized parameters.
 
-        WhisperLive's approach (from faster_whisper_backend.py):
+        Uses voice activity detection with context-aware transcription:
         - vad_filter=True with default parameters
-        - no_speech_threshold=0.45 (WhisperLive default)
-        - condition_on_previous_text=True
-        - NO complex hallucination detection - relies only on no_speech_prob
+        - no_speech_threshold=0.45 for balanced detection
+        - condition_on_previous_text=True for context awareness
+        - Relies on no_speech_prob for filtering rather than complex hallucination detection
 
         Args:
             audio_bytes: Raw audio data to transcribe.
@@ -333,32 +330,27 @@ class WhisperSTT:
             return "", 0.0, None if return_segments else None
 
         duration_sec = len(audio_bytes) / (self._sample_rate * 2)
-        if duration_sec < 0.3:  # Minimum 300ms for meaningful transcription
+        if duration_sec < 0.3:
             return "", 0.0, None if return_segments else None
 
         recognition_start = time.time()
         audio_np = self._prepare_audio(audio_bytes)
 
-        # Build initial_prompt from context segments (WhisperLive uses this)
         initial_prompt = None
         if context_segments and len(context_segments) > 0:
-            # Use last 5 segments for context
             clean_context = [seg.strip() for seg in context_segments[-5:] if seg and seg.strip()]
             if clean_context:
                 initial_prompt = " ".join(clean_context)
                 logger.debug(f"Using context prompt ({len(clean_context)} segments): '{initial_prompt[:50]}...'")
 
-        # WhisperLive transcription parameters (from faster_whisper_backend.py)
-        # Key: vad_filter=True with DEFAULT parameters (not custom aggressive ones)
         options = {
             "language": "en",
-            "beam_size": 5,  # WhisperLive default
+            "beam_size": 5,
             "temperature": 0.0,
-            "no_speech_threshold": 0.45,  # WhisperLive default (more permissive than 0.6)
-            "condition_on_previous_text": True,  # WhisperLive uses this
+            "no_speech_threshold": 0.45,
+            "condition_on_previous_text": True,
             "word_timestamps": False,
-            "vad_filter": True,  # WhisperLive uses VAD with default parameters
-            # Note: WhisperLive does NOT customize vad_parameters - uses defaults
+            "vad_filter": True,
         }
 
         if initial_prompt:
@@ -366,8 +358,6 @@ class WhisperSTT:
 
         segments_iter, info = self._model.transcribe(audio_np, **options)
 
-        # Collect ALL segments - WhisperLive does not filter here
-        # Filtering is done at the coordinator level using no_speech_prob
         texts = []
         segment_details = []
         confidence_sum = 0.0
@@ -381,13 +371,10 @@ class WhisperSTT:
             no_speech_prob = seg.no_speech_prob
             avg_logprob = getattr(seg, "avg_logprob", None)
 
-            # WhisperLive does NOT filter segments here - it returns ALL segments
-            # The coordinator filters using no_speech_prob threshold
             texts.append(text)
             confidence_sum += 1.0 - no_speech_prob
             count += 1
 
-            # Track segment timestamps for offset management
             segment_details.append(
                 {
                     "text": text,

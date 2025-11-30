@@ -1,12 +1,3 @@
-"""Label component subclasses with inheritance-based styling.
-
-Each label class inherits from QLabel and applies its own styling.
-Styles only override what differs from the base QSS QLabel definition.
-
-Gradient-enabled labels (TitleLabel, BoxTitleLabel) use the GradientTextMixin
-to render text with smooth color transitions instead of solid colors.
-"""
-
 from typing import Literal, Optional
 
 from PySide6.QtCore import Qt

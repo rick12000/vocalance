@@ -1,5 +1,3 @@
-"""Settings-related events."""
-
 from typing import Any, Dict
 
 from vocalance.app.events.base_event import BaseEvent, EventPriority

@@ -95,7 +95,11 @@ class MarkService:
         logger.debug("MarkServiceV2 subscriptions set up")
 
     async def _handle_mark_command_parsed(self, event_data: MarkCommandParsedEvent) -> None:
-        """Handle parsed mark commands"""
+        """Handle parsed mark commands.
+
+        Routes mark commands to the appropriate handler based on command type.
+        Validates mark existence before execution for mark execute commands.
+        """
         command = event_data.command
         logger.debug(f"MarkServiceV2 received mark command: {type(command).__name__}")
 

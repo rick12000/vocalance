@@ -1,8 +1,3 @@
-"""Qt-based sound controller - EXACT LEGACY MATCH.
-
-Business logic controller for sound functionality with sound-to-command mapping.
-"""
-
 import asyncio
 import logging
 from typing import Dict, List, Optional

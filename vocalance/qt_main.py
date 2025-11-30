@@ -1,9 +1,3 @@
-"""Qt-based main application entry point.
-
-Coordinates application startup, initialization, and shutdown using PySide6.
-Integrates Qt event loop with asyncio for service coordination.
-"""
-
 import asyncio
 import ctypes
 import ctypes.util
@@ -45,7 +39,7 @@ class FastServiceInitializer:
         root: Optional[Any] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
     ) -> None:
-        """Initialize the service initializer with core infrastructure dependencies.
+        """Initialize the service initializer.
 
         Args:
             event_bus: Central event bus for inter-service communication.

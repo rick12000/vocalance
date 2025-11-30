@@ -1,9 +1,3 @@
-"""Themed dialogs and message boxes for Qt-based UI.
-
-Provides BaseDialog class and reusable dialog functions for user interactions.
-All dialogs use consistent theming from the centralized QSS and component classes.
-"""
-
 from typing import Any, Dict, Optional, Tuple
 
 from PySide6.QtCore import Qt

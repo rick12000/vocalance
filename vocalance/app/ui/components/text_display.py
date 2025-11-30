@@ -1,9 +1,3 @@
-"""Custom text display components for streaming dictation and LLM output.
-
-Provides transparent text display widgets with dark rounded containers,
-designed for showing streaming text with color-based formatting.
-"""
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget

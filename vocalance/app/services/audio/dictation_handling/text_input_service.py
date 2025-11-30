@@ -164,6 +164,7 @@ class TextInputService:
     def __init__(self, config: DictationConfig) -> None:
         self.config = config
         self._lock = threading.RLock()
+        self._clipboard_lock = threading.Lock()  # Prevent concurrent clipboard operations
         self.last_text: Optional[str] = None
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = config.pyautogui_pause
@@ -179,14 +180,10 @@ class TextInputService:
             return False
 
     def reset_session(self) -> None:
-        """Reset session state to prevent continuation logic from applying to new sessions.
-
-        When a new dictation session starts, reset last_text so that the first text pasted
-        won't be incorrectly treated as a continuation of previous text, which would cause
-        it to be lowercased. This preserves Whisper's native capitalization.
-        """
-        self.last_text = None
-        logger.debug("TextInputService session reset - continuation logic will not apply to next paste")
+        """Reset session state before starting a new dictation session."""
+        with self._clipboard_lock:
+            self.last_text = None
+        logger.debug("TextInputService session reset")
 
     async def input_text(self, text: str, add_trailing_space: bool = True) -> bool:
         if not text:
@@ -226,42 +223,78 @@ class TextInputService:
             return False
 
     def _paste_clipboard(self, text: str) -> bool:
-        """Paste using clipboard with proper error handling and key repeat prevention"""
-        original = None
-
-        try:
-            # Save original clipboard content
+        """Paste text using clipboard with atomic operations and verification."""
+        with self._clipboard_lock:
+            original = None
+            original_read_success = False
             try:
-                original = pyperclip.paste()
-            except (pyperclip.PyperclipException, OSError) as e:
-                logger.warning(f"Could not read clipboard: {e}")
-
-            # Copy and paste text
-            pyperclip.copy(text)
-            time.sleep(self.config.clipboard_paste_delay_pre)
-
-            # CRITICAL: Use explicit key press/release to prevent keyboard repeat
-            # hotkey() can sometimes hold keys too long causing Windows autorepeat
-            pyautogui.keyDown("ctrl")
-            time.sleep(0.01)  # Brief delay to register modifier
-            pyautogui.press("v")
-            time.sleep(0.01)  # Brief delay before release
-            pyautogui.keyUp("ctrl")
-
-            time.sleep(self.config.clipboard_paste_delay_post)
-
-            # Restore original clipboard content
-            if original is not None:
                 try:
-                    pyperclip.copy(original)
+                    original = pyperclip.paste()
+                    original_read_success = True
                 except (pyperclip.PyperclipException, OSError) as e:
-                    logger.warning(f"Could not restore clipboard: {e}")
+                    logger.warning(f"Could not read original clipboard content: {e}")
+                    original = None
+                    original_read_success = False
 
-            return True
+                copy_attempts = 0
+                max_copy_attempts = 2
+                while copy_attempts < max_copy_attempts:
+                    try:
+                        pyperclip.copy(text)
+                        break
+                    except (pyperclip.PyperclipException, OSError) as e:
+                        copy_attempts += 1
+                        if copy_attempts >= max_copy_attempts:
+                            logger.error(
+                                f"Could not copy text to clipboard after {max_copy_attempts} attempts: {e}", exc_info=True
+                            )
+                            return False
+                        time.sleep(0.1)
 
-        except Exception as e:
-            logger.error(f"Clipboard paste error: {e}", exc_info=True)
-            return False
+                verify_attempts = 0
+                max_verify_attempts = 2
+                while verify_attempts < max_verify_attempts:
+                    try:
+                        clipboard_content = pyperclip.paste()
+                        if clipboard_content == text:
+                            break
+                        verify_attempts += 1
+                        if verify_attempts >= max_verify_attempts:
+                            logger.error(
+                                f"Clipboard content mismatch after {max_verify_attempts} attempts! "
+                                f"Expected '{text[:50]}' but got '{clipboard_content[:50]}'"
+                            )
+                            return False
+                        time.sleep(0.01)
+                    except (pyperclip.PyperclipException, OSError) as e:
+                        verify_attempts += 1
+                        if verify_attempts >= max_verify_attempts:
+                            logger.warning(f"Could not verify clipboard content after {max_verify_attempts} attempts: {e}")
+                            return False
+                        time.sleep(0.1)
+
+                time.sleep(self.config.clipboard_paste_delay_pre)
+
+                pyautogui.keyDown("ctrl")
+                time.sleep(0.01)
+                pyautogui.press("v")
+                time.sleep(0.01)
+                pyautogui.keyUp("ctrl")
+
+                time.sleep(self.config.clipboard_paste_delay_post)
+                time.sleep(0.05)
+
+                if original_read_success and original is not None:
+                    try:
+                        pyperclip.copy(original)
+                    except (pyperclip.PyperclipException, OSError) as e:
+                        logger.warning(f"Could not restore clipboard: {e}")
+
+                return True
+
+            except Exception as e:
+                logger.error(f"Clipboard paste error: {e}", exc_info=True)
+                return False
 
     def _type_text(self, text: str) -> bool:
         """Type text character by character"""

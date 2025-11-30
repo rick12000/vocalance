@@ -1,9 +1,3 @@
-"""Qt-based startup window with progress tracking.
-
-Provides a modern startup/splash screen using QDialog with thread-safe
-progress updates via Qt signals.
-"""
-
 import logging
 import threading
 

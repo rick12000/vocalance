@@ -176,47 +176,40 @@ class DictationCoordinator:
         self.config = config
         self.gui_event_loop = gui_event_loop
 
-        # Unified state lock for ALL mutable state - CRITICAL for race condition prevention
         self._state_lock = threading.RLock()
 
-        # State machine state
         self._current_state = DictationState.IDLE
         self._current_session: Optional[DictationSession] = None
         self._pending_llm_session: Optional[LLMSession] = None
         self._type_silence_task: Optional[asyncio.Task] = None
         self._llm_processing_task: Optional[asyncio.Task] = None
 
-        # Thread-safe token streaming with proper synchronization
         self._token_queue: queue.Queue = queue.Queue(maxsize=1000)
         self._streaming_active = False
         self._streaming_stop_event = threading.Event()
         self._streaming_thread: Optional[threading.Thread] = None
         self._direct_token_callback: Optional[callable] = None
 
-        # Initialize services
         self.text_service = TextInputService(config=config.dictation)
         self.llm_service = LLMService(event_bus=event_bus, config=config)
         self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
         self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
 
-        # Track last text for smart dictation window concatenation logic
         self._last_smart_dictation_text: Optional[str] = None
 
-        # Streaming dictation state for smart/visual modes
         self._streaming_buffer: Optional[StreamingAudioBuffer] = None
         self._streaming_task: Optional[asyncio.Task] = None
         self._streaming_segment_id: str = ""
-        self._streaming_finalized_text: str = ""  # Concatenated final text for output
-        self._streaming_finalized_segments: list[str] = []  # List of finalized segments
+        self._streaming_finalized_text: str = ""
+        self._streaming_finalized_segments: list[str] = []
 
-        # Same-output detection
-        self._streaming_current_out: str = ""  # Current incomplete segment text
-        self._streaming_prev_out: str = ""  # Previous incomplete segment text
-        self._streaming_same_output_count: int = 0  # Repetition counter
-        self._streaming_end_time_for_same_output: Optional[float] = None  # Timestamp when repetition FIRST occurred
-        self._streaming_timestamp_offset: float = 0.0  # Cumulative offset for processed audio
+        self._streaming_current_out: str = ""
+        self._streaming_prev_out: str = ""
+        self._streaming_same_output_count: int = 0
+        self._streaming_end_time_for_same_output: Optional[float] = None
+        self._streaming_timestamp_offset: float = 0.0
 
-        self._stt_service = None  # Will be injected via set_stt_service
+        self._stt_service = None
 
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
@@ -255,10 +248,19 @@ class DictationCoordinator:
             return self._current_state
 
     def _set_state(self, new_state: DictationState) -> None:
-        """Thread-safe state setter with validation - MUST be called with lock held"""
+        """Thread-safe state setter with validation.
+
+        Must be called with _state_lock held to ensure atomic transitions.
+        Validates transition against _VALID_TRANSITIONS state machine.
+
+        Args:
+            new_state: Target DictationState to transition to.
+
+        Raises:
+            ValueError: If transition is not valid for current state.
+        """
         old_state = self._current_state
 
-        # Validate state transition
         if new_state not in _VALID_TRANSITIONS[old_state]:
             error_msg = f"Invalid state transition: {old_state.value} -> {new_state.value}"
             logger.error(error_msg)
@@ -335,7 +337,6 @@ class DictationCoordinator:
                 if self._current_state != DictationState.RECORDING:
                     return
 
-                # Skip smart/visual/hidden modes - they use streaming flow
                 if session.mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                     logger.debug(f"Skipping VAD-based text for streaming mode: {session.mode.value}")
                     return
@@ -344,7 +345,6 @@ class DictationCoordinator:
             if not cleaned_text:
                 return
 
-            # Apply alias substitutions to all dictation modes
             cleaned_text = self.alias_service.apply_substitutions(cleaned_text)
 
             if not self._should_apply_formatting(mode=session.mode):
@@ -373,9 +373,7 @@ class DictationCoordinator:
                 ):
                     trailing_whitespace_count = get_trailing_whitespace_count(self._last_smart_dictation_text)
                     chars_to_remove = 1 + trailing_whitespace_count
-
                     await self._publish_event(SmartDictationRemoveCharactersEvent(count=chars_to_remove))
-
                     display_text = " " + display_text
 
                 if self._last_smart_dictation_text and should_lowercase_current_start(
@@ -384,10 +382,8 @@ class DictationCoordinator:
                     display_text = lowercase_first_letter(display_text)
 
                 self._last_smart_dictation_text = display_text
-
                 await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
             elif updated_session.mode == DictationMode.VISUAL:
-                # Visual mode: display text in UI without LLM processing
                 display_text = clean_dictation_text(text=cleaned_text, add_trailing_space=True)
                 await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
             else:
@@ -482,14 +478,12 @@ class DictationCoordinator:
                 session = self._current_session
                 buffer = self._streaming_buffer
 
-            # Only process if we're in streaming mode (smart/visual/hidden) and have a buffer
             if not session or not buffer:
                 return
 
             if session.mode not in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                 return
 
-            # Add chunk to streaming buffer
             import numpy as np
 
             chunk_np = np.frombuffer(event.audio_chunk, dtype=np.int16)
@@ -499,7 +493,7 @@ class DictationCoordinator:
             logger.error(f"Error handling audio chunk for streaming: {e}", exc_info=True)
 
     async def _streaming_transcription_loop(self) -> None:
-        """Continuous speech-to-text transcription matching WhisperLive methodology.
+        """Continuous speech-to-text transcription with streaming buffer management.
 
         Processes unprocessed audio segments, detects speech, and finalizes text
         after consistent repetition (indicating segment stability).
@@ -520,7 +514,6 @@ class DictationCoordinator:
             force_finalization_applied_this_loop = False
 
             while True:
-                # Check session is still valid
                 with self._state_lock:
                     session = self._current_session
                     buffer = self._streaming_buffer
@@ -813,7 +806,6 @@ class DictationCoordinator:
                 final_text = self.alias_service.apply_substitutions(final_text)
                 final_text = " ".join(final_text.split())
 
-            # Clean up streaming state
             if self._streaming_buffer:
                 await self._streaming_buffer.clear()
                 self._streaming_buffer = None
@@ -823,12 +815,9 @@ class DictationCoordinator:
             self._streaming_end_time_for_same_output = None
             self._streaming_timestamp_offset = 0.0
 
-            # Update session state
             with self._state_lock:
                 if session.mode == DictationMode.SMART and final_text:
-                    # Smart mode: process through LLM
                     self._set_state(DictationState.PROCESSING_LLM)
-
                     agentic_prompt = self.agentic_service.get_current_prompt() or "Fix grammar and improve clarity."
                     llm_session_id = str(uuid.uuid4())
                     self._pending_llm_session = LLMSession(
@@ -837,11 +826,9 @@ class DictationCoordinator:
                         agentic_prompt=agentic_prompt,
                     )
                 else:
-                    # Visual/Hidden mode or no text: finalize directly
                     self._current_session = None
                     self._set_state(DictationState.IDLE)
 
-            # Emit stop events
             if session.mode == DictationMode.SMART and final_text:
                 await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation processing"))
                 await self._publish_event(SmartDictationStoppedEvent(raw_text=final_text))
@@ -853,10 +840,8 @@ class DictationCoordinator:
                     )
                 )
             elif session.mode == DictationMode.SMART:
-                # No text accumulated, just end session
                 await self._end_smart_session()
             elif session.mode == DictationMode.VISUAL:
-                # Visual mode: paste accumulated text
                 if final_text:
                     await self._publish_event(VisualDictationStoppedEvent(accumulated_text=final_text))
                     await self.text_service.input_text(final_text)
@@ -864,7 +849,6 @@ class DictationCoordinator:
                     await self._publish_event(VisualDictationStoppedEvent(accumulated_text=""))
                 await self._finalize_session(session)
             elif session.mode == DictationMode.HIDDEN:
-                # Hidden mode: paste accumulated text silently
                 if final_text:
                     await self._publish_event(HiddenDictationStoppedEvent(accumulated_text=final_text))
                     await self.text_service.input_text(final_text)
@@ -878,7 +862,6 @@ class DictationCoordinator:
 
         except Exception as e:
             logger.error(f"Error stopping streaming mode: {e}", exc_info=True)
-            # Ensure cleanup even on error
             with self._state_lock:
                 self._current_session = None
                 self._set_state(DictationState.IDLE)
@@ -944,8 +927,6 @@ class DictationCoordinator:
                 if mode == DictationMode.SMART:
                     self._last_smart_dictation_text = None
 
-                # Reset text service session to prevent continuation logic from incorrectly lowercasing
-                # the first text of a new session. This preserves Whisper's native capitalization.
                 self.text_service.reset_session()
 
                 self._current_session = DictationSession(
@@ -961,7 +942,6 @@ class DictationCoordinator:
             await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
 
-            # Initialize streaming for smart/visual/hidden modes
             if mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                 self._streaming_buffer = StreamingAudioBuffer(sample_rate=self.config.audio.sample_rate)
                 self._streaming_finalized_text = ""
@@ -973,15 +953,12 @@ class DictationCoordinator:
                 self._streaming_end_time_for_same_output = None
                 self._streaming_timestamp_offset = 0.0
 
-                # Clear STT context for fresh session
                 if self._stt_service:
                     await self._stt_service.clear_streaming_context()
 
-                # Start streaming loop
                 self._streaming_task = asyncio.create_task(self._streaming_transcription_loop())
                 logger.info(f"Initialized streaming dictation for {mode.value} mode")
 
-            # Emit mode-specific start events
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
             elif mode == DictationMode.VISUAL:
@@ -1022,16 +999,13 @@ class DictationCoordinator:
                 if session.mode == DictationMode.TYPE:
                     self._cancel_type_silence_task()
 
-                # Streaming modes (smart/visual/hidden) handle their own finalization
                 if session.mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
                     await self._stop_streaming_mode(session)
                     return
 
-                # Non-streaming modes (standard/type): simple cleanup
                 self._current_session = None
                 self._set_state(DictationState.IDLE)
 
-            # Finalize non-streaming session
             if session:
                 await self._finalize_session(session)
 
@@ -1068,19 +1042,27 @@ class DictationCoordinator:
             self._stop_streaming()
 
     def _stream_token(self, token: str) -> None:
-        """Thread-safe callback - queue token for publishing"""
+        """Thread-safe callback to queue token for publishing.
+
+        Args:
+            token: Token string to publish asynchronously.
+
+        Logs warning if streaming inactive or queue full.
+        """
         if self._streaming_active:
             try:
                 self._token_queue.put_nowait(token)
-                if self._token_queue.qsize() <= 5 or self._token_queue.qsize() % 10 == 0:
-                    logger.debug(f"_stream_token: queued token (queue size: {self._token_queue.qsize()}): '{token}'")
             except queue.Full:
                 logger.warning("Token queue full - dropping token to prevent blocking")
         else:
             logger.warning(f"_stream_token called but streaming not active! Token: '{token}'")
 
     def _streaming_worker(self) -> None:
-        """Background thread that publishes tokens with proper synchronization"""
+        """Background thread that publishes tokens from queue.
+
+        Runs until stopped, dequeuing tokens and publishing via event bus or direct callback.
+        Tolerates queue underflows gracefully and logs exceptional errors.
+        """
         logger.info("Streaming worker thread started")
         published_count = 0
         try:
@@ -1088,9 +1070,6 @@ class DictationCoordinator:
                 try:
                     token = self._token_queue.get(timeout=0.1)
                     published_count += 1
-
-                    if published_count <= 5 or published_count % 10 == 0:
-                        logger.debug(f"_streaming_worker: publishing token #{published_count}: '{token}'")
 
                     if self._direct_token_callback:
                         try:
@@ -1121,12 +1100,11 @@ class DictationCoordinator:
             logger.info("Streaming thread started")
 
     def _stop_streaming(self) -> None:
-        """Stop streaming thread."""
+        """Stop streaming thread and flush remaining tokens"""
         logger.info("Stopping streaming thread")
         self._streaming_active = False
         self._streaming_stop_event.set()
 
-        # Wait for thread to finish
         if self._streaming_thread:
             try:
                 self._streaming_thread.join(timeout=2.0)
@@ -1139,7 +1117,6 @@ class DictationCoordinator:
             finally:
                 self._streaming_thread = None
 
-        # Flush any remaining tokens
         remaining = []
         while True:
             try:
@@ -1240,10 +1217,8 @@ class DictationCoordinator:
                 self._set_state(DictationState.SHUTTING_DOWN)
                 has_active_session = self._current_session is not None
 
-            # Cancel type silence task
             self._cancel_type_silence_task()
 
-            # Cancel streaming task if active
             if self._streaming_task and not self._streaming_task.done():
                 logger.info("Cancelling active streaming task")
                 self._streaming_task.cancel()
@@ -1254,7 +1229,6 @@ class DictationCoordinator:
                 except Exception as e:
                     logger.warning(f"Error cancelling streaming task: {e}")
 
-            # Cancel LLM processing task if active
             if self._llm_processing_task and not self._llm_processing_task.done():
                 logger.info("Cancelling active LLM processing task")
                 self._llm_processing_task.cancel()
@@ -1265,30 +1239,24 @@ class DictationCoordinator:
                 except Exception as e:
                     logger.warning(f"Error cancelling LLM task: {e}")
 
-            # Stop streaming thread (for LLM tokens)
             self._stop_streaming()
 
-            # Clean up streaming buffer
             if self._streaming_buffer:
                 await self._streaming_buffer.clear()
                 self._streaming_buffer = None
 
-            # Stop current session if active (checked atomically above)
             if has_active_session:
                 await self._stop_session()
 
-            # Shutdown services
             await self.text_service.shutdown()
             await self.llm_service.shutdown()
             await self.agentic_service.shutdown()
             await self.alias_service.shutdown()
 
-            # Clear pending sessions under lock
             with self._state_lock:
                 self._current_session = None
                 self._pending_llm_session = None
 
-            # Force garbage collection
             gc.collect()
 
             logger.info("Dictation coordinator shutdown complete")

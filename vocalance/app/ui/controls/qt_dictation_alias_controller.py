@@ -1,8 +1,3 @@
-"""Qt-based dictation alias controller.
-
-Business logic controller for dictation alias management with Qt signals.
-"""
-
 import asyncio
 import logging
 from typing import Dict

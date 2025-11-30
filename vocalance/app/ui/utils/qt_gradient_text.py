@@ -1,21 +1,3 @@
-"""Gradient text painting utilities for Qt labels.
-
-Provides robust gradient text rendering that works with QLabel and its subclasses.
-The gradient is painted directly in the paintEvent, overriding stylesheet colors
-to enable smooth color transitions across text.
-
-Usage:
-    1. Mix GradientTextMixin into a QLabel subclass
-    2. Call enable_gradient() with gradient colors
-    3. The paintEvent will automatically render text with gradient
-
-Example:
-    class MyGradientLabel(GradientTextMixin, QLabel):
-        def __init__(self, text: str = ""):
-            super().__init__(text)
-            self.enable_gradient(["#4E98FF", "#F97070"])
-"""
-
 from typing import List, Optional, Union
 
 from PySide6.QtCore import QRect, Qt

@@ -1,5 +1,3 @@
-"""Utilities for setting window icons in a robust manner."""
-
 import logging
 import tkinter as tk
 

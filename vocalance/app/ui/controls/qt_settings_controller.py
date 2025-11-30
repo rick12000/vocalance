@@ -1,8 +1,3 @@
-"""Qt-based settings controller.
-
-Manages application settings, configuration, and persistence.
-"""
-
 import asyncio
 import logging
 from typing import Any, Dict, Tuple

@@ -1,11 +1,3 @@
-"""Button component subclasses with inheritance-based styling.
-
-Each button class inherits from QPushButton and applies its own styling.
-Primary and Danger buttons use custom paintEvent for complex rendering.
-GhostButton uses stylesheet for simple transparent styling.
-ChangeButton and DeleteButton are circular icon-based variants.
-"""
-
 from pathlib import Path
 from typing import Optional
 

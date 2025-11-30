@@ -1,8 +1,3 @@
-"""Qt-based marks management view.
-
-Displays marks with management capabilities using new component subclasses.
-"""
-
 import logging
 from typing import List, Optional
 

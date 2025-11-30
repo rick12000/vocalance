@@ -387,6 +387,12 @@ class ProtectedTermsValidatorConfig(BaseModel):
 
 
 class AppInfoConfig(BaseModel):
+    """Configuration for application identity and data directory naming.
+
+    Controls the base names and suffixes used for constructing user-specific data directories
+    where application state and user data are persisted.
+    """
+
     default_app_name_for_data_dir: str = Field(
         default="vocalance_voice_assistant", description="Default app name for data directory"
     )

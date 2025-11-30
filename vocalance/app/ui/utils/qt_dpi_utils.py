@@ -1,21 +1,3 @@
-"""High-DPI aware image scaling and rendering utilities for PySide6.
-
-Provides DPI-aware image loading, scaling, and pixmap creation to ensure
-images render sharply on high-DPI displays (retina, 4K, etc).
-
-Key Concepts:
-- Device Pixel Ratio (DPR): The ratio of physical pixels to logical pixels.
-  - Standard display: DPR = 1.0
-  - Retina/2x display: DPR = 2.0
-  - High-DPI Windows: DPR = 1.25, 1.5, 1.75, 2.0, etc.
-
-- To render sharply on high-DPI displays, images must be scaled to:
-  display_size * device_pixel_ratio
-
-- QPixmap.setDevicePixelRatio() tells Qt the physical resolution of the image,
-  allowing proper rendering at the display's DPI.
-"""
-
 import logging
 from pathlib import Path
 from typing import Optional, Tuple

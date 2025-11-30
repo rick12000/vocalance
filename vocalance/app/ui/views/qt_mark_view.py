@@ -1,9 +1,3 @@
-"""Qt-based mark visualization view - SIMPLIFIED AND THREAD-SAFE.
-
-Frameless overlay window for displaying mark indicators on screen.
-Uses proper PySide6 patterns for cross-thread GUI operations.
-"""
-
 import logging
 from typing import Dict, List, Tuple
 

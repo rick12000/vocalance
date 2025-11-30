@@ -1,9 +1,3 @@
-"""Utility classes and decorators for thread-safe event handling.
-
-Provides ThreadSafeEventPublisher for cross-thread event publishing using
-asyncio.run_coroutine_threadsafe, EventSubscriptionManager for tracking and
-cleanup of subscriptions, and decorators for error-handling event handlers.
-"""
 import asyncio
 import logging
 from collections import defaultdict

@@ -1,8 +1,3 @@
-"""Checkbox component with custom painting.
-
-Checkbox inherits from QCheckBox and uses custom painting for the indicator.
-"""
-
 from typing import Optional
 
 from PySide6.QtCore import Qt

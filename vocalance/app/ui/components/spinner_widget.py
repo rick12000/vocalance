@@ -1,8 +1,3 @@
-"""Modern animated spinner widget with playful bouncing dots.
-
-Provides a non-blocking, animated spinner using theme gradient colors.
-"""
-
 import math
 
 from PySide6.QtCore import QMetaObject, QRectF, Qt, QTimer, Slot

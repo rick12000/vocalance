@@ -1,9 +1,3 @@
-"""Qt-based commands management view.
-
-Displays commands grouped by category with edit/delete capabilities.
-Uses new component subclasses and dialogs from components module.
-"""
-
 from collections import defaultdict
 from typing import Dict, List, Optional
 

@@ -1,9 +1,3 @@
-"""Qt-based sounds training view.
-
-Displays trained sounds and allows training new sounds with command mapping.
-Uses new component subclasses from components module.
-"""
-
 from typing import List, Optional
 
 from PySide6.QtCore import Qt

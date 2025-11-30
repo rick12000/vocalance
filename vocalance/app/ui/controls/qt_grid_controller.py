@@ -1,8 +1,3 @@
-"""Qt-based grid controller - EXACT LEGACY MATCH.
-
-Controller for grid functionality - orchestrates between service and view with click tracking.
-"""
-
 import asyncio
 import logging
 import threading

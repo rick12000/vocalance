@@ -1,9 +1,3 @@
-"""Specialized UI components for specific purposes.
-
-Complex widgets like expandable sidebar with animations.
-NO STYLESHEETS - all styling done programmatically.
-"""
-
 from typing import List, Optional
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation

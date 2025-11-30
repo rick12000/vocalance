@@ -1,9 +1,3 @@
-"""Qt-based logo service for managing application logos.
-
-Provides thread-safe logo loading and widget creation using Qt.
-Supports high-DPI displays with automatic scaling.
-"""
-
 import logging
 import threading
 from typing import Optional

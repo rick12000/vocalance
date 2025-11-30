@@ -1,9 +1,3 @@
-"""Dictation alias service for managing text substitutions during dictation.
-
-Provides CRUD operations for alias mappings and applies substitutions to
-recognized text during all dictation modes.
-"""
-
 import logging
 import re
 import threading

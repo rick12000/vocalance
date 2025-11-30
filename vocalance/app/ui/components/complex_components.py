@@ -1,9 +1,3 @@
-"""Complex UI components built from new component subclasses.
-
-All components use systematic spacing from theme.
-Uses new label, button, and input subclasses.
-"""
-
 from typing import Optional, Tuple
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal

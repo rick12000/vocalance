@@ -1,8 +1,3 @@
-"""Qt-based commands controller - EXACT LEGACY MATCH.
-
-Handles event management and business logic for the commands tab.
-"""
-
 import asyncio
 import logging
 from typing import List

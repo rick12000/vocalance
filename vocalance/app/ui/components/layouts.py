@@ -1,10 +1,3 @@
-"""Layout container components with programmatic styling.
-
-All containers use theme tokens and programmatic styling.
-Provides both base containers (Box, Panel, Card) and high-level layout
-orchestration components (TwoColumnLayout, ListForm, FormField).
-"""
-
 from typing import Literal, Optional
 
 from PySide6.QtCore import Qt

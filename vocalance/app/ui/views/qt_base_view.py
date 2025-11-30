@@ -1,11 +1,3 @@
-"""Base view class for consistent UI layout across all tab views.
-
-Ensures all views follow the same layout pattern:
-- Zero margins and spacing for main layout
-- Consistent integration with main window's stacked widget
-- Standardized controller connection pattern
-"""
-
 import logging
 from typing import Optional
 
