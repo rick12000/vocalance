@@ -123,7 +123,7 @@ class LLMService:
                 use_mmap=True,
                 use_mlock=cfg.use_mlock,
                 chat_format="chatml",
-                seed=42,
+                seed=-1,  # -1 for random seed (non-deterministic), 42 for reproducibility
                 type_k=cfg.type_k,
                 type_v=cfg.type_v,
                 verbose=cfg.verbose,
@@ -178,7 +178,7 @@ class LLMService:
         return [
             {
                 "role": "system",
-                "content": f"{agentic_prompt}. Do not include any meta descriptions or explanations. Output ONLY the processed text.",
+                "content": f"{agentic_prompt}",
             },
             {"role": "user", "content": raw_text},
         ]
@@ -208,6 +208,7 @@ class LLMService:
                         mirostat_mode=cfg.mirostat_mode,
                         mirostat_tau=cfg.mirostat_tau,
                         mirostat_eta=cfg.mirostat_eta,
+                        stop=[],  # Explicitly disable stop sequences
                         stream=True,
                     )
 

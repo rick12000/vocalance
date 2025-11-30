@@ -213,13 +213,13 @@ class LLMConfig(BaseModel):
     use_mlock: bool = Field(default=False, description="Lock model in RAM - disable on 8GB systems to prevent OOM")
 
     temperature: float = Field(
-        default=0.3, ge=0.0, le=2.0, description="Low temperature for faster, more deterministic generation"
+        default=0.5, ge=0.0, le=2.0, description="High temperature for creative rewriting and instruction-following"
     )
-    top_p: float = Field(default=0.8, ge=0.0, le=1.0, description="Lower top_p = fewer tokens to consider = faster")
-    top_k: int = Field(default=10, ge=1, le=100, description="Very aggressive top_k for maximum speed (10 tokens only)")
-    min_p: float = Field(default=0.0, ge=0.0, le=1.0, description="Disabled - adds overhead on some systems")
-    repeat_penalty: float = Field(default=1.05, ge=1.0, le=2.0, description="Minimal penalty for speed (lower = faster)")
-    frequency_penalty: float = Field(default=0.0, ge=0.0, le=2.0, description="Disabled - adds overhead")
+    top_p: float = Field(default=0.95, ge=0.0, le=1.0, description="High top_p for diverse vocabulary and creative rewrites")
+    top_k: int = Field(default=30, ge=1, le=100, description="Higher top_k for creative vocabulary choices")
+    min_p: float = Field(default=0.05, ge=0.0, le=1.0, description="Filter low-probability tokens for quality")
+    repeat_penalty: float = Field(default=1.15, ge=1.0, le=2.0, description="Strong penalty to prevent copying input text")
+    frequency_penalty: float = Field(default=0.2, ge=0.0, le=2.0, description="Strong encouragement for vocabulary diversity")
 
     mirostat_mode: int = Field(default=0, ge=0, le=2, description="Disabled - standard sampling is faster on most CPUs")
     mirostat_tau: float = Field(default=5.0, ge=0.0, le=10.0, description="Not used when mirostat_mode=0")
