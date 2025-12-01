@@ -27,9 +27,9 @@ To find out more about what Vocalance can do, including detailed instructions an
 
 Vocalance can be set up entirely from the source code in this repository. To do so, follow the instructions below (currently only supported on Windows):
 
-### Steps
+### Set Up UV
 
-1. Install UV (Python package manager):
+1. Install [UV](https://github.com/astral-sh/uv) (Python package manager):
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
@@ -39,41 +39,45 @@ Vocalance can be set up entirely from the source code in this repository. To do 
    $env:Path = "$HOME\.local\bin;$env:Path"
    ```
 
-3. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
+### Set Up Vocalance
+
+1. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
    ```bash
    uv venv --python 3.13.9 vocalance_env
    ```
 
-4. Activate the environment:
+2. Activate the environment:
    ```bash
    vocalance_env\Scripts\activate
    ```
 
-5. Clone the repository:
+3. Clone the repository:
    ```bash
    git clone https://github.com/rick12000/vocalance.git
    ```
 
-6. Go to the repository directory:
+4. Go to the repository directory:
    ```bash
    cd vocalance
    ```
 
-7. Install Vocalance from `uv.lock`:
+5. Install Vocalance from `uv.lock`:
    ```bash
    uv sync --active
    ```
 
-8. Run the application:
+6. Run the application:
    ```bash
    python vocalance.py
    ```
 
-The application will start up and download any required models (like speech recognition models) on first run (these are downloaded from Hugging Face or other reputable hosts). This may take several minutes depending on your internet connection.
+The application will start up and download any required models (like speech recognition models) on first run (these are downloaded from Hugging Face or other reputable hosts).
 
-On follow up runs, you can skip the `uv sync --active` step and just run the application (in the environment you created earlier).
+This may take several minutes depending on your internet connection.
 
-If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html).
+Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how to get started.
+
+**NOTE**: The next time you run the application, you can skip the `uv sync --active` step and just run the application (in the environment you created earlier).
 
 ### Pip
 
