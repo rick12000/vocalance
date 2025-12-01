@@ -287,23 +287,30 @@ class LLMService:
         return self._model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
-        """Shutdown and cleanup with proper resource management"""
+        """Shutdown and cleanup with proper resource management and timeout protection"""
         try:
             logger.info("LLM service shutting down - cleaning up model and GPU memory")
             self._model_loaded = False
 
-            if self.llm:
-                try:
-                    # Properly close the llama model to release resources
-                    if hasattr(self.llm, "close"):
-                        self.llm.close()
-                        logger.info("LLM model closed successfully")
-                except Exception as e:
-                    logger.warning(f"Error closing LLM model: {e}")
-                finally:
-                    # Delete reference to allow garbage collection
-                    del self.llm
-                    self.llm = None
+            # Use timeout to prevent shutdown hang
+            try:
+                async with asyncio.timeout(5.0):
+                    if self.llm:
+                        try:
+                            # Run close in thread pool to avoid blocking
+                            if hasattr(self.llm, "close"):
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(None, self.llm.close)
+                                logger.info("LLM model closed successfully")
+                        except Exception as e:
+                            logger.warning(f"Error closing LLM model: {e}")
+                        finally:
+                            # Delete reference to allow garbage collection
+                            del self.llm
+                            self.llm = None
+            except asyncio.TimeoutError:
+                logger.warning("LLM shutdown timed out after 5s, forcing cleanup")
+                self.llm = None
 
             # Force garbage collection to free memory immediately
             # Multiple rounds to catch cyclic references

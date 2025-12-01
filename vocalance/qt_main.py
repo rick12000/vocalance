@@ -1,9 +1,8 @@
 import asyncio
-import ctypes
-import ctypes.util
 import gc
 import logging
 import os
+import signal
 import sys
 import threading
 from typing import Any, Dict, Optional
@@ -56,6 +55,7 @@ class FastServiceInitializer:
         self.services: Dict[str, Any] = {}
         self.shutdown_coordinator: Optional[ShutdownCoordinator] = shutdown_coordinator
         self._services_lock: threading.RLock = threading.RLock()
+        self._background_tasks: list[asyncio.Task] = []  # Track background tasks for cancellation
 
     async def initialize_all(self, progress_tracker: StartupProgressTracker) -> Dict[str, Any]:
         """Initialize all non-UI services in staged parallel batches with progress updates.
@@ -101,6 +101,34 @@ class FastServiceInitializer:
         if self.shutdown_coordinator and self.shutdown_coordinator.is_shutdown_requested():
             logger.info("Shutdown detected during initialization - cancelling")
             raise asyncio.CancelledError("Initialization cancelled due to shutdown request")
+
+    async def cancel_background_tasks(self) -> None:
+        """Cancel all background tasks spawned during initialization.
+
+        Cancels and awaits completion of background tasks with timeout protection
+        to prevent hanging on stuck tasks during shutdown.
+        """
+        if not self._background_tasks:
+            logger.debug("No background tasks to cancel")
+            return
+
+        logger.info(f"Cancelling {len(self._background_tasks)} background initialization tasks")
+
+        # Cancel all tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for cancellation to complete with timeout
+        try:
+            await asyncio.wait_for(asyncio.gather(*self._background_tasks, return_exceptions=True), timeout=2.0)
+            logger.debug("All background tasks cancelled successfully")
+        except asyncio.TimeoutError:
+            logger.warning("Background task cancellation timed out after 2s")
+        except Exception as e:
+            logger.warning(f"Error during background task cancellation: {e}")
+        finally:
+            self._background_tasks.clear()
 
     async def initialize_ui_components(self, progress_tracker: StartupProgressTracker) -> None:
         """Initialize UI components including fonts, theme, and main control room window.
@@ -365,7 +393,8 @@ class FastServiceInitializer:
                     logger.error("Failed to initialize dictation service")
                     raise RuntimeError("Critical asset download failed: LLM model")
             elif llm_mode == "background":
-                asyncio.create_task(self._background_llm_init(dictation=dictation))
+                llm_task = asyncio.create_task(self._background_llm_init(dictation=dictation))
+                self._background_tasks.append(llm_task)
 
             with self._services_lock:
                 self.services["dictation"] = dictation
@@ -395,11 +424,14 @@ class FastServiceInitializer:
                     sound_service = self.services.get("sound_service")
                 if sound_service:
                     await sound_service.recognizer.warm_start_esc50_samples()
+            except asyncio.CancelledError:
+                logger.debug("ESC-50 warm-start cancelled during shutdown")
             except Exception as e:
                 logger.warning(f"ESC-50 warm-start failed (non-critical): {e}")
 
-        # Don't await - run in background
-        asyncio.create_task(init_esc50_warmstart())
+        # Track background task for cancellation
+        esc50_task = asyncio.create_task(init_esc50_warmstart())
+        self._background_tasks.append(esc50_task)
 
         await init_stt()
         self._check_cancellation()
@@ -676,7 +708,14 @@ async def _stop_gui_event_loop(gui_event_loop: asyncio.AbstractEventLoop, gui_th
     if gui_event_loop.is_closed():
         return errors
 
-    gui_event_loop.call_soon_threadsafe(gui_event_loop.stop)
+    # Stop the event loop
+    try:
+        gui_event_loop.call_soon_threadsafe(gui_event_loop.stop)
+    except Exception as e:
+        logger.warning(f"Error stopping GUI event loop: {e}")
+
+    # Give the loop time to stop processing
+    await asyncio.sleep(0.1)
 
     try:
         gui_thread.join(timeout=5.0)
@@ -689,7 +728,8 @@ async def _stop_gui_event_loop(gui_event_loop: asyncio.AbstractEventLoop, gui_th
         logger.error(error_msg)
         errors.append(error_msg)
 
-    await asyncio.sleep(0.3)
+    # Additional sleep to ensure thread cleanup
+    await asyncio.sleep(0.2)
 
     if not gui_event_loop.is_closed():
         try:
@@ -746,29 +786,82 @@ def _cleanup_memory() -> None:
 
     Runs multiple garbage collection cycles and attempts to call malloc_trim on
     Linux systems to return freed memory to the operating system immediately rather
-    than keeping it in the process heap.
+    than keeping it in the process heap. Also cleans up TensorFlow/PyTorch/llama.cpp
+    resources on Windows.
     """
+    # Clean up TensorFlow sessions and models
+    try:
+        import tensorflow as tf
+
+        tf.keras.backend.clear_session()
+        logger.debug("TensorFlow session cleared")
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"Error clearing TensorFlow session: {e}")
+
+    # Clean up PyTorch CUDA cache if available
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            logger.debug("PyTorch CUDA cache cleared")
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"Error clearing PyTorch cache: {e}")
+
+    # Force garbage collection multiple times
     for i in range(3):
         gc.collect()
         logger.debug(f"Garbage collection round {i+1} performed")
 
+    # Platform-specific memory return
     try:
-        if hasattr(ctypes, "pythonapi"):
+        if sys.platform == "win32":
+            # Windows: Use SetProcessWorkingSetSize to trim working set
             try:
-                libc_name = ctypes.util.find_library("c")
-                if libc_name:
-                    libc = ctypes.CDLL(libc_name)
-                    if hasattr(libc, "malloc_trim"):
-                        libc.malloc_trim(0)
-                        logger.debug("malloc_trim called to return memory to OS")
+                import ctypes
+                from ctypes import wintypes
+
+                kernel32 = ctypes.windll.kernel32
+                current_process = kernel32.GetCurrentProcess()
+
+                # Set working set size to -1, -1 to trim as much as possible
+                result = kernel32.SetProcessWorkingSetSize(
+                    wintypes.HANDLE(current_process), ctypes.c_size_t(-1), ctypes.c_size_t(-1)
+                )
+
+                if result:
+                    logger.debug("Windows process working set trimmed successfully")
+                else:
+                    logger.debug("SetProcessWorkingSetSize returned false")
             except Exception as e:
-                logger.debug(f"Could not call malloc_trim: {e}")
+                logger.debug(f"Could not trim Windows process working set: {e}")
+        else:
+            # Linux/Unix: Use malloc_trim
+            if hasattr(ctypes, "pythonapi"):
+                try:
+                    libc_name = ctypes.util.find_library("c")
+                    if libc_name:
+                        libc = ctypes.CDLL(libc_name)
+                        if hasattr(libc, "malloc_trim"):
+                            libc.malloc_trim(0)
+                            logger.debug("malloc_trim called to return memory to OS")
+                except Exception as e:
+                    logger.debug(f"Could not call malloc_trim: {e}")
     except Exception as e:
         logger.debug(f"Could not force memory return: {e}")
 
 
 async def _cleanup_services(
-    services: Dict[str, Any], event_bus: EventBus, gui_event_loop: asyncio.AbstractEventLoop, gui_thread: threading.Thread
+    services: Dict[str, Any],
+    event_bus: EventBus,
+    gui_event_loop: asyncio.AbstractEventLoop,
+    gui_thread: threading.Thread,
+    service_initializer: Optional[FastServiceInitializer] = None,
 ) -> None:
     """Clean up all services during shutdown with proper async task cleanup.
 
@@ -782,10 +875,15 @@ async def _cleanup_services(
         event_bus: Event bus instance to be stopped.
         gui_event_loop: GUI event loop to be stopped and closed.
         gui_thread: GUI thread to be joined and terminated.
+        service_initializer: Optional service initializer for cancelling background tasks.
     """
     cleanup_errors: list[str] = []
 
     try:
+        # Cancel background initialization tasks if initializer provided
+        if service_initializer:
+            await service_initializer.cancel_background_tasks()
+
         cleanup_errors.extend(await _stop_audio_and_event_bus(services, event_bus, gui_event_loop))
         cleanup_errors.extend(await _stop_mark_service_tasks(services, gui_event_loop))
         await _cancel_gui_event_loop_tasks(gui_event_loop)
@@ -894,6 +992,9 @@ async def _handle_initialization(
         startup_window.update_progress(0.0, "Startup cancelled by user", animate=False)
         await asyncio.sleep(1)
 
+        # Cancel any background tasks that were spawned
+        await service_initializer.cancel_background_tasks()
+
         partial_services = service_initializer.services
         partial_services["gui_thread"] = gui_thread
 
@@ -951,6 +1052,45 @@ def _setup_infrastructure(app_config: GlobalAppConfig) -> tuple[EventBus, asynci
     gui_event_loop.call_soon_threadsafe(lambda: gui_event_loop.create_task(event_bus.start_worker()))
 
     return event_bus, gui_event_loop, gui_thread
+
+
+def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownCoordinator) -> None:
+    """Setup signal handlers for graceful shutdown on SIGINT and SIGTERM.
+
+    Qt applications need special handling for signals. We use a QTimer to periodically
+    check a threading.Event flag set by the signal handler, since signal handlers
+    can't directly call Qt methods.
+
+    Args:
+        qt_app: QApplication instance.
+        shutdown_coordinator: ShutdownCoordinator for handling shutdown requests.
+    """
+    # Create a threading event to signal shutdown from signal handler
+    shutdown_event = threading.Event()
+
+    def signal_handler(signum, frame):
+        """Signal handler for SIGINT and SIGTERM."""
+        signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
+        logger.info(f"Received {signal_name}, initiating graceful shutdown...")
+        shutdown_event.set()
+
+    # Install signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Create a QTimer to check for shutdown signal
+    def check_shutdown_signal():
+        if shutdown_event.is_set():
+            logger.info("Shutdown signal detected, requesting application shutdown...")
+            shutdown_coordinator.request_shutdown(reason="System signal received", source="signal_handler")
+            qt_app.quit()
+
+    # Check every 100ms for shutdown signal
+    signal_timer = QTimer()
+    signal_timer.timeout.connect(check_shutdown_signal)
+    signal_timer.start(100)
+
+    logger.debug("Signal handlers installed for SIGINT and SIGTERM")
 
 
 class QtAsyncioIntegration:
@@ -1035,12 +1175,60 @@ async def main() -> None:
         # Create infrastructure
         event_bus, gui_event_loop, gui_thread = _setup_infrastructure(app_config=app_config)
 
-        # Create shutdown coordinator (adapted for Qt)
-        # We'll need to adapt ShutdownCoordinator to work with Qt
-        shutdown_coordinator = None  # Placeholder - will need Qt adaptation
+        # Create Qt-compatible shutdown coordinator
+        class QtShutdownCoordinator:
+            """Lightweight shutdown coordinator for Qt applications."""
+
+            def __init__(self, event_bus: EventBus, qt_app: QApplication, gui_event_loop: asyncio.AbstractEventLoop):
+                self.event_bus = event_bus
+                self.qt_app = qt_app
+                self.gui_event_loop = gui_event_loop
+                self._shutdown_requested = False
+                self._shutdown_lock = threading.Lock()
+                self._initialization_task: Optional[asyncio.Task] = None
+
+            def request_shutdown(self, reason: str, source: str) -> bool:
+                """Request application shutdown."""
+                with self._shutdown_lock:
+                    if self._shutdown_requested:
+                        logger.debug(f"Shutdown already in progress. Ignoring duplicate request from {source}")
+                        return False
+                    self._shutdown_requested = True
+
+                logger.info(f"Shutdown requested: {reason} (source: {source})")
+
+                # Cancel initialization task if running
+                if self._initialization_task and not self._initialization_task.done():
+                    logger.debug("Cancelling initialization task due to shutdown request")
+                    self._initialization_task.cancel()
+
+                # Quit Qt application
+                try:
+                    self.qt_app.quit()
+                except Exception as e:
+                    logger.error(f"Error calling quit() on Qt app: {e}")
+
+                return True
+
+            def is_shutdown_requested(self) -> bool:
+                """Check if shutdown has been requested (thread-safe)."""
+                with self._shutdown_lock:
+                    return self._shutdown_requested
+
+            def register_initialization_task(self, task: asyncio.Task) -> None:
+                """Register the initialization task for cancellation on shutdown."""
+                self._initialization_task = task
+                logger.debug("Initialization task registered with shutdown coordinator")
+
+            def unregister_initialization_task(self) -> None:
+                """Clear the initialization task reference after it completes."""
+                self._initialization_task = None
+                logger.debug("Initialization task unregistered from shutdown coordinator")
+
+        shutdown_coordinator = QtShutdownCoordinator(event_bus, qt_app, gui_event_loop)
 
         # Setup signal handlers
-        # _setup_signal_handlers(shutdown_coordinator=shutdown_coordinator)
+        _setup_signal_handlers(qt_app=qt_app, shutdown_coordinator=shutdown_coordinator)
 
         # Show startup window with icon manager for taskbar visibility
         startup_window = StartupWindow(
@@ -1120,6 +1308,7 @@ async def main() -> None:
             config=app_config,
             storage_service=services.get("storage"),
             icon_manager=icon_manager,
+            shutdown_coordinator=shutdown_coordinator,
         )
 
         # Set all services for controller initialization
@@ -1154,14 +1343,24 @@ async def main() -> None:
         # Run Qt event loop
         qt_app.exec()
 
-        # Cleanup
+        # Cleanup Qt integration first
         asyncio_integration.stop()
+
+        # Close main window to ensure Qt cleanup
+        if main_window:
+            main_window.close()
+            main_window.deleteLater()
+
+        # Process pending Qt events to ensure cleanup
+        qt_app.processEvents()
+
         logger.info("Qt event loop exited, starting cleanup...")
         await _cleanup_services(
             services=services,
             event_bus=event_bus,
             gui_event_loop=gui_event_loop,
             gui_thread=gui_thread,
+            service_initializer=service_initializer,
         )
 
         logger.info("Application shutdown complete")

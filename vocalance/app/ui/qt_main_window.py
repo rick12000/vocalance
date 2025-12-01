@@ -33,6 +33,7 @@ class VocalanceMainWindow(QMainWindow):
         config: GlobalAppConfig,
         storage_service=None,
         icon_manager: Optional[WindowIconManager] = None,
+        shutdown_coordinator=None,
     ):
         super().__init__()
 
@@ -43,6 +44,7 @@ class VocalanceMainWindow(QMainWindow):
         self._storage_service = storage_service
         self._settings_service = None
         self.icon_manager = icon_manager
+        self._shutdown_coordinator = shutdown_coordinator
 
         self.current_tab = "Marks"
 
@@ -523,7 +525,14 @@ class VocalanceMainWindow(QMainWindow):
             self.settings_controller.set_settings_service(settings_service)
 
     def closeEvent(self, event) -> None:
+        """Handle window close event and trigger graceful shutdown."""
         self.logger.info("Main window close event triggered")
+
+        # Request shutdown through coordinator if available
+        if self._shutdown_coordinator:
+            self.logger.info("Requesting graceful shutdown via shutdown coordinator")
+            self._shutdown_coordinator.request_shutdown(reason="User closed main window", source="main_window_close_event")
+
         self.cleanup_controllers()
         event.accept()
 

@@ -318,13 +318,28 @@ class EventBus:
 
         Initiates graceful shutdown by setting the shutdown flag, attempting to drain
         the event queue with a timeout, cancelling the worker task, and clearing all
-        registered subscribers. Refuses to shut down if critical operations are active.
+        registered subscribers. Forces shutdown after timeout even if critical operations
+        are active to prevent shutdown hangs.
         """
+        # Check critical operations but force shutdown after 3 seconds
         if await self.has_critical_operations():
             async with self._critical_ops_lock:
                 critical_ops = list(self._critical_operations)
-            logger.warning(f"Cannot shutdown event bus - critical operations active: {critical_ops}")
-            return
+            logger.warning(f"Critical operations still active during shutdown: {critical_ops}")
+            logger.warning("Waiting 5 seconds for critical operations to complete...")
+
+            try:
+                # Wait up to 5 seconds for critical ops to clear
+                async with asyncio.timeout(5.0):
+                    while await self.has_critical_operations():
+                        await asyncio.sleep(0.1)
+                    logger.info("All critical operations completed")
+            except asyncio.TimeoutError:
+                logger.warning("Critical operations did not complete in time, forcing shutdown")
+                async with self._critical_ops_lock:
+                    remaining_ops = list(self._critical_operations)
+                    logger.error(f"Force-clearing {len(remaining_ops)} critical operations: {remaining_ops}")
+                    self._critical_operations.clear()
 
         async with self._state_lock:
             self._is_shutting_down = True
@@ -350,12 +365,21 @@ class EventBus:
             self._subscribers.clear()
         logger.debug("All event subscribers cleared")
 
-        # Shutdown thread pool
+        # Shutdown thread pool with timeout
         if self._thread_pool is not None:
             logger.debug("Shutting down thread pool executor")
-            self._thread_pool.shutdown(wait=True, cancel_futures=False)
-            self._thread_pool = None
-            logger.debug("Thread pool shutdown complete")
+            try:
+                # Use asyncio to run shutdown with timeout
+                # Note: shutdown() must be wrapped in lambda to pass keyword args
+                loop = asyncio.get_event_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self._thread_pool.shutdown(wait=True, cancel_futures=False)), timeout=5.0
+                )
+                logger.debug("Thread pool shutdown complete")
+            except asyncio.TimeoutError:
+                logger.warning("Thread pool shutdown timed out after 5s, abandoning remaining tasks")
+            finally:
+                self._thread_pool = None
 
     async def get_stats(self) -> Dict[str, Any]:
         """Get current event bus statistics for monitoring and debugging.

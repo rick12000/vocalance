@@ -473,24 +473,41 @@ class WhisperSTT:
         """Shutdown Whisper engine and release all model resources.
 
         Unloads model if supported, deletes references to noise samples and cached
-        results, and runs garbage collection to free memory immediately.
+        results, and runs garbage collection to free memory immediately. Uses timeout
+        to prevent shutdown hangs.
         """
         logger.info("Shutting down WhisperSTT")
 
-        async with self._model_lock:
-            if hasattr(self, "_model") and self._model is not None:
-                if hasattr(self._model, "unload"):
-                    self._model.unload()
-                del self._model
-                self._model = None
-                logger.info("Whisper model deleted")
+        try:
+            # Use timeout to prevent shutdown hang
+            async with asyncio.timeout(5.0):
+                async with self._model_lock:
+                    if hasattr(self, "_model") and self._model is not None:
+                        # Run unload in thread pool to avoid blocking
+                        if hasattr(self._model, "unload"):
+                            try:
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(None, self._model.unload)
+                            except Exception as e:
+                                logger.warning(f"Error unloading Whisper model: {e}")
 
-            if hasattr(self, "_noise_samples") and self._noise_samples is not None:
-                self._noise_samples.clear()
-                self._noise_samples = None
+                        del self._model
+                        self._model = None
+                        logger.info("Whisper model deleted")
 
-            if hasattr(self, "_last_result"):
-                self._last_result = None
+                    if hasattr(self, "_noise_samples") and self._noise_samples is not None:
+                        self._noise_samples.clear()
+                        self._noise_samples = None
 
-        gc.collect()
-        logger.info("WhisperSTT shutdown complete")
+                    if hasattr(self, "_last_result"):
+                        self._last_result = None
+
+            gc.collect()
+            logger.info("WhisperSTT shutdown complete")
+        except asyncio.TimeoutError:
+            logger.warning("WhisperSTT shutdown timed out after 5s, forcing cleanup")
+            # Force cleanup even on timeout
+            self._model = None
+            gc.collect()
+        except Exception as e:
+            logger.error(f"Error during WhisperSTT shutdown: {e}", exc_info=True)
