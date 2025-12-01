@@ -18,6 +18,7 @@ from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.ui.qt_main_window import VocalanceMainWindow
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
 
 logger = logging.getLogger(__name__)
 
@@ -986,7 +987,7 @@ async def main() -> None:
     - Configures logging
     - Validates assets
     - Sets up infrastructure (event bus, GUI thread)
-    - Creates Qt application and main window
+    - Creates Qt application with icon early for taskbar visibility
     - Initializes all services with progress tracking
     - Activates services
     - Displays the main window
@@ -996,6 +997,7 @@ async def main() -> None:
     logging.getLogger("numba").setLevel(logging.WARNING)
 
     shutdown_coordinator: Optional[ShutdownCoordinator] = None
+    icon_manager: Optional[WindowIconManager] = None
 
     try:
         app_info = AppInfoConfig()
@@ -1006,12 +1008,29 @@ async def main() -> None:
         setup_logging(config=app_config.logging)
         os.makedirs(app_config.storage.user_data_root, exist_ok=True)
 
-        # Create Qt Application
+        # Create Qt Application EARLY - before any windows
         qt_app = QApplication(sys.argv)
         qt_app.setStyle("Fusion")  # Modern Qt style
 
+        # Initialize icon manager and apply to QApplication immediately
+        # This ensures taskbar icon is visible for all windows created afterwards
+        icon_path = None
+        if app_config.asset_paths.icon_path:
+            from pathlib import Path
+
+            icon_path = Path(app_config.asset_paths.icon_path)
+
+        icon_manager = WindowIconManager(icon_path=icon_path)
+        if icon_manager.load_icon():
+            icon_manager.apply_to_application(qt_app)
+            logger.info("Application-level icon set for taskbar visibility")
+        else:
+            logger.warning("Failed to load application icon; proceeding without icon")
+
         # Load fonts and apply base styles
         theme.load_fonts(app_config.asset_paths.fonts_dir)
+        theme._apply_app_palette(qt_app)
+        logger.info("Theme palette applied to QApplication to override OS colors")
 
         # Create infrastructure
         event_bus, gui_event_loop, gui_thread = _setup_infrastructure(app_config=app_config)
@@ -1023,11 +1042,12 @@ async def main() -> None:
         # Setup signal handlers
         # _setup_signal_handlers(shutdown_coordinator=shutdown_coordinator)
 
-        # Show startup window
+        # Show startup window with icon manager for taskbar visibility
         startup_window = StartupWindow(
             logger=logging.getLogger("StartupWindow"),
             asset_paths_config=app_config.asset_paths,
             shutdown_coordinator=shutdown_coordinator,
+            icon_manager=icon_manager,
         )
         startup_window.show()
 
@@ -1092,13 +1112,14 @@ async def main() -> None:
         logger.info("Activating services now that initialization is complete")
         await service_initializer.activate_all_services()
 
-        # Create main window
+        # Create main window with icon manager for taskbar visibility
         main_window = VocalanceMainWindow(
             event_bus=event_bus,
             event_loop=gui_event_loop,
             logger=logging.getLogger("MainWindow"),
             config=app_config,
             storage_service=services.get("storage"),
+            icon_manager=icon_manager,
         )
 
         # Set all services for controller initialization

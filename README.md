@@ -34,41 +34,52 @@ Vocalance can be set up entirely from the source code in this repository. To do 
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-2. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
+2. Add UV to path (this is specific to this terminal session only, repeat this step every time, or add to permanent path to skip):
+   ```powershell
+   $env:Path = "$HOME\.local\bin;$env:Path"
+   ```
+
+3. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
    ```bash
    uv venv --python 3.13.9 vocalance_env
    ```
 
-3. Activate the environment:
+4. Activate the environment:
    ```bash
    vocalance_env\Scripts\activate
    ```
 
-4. Clone the repository:
+5. Clone the repository:
    ```bash
    git clone https://github.com/rick12000/vocalance.git
    ```
 
-5. Go to the repository directory:
+6. Go to the repository directory:
    ```bash
    cd vocalance
    ```
 
-6. Install Vocalance from `uv.lock`:
+7. Install Vocalance from `uv.lock`:
    ```bash
    uv sync --active
    ```
 
-7. Run the application:
+8. Run the application:
    ```bash
    python vocalance.py
    ```
 
-The application will start up and download any required models (like speech recognition models) on first run. This may take several minutes depending on your internet connection.
+The application will start up and download any required models (like speech recognition models) on first run (these are downloaded from Hugging Face or other reputable hosts). This may take several minutes depending on your internet connection.
 
-On follow up runs, skip the `uv sync --active` step and just run the application (in the environment you created earlier).
+On follow up runs, you can skip the `uv sync --active` step and just run the application (in the environment you created earlier).
 
 If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html).
+
+### Pip
+
+The recommended approach is to install Vocalance with uv, since the developers can freeze and document all recommended dependancies in a `uv.lock` file, which you then install with `uv sync --active`.
+
+If you're more familiar with a mixture of a virtual environment manager (eg. `venv` or `conda` or `pyenv`) + `pip` however, you can absolutely replace above uv steps with your environment manager and replace `uv sync --active` with `pip install .` to install Vocalance as a package. Note this is at your discretion, and license disclosures in this repository pertain to pinned package versions in `uv.lock`.
 
 ## 🔧 System Requirements
 

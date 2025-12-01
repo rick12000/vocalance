@@ -270,6 +270,19 @@ def text_input_service(dictation_config):
     return TextInputService(config=dictation_config)
 
 
+def _setup_clipboard_mocks(mock_paste, mock_copy, expected_text):
+    """Helper to configure clipboard mocks for successful paste operations.
+
+    Args:
+        mock_paste: pyperclip.paste mock
+        mock_copy: pyperclip.copy mock
+        expected_text: The text that should be pasted
+    """
+    # Sequence: read original, verify after copy, verify after paste
+    mock_paste.side_effect = ["original_clipboard_content", expected_text, expected_text]
+    mock_copy.return_value = None
+
+
 @pytest.mark.asyncio
 async def test_initialize_succeeds(text_input_service):
     """Test that initialization succeeds."""
@@ -292,17 +305,53 @@ async def test_reset_session_clears_last_text(text_input_service):
 @patch("pyautogui.keyUp")
 @patch("pyautogui.press")
 async def test_input_text_success(mock_press, mock_keyup, mock_keydown, mock_paste, mock_copy, text_input_service):
-    """Test successful text input via clipboard."""
+    """Test successful text input via clipboard performs complete paste sequence."""
+    _setup_clipboard_mocks(mock_paste, mock_copy, "hello world ")
+
     result = await text_input_service.input_text("hello world")
+
+    # Verify return value
     assert result is True
+
+    # Verify state tracking
     assert text_input_service.last_text == "hello world "
+
+    # Verify clipboard operations occurred
+    assert mock_copy.call_count >= 2, "Should copy text and restore original clipboard"
+    assert mock_paste.call_count >= 2, "Should read original clipboard and verify paste"
+
+    # Verify paste key sequence: Ctrl+V
+    assert mock_keydown.called, "Should press Ctrl key"
+    assert mock_keyup.called, "Should release Ctrl key"
+    assert mock_press.called, "Should press V key"
+
+    # Verify ctrl key was used
+    keydown_args = [str(call) for call in mock_keydown.call_args_list]
+    keyup_args = [str(call) for call in mock_keyup.call_args_list]
+    assert any("ctrl" in str(arg).lower() for arg in keydown_args), "Should press Ctrl"
+    assert any("ctrl" in str(arg).lower() for arg in keyup_args), "Should release Ctrl"
+
+    # Verify V was pressed
+    press_args = [call[0][0] if call[0] else "" for call in mock_press.call_args_list]
+    assert "v" in press_args, "Should press V key for paste"
 
 
 @pytest.mark.asyncio
 async def test_input_text_empty_string(text_input_service):
-    """Test that empty text is rejected."""
-    result = await text_input_service.input_text("")
-    assert result is False
+    """Test that empty text is rejected without performing clipboard operations."""
+    with patch("pyperclip.copy") as mock_copy, patch("pyperclip.paste") as mock_paste, patch(
+        "pyautogui.keyDown"
+    ) as mock_keydown, patch("pyautogui.keyUp") as mock_keyup, patch("pyautogui.press") as mock_press:
+
+        result = await text_input_service.input_text("")
+
+        assert result is False
+        # Empty input should not trigger any clipboard or keyboard operations
+        assert mock_copy.call_count == 0, "Should not copy for empty input"
+        assert mock_paste.call_count == 0, "Should not paste for empty input"
+        assert mock_press.call_count == 0, "Should not press keys for empty input"
+        assert mock_keydown.call_count == 0, "Should not press Ctrl for empty input"
+        assert mock_keyup.call_count == 0, "Should not release Ctrl for empty input"
 
 
 @pytest.mark.asyncio
@@ -312,10 +361,21 @@ async def test_input_text_empty_string(text_input_service):
 @patch("pyautogui.keyUp")
 @patch("pyautogui.press")
 async def test_input_text_no_trailing_space(mock_press, mock_keyup, mock_keydown, mock_paste, mock_copy, text_input_service):
-    """Test text input without trailing space."""
+    """Test text input without trailing space applies correct transformation."""
+    _setup_clipboard_mocks(mock_paste, mock_copy, "hello")
+
     result = await text_input_service.input_text("hello", add_trailing_space=False)
+
     assert result is True
+    # Critical: text should NOT have trailing space
     assert text_input_service.last_text == "hello"
+    assert not text_input_service.last_text.endswith(" "), "Should not have trailing space"
+
+    # Verify the exact text was copied to clipboard (without space)
+    copy_calls = [call[0][0] for call in mock_copy.call_args_list if call[0]]
+    assert "hello" in copy_calls, f"Should copy 'hello' without space, got {copy_calls}"
+    # Ensure no variant with space was copied
+    assert not any(text == "hello " for text in copy_calls), "Should not copy with trailing space"
 
 
 @pytest.mark.asyncio
@@ -325,11 +385,26 @@ async def test_input_text_no_trailing_space(mock_press, mock_keyup, mock_keydown
 @patch("pyautogui.keyUp")
 @patch("pyautogui.press")
 async def test_input_text_removes_previous_period(mock_press, mock_keyup, mock_keydown, mock_paste, mock_copy, text_input_service):
-    """Test that previous period is removed when appropriate."""
+    """Test that previous period and trailing space are deleted before pasting continuation."""
     text_input_service.last_text = "Previous sentence. "
+    _setup_clipboard_mocks(mock_paste, mock_copy, " lowercase continuation ")
 
     result = await text_input_service.input_text("lowercase continuation")
+
     assert result is True
+    # State should show the text that was pasted
+    assert text_input_service.last_text == " lowercase continuation "
+
+    # Verify backspace was pressed to remove period + trailing space (2 chars)
+    # The period and the space after it should be deleted
+    press_calls = [call[0][0] if call[0] else "" for call in mock_press.call_args_list]
+    backspace_count = sum(1 for key in press_calls if key == "backspace")
+    assert backspace_count == 2, f"Should backspace 2 times (period + space), got {backspace_count}"
+
+    # Verify the pasted text starts with space (for proper sentence continuity)
+    copy_calls = [call[0][0] for call in mock_copy.call_args_list if call[0]]
+    pasted_texts = [text for text in copy_calls if "lowercase" in text]
+    assert any(text.startswith(" ") for text in pasted_texts), "Continuation should start with space"
 
 
 @pytest.mark.asyncio
@@ -339,11 +414,25 @@ async def test_input_text_removes_previous_period(mock_press, mock_keyup, mock_k
 @patch("pyautogui.keyUp")
 @patch("pyautogui.press")
 async def test_input_text_lowercases_first_letter(mock_press, mock_keyup, mock_keydown, mock_paste, mock_copy, text_input_service):
-    """Test that first letter is lowercased when appropriate."""
+    """Test that first letter is lowercased when continuing without sentence boundary."""
     text_input_service.last_text = "No sentence boundary "
+    _setup_clipboard_mocks(mock_paste, mock_copy, "uppercase start ")
 
     result = await text_input_service.input_text("Uppercase start")
+
     assert result is True
+    # Critical: first letter should be lowercased for mid-sentence continuation
+    assert text_input_service.last_text == "uppercase start "
+    assert text_input_service.last_text[0] == "u", "First letter should be lowercase 'u', not 'U'"
+    assert text_input_service.last_text[0].islower()
+
+    # Verify the copied text has lowercase first letter (not the original uppercase)
+    copy_calls = [call[0][0] for call in mock_copy.call_args_list if call[0]]
+    texts_with_start = [text for text in copy_calls if "start" in text]
+    assert any(text.startswith("u") for text in texts_with_start), f"Should copy with lowercase 'u', but got: {texts_with_start}"
+    assert not any(
+        text.startswith("U") for text in texts_with_start
+    ), f"Should NOT copy with uppercase 'U', but got: {texts_with_start}"
 
 
 @pytest.mark.asyncio

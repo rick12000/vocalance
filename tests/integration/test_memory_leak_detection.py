@@ -22,7 +22,7 @@ def app_config():
 @pytest.mark.slow
 async def test_process_exit_releases_memory(app_config):
     """Test that memory is fully released when the application process exits."""
-    main_script_path = Path(__file__).parent.parent.parent / "vocalance" / "main.py"
+    main_script_path = Path(__file__).parent.parent.parent / "vocalance" / "qt_main.py"
 
     # Start the application process
     process = subprocess.Popen(

@@ -146,6 +146,35 @@ class EventBus:
         with self._subscribers_lock:
             self._subscribers[event_type].append(handler)
 
+    def unsubscribe(self, event_type: Type[BaseEvent], handler: Callable[[BaseEvent], Any]) -> bool:
+        """Unsubscribe a handler from receiving events of a specific type.
+
+        Removes the handler from the subscriber list for the given event type.
+        Thread-safe for unsubscription from any thread.
+
+        Args:
+            event_type: BaseEvent subclass to unsubscribe from.
+            handler: The exact handler callable that was previously subscribed.
+
+        Returns:
+            True if the handler was found and removed, False otherwise.
+        """
+        handler_name = handler.__name__ if hasattr(handler, "__name__") else str(handler)
+
+        with self._subscribers_lock:
+            if event_type not in self._subscribers:
+                logger.debug(f"No subscribers for event type {event_type.__name__}, cannot unsubscribe {handler_name}")
+                return False
+
+            handlers = self._subscribers[event_type]
+            if handler in handlers:
+                handlers.remove(handler)
+                logger.debug(f"Unsubscribed handler {handler_name} from event type: {event_type.__name__}")
+                return True
+            else:
+                logger.debug(f"Handler {handler_name} not found in subscribers for {event_type.__name__}")
+                return False
+
     async def _process_events(self) -> None:
         """Process events from the priority queue and dispatch to matching subscribers.
 

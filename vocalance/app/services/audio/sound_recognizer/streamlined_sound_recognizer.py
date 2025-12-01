@@ -44,8 +44,9 @@ class SimpleStandardScaler:
         """
         self.mean = np.mean(X, axis=0)
         self.std = np.std(X, axis=0)
-        # Avoid division by zero
-        self.std[self.std == 0] = 1e-8
+        # Avoid division by zero and numerical instability
+        # Use 0.01 as minimum std (prevents huge scaled values)
+        self.std = np.maximum(self.std, 0.01)
         self._is_fitted = True
         return self
 

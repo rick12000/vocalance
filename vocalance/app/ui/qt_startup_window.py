@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxL
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
+from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
 
 
 class StartupSignals(QObject):
@@ -34,6 +35,7 @@ class StartupWindow(QDialog):
         logger: logging.Logger,
         asset_paths_config,
         shutdown_coordinator=None,
+        icon_manager: WindowIconManager = None,
     ):
         """Initialize startup window.
 
@@ -41,11 +43,13 @@ class StartupWindow(QDialog):
             logger: Logger instance.
             asset_paths_config: Asset paths configuration.
             shutdown_coordinator: Optional shutdown coordinator reference.
+            icon_manager: Optional WindowIconManager for taskbar icon display.
         """
         super().__init__()
 
         self.logger = logger
         self.shutdown_coordinator = shutdown_coordinator
+        self.icon_manager = icon_manager
         self.is_closed = False
         self._lock = threading.Lock()
         self._programmatic_close = False
@@ -70,6 +74,11 @@ class StartupWindow(QDialog):
 
         # Setup UI
         self._setup_ui()
+
+        # Apply icon to startup window for taskbar visibility
+        if self.icon_manager and self.icon_manager.is_icon_loaded():
+            self.icon_manager.apply_to_dialog(self)
+            self.logger.debug("Icon applied to startup window")
 
         self.logger.info("Startup window initialized")
 

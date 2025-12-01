@@ -3,46 +3,46 @@ repos:
     rev: v3.4.0
     hooks:
     -   id: trailing-whitespace
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: end-of-file-fixer
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: check-yaml
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: check-added-large-files
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ['--maxkb=10000']  # Allow larger files for models
     -   id: debug-statements
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: detect-private-key
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: check-merge-conflict
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: check-json
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: pretty-format-json
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ['--autofix']
 -   repo: https://github.com/psf/black
     rev: 22.10.0
     hooks:
     -   id: black
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ['--line-length=131']
 -   repo: https://github.com/PyCQA/flake8
     rev: 7.0.0
     hooks:
     -   id: flake8
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ['--max-line-length=131', '--ignore=E203,W503,E501']
 -   repo: https://github.com/PyCQA/autoflake
     rev: v2.2.0
     hooks:
     -   id: autoflake
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ["--remove-all-unused-imports", "--remove-unused-variables", "--in-place"]
 -   repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
     -   id: isort
-        exclude: ^(NOTICE\.txt|LICENSE\.txt)$
+        exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ["--profile", "black", "--line-length=131"]

@@ -243,7 +243,7 @@ class ThemeManager:
         return self._stylesheet
 
     def apply_stylesheet(self, app) -> None:
-        """Apply the loaded stylesheet to a QApplication.
+        """Apply the loaded stylesheet and palette to a QApplication.
 
         Args:
             app: QApplication instance to apply stylesheet to.
@@ -253,6 +253,34 @@ class ThemeManager:
 
         if self._stylesheet:
             app.setStyleSheet(self._stylesheet)
+
+        # Apply custom palette to override OS theme colors
+        self._apply_app_palette(app)
+
+    def _apply_app_palette(self, app) -> None:
+        """Apply our custom palette to the QApplication to override OS theme.
+
+        This ensures that selection colors, radio button indicators, and other
+        OS-dependent colors use our theme colors instead of the system colors.
+
+        Palette inheritance model:
+        - QApplication palette is the base - inherited by all widgets
+        - Widgets can override by calling setPalette() with their own palette
+        - This creates a clean cascade where specific colors are overridden locally
+        - Palette colors are INDEPENDENT of QSS stylesheets (separate systems)
+
+        Args:
+            app: QApplication instance to apply palette to.
+        """
+        from PySide6.QtGui import QColor, QPalette
+
+        palette = app.palette()
+
+        # Override OS theme selection colors with our theme colors
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))  # Selection background
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))  # Selection text
+
+        app.setPalette(palette)
 
     def get_stylesheet(self) -> str:
         """Get the loaded stylesheet content.
@@ -395,14 +423,18 @@ class ThemeManager:
         return "#FF00FF"
 
     def get_palette(self, bg_color: str, text_color: str):
-        """Create a QPalette with specified colors.
+        """Create a QPalette with specified colors and our theme's selection colors.
+
+        This method ensures all palettes created through the theme include our custom
+        selection colors, maintaining consistency across the application even if
+        QApplication palette isn't applied yet.
 
         Args:
             bg_color: Background color hex
             text_color: Text/foreground color hex
 
         Returns:
-            Configured QPalette
+            Configured QPalette with our theme selection colors included
         """
         from PySide6.QtGui import QColor, QPalette
 
@@ -413,6 +445,11 @@ class ThemeManager:
         palette.setColor(QPalette.ColorRole.Text, QColor(text_color))
         palette.setColor(QPalette.ColorRole.Button, QColor(bg_color))
         palette.setColor(QPalette.ColorRole.ButtonText, QColor(text_color))
+
+        # Always include our custom theme selection colors
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))  # Selection background
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))  # Selection text
+
         return palette
 
     def apply_colors_to_widget(self, widget, bg_color: str, text_color: str = None):
@@ -432,6 +469,10 @@ class ThemeManager:
         if text_color:
             palette.setColor(QPalette.ColorRole.WindowText, QColor(text_color))
             palette.setColor(QPalette.ColorRole.Text, QColor(text_color))
+
+        # Override OS theme selection colors with our theme colors
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))  # Selection background
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))  # Selection text
 
         widget.setPalette(palette)
         widget.setAutoFillBackground(True)

@@ -15,6 +15,7 @@ from vocalance.app.ui.components.specialized import ExpandableSidebar
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
+from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
 
 
 class VocalanceMainWindow(QMainWindow):
@@ -31,6 +32,7 @@ class VocalanceMainWindow(QMainWindow):
         logger: logging.Logger,
         config: GlobalAppConfig,
         storage_service=None,
+        icon_manager: Optional[WindowIconManager] = None,
     ):
         super().__init__()
 
@@ -40,6 +42,7 @@ class VocalanceMainWindow(QMainWindow):
         self.config = config
         self._storage_service = storage_service
         self._settings_service = None
+        self.icon_manager = icon_manager
 
         self.current_tab = "Marks"
 
@@ -82,12 +85,18 @@ class VocalanceMainWindow(QMainWindow):
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
-        # Set window icon if available
-        icon_path = self.asset_cache.get_icon_path()
-        if icon_path and icon_path.exists():
-            from PySide6.QtGui import QIcon
+        # Apply icon using icon manager if available
+        if self.icon_manager and self.icon_manager.is_icon_loaded():
+            self.icon_manager.apply_to_window(self)
+            self.logger.debug("Icon applied to main window via icon manager")
+        else:
+            # Fallback: load icon directly if manager not available
+            icon_path = self.asset_cache.get_icon_path()
+            if icon_path and icon_path.exists():
+                from PySide6.QtGui import QIcon
 
-            self.setWindowIcon(QIcon(str(icon_path)))
+                self.setWindowIcon(QIcon(str(icon_path)))
+                self.logger.debug("Icon applied to main window directly")
 
     def _initialize_controllers(self) -> None:
         """Initialize all controllers."""
