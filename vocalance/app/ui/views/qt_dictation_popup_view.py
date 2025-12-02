@@ -136,6 +136,8 @@ class QtDictationPopupView(QMainWindow):
 
         # Simple mode: Sound wave animation
         self.simple_widget = QWidget()
+        self.simple_widget.setAutoFillBackground(False)
+        self.simple_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         simple_layout = QVBoxLayout(self.simple_widget)
         simple_layout.setContentsMargins(0, 0, 0, 0)
         simple_layout.setSpacing(0)
@@ -148,18 +150,24 @@ class QtDictationPopupView(QMainWindow):
 
         # Smart mode: Dictation + AI output (side by side)
         self.smart_widget = QWidget()
+        self.smart_widget.setAutoFillBackground(False)
+        self.smart_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         smart_main_layout = QVBoxLayout(self.smart_widget)
         smart_main_layout.setContentsMargins(0, 0, 0, 0)
         smart_main_layout.setSpacing(10)
 
         # Container for side-by-side layout
         side_by_side_container = QWidget()
+        side_by_side_container.setAutoFillBackground(False)
+        side_by_side_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         side_by_side_layout = QHBoxLayout(side_by_side_container)
         side_by_side_layout.setContentsMargins(0, 0, 0, 0)
         side_by_side_layout.setSpacing(10)
 
         # Left column: Dictation
         dictation_container = QWidget()
+        dictation_container.setAutoFillBackground(False)
+        dictation_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         dictation_layout = QVBoxLayout(dictation_container)
         dictation_layout.setContentsMargins(0, 0, 0, 0)
         dictation_layout.setSpacing(5)
@@ -180,12 +188,16 @@ class QtDictationPopupView(QMainWindow):
 
         # Right column: AI Output
         llm_container = QWidget()
+        llm_container.setAutoFillBackground(False)
+        llm_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         llm_layout = QVBoxLayout(llm_container)
         llm_layout.setContentsMargins(0, 0, 0, 0)
         llm_layout.setSpacing(5)
 
         # Create title row with label on left, spinner on right
         llm_title_container = QWidget()
+        llm_title_container.setAutoFillBackground(False)
+        llm_title_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         llm_title_layout = QHBoxLayout(llm_title_container)
         # Right margin matches the padding of the LLM text box (spacing.small = 8px)
         llm_title_layout.setContentsMargins(0, 0, 8, 0)
@@ -221,6 +233,8 @@ class QtDictationPopupView(QMainWindow):
 
         # Visual mode: Dictation only
         self.visual_widget = QWidget()
+        self.visual_widget.setAutoFillBackground(False)
+        self.visual_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         visual_layout = QVBoxLayout(self.visual_widget)
         visual_layout.setContentsMargins(0, 0, 0, 0)
         visual_layout.setSpacing(10)
@@ -437,12 +451,23 @@ class QtDictationPopupView(QMainWindow):
         if not hasattr(self, "_partial_segments"):
             self._partial_segments = {}
 
+        # Get document length for bounds checking
+        doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
+
         # Remove all existing partial text segments
         for old_segment_id in list(self._partial_segments.keys()):
             old_start, old_end = self._partial_segments[old_segment_id]
+
+            # Validate positions are within document bounds
+            if old_start < 0 or old_end > doc_length or old_start >= old_end:
+                self.logger.warning(
+                    f"Skipping invalid partial segment {old_segment_id}: pos {old_start}-{old_end} (doc_length={doc_length})"
+                )
+                continue
+
             cursor = text_box.textCursor()
-            cursor.setPosition(old_start)
-            cursor.setPosition(old_end, cursor.MoveMode.KeepAnchor)
+            cursor.setPosition(min(old_start, doc_length))
+            cursor.setPosition(min(old_end, doc_length), cursor.MoveMode.KeepAnchor)
             cursor.removeSelectedText()
             self.logger.debug(f"Removed old partial segment {old_segment_id} at pos {old_start}-{old_end}")
 
@@ -516,12 +541,21 @@ class QtDictationPopupView(QMainWindow):
         # Legacy behavior (lines 298-311): replace partial with final
         if hasattr(self, "_partial_segments") and segment_id in self._partial_segments:
             start_pos, end_pos = self._partial_segments[segment_id]
-            cursor = text_box.textCursor()
-            cursor.setPosition(start_pos)
-            cursor.setPosition(end_pos, cursor.MoveMode.KeepAnchor)
-            cursor.removeSelectedText()
+            doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
+
+            # Validate positions are within document bounds
+            if start_pos >= 0 and end_pos <= doc_length and start_pos < end_pos:
+                cursor = text_box.textCursor()
+                cursor.setPosition(min(start_pos, doc_length))
+                cursor.setPosition(min(end_pos, doc_length), cursor.MoveMode.KeepAnchor)
+                cursor.removeSelectedText()
+                self.logger.debug(f"Removed partial text for segment {segment_id} at {start_pos}-{end_pos}")
+            else:
+                self.logger.warning(
+                    f"Skipping invalid partial segment {segment_id}: pos {start_pos}-{end_pos} (doc_length={doc_length})"
+                )
+
             del self._partial_segments[segment_id]
-            self.logger.debug(f"Removed partial text for segment {segment_id} at {start_pos}-{end_pos}")
 
         # Insert final text at end with light color formatting (stable/permanent)
         cursor = text_box.textCursor()

@@ -31,7 +31,9 @@ class TransparentTextEdit(QPlainTextEdit):
         from PySide6.QtGui import QPalette
 
         palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Base, palette.color(QPalette.ColorRole.Window))
+        # Set Base color to transparent directly - don't inherit from parent which might be opaque/medium colored
+        palette.setColor(QPalette.ColorRole.Base, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
         self.setPalette(palette)
 
         self.setStyleSheet(
@@ -75,6 +77,18 @@ class TextDisplayContainer(QWidget):
 
         # Set size policy to expand and fill available space
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        # Make background truly transparent - all styling via paintEvent
+        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+
+        # Clear palette colors to ensure transparency
+        from PySide6.QtGui import QPalette
+
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("transparent"))
+        self.setPalette(palette)
 
         # Store the background color
         self._bg_color = QColor(theme.config.shapes.dark)
