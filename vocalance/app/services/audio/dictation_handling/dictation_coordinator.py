@@ -500,7 +500,7 @@ class DictationCoordinator:
         """
         try:
             MIN_AUDIO_SECONDS = 1.0
-            SAME_OUTPUT_THRESHOLD = 10
+            SAME_OUTPUT_THRESHOLD = 5  # Reduced from 10 for lower latency (~150ms vs 300ms)
             NO_SPEECH_THRESH = 0.45
 
             logger.info(f"Starting streaming loop (threshold={SAME_OUTPUT_THRESHOLD}, no_speech={NO_SPEECH_THRESH})")

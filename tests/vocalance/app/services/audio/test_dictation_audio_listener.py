@@ -291,16 +291,21 @@ async def test_long_dictation_session(dictation_listener, speech_chunk, event_bu
 
 @pytest.mark.asyncio
 async def test_noise_floor_update(dictation_listener, silence_chunk):
+    """Test that noise floor updates as silence samples are processed."""
     dictation_listener.setup_subscriptions()
 
-    initial_noise_samples = len(dictation_listener._noise_samples)
+    # Get initial noise floor estimate
+    initial_estimate = dictation_listener._audio_processor.get_noise_floor()
+    initial_sample_count = initial_estimate.sample_count
 
-    for _ in range(10):
+    # Process silence chunks to build noise floor estimate
+    for _ in range(25):  # Need at least 20 samples for stable estimate
         event = create_audio_event(silence_chunk)
         await dictation_listener._handle_audio_chunk(event)
 
-    async with dictation_listener._state_lock:
-        assert len(dictation_listener._noise_samples) > initial_noise_samples
+    # Check that noise floor samples have increased
+    final_estimate = dictation_listener._audio_processor.get_noise_floor()
+    assert final_estimate.sample_count > initial_sample_count
 
 
 @pytest.mark.asyncio
@@ -320,8 +325,12 @@ async def test_concurrent_chunk_processing(dictation_listener, speech_chunk):
 
 @pytest.mark.asyncio
 async def test_silence_threshold_calculation(dictation_listener):
-    expected_silence = dictation_listener.energy_threshold * dictation_listener.config.vad.silence_threshold_multiplier
-    assert dictation_listener.silence_threshold == expected_silence
+    """Test that silence threshold is properly related to speech threshold."""
+    # The silence threshold should be lower than the speech threshold
+    assert dictation_listener.silence_threshold < dictation_listener.energy_threshold
+    # Both thresholds should be positive
+    assert dictation_listener.silence_threshold > 0
+    assert dictation_listener.energy_threshold > 0
 
 
 @pytest.mark.asyncio

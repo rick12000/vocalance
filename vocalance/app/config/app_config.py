@@ -261,55 +261,73 @@ class VADConfig(BaseModel):
 
     Defines energy thresholds, recording durations, silence detection parameters, and
     pre-roll buffering separately optimized for command mode (low latency), dictation mode
-    (longer speech), and training mode (sample collection). Includes adaptive noise floor
-    estimation for robust speech detection in varying acoustic environments.
+    (longer speech), and training mode (sample collection).
+
+    The VAD system uses continuous adaptive noise floor estimation with audio normalization
+    to work robustly across different microphones. Key features:
+    - DC offset removal and peak normalization before energy calculation
+    - Rolling window noise floor estimation with bootstrap period
+    - Thresholds adapt continuously to changing acoustic environments
+    - Works with dynamic mics, condensers, headsets, and USB devices
+
+    NOTE: All chunk-based parameters assume 30ms chunks (industry standard for VAD).
     """
 
     noise_floor_estimation: bool = Field(default=True, description="Enable automatic noise floor estimation.")
 
+    # Audio normalization settings
+    enable_audio_normalization: bool = Field(
+        default=True,
+        description="Enable audio preprocessing (DC offset removal, peak normalization) for microphone-robust VAD.",
+    )
+
     command_energy_threshold: float = Field(
         default=0.0005,
-        description="Energy threshold for command mode speech detection - further lowered for more sensitive detection.",
+        description="Minimum energy threshold for command mode (used as floor when noise is very low).",
     )
     sound_energy_threshold: float = Field(
-        default=0.001,
-        description="Energy threshold for sound recognition - optimized for detecting various sound types.",
+        default=0.003,
+        description="Minimum energy threshold for sound recognition - higher than command/dictation to reduce false triggers.",
     )
     command_silent_chunks_for_end: int = Field(
-        default=4,
-        description="Number of consecutive silent chunks to end recording in command mode (4 chunks = 200ms at 50ms/chunk).",
+        default=5,
+        description="Number of consecutive silent chunks to end recording in command mode (5 chunks = 150ms at 30ms/chunk).",
     )
     command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")
     command_pre_roll_buffers: int = Field(
-        default=8,
-        description="Pre-roll buffers for command mode (200ms at 50ms chunks) - captures full word attack including initial consonants.",
+        default=7,
+        description="Pre-roll buffers for command mode (210ms at 30ms chunks) - captures word attack.",
     )
 
-    dictation_energy_threshold: float = Field(default=0.0035, description="Energy threshold for dictation mode.")
+    dictation_energy_threshold: float = Field(
+        default=0.0035,
+        description="Minimum energy threshold for dictation mode (used as floor when noise is very low).",
+    )
     dictation_silent_chunks_for_end: int = Field(
-        default=16,
-        description="Number of consecutive silent chunks to end recording in dictation mode (16 chunks = 800ms at 50ms/chunk).",
+        default=27,
+        description="Number of consecutive silent chunks to end recording in dictation mode (27 chunks = 810ms at 30ms/chunk).",
     )
     dictation_max_recording_duration: float = Field(default=30.0, description="Maximum recording duration for dictation mode.")
-    dictation_pre_roll_buffers: int = Field(default=5, description="Pre-roll buffers for dictation mode (250ms at 50ms/chunk).")
+    dictation_pre_roll_buffers: int = Field(default=7, description="Pre-roll buffers for dictation mode (210ms at 30ms/chunk).")
 
     silence_threshold_multiplier: float = Field(
-        default=0.45, description="Multiplier for silence threshold relative to energy threshold"
+        default=0.45, description="Multiplier for silence threshold relative to speech threshold"
     )
     command_adaptive_margin_multiplier: float = Field(
-        default=3.5, description="Multiplier for adaptive noise floor in command mode - increased for lower threshold robustness."
+        default=3.5, description="Multiplier applied to noise floor for command speech threshold."
     )
     sound_adaptive_margin_multiplier: float = Field(
-        default=3.0, description="Multiplier for adaptive noise floor in sound recognition mode"
+        default=5.0,
+        description="Multiplier applied to noise floor for sound detection - higher than speech to reduce false triggers.",
     )
     dictation_adaptive_margin_multiplier: float = Field(
-        default=2.5, description="Multiplier for adaptive noise floor in dictation mode"
+        default=2.5, description="Multiplier applied to noise floor for dictation speech threshold."
     )
     adaptive_threshold_max_multiplier: float = Field(
-        default=2.0, description="Maximum multiplier before applying adaptive threshold"
+        default=2.0, description="Maximum multiplier before applying adaptive threshold (legacy, kept for compatibility)"
     )
     adaptive_silence_threshold_multiplier: float = Field(
-        default=0.65, description="Adjustment factor for silence threshold after adaptation"
+        default=0.65, description="Adjustment factor for silence threshold after adaptation (legacy, kept for compatibility)"
     )
 
     command_min_recording_duration: float = Field(
@@ -319,9 +337,12 @@ class VADConfig(BaseModel):
         default=0.1, description="Minimum recording duration for dictation mode in seconds"
     )
 
-    max_noise_samples: int = Field(default=20, description="Maximum number of samples to collect for noise floor estimation")
+    max_noise_samples: int = Field(
+        default=100,
+        description="Rolling window size for noise floor estimation (~5 seconds at 50ms chunks)",
+    )
     noise_floor_initial_value: float = Field(default=0.002, description="Initial noise floor value before estimation")
-    noise_floor_percentile: int = Field(default=75, description="Percentile to use for noise floor calculation")
+    noise_floor_percentile: int = Field(default=50, description="Percentile for noise floor calculation (50=median, more robust)")
 
 
 class MarkovPredictorConfig(BaseModel):

@@ -7,44 +7,18 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioChunkEvent, RecordingTriggerEvent
 from vocalance.app.events.dictation_events import AudioModeChangeRequestEvent
 from vocalance.app.services.audio.audio_listeners import CommandAudioListener, DictationAudioListener, SoundAudioListener
+from vocalance.app.services.audio.audio_processor import AudioProcessor
 from vocalance.app.services.audio.recorder import AudioRecorder
 
 logger = logging.getLogger(__name__)
 
 
 class AudioService:
-    """Unified audio service with continuous streaming architecture.
-
-    Manages a single AudioRecorder that continuously streams 50ms audio chunks.
-    Three independent listeners (CommandAudioListener, DictationAudioListener,
-    SoundAudioListener) subscribe to the chunk stream and apply their own logic:
-
-    - Command: ~150ms silence timeout for low-latency stop word detection
-    - Dictation: ~800ms silence timeout for full content capture
-    - Sound: Accumulates 100ms buffers (rate-limited to 10/sec) for sound recognition
-
-    This architecture eliminates resource duplication while enabling simultaneous
-    segment detection with different parameters. All listeners process the same
-    audio stream in parallel, each emitting their respective events independently.
-
-    Attributes:
-        _recorder: AudioRecorder for continuous chunk streaming.
-        _command_listener: CommandAudioListener for command segment detection.
-        _dictation_listener: DictationAudioListener for dictation segment detection.
-        _sound_listener: SoundAudioListener for sound recognition with rate limiting.
-        _main_event_loop: Asyncio event loop for publishing events from recorder thread.
-    """
+    """Audio service with continuous streaming and shared preprocessing."""
 
     def __init__(
         self, event_bus: EventBus, config: GlobalAppConfig, main_event_loop: Optional[asyncio.AbstractEventLoop] = None
     ) -> None:
-        """Initialize audio service with recorder and listeners.
-
-        Args:
-            event_bus: EventBus for publishing AudioChunkEvent and managing subscriptions.
-            config: Global application configuration.
-            main_event_loop: Optional asyncio event loop for thread-safe event publishing.
-        """
         self._event_bus = event_bus
         self._config = config
 
@@ -57,40 +31,31 @@ class AudioService:
                 self._main_event_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._main_event_loop)
 
-        # Create continuous audio recorder
         self._recorder = AudioRecorder(
             app_config=config,
             on_audio_chunk=self._on_audio_chunk_callback,
         )
 
-        # Create audio listeners
-        self._command_listener = CommandAudioListener(event_bus, config)
-        self._dictation_listener = DictationAudioListener(event_bus, config)
-        self._sound_listener = SoundAudioListener(event_bus, config)
+        self._shared_audio_processor = AudioProcessor(
+            sample_rate=config.audio.sample_rate,
+            enable_normalization=config.vad.enable_audio_normalization,
+        )
 
-        logger.debug("AudioService initialized with continuous streaming architecture (3 listeners)")
+        self._command_listener = CommandAudioListener(event_bus, config, self._shared_audio_processor)
+        self._dictation_listener = DictationAudioListener(event_bus, config, self._shared_audio_processor)
+        self._sound_listener = SoundAudioListener(event_bus, config, self._shared_audio_processor)
+
+        logger.debug("AudioService initialized with shared AudioProcessor and 3 listeners")
 
     def _on_audio_chunk_callback(self, audio_bytes: bytes, timestamp: float) -> None:
-        """Callback from recorder for each 50ms audio chunk.
-
-        Publishes AudioChunkEvent to event bus for downstream listeners to process.
-        This bridges the synchronous recorder thread to the async event bus.
-
-        Uses run_coroutine_threadsafe for proper exception handling and task tracking.
-
-        Args:
-            audio_bytes: Raw audio data for this chunk (int16 format).
-            timestamp: Timestamp when chunk was captured.
-        """
+        """Callback from recorder for each audio chunk."""
         try:
             event = AudioChunkEvent(
                 audio_chunk=audio_bytes,
                 sample_rate=self._config.audio.sample_rate,
                 timestamp=timestamp,
             )
-            # Use run_coroutine_threadsafe for proper exception propagation
             future = asyncio.run_coroutine_threadsafe(self._event_bus.publish(event), self._main_event_loop)
-            # Add exception callback to log any errors
             future.add_done_callback(self._handle_publish_result)
         except RuntimeError as e:
             logger.debug(f"Event loop closed while publishing audio chunk: {e}")

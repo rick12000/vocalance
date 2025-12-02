@@ -40,9 +40,9 @@ class AudioRecorder:
         self.app_config = app_config
         self.on_audio_chunk = on_audio_chunk
 
-        # 50ms base unit at 16kHz = 800 samples
+        # 30ms base unit at 16kHz = 480 samples (industry standard for VAD)
         self.sample_rate = app_config.audio.sample_rate
-        self.chunk_size = int(self.sample_rate * 0.05)  # 50ms chunks
+        self.chunk_size = int(self.sample_rate * 0.03)  # 30ms chunks - better latency/stability
         self.device = getattr(app_config.audio, "device", None)
 
         # Thread and stream state
@@ -53,7 +53,7 @@ class AudioRecorder:
         self._lock = threading.Lock()
 
         self.logger.debug(
-            f"AudioRecorder initialized: chunk_size={self.chunk_size} samples (50ms), " f"sample_rate={self.sample_rate}Hz"
+            f"AudioRecorder initialized: chunk_size={self.chunk_size} samples (30ms), sample_rate={self.sample_rate}Hz"
         )
 
     def _recording_thread(self) -> None:
