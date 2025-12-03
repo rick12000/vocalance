@@ -817,7 +817,7 @@ def _cleanup_memory() -> None:
     # Force garbage collection multiple times
     for i in range(3):
         gc.collect()
-        logger.debug(f"Garbage collection round {i+1} performed")
+        logger.debug(f"Garbage collection round {i + 1} performed")
 
     # Platform-specific memory return
     try:

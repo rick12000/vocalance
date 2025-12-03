@@ -316,7 +316,7 @@ class LLMService:
             # Multiple rounds to catch cyclic references
             for i in range(2):
                 gc.collect()
-                logger.debug(f"Garbage collection round {i+1} performed")
+                logger.debug(f"Garbage collection round {i + 1} performed")
 
             logger.info("LLM service shutdown complete")
         except Exception as e:

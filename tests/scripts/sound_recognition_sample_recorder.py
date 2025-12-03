@@ -263,17 +263,17 @@ class SoundRecognitionSampleRecorder:
 
         try:
             for i in range(self.num_samples):
-                self.logger.info(f"\n--- Sample {i+1}/{self.num_samples} ---")
+                self.logger.info(f"\n--- Sample {i + 1}/{self.num_samples} ---")
 
                 # Record sample
                 audio = self._record_single_sample()
                 if audio is None:
-                    self.logger.warning(f"Failed to record sample {i+1}, skipping")
+                    self.logger.warning(f"Failed to record sample {i + 1}, skipping")
                     continue
 
                 # Generate filename with timestamp
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                filename = f"{self.sound_label}_sample_{i+1:02d}_{timestamp}.wav"
+                filename = f"{self.sound_label}_sample_{i + 1:02d}_{timestamp}.wav"
                 filepath = self.output_dir / filename
 
                 # Save as .wav file
@@ -330,7 +330,7 @@ class SoundRecognitionSampleRecorder:
 
                 # Generate filename
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                filename = f"{self.sound_label}_sample_{i+1:02d}_{timestamp}.wav"
+                filename = f"{self.sound_label}_sample_{i + 1:02d}_{timestamp}.wav"
                 filepath = self.output_dir / filename
 
                 # Save as .wav file
@@ -339,13 +339,13 @@ class SoundRecognitionSampleRecorder:
 
                 duration = len(preprocessed_audio) / self.sample_rate
                 self.logger.info(
-                    f"Generated test sample {i+1}: {filename} " f"({duration:.2f}s, {len(preprocessed_audio)} samples)"
+                    f"Generated test sample {i + 1}: {filename} " f"({duration:.2f}s, {len(preprocessed_audio)} samples)"
                 )
 
                 self.recorded_count += 1
 
             except Exception as e:
-                self.logger.error(f"Failed to generate test sample {i+1}: {e}")
+                self.logger.error(f"Failed to generate test sample {i + 1}: {e}")
                 continue
 
         return saved_files

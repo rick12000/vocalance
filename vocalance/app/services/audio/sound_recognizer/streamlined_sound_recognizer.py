@@ -716,7 +716,7 @@ class SoundRecognizer:
 
             for i, sample_data in enumerate(samples):
                 if not isinstance(sample_data, tuple) or len(sample_data) != 2:
-                    logger.warning(f"  Sample {i+1}: invalid format, skipping")
+                    logger.warning(f"  Sample {i + 1}: invalid format, skipping")
                     continue
 
                 audio, sr = sample_data
@@ -724,9 +724,9 @@ class SoundRecognizer:
                 if embedding is not None:
                     new_embeddings.append(embedding)
                     new_labels.append(label)
-                    logger.debug(f"  Sample {i+1}: embedding extracted")
+                    logger.debug(f"  Sample {i + 1}: embedding extracted")
                 else:
-                    logger.warning(f"  Sample {i+1}: failed to extract embedding")
+                    logger.warning(f"  Sample {i + 1}: failed to extract embedding")
 
             if not new_embeddings:
                 logger.error(f"No valid embeddings extracted for '{label}'")
