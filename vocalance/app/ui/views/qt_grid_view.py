@@ -65,6 +65,9 @@ class QtGridView(QWidget):
         self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
         self._current_click_mode: str = "click"
 
+        # Focus management - track pending focus timers
+        self._focus_timers: List[QTimer] = []
+
         # Setup window as frameless overlay - stays on top of everything
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -74,6 +77,9 @@ class QtGridView(QWidget):
         )
         # Enable translucent background for proper alpha rendering
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+        # Set focus policy early - BEFORE window is ever shown
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         # Visual properties - ALL FULLY OPAQUE for reliable rendering
         # Background layer - semi-transparent overlay
@@ -440,28 +446,68 @@ class QtGridView(QWidget):
             self.current_font_size = self._calculate_adaptive_font_size(len(weighted_rects))
             self.font.setPointSize(self.current_font_size)
 
-            # Show window
+            # Show window with robust focus management
             super().show()
             self.raise_()
-            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             self.activateWindow()  # Activate window to bring to foreground
             self.setFocus()  # Set focus immediately to capture keyboard input
 
             self._is_active = True
 
-            # Schedule another focus attempt shortly after to ensure it sticks
-            QTimer.singleShot(10, self._ensure_focus)
+            # Schedule multiple focus attempts with increasing delays to handle all edge cases
+            # This is necessary because:
+            # 1. Windows focus stealing prevention can delay focus grants
+            # 2. First-time window creation may need extra time to register
+            # 3. Other applications may be fighting for focus
+            self._schedule_robust_focus()
 
-            self.logger.info(f"Grid displayed with {len(weighted_rects)} cells and focus set")
+            self.logger.info(f"Grid displayed with {len(weighted_rects)} cells and focus scheduled")
 
         except Exception as e:
             self.logger.error(f"Error showing grid: {e}", exc_info=True)
 
+    def _schedule_robust_focus(self) -> None:
+        """Schedule multiple focus attempts at strategic intervals.
+
+        This ensures focus is captured even on first show or when Windows
+        focus stealing prevention is active. Multiple attempts increase
+        reliability without significant overhead.
+        """
+        # Clear any existing focus timers
+        self._cancel_focus_timers()
+
+        # Schedule focus attempts at 10ms, 50ms, 100ms, and 200ms
+        # This covers immediate capture, post-render, and delayed OS focus grants
+        delays = [10, 50, 100, 200]
+
+        for delay in delays:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._ensure_focus)
+            timer.start(delay)
+            self._focus_timers.append(timer)
+
+        self.logger.debug(f"Scheduled {len(delays)} focus attempts at intervals: {delays}ms")
+
+    def _cancel_focus_timers(self) -> None:
+        """Cancel all pending focus timers."""
+        for timer in self._focus_timers:
+            if timer.isActive():
+                timer.stop()
+            timer.deleteLater()
+        self._focus_timers.clear()
+
     def _ensure_focus(self) -> None:
         """Ensure focus is maintained after show."""
         if self._is_active and not self.isHidden():
-            self.setFocus()
-            self.logger.debug("Focus re-asserted on grid")
+            # Check if we already have focus
+            if not self.hasFocus():
+                self.raise_()
+                self.activateWindow()
+                self.setFocus()
+                self.logger.debug("Focus asserted on grid")
+            else:
+                self.logger.debug("Grid already has focus")
 
     @Slot()
     def hide(self) -> None:
@@ -477,6 +523,9 @@ class QtGridView(QWidget):
 
         try:
             self.logger.info("Hiding grid")
+
+            # Cancel any pending focus timers before hiding
+            self._cancel_focus_timers()
 
             self.clearFocus()
             super().hide()
@@ -559,6 +608,7 @@ class QtGridView(QWidget):
 
     def cleanup(self) -> None:
         """Clean up resources."""
+        self._cancel_focus_timers()
         self.hide()
 
         with self._state_lock:

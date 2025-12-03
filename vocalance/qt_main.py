@@ -273,6 +273,7 @@ class FastServiceInitializer:
         with self._services_lock:
             storage = self.services["storage"]
             action_map_provider = self.services["action_map_provider"]
+            protected_terms_validator = self.services["protected_terms_validator"]
 
         # Create unified deduplicator for all command sources (Vosk, sound, Markov)
         deduplicator = EventDeduplicator(window_ms=self.config.command_parser.duplicate_detection_window_ms)
@@ -350,7 +351,7 @@ class FastServiceInitializer:
 
             from vocalance.app.services.command_history_manager import CommandHistoryManager
 
-            history_manager = CommandHistoryManager(storage=storage)
+            history_manager = CommandHistoryManager(storage=storage, protected_terms_validator=protected_terms_validator)
             centralized_parser = CentralizedCommandParser(
                 event_bus=self.event_bus,
                 app_config=self.config,
@@ -1054,7 +1055,7 @@ def _setup_infrastructure(app_config: GlobalAppConfig) -> tuple[EventBus, asynci
     return event_bus, gui_event_loop, gui_thread
 
 
-def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownCoordinator) -> None:
+def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownCoordinator) -> QTimer:
     """Setup signal handlers for graceful shutdown on SIGINT and SIGTERM.
 
     Qt applications need special handling for signals. We use a QTimer to periodically
@@ -1064,6 +1065,9 @@ def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownC
     Args:
         qt_app: QApplication instance.
         shutdown_coordinator: ShutdownCoordinator for handling shutdown requests.
+
+    Returns:
+        QTimer instance that must be kept alive for signal handling to work.
     """
     # Create a threading event to signal shutdown from signal handler
     shutdown_event = threading.Event()
@@ -1091,6 +1095,8 @@ def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownC
     signal_timer.start(100)
 
     logger.debug("Signal handlers installed for SIGINT and SIGTERM")
+
+    return signal_timer
 
 
 class QtAsyncioIntegration:
@@ -1227,8 +1233,8 @@ async def main() -> None:
 
         shutdown_coordinator = QtShutdownCoordinator(event_bus, qt_app, gui_event_loop)
 
-        # Setup signal handlers
-        _setup_signal_handlers(qt_app=qt_app, shutdown_coordinator=shutdown_coordinator)
+        # Setup signal handlers - store timer reference to prevent garbage collection
+        signal_timer = _setup_signal_handlers(qt_app=qt_app, shutdown_coordinator=shutdown_coordinator)  # noqa: F841
 
         # Show startup window with icon manager for taskbar visibility
         startup_window = StartupWindow(

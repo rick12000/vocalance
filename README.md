@@ -29,7 +29,7 @@ Vocalance can be set up entirely from the source code in this repository. To do 
 
 ### Set Up UV
 
-1. Install [UV](https://github.com/astral-sh/uv) (Python package manager):
+1. Open Windows PowerShell and enter the script below to install [UV](https://github.com/astral-sh/uv) (Python package manager):
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```

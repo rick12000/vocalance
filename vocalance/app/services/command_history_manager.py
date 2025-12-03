@@ -3,6 +3,7 @@ import logging
 import time
 from typing import List
 
+from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
 from vocalance.app.services.storage.storage_service import StorageService
 
@@ -17,8 +18,9 @@ class CommandHistoryManager:
     Thread-safe using async locks.
     """
 
-    def __init__(self, storage: StorageService) -> None:
+    def __init__(self, storage: StorageService, protected_terms_validator: ProtectedTermsValidator) -> None:
         self._storage: StorageService = storage
+        self._protected_terms_validator: ProtectedTermsValidator = protected_terms_validator
         self._session_history: List[CommandHistoryEntry] = []
         self._lock: asyncio.Lock = asyncio.Lock()
 
@@ -43,12 +45,22 @@ class CommandHistoryManager:
             return False
 
     async def record_command(self, command: str, source: str) -> None:
-        """Record command to in-memory history (fast, no I/O).
+        """Record command to in-memory history (fast, no I/O) after validation.
+
+        Security failsafe: Only records commands that are valid protected terms to prevent
+        arbitrary text (e.g., dictation content) from corrupting Markov training data
+        and being stored unencrypted.
 
         Args:
             command: The command text that was executed.
             source: Source of the command (stt, sound, markov).
         """
+        # Security failsafe: validate command is a known protected term before recording
+        is_valid = await self._protected_terms_validator.is_term_protected(command)
+        if not is_valid:
+            logger.warning(f"Rejected non-command text from history: '{command}' (source={source})")
+            return
+
         entry = CommandHistoryEntry(command=command, timestamp=time.time(), success=None, metadata={"source": source})
 
         async with self._lock:

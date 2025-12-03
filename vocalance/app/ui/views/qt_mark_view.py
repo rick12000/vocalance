@@ -41,6 +41,9 @@ class QtMarkView(QWidget):
         self.marks: Dict[str, Tuple[int, int]] = {}
         self._is_active = False
 
+        # Focus management - track pending focus timers
+        self._focus_timers: List[QTimer] = []
+
         # Setup window as frameless overlay
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -52,13 +55,16 @@ class QtMarkView(QWidget):
         # Don't use setWindowOpacity - it affects all content including circles
         # Instead, we'll paint a semi-transparent background in paintEvent
 
+        # Set focus policy early - BEFORE window is ever shown
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
         # Visual properties
         # Background - semi-transparent for overlay effect
         self.background_color = QColor(theme.config.shapes.dark)
         self.background_color.setAlpha(204)  # 80% opacity (204/255)
 
         # Mark elements - fully opaque for consistent appearance
-        self.mark_fill_color = QColor(theme.config.shapes.darkest)
+        self.mark_fill_color = QColor(theme.config.shapes.accent)
         self.mark_fill_color.setAlpha(255)  # 100% opacity
         self.mark_border_color = QColor(theme.config.blue.blue_2)
         self.mark_border_color.setAlpha(255)  # 100% opacity
@@ -67,9 +73,6 @@ class QtMarkView(QWidget):
 
         # Controller callback
         self.controller_callback = None
-
-        # For deferred focus setting
-        self._focus_timer = None
 
         # Connect signals to slots for thread-safe operations
         self.show_requested.connect(self._on_show_requested)
@@ -137,10 +140,9 @@ class QtMarkView(QWidget):
                 self.logger.warning("  No primary screen found, using fallback geometry")
                 self.setGeometry(0, 0, 1920, 1080)
 
-            # Show and configure
+            # Show and configure with robust focus management
             super().show()
             self.raise_()
-            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             self.activateWindow()  # Activate window to bring to foreground
             self.setFocus()  # Set focus IMMEDIATELY on main thread
 
@@ -148,14 +150,18 @@ class QtMarkView(QWidget):
             self.logger.info(f"  Calling update() to trigger paintEvent with {len(self.marks)} marks...")
             self.update()  # Trigger repaint with marks
 
-            # Schedule another focus attempt shortly after to ensure it sticks
-            QTimer.singleShot(10, self._ensure_focus)
+            # Schedule multiple focus attempts with increasing delays to handle all edge cases
+            # This is necessary because:
+            # 1. Windows focus stealing prevention can delay focus grants
+            # 2. First-time window creation may need extra time to register
+            # 3. Other applications may be fighting for focus
+            self._schedule_robust_focus()
 
             # Notify controller asynchronously
             if self.controller_callback:
                 QTimer.singleShot(0, lambda: self.controller_callback.on_mark_visualization_shown())
 
-            self.logger.info(f"Overlay displayed with focus set immediately, marks: {self.marks}")
+            self.logger.info(f"Overlay displayed with focus scheduled, marks: {self.marks}")
 
         except Exception as e:
             self.logger.error(f"Error showing overlay: {e}", exc_info=True)
@@ -163,11 +169,48 @@ class QtMarkView(QWidget):
                 error_msg = str(e)
                 QTimer.singleShot(0, lambda: self.controller_callback.on_mark_visualization_failed(error_msg))
 
+    def _schedule_robust_focus(self) -> None:
+        """Schedule multiple focus attempts at strategic intervals.
+
+        This ensures focus is captured even on first show or when Windows
+        focus stealing prevention is active. Multiple attempts increase
+        reliability without significant overhead.
+        """
+        # Clear any existing focus timers
+        self._cancel_focus_timers()
+
+        # Schedule focus attempts at 10ms, 50ms, 100ms, and 200ms
+        # This covers immediate capture, post-render, and delayed OS focus grants
+        delays = [10, 50, 100, 200]
+
+        for delay in delays:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._ensure_focus)
+            timer.start(delay)
+            self._focus_timers.append(timer)
+
+        self.logger.debug(f"Scheduled {len(delays)} focus attempts at intervals: {delays}ms")
+
+    def _cancel_focus_timers(self) -> None:
+        """Cancel all pending focus timers."""
+        for timer in self._focus_timers:
+            if timer.isActive():
+                timer.stop()
+            timer.deleteLater()
+        self._focus_timers.clear()
+
     def _ensure_focus(self) -> None:
         """Ensure focus is maintained after show."""
         if self._is_active and not self.isHidden():
-            self.setFocus()
-            self.logger.debug("Focus re-asserted on overlay")
+            # Check if we already have focus
+            if not self.hasFocus():
+                self.raise_()
+                self.activateWindow()
+                self.setFocus()
+                self.logger.debug("Focus asserted on overlay")
+            else:
+                self.logger.debug("Overlay already has focus")
 
     def _do_hide_direct(self) -> None:
         """Hide the overlay directly."""
@@ -177,10 +220,8 @@ class QtMarkView(QWidget):
         try:
             self.logger.info("Direct hide")
 
-            # Cancel any pending focus timer
-            if self._focus_timer:
-                self._focus_timer.stop()
-                self._focus_timer = None
+            # Cancel any pending focus timers before hiding
+            self._cancel_focus_timers()
 
             self.clearFocus()
             super().hide()
@@ -314,9 +355,7 @@ class QtMarkView(QWidget):
 
     def cleanup(self) -> None:
         """Clean up resources."""
+        self._cancel_focus_timers()
         self.hide()
         self.marks.clear()
-        if self._focus_timer:
-            self._focus_timer.stop()
-            self._focus_timer = None
         self.logger.debug("QtMarkView cleanup completed")
