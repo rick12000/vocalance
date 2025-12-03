@@ -16,6 +16,7 @@ from vocalance.app.services.storage.storage_models import (
     AgenticPromptsData,
     CommandHistoryData,
     CommandsData,
+    DictationAliasData,
     GridClicksData,
     MarksData,
     SettingsData,
@@ -78,6 +79,7 @@ class StorageService:
             AgenticPromptsData: os.path.join(config.storage.user_data_root, "dictation", "agentic_prompts.json"),
             SoundMappingsData: os.path.join(config.storage.sound_model_dir, "sound_mappings.json"),
             CommandHistoryData: os.path.join(config.storage.command_history_dir, "command_history.json"),
+            DictationAliasData: os.path.join(config.storage.user_data_root, "dictation", "aliases.json"),
         }
 
         # Ensure directories exist
@@ -246,11 +248,37 @@ class StorageService:
             return {"entries": len(self._cache), "models": list(self._cache.keys()), "ttl_seconds": self._cache_ttl}
 
     async def shutdown(self) -> None:
+        """Shutdown storage service with timeout protection to prevent hangs.
+
+        Attempts to gracefully shutdown the executor within 5 seconds, then
+        forces cleanup to prevent blocking the application shutdown sequence.
+        """
         try:
-            self._executor.shutdown(wait=True)
+            logger.info("Shutting down StorageService...")
+
+            if self._executor is not None:
+                try:
+                    # Run executor shutdown with timeout to prevent hangs
+                    # Note: shutdown() must be wrapped in lambda to pass keyword args
+                    loop = asyncio.get_event_loop()
+                    await asyncio.wait_for(loop.run_in_executor(None, lambda: self._executor.shutdown(wait=True)), timeout=5.0)
+                    logger.info("StorageService executor shutdown complete")
+                except asyncio.TimeoutError:
+                    logger.warning("StorageService executor shutdown timed out after 5s, forcing cleanup")
+                    # Force cleanup by setting to None - pending operations abandoned
+                    self._executor = None
+                except Exception as e:
+                    logger.error(f"Error shutting down executor: {e}")
+                    self._executor = None
+
+            # Clear cache
+            with self._lock:
+                self._cache.clear()
+                logger.debug("Storage cache cleared")
+
             logger.info("StorageService shutdown complete")
         except Exception as e:
-            logger.error(f"Error during StorageService shutdown: {e}")
+            logger.error(f"Error during StorageService shutdown: {e}", exc_info=True)
 
     @property
     def storage_config(self):

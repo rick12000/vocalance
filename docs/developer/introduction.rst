@@ -282,8 +282,10 @@ Next Steps
 
 Now that you know the basics, you can dive into the detailed documentation:
 
-- :doc:`Audio Processing <audio_processing>`: How audio is captured and converted to text
-- :doc:`Command Parsing <command_parsing>`: How text becomes structured commands
-- :doc:`Command Execution <command_execution>`: How commands trigger actions
+- :doc:`Audio Capture & Listeners <audio_capture_and_listeners>`: How audio is captured and buffered
+- :doc:`Speech and Sound Recognition <speech_and_sound_recognition>`: How audio becomes recognized text
+- :doc:`Command Parsing & Prediction <command_parsing>`: How text becomes structured commands
+- :doc:`Command Execution Services <command_execution_services>`: How commands trigger actions
 - :doc:`Dictation System <dictation_system>`: How text becomes dictation outputs
-- :doc:`Infrastructure <infrastructure>`: How the different services communicate
+- :doc:`User Interface Architecture <user_interface>`: How the UI coordinates with services
+- :doc:`Event Bus and Infrastructure <event_bus_and_infrastructure>`: How services communicate

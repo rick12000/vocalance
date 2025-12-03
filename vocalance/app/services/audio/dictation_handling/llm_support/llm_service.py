@@ -123,7 +123,7 @@ class LLMService:
                 use_mmap=True,
                 use_mlock=cfg.use_mlock,
                 chat_format="chatml",
-                seed=42,
+                seed=-1,  # -1 for random seed (non-deterministic), 42 for reproducibility
                 type_k=cfg.type_k,
                 type_v=cfg.type_v,
                 verbose=cfg.verbose,
@@ -178,7 +178,7 @@ class LLMService:
         return [
             {
                 "role": "system",
-                "content": f"{agentic_prompt}. Do not include any meta descriptions or explanations. Output ONLY the processed text.",
+                "content": f"{agentic_prompt}",
             },
             {"role": "user", "content": raw_text},
         ]
@@ -208,19 +208,25 @@ class LLMService:
                         mirostat_mode=cfg.mirostat_mode,
                         mirostat_tau=cfg.mirostat_tau,
                         mirostat_eta=cfg.mirostat_eta,
+                        stop=[],  # Explicitly disable stop sequences
                         stream=True,
                     )
 
+                    token_count = 0
                     for chunk in stream:
                         if chunk and chunk.get("choices"):
                             delta = chunk["choices"][0].get("delta", {})
                             token = delta.get("content", "")
                             if token:
+                                token_count += 1
+                                if token_count <= 5 or token_count % 10 == 0:
+                                    logger.debug(f"LLM generated token #{token_count}: '{token}'")
                                 try:
                                     asyncio.run_coroutine_threadsafe(token_queue.put(token), loop)
                                 except RuntimeError:
                                     logger.warning("Event loop closed during token streaming")
                                     break
+                    logger.info(f"LLM generation completed: {token_count} tokens generated")
 
                     try:
                         asyncio.run_coroutine_threadsafe(token_queue.put(None), loop)
@@ -237,17 +243,22 @@ class LLMService:
             executor_task = loop.run_in_executor(None, sync_generate)
 
             try:
+                callback_count = 0
                 while True:
                     token = await asyncio.wait_for(token_queue.get(), timeout=cfg.generation_timeout_sec)
                     if token is None:
+                        logger.debug(f"Token stream ended (received {callback_count} tokens)")
                         break
 
                     full_text.append(token)
                     if token_callback:
                         try:
+                            callback_count += 1
+                            if callback_count <= 5 or callback_count % 10 == 0:
+                                logger.debug(f"Calling token_callback #{callback_count} with: '{token}'")
                             token_callback(token)
                         except Exception as e:
-                            logger.debug(f"Token callback error: {e}")
+                            logger.error(f"Token callback error: {e}", exc_info=True)
 
                 await executor_task
                 result = "".join(full_text).strip()
@@ -276,29 +287,36 @@ class LLMService:
         return self._model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
-        """Shutdown and cleanup with proper resource management"""
+        """Shutdown and cleanup with proper resource management and timeout protection"""
         try:
             logger.info("LLM service shutting down - cleaning up model and GPU memory")
             self._model_loaded = False
 
-            if self.llm:
-                try:
-                    # Properly close the llama model to release resources
-                    if hasattr(self.llm, "close"):
-                        self.llm.close()
-                        logger.info("LLM model closed successfully")
-                except Exception as e:
-                    logger.warning(f"Error closing LLM model: {e}")
-                finally:
-                    # Delete reference to allow garbage collection
-                    del self.llm
-                    self.llm = None
+            # Use timeout to prevent shutdown hang
+            try:
+                async with asyncio.timeout(5.0):
+                    if self.llm:
+                        try:
+                            # Run close in thread pool to avoid blocking
+                            if hasattr(self.llm, "close"):
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(None, self.llm.close)
+                                logger.info("LLM model closed successfully")
+                        except Exception as e:
+                            logger.warning(f"Error closing LLM model: {e}")
+                        finally:
+                            # Delete reference to allow garbage collection
+                            del self.llm
+                            self.llm = None
+            except asyncio.TimeoutError:
+                logger.warning("LLM shutdown timed out after 5s, forcing cleanup")
+                self.llm = None
 
             # Force garbage collection to free memory immediately
             # Multiple rounds to catch cyclic references
             for i in range(2):
                 gc.collect()
-                logger.debug(f"Garbage collection round {i+1} performed")
+                logger.debug(f"Garbage collection round {i + 1} performed")
 
             logger.info("LLM service shutdown complete")
         except Exception as e:

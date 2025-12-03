@@ -1,7 +1,7 @@
 Dictation System
 ##################
 
-This page explains how Vocalance handles dictation through four distinct modes—standard, visual, smart, and type—each optimized for different use cases, all orchestrated by the DictationCoordinator.
+This page explains how Vocalance handles dictation through five distinct modes—standard, visual, smart, type, and hidden—each optimized for different use cases, all orchestrated by the DictationCoordinator.
 
 System Overview
 ================
@@ -16,31 +16,36 @@ The dictation system operates independently from command execution. Once activat
        B -->|dictate visual| D[Visual Mode]
        B -->|dictate smart| E[Smart Mode]
        B -->|dictate type| F[Type Mode]
-       B -->|stop dictation| G[Stop & Finalize]
+       B -->|hidden| G[Hidden Mode]
+       B -->|stop dictation| H[Stop & Finalize]
 
-       C --> H[DictationTextRecognizedEvent]
-       D --> H
-       E --> H
-       F --> H
+       C --> I[DictationTextRecognizedEvent]
+       D --> I
+       E --> I
+       F --> I
+       G --> I
 
-       H --> I{Mode?}
-       I -->|Standard| J[Direct Type]
-       I -->|Visual| K[Popup Accumulate]
-       I -->|Smart| L[LLM Queue]
-       I -->|Type| M[Raw Type]
+       I --> J{Mode?}
+       J -->|Standard| K[Direct Type]
+       J -->|Visual| L[Popup Accumulate]
+       J -->|Smart| M[LLM Queue]
+       J -->|Type| N[Raw Type]
+       J -->|Hidden| O[Silent Accumulate]
 
-       L --> N[LLM Processing]
-       N --> O[Output]
-       J --> O
-       K --> P[Accumulated Display]
-       M --> O
+       M --> P[LLM Processing]
+       P --> Q[Output]
+       K --> Q
+       L --> R[Accumulated Display]
+       N --> Q
+       O --> S[Paste on Stop]
 
        style C fill:#e8f5e9
        style D fill:#fff4e1
        style E fill:#e1f5ff
        style F fill:#fce4ec
+       style G fill:#e8e8e8
 
-Dictation flows from parse event → mode selection → text recognition → mode-specific processing → output. Each mode has distinct behavior: standard types immediately, visual accumulates for review, smart uses LLM for formatting, and type provides raw unformatted insertion.
+Dictation flows from parse event → mode selection → text recognition → mode-specific processing → output. Each mode has distinct behavior: standard types immediately, visual accumulates for review, smart uses LLM for formatting, type provides raw unformatted insertion, and hidden silently accumulates for pasting.
 
 The DictationCoordinator: Central Orchestration
 ================================================
@@ -309,55 +314,119 @@ Architecture
        style D fill:#e1f5ff
        style I fill:#fff4e1
 
-Streaming Dictation: Smart and Visual Modes
---------------------------------------------
+Streaming Transcription Architecture
+-------------------------------------
 
-Smart and Visual modes use real-time streaming transcription, not VAD-based recognition. This enables:
+Smart, Visual, and Hidden modes use streaming transcription to provide incremental text during speech. The core challenge: Whisper processes max 30 seconds of audio, but users speak longer. The solution: two offsets track which audio is finalized (text extracted) and which is trimmed (discarded), ensuring no text is lost during the trim cycle.
 
-- **Incremental updates**: See text as you're still speaking
-- **Same-output detection**: Recognize when Whisper stops improving prediction
-- **Overlap stripping**: Remove duplicate text from previous segments
-- **Silence detection**: Auto-finalize incomplete segments after 2+ seconds of silence
+What Whisper Returns
+~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: python
+Each time the transcription loop calls Whisper, it returns a list of segments. Each segment contains:
 
-   async def _streaming_transcription_loop(self) -> None:
-       """500ms streaming transcription loop with Whisper segments"""
-       while True:
-           await asyncio.sleep(0.5)  # 500ms interval
+- **text**: The recognized speech for this time interval
+- **start/end**: Timestamp boundaries (seconds from audio chunk start)
+- **no_speech_prob**: Confidence it's actual speech (0.0-1.0; <0.45 means speech detected)
 
-           # Get untranscribed audio from streaming buffer
-           audio_result = await buffer.get_audio_for_transcription()
-           if not audio_result or duration < 1.0:
-               continue
+Multiple segments (2+) means Whisper detected clear boundaries between phrases—it identified where one thought ends and another begins.
 
-           # Check silence timeout (2+ seconds without new audio)
-           silence_duration = time.time() - buffer.get_last_chunk_time()
-           if silence_duration > 2.0:
-               await self._finalize_incomplete_segment()
-               continue
+The Two-Offset System
+~~~~~~~~~~~~~~~~~~~~~
 
-           # Perform streaming recognition
-           segments, confidence = await self._stt_service.recognize_streaming(audio_bytes)
+Problem: Buffer grows to 45 seconds then trims 30 seconds (to stay under Whisper's 30-second limit). If trimmed audio contained unfinalized text (detected speech not yet transcribed), that text is lost.
 
-           # Process complete segments immediately
-           for seg in segments[:-1]:
-               text = self._strip_overlap(seg["text"])
-               await self._finalize_completed_segment(text, seg["end"])
+Solution: Two offsets track different aspects of the audio lifecycle:
 
-           # Track incomplete segment for same-output detection
-           last_seg = segments[-1]
-           if last_seg["text"] == self._streaming_prev_out:
-               self._streaming_same_output_count += 1
-               if self._streaming_same_output_count >= 3:
-                   await self._finalize_completed_segment(text, last_seg["end"])
-           else:
-               await self._publish_event(PartialDictationTextEvent(text=last_seg["text"]))
+.. list-table::
+   :header-rows: 1
+   :widths: 30 50 20
 
-**Two-phase processing**:
+   * - Offset
+     - Meaning
+     - Advances When
+   * - ``frames_offset``
+     - Audio trimmed away (discarded)
+     - Buffer exceeds 45 seconds
+   * - ``timestamp_offset``
+     - Audio finalized (text extracted)
+     - Segment is finalized
 
-1. **Accumulation phase**: Collect text segments via streaming while user speaks (RECORDING state)
-2. **LLM phase**: Process accumulated text through LLM when user stops (PROCESSING_LLM state, smart mode only)
+The rule: never trim audio before ``timestamp_offset``. This guarantees unfinalized audio is never lost.
+
+How Segments Are Finalized
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Segments finalize under three conditions:
+
+**1. Multi-segment output** (Whisper returns 2+ segments):
+   - If 2+ segments: all but the last are high-confidence (Whisper found clear boundaries)
+   - Finalize all except the last (which is still being refined as more audio arrives)
+   - Example: Whisper returns [segment 0-8s, segment 8-15s, partial 15-22s] → finalize first two
+
+**2. Same-output stability** (identical prediction 10+ times):
+   - Whisper returns the exact same text repeatedly → indicates no new information
+   - Text is stable; finalize it
+
+**3. Buffer trim approaching** (forced finalization):
+   - If buffer trim would discard unfinalized audio, force finalize it first
+   - Check: will trim discard audio before ``timestamp_offset``? If yes, finalize incomplete text and advance ``timestamp_offset``
+   - This prevents information loss at buffer boundaries
+
+Example Timeline
+~~~~~~~~~~~~~~~~
+
+.. code-block:: text
+
+   Initial state: Buffer [0s-------45s], no offsets set
+
+   Loop iteration 1 (t=0ms):
+   - Call Whisper on audio[0:45]
+   - Returns 3 segments: [0-8s "hello", 8-15s "world", 15-22s partial "how"]
+   - Finalize 0-8s and 8-15s (multi-segment detected)
+   - Advance timestamp_offset to 15s
+   - Publish partial: "how" (incomplete, for Visual mode)
+
+   Loop iteration 2 (t=100ms):
+   - New audio arrived; buffer now [0s-------50s]
+   - Call Whisper on audio[15:50] (only unfinalized portion)
+   - Returns 2 segments: [15-18s refined "how are", 18-25s partial "you"]
+   - Finalize 15-18s (multi-segment)
+   - Advance timestamp_offset to 18s
+   - Publish partial: "how are you" (accumulated)
+
+   Loop iteration 3 (t=200ms):
+   - Buffer still growing [0s-------52s]
+   - Trim triggered (buffer > 45s): remove [0s:30s], set frames_offset = 30s
+   - Check: is timestamp_offset (18s) < frames_offset (30s)? YES—unfinalized audio will be lost!
+   - Force finalize partial "you" at end of its segment (25s)
+   - Advance timestamp_offset to 25s
+   - Continue with audio[25:52] for next call
+
+Natural Overlap Mechanism
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each loop iteration reprocesses unfinalized audio with fresh context:
+
+- Finalized segments: never reprocessed (locked in place)
+- Unfinalized segments: reprocessed each loop (refined with new audio context)
+
+This creates natural overlap without manual duplication. Whisper automatically improves incomplete segments as more audio arrives.
+
+Transcription Loop Timing
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- **Minimum audio threshold**: Wait for 1+ second of audio before calling Whisper (ensures adequate context)
+- **Processing frequency**: Call Whisper every ~50-100ms (adaptive: faster when audio available, slower when silent)
+- **Unfinalized audio maximum**: If unfinalized audio exceeds 25 seconds with no valid finalization, clip to last 5 seconds (prevents unbounded growth)
+
+Two-Phase Workflow for Smart Mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Phase 1 - Streaming Accumulation** (RECORDING state):
+   Loop continuously calls Whisper → finalizes detected segments → accumulates text in `accumulated_text` → publishes partial events for Visual mode UI
+
+**Phase 2 - LLM Post-Processing** (PROCESSING_LLM state, smart mode only):
+   Send complete `accumulated_text` to LLM → stream tokens real-time → execute formatting commands (REMOVE:N for backspace, NEWLINE for line break, END to finish)
 
 LLM Service
 -----------
@@ -533,6 +602,40 @@ How It Works
 - Dictating variable names or code (no auto-formatting)
 - Entering data that shouldn't be touched
 - Quick insertion without processing or review
+
+Hidden Dictation Mode
+=======================
+
+Hidden mode silently accumulates text without UI display or real-time feedback. When you stop, all text is pasted at once. Useful for seamless, uninterrupted dictation.
+
+How It Works
+------------
+
+.. code-block:: python
+
+   async def _start_session(self, mode: DictationMode) -> None:
+       # For HIDDEN mode: start streaming without UI display
+       if mode == DictationMode.HIDDEN:
+           await self._start_streaming_mode(mode)
+           # No popup window created—accumulation happens silently
+           await self.event_bus.publish(HiddenDictationStartedEvent(...))
+
+   async def _handle_dictation_text_recognized(self, event: DictationTextRecognizedEvent):
+       if self._current_mode == DictationMode.HIDDEN:
+           # Accumulate text exactly like visual mode
+           cleaned = clean_dictation_text(event.text, add_trailing_space=True)
+           self._current_session.accumulated_text += cleaned
+           # No UI update—silent accumulation
+
+**Processing**: Like visual mode, hidden mode uses streaming transcription. Text is accumulated but never displayed.
+
+**Output**: When you say "stop dictation", all accumulated text is pasted at once via clipboard.
+
+**Use cases**:
+
+- Dictating without visible feedback (better focus)
+- Dictation during presentations or streaming
+- Raw data capture without distraction
 
 Stop Detection During Dictation
 ================================

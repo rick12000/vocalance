@@ -134,6 +134,8 @@ class WhisperSTT:
     def _get_transcription_options(self, audio_duration: float) -> Dict[str, Any]:
         """Get transcription options dynamically adjusted for audio duration.
 
+        Optimized for streaming with aggressive speed settings for short audio.
+
         Args:
             audio_duration: Duration of audio segment in seconds.
 
@@ -150,7 +152,12 @@ class WhisperSTT:
             "vad_filter": False,
         }
 
-        if audio_duration < 5.0:
+        # Aggressive speed optimization for short streaming audio
+        if audio_duration < 2.0:
+            # Very short audio (< 2s): minimize beam size for speed
+            options["beam_size"] = 1  # Greedy decoding for maximum speed
+        elif audio_duration < 5.0:
+            # Medium audio (2-5s): slightly reduced beam
             options["beam_size"] = max(1, self._beam_size - 1)
 
         return options
@@ -181,17 +188,14 @@ class WhisperSTT:
         Returns:
             True if segment is acceptable, False if it should be filtered out.
         """
-        # Check if segment is mostly silence or noise
         if segment.no_speech_prob > self._no_speech_threshold:
             logger.debug(f"Skipping silent segment: no_speech_prob={segment.no_speech_prob:.3f}")
             return False
 
-        # Check if segment has low confidence (likely hallucination)
         if segment.avg_logprob is not None and segment.avg_logprob < self._logprob_threshold:
             logger.debug(f"Skipping low-confidence segment: avg_logprob={segment.avg_logprob:.3f}")
             return False
 
-        # Check if segment has high compression ratio (repetitive/gibberish)
         if segment.compression_ratio > self._compression_ratio_threshold:
             logger.debug(f"Skipping repetitive segment: compression_ratio={segment.compression_ratio:.2f}")
             return False
@@ -255,7 +259,8 @@ class WhisperSTT:
             return ""
 
         duration_sec = len(audio_bytes) / (self._sample_rate * 2)
-        if duration_sec < 0.3:
+        # Minimum audio duration for recognition (0.2s for regular, streaming uses 0.15s)
+        if duration_sec < 0.2:
             return ""
 
         recognition_start = time.time()
@@ -293,157 +298,136 @@ class WhisperSTT:
             return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
 
     def recognize_streaming_sync(
-        self, audio_bytes: bytes, context_segments: Optional[List[str]] = None, sample_rate: Optional[int] = None
-    ) -> Tuple[List[dict], float]:
-        """Synchronous streaming speech recognition with segment timestamps.
+        self,
+        audio_bytes: bytes,
+        context_segments: Optional[List[str]] = None,
+        sample_rate: Optional[int] = None,
+        return_segments: bool = False,
+    ) -> Tuple[str, float, Optional[List[Dict[str, Any]]]]:
+        """Streaming speech recognition with optimized parameters.
 
-        Designed for continuous streaming transcription where predictions are made
-        on overlapping audio chunks. Returns segment list with timestamps for
-        accurate offset tracking (WhisperLive approach).
+        Uses voice activity detection with context-aware transcription:
+        - vad_filter=True with default parameters
+        - no_speech_threshold=0.45 for balanced detection
+        - condition_on_previous_text=True for context awareness
+        - Relies on no_speech_prob for filtering rather than complex hallucination detection
 
         Args:
             audio_bytes: Raw audio data to transcribe.
-            context_segments: List of recent transcription texts for context (last 5-10 segments).
+            context_segments: Optional context for initial_prompt.
             sample_rate: Optional sample rate override.
+            return_segments: If True, return detailed segment info with timestamps.
 
         Returns:
-            Tuple of (segments_list, confidence_score) where segments_list contains:
-            [{"text": str, "start": float, "end": float, "completed": bool}, ...]
+            Tuple of (text, confidence, segments) where segments is a list of:
+            [{"text": str, "start": float, "end": float, "no_speech_prob": float}, ...]
+            or None if return_segments is False.
         """
         if sample_rate and sample_rate != self._sample_rate:
             logger.warning(f"Sample rate mismatch. Expected {self._sample_rate}, got {sample_rate}")
 
         if not audio_bytes or not self._model:
-            return [], 0.0
+            return "", 0.0, None if return_segments else None
 
         duration_sec = len(audio_bytes) / (self._sample_rate * 2)
         if duration_sec < 0.3:
-            return [], 0.0
+            return "", 0.0, None if return_segments else None
 
         recognition_start = time.time()
+        audio_np = self._prepare_audio(audio_bytes)
 
-        # Build initial_prompt from context segments
         initial_prompt = None
         if context_segments and len(context_segments) > 0:
-            # Use last 3-5 segments for context, limited to ~200 chars to avoid token limits
-            recent_context = " ".join(context_segments[-5:])
-            if len(recent_context) > 200:
-                recent_context = recent_context[-200:]
-            initial_prompt = recent_context.strip()
+            clean_context = [seg.strip() for seg in context_segments[-5:] if seg and seg.strip()]
+            if clean_context:
+                initial_prompt = " ".join(clean_context)
+                logger.debug(f"Using context prompt ({len(clean_context)} segments): '{initial_prompt[:50]}...'")
 
-        audio_np = self._prepare_audio(audio_bytes)
-        options = self._get_transcription_options(duration_sec)
+        options = {
+            "language": "en",
+            "beam_size": 5,
+            "temperature": 0.0,
+            "no_speech_threshold": 0.45,
+            "condition_on_previous_text": True,
+            "word_timestamps": False,
+            "vad_filter": True,
+        }
 
-        # Add initial_prompt for context
         if initial_prompt:
             options["initial_prompt"] = initial_prompt
-            options["condition_on_previous_text"] = True
 
         segments_iter, info = self._model.transcribe(audio_np, **options)
 
-        # Convert segments iterator to list and extract segment info with timestamps
-        segment_list = []
-        confidence_scores = []
+        texts = []
+        segment_details = []
+        confidence_sum = 0.0
+        count = 0
 
         for seg in segments_iter:
-            # Filter hallucinations using quality metrics
-            if not self._is_segment_quality_acceptable(seg):
-                continue
-
             text = seg.text.strip()
             if not text:
                 continue
 
-            # Apply light normalization
-            text = self._normalize_text_streaming(text)
-            if not text:
-                continue
+            no_speech_prob = seg.no_speech_prob
+            avg_logprob = getattr(seg, "avg_logprob", None)
 
-            segment_list.append(
+            texts.append(text)
+            confidence_sum += 1.0 - no_speech_prob
+            count += 1
+
+            segment_details.append(
                 {
                     "text": text,
                     "start": seg.start,
                     "end": seg.end,
-                    "completed": False,  # Will mark all but last as completed
-                    "no_speech_prob": seg.no_speech_prob,
-                    "avg_logprob": seg.avg_logprob,
-                    "compression_ratio": seg.compression_ratio,
+                    "no_speech_prob": no_speech_prob,
+                    "avg_logprob": avg_logprob,
                 }
             )
 
-            # Track confidence (use inverse of no_speech_prob as proxy)
-            confidence_scores.append(1.0 - seg.no_speech_prob)
-
         recognition_time = time.time() - recognition_start
 
-        if not segment_list:
-            return [], 0.0
+        if not texts:
+            return "", 0.0, [] if return_segments else None
 
-        # Mark all segments except the last as completed
-        # Last segment might be incomplete (word cutoff at end of audio)
-        for seg in segment_list[:-1]:
-            seg["completed"] = True
+        combined_text = " ".join(texts)
+        combined_text = re.sub(r"\s+", " ", combined_text).strip()
 
-        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
+        avg_confidence = confidence_sum / count if count > 0 else 0.0
 
-        total_text = " ".join([seg["text"] for seg in segment_list])
         logger.debug(
-            f"Whisper streaming: {len(segment_list)} segments, '{total_text[:50]}...' "
-            f"(conf: {avg_confidence:.3f}, time: {recognition_time:.3f}s)"
+            f"Streaming: '{combined_text[:50]}...' "
+            f"(conf={avg_confidence:.2f}, time={recognition_time:.3f}s, dur={duration_sec:.1f}s, "
+            f"segments={count})"
         )
 
-        return segment_list, avg_confidence
+        if return_segments:
+            return combined_text, avg_confidence, segment_details
+        return combined_text, avg_confidence, None
 
     async def recognize_streaming(
-        self, audio_bytes: bytes, context_segments: Optional[List[str]] = None, sample_rate: Optional[int] = None
-    ) -> Tuple[List[dict], float]:
+        self,
+        audio_bytes: bytes,
+        context_segments: Optional[List[str]] = None,
+        sample_rate: Optional[int] = None,
+        return_segments: bool = False,
+    ) -> Tuple[str, float, Optional[List[Dict[str, Any]]]]:
         """Async streaming speech recognition with segment timestamps.
 
         Args:
             audio_bytes: Raw audio data to transcribe.
-            context_segments: List of recent transcription texts for context.
+            context_segments: Optional context for initial_prompt.
             sample_rate: Optional sample rate override.
+            return_segments: If True, return detailed segment info with timestamps.
 
         Returns:
-            Tuple of (segments_list, confidence_score) where segments_list contains:
-            [{"text": str, "start": float, "end": float, "completed": bool}, ...]
+            Tuple of (text, confidence, segments) - the transcribed text, confidence,
+            and optionally segment details with timestamps.
         """
         async with self._model_lock:
-            return await asyncio.to_thread(self.recognize_streaming_sync, audio_bytes, context_segments, sample_rate)
-
-    def _normalize_text_streaming(self, text: str) -> str:
-        """Lighter normalization for streaming mode to preserve detail.
-
-        Unlike regular normalization, this preserves more filler words and
-        only removes egregious duplicates, since partial predictions benefit
-        from seeing the model's full output.
-
-        Args:
-            text: Raw transcribed text.
-
-        Returns:
-            Lightly normalized text string.
-        """
-        if not text:
-            return ""
-
-        text = text.strip()
-        if not text:
-            return ""
-
-        # Only collapse excessive whitespace
-        text = re.sub(r"\s+", " ", text)
-
-        # Remove consecutive duplicate words (but keep single occurrences)
-        words = text.split()
-        if len(words) > 1:
-            result = [words[0]]
-            for word in words[1:]:
-                if word.lower() != result[-1].lower():
-                    result.append(word)
-            text = " ".join(result)
-
-        return text.strip()
+            return await asyncio.to_thread(
+                self.recognize_streaming_sync, audio_bytes, context_segments, sample_rate, return_segments
+            )
 
     def _normalize_text(self, text: str) -> str:
         """Normalize transcribed text by removing filler words and duplicates.
@@ -489,24 +473,41 @@ class WhisperSTT:
         """Shutdown Whisper engine and release all model resources.
 
         Unloads model if supported, deletes references to noise samples and cached
-        results, and runs garbage collection to free memory immediately.
+        results, and runs garbage collection to free memory immediately. Uses timeout
+        to prevent shutdown hangs.
         """
         logger.info("Shutting down WhisperSTT")
 
-        async with self._model_lock:
-            if hasattr(self, "_model") and self._model is not None:
-                if hasattr(self._model, "unload"):
-                    self._model.unload()
-                del self._model
-                self._model = None
-                logger.info("Whisper model deleted")
+        try:
+            # Use timeout to prevent shutdown hang
+            async with asyncio.timeout(5.0):
+                async with self._model_lock:
+                    if hasattr(self, "_model") and self._model is not None:
+                        # Run unload in thread pool to avoid blocking
+                        if hasattr(self._model, "unload"):
+                            try:
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(None, self._model.unload)
+                            except Exception as e:
+                                logger.warning(f"Error unloading Whisper model: {e}")
 
-            if hasattr(self, "_noise_samples") and self._noise_samples is not None:
-                self._noise_samples.clear()
-                self._noise_samples = None
+                        del self._model
+                        self._model = None
+                        logger.info("Whisper model deleted")
 
-            if hasattr(self, "_last_result"):
-                self._last_result = None
+                    if hasattr(self, "_noise_samples") and self._noise_samples is not None:
+                        self._noise_samples.clear()
+                        self._noise_samples = None
 
-        gc.collect()
-        logger.info("WhisperSTT shutdown complete")
+                    if hasattr(self, "_last_result"):
+                        self._last_result = None
+
+            gc.collect()
+            logger.info("WhisperSTT shutdown complete")
+        except asyncio.TimeoutError:
+            logger.warning("WhisperSTT shutdown timed out after 5s, forcing cleanup")
+            # Force cleanup even on timeout
+            self._model = None
+            gc.collect()
+        except Exception as e:
+            logger.error(f"Error during WhisperSTT shutdown: {e}", exc_info=True)

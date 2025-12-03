@@ -19,7 +19,7 @@ class DictationStatusChangedEvent(BaseEvent):
     """
 
     is_active: bool = Field(description="Whether dictation is currently active")
-    mode: Literal["inactive", "standard", "type", "smart", "visual"] = Field(description="Current dictation mode")
+    mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden"] = Field(description="Current dictation mode")
     show_ui: bool = Field(default=False, description="Whether to show the dictation UI indicator")
     stop_command: Optional[str] = Field(default=None, description="The command to stop this dictation mode")
     priority: EventPriority = EventPriority.LOW
@@ -29,7 +29,7 @@ class DictationModeDisableOthersEvent(BaseEvent):
     """Event fired to disable other speech/sound processing during dictation"""
 
     dictation_mode_active: bool = Field(description="Whether dictation mode is active, disabling other processing")
-    dictation_mode: Literal["inactive", "standard", "type", "smart", "visual"]
+    dictation_mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden"]
     priority: EventPriority = EventPriority.CRITICAL
 
 
@@ -67,6 +67,29 @@ class VisualDictationStoppedEvent(BaseEvent):
     """Event fired when visual dictation mode is deactivated"""
 
     mode: Literal["visual"] = "visual"
+    accumulated_text: str = Field(description="Accumulated text to be pasted")
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class HiddenDictationStartedEvent(BaseEvent):
+    """Event fired when hidden dictation mode is activated.
+
+    Hidden mode accumulates text silently without UI display, showing only
+    a sound wave indicator. Text is pasted when stopped.
+    """
+
+    mode: Literal["hidden"] = "hidden"
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class HiddenDictationStoppedEvent(BaseEvent):
+    """Event fired when hidden dictation mode is deactivated.
+
+    Contains the accumulated text that was captured during the hidden
+    dictation session, ready to be pasted.
+    """
+
+    mode: Literal["hidden"] = "hidden"
     accumulated_text: str = Field(description="Accumulated text to be pasted")
     priority: EventPriority = EventPriority.NORMAL
 
@@ -172,8 +195,9 @@ class FinalDictationTextEvent(BaseEvent):
     """Event fired for finalized streaming dictation text.
 
     Emitted during streaming dictation (smart/visual modes) when text prediction
-    has stabilized (3+ consecutive identical predictions). UI should display this
-    as white/permanent text that will no longer be edited.
+    has stabilized (4+ consecutive identical predictions at 200ms intervals, i.e.,
+    800ms of stable output). UI should display this as white/permanent text that
+    will no longer be edited.
 
     Attributes:
         text: Final transcription text that will not change.
@@ -182,4 +206,38 @@ class FinalDictationTextEvent(BaseEvent):
 
     text: str = Field(description="Final transcription text (stable)")
     segment_id: str = Field(description="Unique segment identifier")
+    priority: EventPriority = EventPriority.HIGH
+
+
+class DictationAliasListUpdatedEvent(BaseEvent):
+    """Event fired when the dictation alias list is updated.
+
+    Published by DictationAliasService when aliases are added, updated, or deleted.
+    UI should refresh the alias list display when receiving this event.
+    """
+
+    aliases: Dict[str, str] = Field(description="Current alias mappings (key -> substitution)")
+    priority: EventPriority = EventPriority.LOW
+
+
+class DictationAliasActionRequest(BaseEvent):
+    """Event for requesting dictation alias actions.
+
+    Published by UI controller to request CRUD operations on aliases.
+    """
+
+    action: Literal["add_alias", "update_alias", "delete_alias", "get_aliases"] = Field(description="The action to perform")
+    key: Optional[str] = Field(default=None, description="Alias activation phrase")
+    value: Optional[str] = Field(default=None, description="Alias substitution text")
+    priority: EventPriority = EventPriority.NORMAL
+
+
+class DictationStopWordDetectedEvent(BaseEvent):
+    """Event fired when the dictation stop word is detected.
+
+    Published by STT service when the stop trigger is recognized during dictation.
+    UI should change the border color to orange to indicate the stop word was heard.
+    """
+
+    mode: Literal["standard", "type", "smart", "visual", "hidden"] = Field(description="Current dictation mode")
     priority: EventPriority = EventPriority.HIGH

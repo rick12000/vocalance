@@ -57,11 +57,22 @@ class GridService:
         logger.debug("GridService subscriptions set up")
 
     def _calculate_grid_dimensions(self, num_rects: int) -> tuple[int, int]:
+        """Calculate optimal grid dimensions for given number of rectangles.
+
+        Uses square root approximation to create a nearly square grid layout.
+
+        Args:
+            num_rects: Number of cells to fit in grid.
+
+        Returns:
+            Tuple of (rows, cols) dimensions.
+        """
         cols = math.ceil(math.sqrt(num_rects))
         rows = math.ceil(num_rects / cols)
         return rows, cols
 
     async def _publish_visibility_event(self, visible: bool, rows: Optional[int] = None, cols: Optional[int] = None) -> None:
+        """Publish grid visibility changed event and update internal state."""
         async with self._state_lock:
             self._visible = visible
         event = GridVisibilityChangedEventData(visible=visible, rows=rows, cols=cols)
@@ -70,21 +81,22 @@ class GridService:
     def _publish_command_status(
         self, command_type: str, success: bool, message: str, details: Optional[Dict[str, Any]] = None
     ) -> None:
+        """Publish command execution status event."""
         status_event = CommandExecutedStatusEvent(
             command={"command_type": command_type, "details": details or {}}, success=success, message=message, source="grid"
         )
         self.event_publisher.publish(status_event)
 
     async def _handle_grid_command(self, event_data: GridCommandParsedEvent) -> None:
+        """Handle grid commands (show/select) with mode-specific processing."""
         command = event_data.command
         command_type = type(command).__name__
 
         if isinstance(command, GridShowCommand):
             num_rects = command.num_rects or self._config.grid.default_rect_count
             rows, cols = self._calculate_grid_dimensions(num_rects)
-            click_mode = command.click_mode  # Get click_mode from command
+            click_mode = command.click_mode
 
-            # Store click_mode in state for later cell selections
             async with self._state_lock:
                 self._current_click_mode = click_mode
 
@@ -127,6 +139,7 @@ class GridService:
             logger.warning(f"Unknown grid command type: {command_type}")
 
     async def _handle_config_update(self, event_data: UpdateGridConfigRequestEventData) -> None:
+        """Handle grid configuration update requests and apply to active config."""
         config_fields = [
             "rows",
             "cols",
@@ -145,7 +158,7 @@ class GridService:
             value = getattr(event_data, field, None)
             if value is not None and hasattr(self._config.grid, field):
                 if field == "cancel_phrases" and isinstance(value, list):
-                    value = list(set(value))  # Remove duplicates
+                    value = list(set(value))
                 setattr(self._config.grid, field, value)
                 updated_fields[field] = value
 

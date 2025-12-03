@@ -80,11 +80,6 @@ class MarkService:
         """Setup event subscriptions for mark commands and requests."""
         logger.debug("Setting up MarkService event subscriptions...")
 
-        # Subscribe to visualization state changes
-        self._event_bus.subscribe(
-            event_type=MarkVisualizationStateChangedEventData, handler=self._handle_visualization_state_changed
-        )
-
         # UI-driven requests
         self._event_bus.subscribe(event_type=MarkGetAllRequestEventData, handler=self._handle_get_all_request)
         self._event_bus.subscribe(event_type=MarkCreateRequestEventData, handler=self._handle_create_mark_request)
@@ -100,7 +95,11 @@ class MarkService:
         logger.debug("MarkServiceV2 subscriptions set up")
 
     async def _handle_mark_command_parsed(self, event_data: MarkCommandParsedEvent) -> None:
-        """Handle parsed mark commands"""
+        """Handle parsed mark commands.
+
+        Routes mark commands to the appropriate handler based on command type.
+        Validates mark existence before execution for mark execute commands.
+        """
         command = event_data.command
         logger.debug(f"MarkServiceV2 received mark command: {type(command).__name__}")
 
@@ -180,6 +179,8 @@ class MarkService:
                 logger.warning(message)
 
         elif isinstance(command, MarkVisualizeCommand):
+            # Publish marks data BEFORE visualizing
+            await self._publish_marks_changed_event()
             await self.visualize_marks(True)
             success = True
             message = "Mark visualization activated."
@@ -339,13 +340,18 @@ class MarkService:
     # UI Event Handlers - simplified with unified storage
     async def _handle_get_all_request(self, event_data) -> None:
         """Handle get all marks request."""
+        logger.info("_handle_get_all_request: Fetching all marks from storage...")
         marks = await self.get_all_marks()
+        logger.info(f"_handle_get_all_request: Got {len(marks)} marks from storage")
+        for name, mark_data in marks.items():
+            logger.info(f"  - {name}: x={mark_data['x']}, y={mark_data['y']}")
 
         # Publish MarksChangedEvent for UI updates
+        logger.info(f"_handle_get_all_request: Publishing MarksChangedEventData with {len(marks)} marks")
         marks_changed_event = MarksChangedEventData(marks=marks)
         await self._event_bus.publish(marks_changed_event)
 
-        logger.debug(f"Handled get all marks request - {len(marks)} marks")
+        logger.info("_handle_get_all_request: Published MarksChangedEventData")
 
     async def _handle_create_mark_request(self, event_data) -> None:
         """Handle create mark request from UI."""
@@ -383,9 +389,3 @@ class MarkService:
     async def _handle_visualize_cancel_request(self, event_data) -> None:
         """Handle cancel visualization request."""
         await self.visualize_marks(False)
-
-    async def _handle_visualization_state_changed(self, event_data: MarkVisualizationStateChangedEventData) -> None:
-        """Handle visualization state changes."""
-        async with self._viz_lock:
-            self._is_viz_active = event_data.is_visible
-        logger.debug(f"Mark visualization state changed: {event_data.is_visible}")

@@ -111,9 +111,9 @@ Threading Architecture
 
 Vocalance must remain responsive to user input while handling real-time audio capture and performing CPU-intensive operations like speech recognition and LLM inference. This requires careful threading:
 
-**Main Thread (Tkinter)**: The primary thread running the Tkinter event loop. All widget creation, update, and event handling occurs here. When the user clicks a button, types text, or resizes the window, handlers fire on this thread. This thread must never block—if a handler blocks for too long, the UI becomes unresponsive.
+**Main Thread (Qt)**: The primary thread running the Qt (PySide6) event loop. All widget creation, update, and signal/slot handling occurs here. When the user clicks a button, types text, or resizes the window, handlers fire on this thread. This thread must never block—if a handler blocks for too long, the UI becomes unresponsive.
 
-**GUI Event Loop Thread**: A dedicated daemon thread running an asyncio event loop. This is where the event bus worker task runs, where async service operations execute, and where event handlers run. This thread is separate from the main thread because Tkinter and asyncio both need to run event loops, and they can't share one.
+**GUI Event Loop Thread**: A dedicated daemon thread running an asyncio event loop. This is where the event bus worker task runs, where async service operations execute, and where event handlers run. This thread is separate from the main thread because Qt and asyncio both need to run event loops, and they can't share one.
 
 **Audio Thread**: Created by the audio service, this thread continuously captures audio in 50ms chunks and publishes them as events. It runs a tight loop and must not be preempted—any delay causes audio data to be dropped from the input buffer.
 
@@ -126,7 +126,7 @@ With multiple threads, special care is needed when one thread needs to communica
 
 **Publishing Events**: The audio thread publishes `AudioChunkEvent` events via `await event_bus.publish(event)`. Because the event bus uses asyncio queues and thread-safe locks, this works safely from any thread.
 
-**UI Updates from Event Handlers**: Event handlers run in the GUI event loop thread but must update the UI (which runs on the main thread). Controllers use `schedule_ui_update(callback, *args)`, which schedules the callback to run on the main thread via Tkinter's `root.after()` method. This ensures thread safety without explicit locks.
+**UI Updates from Event Handlers**: Event handlers run in the GUI event loop thread but must update the UI (which runs on the main thread). Controllers marshal callbacks to run on the main thread via Qt's signal/slot mechanism or event loop scheduling. This ensures thread safety without explicit locks.
 
 **Service Shutdown**: When the application shuts down, multiple threads need to be coordinated. The main thread requests shutdown, which signals the audio thread to stop, cancels tasks in the GUI event loop, and stops the GUI event loop thread. The shutdown coordinator manages this sequence.
 
@@ -213,7 +213,7 @@ Initialization Stages
 
 **Stage 3 - Audio Services**: AudioService (base audio capture), then in parallel: SoundService, SpeechToTextService, CentralizedCommandParser, DictationCoordinator (loads LLM model), MarkovCommandService.
 
-**Stage 4 - UI Components**: FontService, then AppControlRoom (main window).
+**Stage 4 - UI Components**: QtAssetCache and FontService, then VocalanceMainWindow (main window).
 
 **Stage 5 - Activation**: Call `setup_subscriptions()` on each service to enable event processing.
 

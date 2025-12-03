@@ -2,18 +2,17 @@ import asyncio
 import gc
 import logging
 import os
+import pickle
 import shutil
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
-import joblib
 import librosa
 import numpy as np
 import soundfile as sf
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import StandardScaler
+from scipy.spatial.distance import cosine
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.services.storage.storage_models import SoundMappingsData
@@ -25,6 +24,55 @@ if TYPE_CHECKING:
 import tensorflow as tf
 
 logger = logging.getLogger(__name__)
+
+
+class SimpleStandardScaler:
+    def __init__(self) -> None:
+        """Initialize scaler with no fit data."""
+        self.mean: Optional[np.ndarray] = None
+        self.std: Optional[np.ndarray] = None
+        self._is_fitted = False
+
+    def fit(self, X: np.ndarray) -> "SimpleStandardScaler":
+        """Fit scaler with mean and std of training data.
+
+        Args:
+            X: Training data array of shape (n_samples, n_features).
+
+        Returns:
+            Self for method chaining.
+        """
+        self.mean = np.mean(X, axis=0)
+        self.std = np.std(X, axis=0)
+        # Avoid division by zero and numerical instability
+        # Use 0.01 as minimum std (prevents huge scaled values)
+        self.std = np.maximum(self.std, 0.01)
+        self._is_fitted = True
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Transform data using fitted mean and std.
+
+        Args:
+            X: Data to transform.
+
+        Returns:
+            Normalized data.
+        """
+        if not self._is_fitted or self.mean is None or self.std is None:
+            raise ValueError("Scaler must be fit before transform")
+        return (X - self.mean) / self.std
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        """Fit scaler and transform data in one step.
+
+        Args:
+            X: Data to fit and transform.
+
+        Returns:
+            Normalized data.
+        """
+        return self.fit(X).transform(X)
 
 
 class AudioPreprocessor:
@@ -180,7 +228,7 @@ class SoundRecognizer:
         self.external_sounds_path = storage_config.external_non_target_sounds_dir
 
         self.yamnet_model = None
-        self.scaler = StandardScaler()
+        self.scaler = SimpleStandardScaler()
         self.embeddings: np.ndarray = np.empty((0, 1024))
         self.labels: List[str] = []
         self.mappings: Dict[str, str] = {}
@@ -229,9 +277,6 @@ class SoundRecognizer:
 
             await self._load_model_data_async()
 
-            # NOTE: ESC-50 copying moved to warm_start_esc50_samples() for app startup
-            # This prevents blocking first training with file I/O
-
             logger.info(f"SoundRecognizer initialized: {len(self.embeddings)} embeddings")
             return True
 
@@ -275,8 +320,10 @@ class SoundRecognizer:
 
             with self._model_lock:
                 self.embeddings = np.load(embeddings_path)
-                self.labels = joblib.load(labels_path)
-                self.scaler = joblib.load(scaler_path)
+                with open(labels_path, "rb") as f:
+                    self.labels = pickle.load(f)
+                with open(scaler_path, "rb") as f:
+                    self.scaler = pickle.load(f)
 
             unique_sounds = len(set(self.labels))
             logger.info(f"Loaded model data: {len(self.embeddings)} embeddings, {unique_sounds} unique sounds")
@@ -291,7 +338,7 @@ class SoundRecognizer:
                 self.embeddings = np.empty((0, 1024))
                 self.labels = []
                 self.mappings = {}
-                self.scaler = StandardScaler()
+                self.scaler = SimpleStandardScaler()
 
     async def _load_mappings_from_storage(self) -> None:
         """Load sound mappings from storage service."""
@@ -308,7 +355,7 @@ class SoundRecognizer:
             with self._model_lock:
                 self.mappings = {}
 
-    def _save_model_files_sync(self, embeddings: np.ndarray, labels: List[str], scaler_obj: StandardScaler) -> bool:
+    def _save_model_files_sync(self, embeddings: np.ndarray, labels: List[str], scaler_obj: "SimpleStandardScaler") -> bool:
         """Synchronously save model files (runs in thread pool executor).
 
         This method performs blocking I/O and should only be called via run_in_executor
@@ -317,15 +364,17 @@ class SoundRecognizer:
         Args:
             embeddings: Embeddings array to save.
             labels: Labels list to save.
-            scaler_obj: StandardScaler object to save.
+            scaler_obj: SimpleStandardScaler object to save.
 
         Returns:
             True if all files saved successfully, False otherwise.
         """
         try:
             np.save(os.path.join(self.model_path, "embeddings.npy"), embeddings)
-            joblib.dump(labels, os.path.join(self.model_path, "labels.joblib"))
-            joblib.dump(scaler_obj, os.path.join(self.model_path, "scaler.joblib"))
+            with open(os.path.join(self.model_path, "labels.joblib"), "wb") as f:
+                pickle.dump(labels, f)
+            with open(os.path.join(self.model_path, "scaler.joblib"), "wb") as f:
+                pickle.dump(scaler_obj, f)
             logger.debug(f"Saved model files: {len(embeddings)} embeddings, {len(labels)} labels")
             return True
         except Exception as e:
@@ -548,8 +597,9 @@ class SoundRecognizer:
             logger.error(f"Failed to scale embedding: {e}")
             return None
 
-        # Calculate similarities
-        similarities = cosine_similarity(scaled_embedding.reshape(1, -1), embeddings_copy)[0]
+        # Calculate similarities using scipy.spatial.distance.cosine
+        # Result is 1 - cosine_distance for similarity (higher is more similar)
+        similarities = np.array([1 - cosine(scaled_embedding, emb) for emb in embeddings_copy])
 
         # Get top-k neighbors
         top_indices = np.argsort(similarities)[-self.k_neighbors :][::-1]
@@ -666,7 +716,7 @@ class SoundRecognizer:
 
             for i, sample_data in enumerate(samples):
                 if not isinstance(sample_data, tuple) or len(sample_data) != 2:
-                    logger.warning(f"  Sample {i+1}: invalid format, skipping")
+                    logger.warning(f"  Sample {i + 1}: invalid format, skipping")
                     continue
 
                 audio, sr = sample_data
@@ -674,9 +724,9 @@ class SoundRecognizer:
                 if embedding is not None:
                     new_embeddings.append(embedding)
                     new_labels.append(label)
-                    logger.debug(f"  Sample {i+1}: embedding extracted")
+                    logger.debug(f"  Sample {i + 1}: embedding extracted")
                 else:
-                    logger.warning(f"  Sample {i+1}: failed to extract embedding")
+                    logger.warning(f"  Sample {i + 1}: failed to extract embedding")
 
             if not new_embeddings:
                 logger.error(f"No valid embeddings extracted for '{label}'")
@@ -816,7 +866,7 @@ class SoundRecognizer:
                 self.embeddings = np.empty((0, 1024))
                 self.labels = []
                 self.mappings = {}
-                self.scaler = StandardScaler()
+                self.scaler = SimpleStandardScaler()
 
             # Remove saved model files
             model_files = ["embeddings.npy", "labels.joblib", "scaler.joblib"]
@@ -883,7 +933,7 @@ class SoundRecognizer:
                 if len(self.embeddings) > 0:
                     self.scaler.fit(self.embeddings)
                 else:
-                    self.scaler = StandardScaler()
+                    self.scaler = SimpleStandardScaler()
 
             # Save updated model
             success = await self._save_model_data_async()

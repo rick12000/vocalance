@@ -17,7 +17,7 @@ from vocalance.app.events.core_events import (
     STTProcessingCompletedEvent,
     STTProcessingStartedEvent,
 )
-from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
+from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent, DictationStopWordDetectedEvent
 from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
 from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
 
@@ -61,6 +61,7 @@ class SpeechToTextService:
         self.stt_config = config.stt
         self.logger = logging.getLogger(self.__class__.__name__)
         self._dictation_active: bool = False
+        self._current_dictation_mode: str = "inactive"
         self._state_lock = asyncio.Lock()
         self.vosk_engine: Optional[VoskSTT] = None
         self.whisper_engine: Optional[WhisperSTT] = None
@@ -204,6 +205,11 @@ class SpeechToTextService:
 
             if self._is_stop_trigger(vosk_result):
                 logger.info(f"Stop word '{vosk_result}' detected during dictation")
+
+                # Publish stop word detected event for UI update
+                await self._publish_stop_word_detected_event()
+
+                # Publish recognition result to trigger command parsing
                 await self._publish_recognition_result(vosk_result, 0, "vosk", STTMode.COMMAND)
             else:
                 logger.debug(f"No stop trigger detected in: '{vosk_result}' - ignoring during dictation")
@@ -304,6 +310,20 @@ class SpeechToTextService:
             return False
         return self._stop_trigger in text.lower().strip()
 
+    async def _publish_stop_word_detected_event(self) -> None:
+        """Publish stop word detected event for UI update.
+
+        This event triggers the UI to change the border color to orange instantly
+        when the stop word is detected during dictation.
+        """
+        async with self._state_lock:
+            current_mode = self._current_dictation_mode
+
+        if current_mode and current_mode != "inactive":
+            event = DictationStopWordDetectedEvent(mode=current_mode)
+            await self.event_bus.publish(event)
+            logger.info(f"Published DictationStopWordDetectedEvent for mode: {current_mode}")
+
     async def _handle_dictation_mode_change(self, event_data: DictationModeDisableOthersEvent) -> None:
         """Handle dictation mode state changes for mode-aware processing.
 
@@ -317,46 +337,58 @@ class SpeechToTextService:
         async with self._state_lock:
             old_state = self._dictation_active
             self._dictation_active = event_data.dictation_mode_active
+            self._current_dictation_mode = event_data.dictation_mode
             logger.info(
-                f"STT service dictation mode changed: {old_state} -> {self._dictation_active} (event: {event_data.dictation_mode_active})"
+                f"STT service dictation mode changed: {old_state} -> {self._dictation_active} (mode: {self._current_dictation_mode})"
             )
 
             if self._dictation_active:
-                logger.info("STT service now in DICTATION mode - command audio will only check for stop trigger")
+                logger.info(
+                    f"STT service now in DICTATION mode ({self._current_dictation_mode}) - command audio will only check for stop trigger"
+                )
             else:
                 logger.info("STT service now in COMMAND mode - normal command processing enabled")
 
-    async def recognize_streaming(self, audio_bytes: bytes, sample_rate: int) -> Tuple[List[dict], float]:
-        """Perform streaming recognition with segment timestamps.
+    async def recognize_streaming(
+        self, audio_bytes: bytes, sample_rate: int, return_segments: bool = False
+    ) -> Tuple[str, float, Optional[List[dict]]]:
+        """Perform streaming recognition with optional segment timestamps.
 
         Used by streaming dictation modes (smart/visual) for continuous transcription
-        with overlapping audio chunks. Returns segments with timestamps for precise
-        offset tracking.
+        with overlapping audio chunks. Returns text and optionally segments with
+        timestamps for precise offset tracking.
 
         Args:
             audio_bytes: Raw audio data to transcribe.
             sample_rate: Sample rate of the audio.
+            return_segments: If True, return detailed segment info with timestamps.
 
         Returns:
-            Tuple of (segments_list, confidence_score) where segments_list contains:
-            [{"text": str, "start": float, "end": float, "completed": bool}, ...]
+            Tuple of (text, confidence, segments) where:
+            - text: Combined transcribed text
+            - confidence: Average confidence score
+            - segments: List of segment dicts if return_segments=True, else None
+              [{"text": str, "start": float, "end": float, "no_speech_prob": float}, ...]
         """
         if not self._engines_initialized or not self.whisper_engine:
             logger.error("STT engines not initialized")
-            return [], 0.0
+            return "", 0.0, None
 
         # Get context segments for initial_prompt
         async with self._context_lock:
             context_list = list(self._context_segments)
 
-        # Call Whisper streaming method - returns segments with timestamps
-        segments, confidence = await self.whisper_engine.recognize_streaming(
-            audio_bytes=audio_bytes, context_segments=context_list, sample_rate=sample_rate
+        # Call Whisper streaming method - returns text, confidence, and optionally segments
+        text, confidence, segments = await self.whisper_engine.recognize_streaming(
+            audio_bytes=audio_bytes,
+            context_segments=context_list,
+            sample_rate=sample_rate,
+            return_segments=return_segments,
         )
 
         # DON'T add to context here - let coordinator add only completed/finalized segments
 
-        return segments, confidence
+        return text, confidence, segments
 
     async def add_finalized_segment(self, text: str) -> None:
         """Add a finalized segment to the streaming context.

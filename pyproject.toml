@@ -10,29 +10,27 @@ readme = "README.md"
 authors = [
     {name = "Riccardo Doyle", email = "r.doyle.edu@gmail.com"}
 ]
-requires-python = ">=3.11"
+requires-python = "==3.13.9"
 classifiers = [
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12"
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "vosk==0.3.45",
     "sounddevice==0.5.3",
     "librosa==0.11.0",
     "soundfile==0.13.1",
-    "numpy==2.3.4",
+    "numpy==2.3.5",
+    "scipy==1.16.3",
     "faster-whisper==1.2.1",
     "llama-cpp-python==0.3.16",
-    "scikit-learn==1.7.2",
-    "joblib==1.5.2",
     "tensorflow-cpu==2.20.0",
-    "customtkinter==5.2.2",
-    "Pillow==12.0.0",
-    "PyAutoGUI==0.9.54",
+    "pyside6==6.10.1",
+    "pillow==12.0.0",
+    "pyautogui==0.9.54",
     "pyperclip==1.11.0",
     "pydantic==2.12.4",
-    "PyYAML==6.0.3",
-    "huggingface_hub==1.1.2"
+    "pyyaml==6.0.3",
+    "huggingface-hub==1.1.5"
 ]
 
 [project.urls]
@@ -64,7 +62,7 @@ docs = [
 ]
 
 [tool.setuptools]
-packages = {find = {exclude = ["tests*", "examples*", "docs*", "build*", "cache*", "dist*", "*.egg-info*"]}}
+packages = {find = {exclude = ["tests*", "examples*", "docs*", "build*", "cache*", "dist*", "*.egg-info*", "NOTICES*"]}}
 include-package-data = true
 
 [tool.setuptools.package-data]

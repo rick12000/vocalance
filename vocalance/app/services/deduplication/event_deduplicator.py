@@ -1,10 +1,3 @@
-"""Unified event deduplication for command events (Vosk, sound, Markov).
-
-Single source of truth for command deduplication across all command sources.
-Time-window based with exact match and similarity detection.
-Thread-safe for concurrent access from multiple event handlers.
-"""
-
 import logging
 import threading
 import time

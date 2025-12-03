@@ -1,7 +1,7 @@
 User Interface Architecture
 ############################
 
-Vocalance's user interface follows a separation of concerns through the **Control-View pattern**, where controllers act as mediators between the view layer and backend services through an event-driven architecture. This document explains how the UI is organized, how user interactions flow through the system, and how the UI remains responsive across multiple threads.
+Vocalance's user interface is built with PySide6 (Qt framework) and follows a separation of concerns through the **Control-View pattern**, where controllers act as mediators between the view layer and backend services through an event-driven architecture. This document explains how the UI is organized, how user interactions flow through the system, and how the UI remains responsive across multiple threads.
 
 The Core Pattern: Controllers Orchestrating Views and Services
 ==============================================================
@@ -12,14 +12,14 @@ When a user interacts with the UI—clicking a button, entering text, or selecti
 
 This pattern ensures views are pure presentation logic—they know nothing about business logic or services. Controllers are thin orchestrators—they know about events and service workflows but contain no UI rendering code. Services implement the actual domain logic and publish events describing what happened. The separation means each layer can be tested independently, modified without cascading changes, and understood easily.
 
-The Main Window: AppControlRoom
-==================================
+The Main Window: VocalanceMainWindow
+====================================
 
-The root of the UI hierarchy is the `AppControlRoom`, which manages the main window containing a sidebar for navigation and a content area that displays one active tab at a time. The AppControlRoom is responsible for creating all controllers and views, orchestrating tab switching, and maintaining the specialized overlay windows (grid overlay, mark visualization, dictation popup).
+The root of the UI hierarchy is the `VocalanceMainWindow` (inheriting from QMainWindow), which manages the main window containing a sidebar for navigation and a content area that displays one active tab at a time. The VocalanceMainWindow is responsible for creating all controllers and views, orchestrating tab switching, and maintaining the specialized overlay windows (grid overlay, mark visualization, dictation popup).
 
-**Window Layout**: The main window is divided into a narrow sidebar with icon buttons and a large content area. The sidebar buttons correspond to tabs: Marks, Commands, Dictation, Grid, Sound, Settings, and System. Each button switch the content area to the corresponding view. The window is designed for touch and voice interaction, with large buttons and high-contrast visuals.
+**Window Layout**: The main window is divided into a narrow sidebar with icon buttons and a large content area. The sidebar buttons correspond to tabs: Marks, Commands, Dictation, Grid, Sound, Settings, and System. Each button switches the content area to the corresponding view. The window is designed for touch and voice interaction, with large buttons and high-contrast visuals.
 
-**Lazy-Loaded Views**: Views are not created upfront. Instead, the AppControlRoom maintains a cache (`_view_cache`) and creates each view only when the user first navigates to it. This reduces startup time and memory usage. The cache is protected by a threading.RLock to allow safe access from multiple threads (the main Tkinter thread and the GUI event loop thread). When switching to a tab, AppControlRoom checks if the view is cached. If not, it creates the view and its associated controller. If already cached, it reuses the existing view. Only one view is displayed at a time—switching tabs hides the current view with `pack_forget()` and displays the target view with `pack()`.
+**Lazy-Loaded Views**: Views are not created upfront. Instead, the VocalanceMainWindow maintains a cache (`_view_cache`) and creates each view only when the user first navigates to it. This reduces startup time and memory usage. The cache is protected by a threading.RLock to allow safe access from multiple threads (the main Qt thread and the GUI event loop thread). When switching to a tab, VocalanceMainWindow checks if the view is cached. If not, it creates the view and its associated controller. If already cached, it reuses the existing view. Only one view is displayed at a time—switching tabs hides the current view and displays the target view using Qt's stacked widget or layout management.
 
 This lazy loading design means the application starts quickly even though it supports seven different functional areas. The first access to any tab incurs a small delay as the view and controller initialize, but subsequent accesses are instant.
 
@@ -39,15 +39,15 @@ Each functional area (marks, commands, dictation, grid, sound, settings, system)
 Views: Pure Presentation
 ==========================
 
-Views inherit from `ViewHelper` (which in turn inherits from customtkinter.CTkFrame) and are responsible only for rendering the UI and exposing callbacks. They contain no business logic, no service calls, and no event publishing. They are simple: create widgets, lay them out with proper theming, and provide methods for the controller to update the display.
+Views inherit from Qt components (typically QWidget or QFrame) and are responsible only for rendering the UI and exposing callbacks. They contain no business logic, no service calls, and no event publishing. They are simple: create widgets, lay them out with proper theming, and provide methods for the controller to update the display.
 
-**Widget Creation**: Views use themed components (ThemedFrame, ThemedLabel, ThemedButton, etc.) for visual consistency. These components are wrappers around CustomTkinter widgets that apply the application's color scheme, fonts, and spacing. They ensure every UI element looks identical and responds to theme changes.
+**Widget Creation**: Views use themed components from PySide6 that apply the application's color scheme, fonts, and spacing defined in the Qt theme. Themed utilities like QtAssetCache and the theme configuration ensure every UI element looks identical and responds to theme changes.
 
-**Callbacks to Controller**: When a user interacts with a widget—clicking a button, submitting a form, selecting an item—the view's callback method fires. The callback typically receives a value or None depending on the widget type. The callback then calls the appropriate method on its controller. For example, a button might call `self.controller.create_mark(name)` with the name from a text entry. The controller handles the rest.
+**Callbacks to Controller**: When a user interacts with a widget—clicking a button, submitting a form, selecting an item—the widget's signal fires. The view connects this signal to a callback method that calls the appropriate method on its controller. For example, a button might trigger `self.controller.create_mark(name)` with the name from a text entry. The controller handles the rest.
 
 **Updating from Controller**: The controller updates the view through public methods. For example, `view.add_mark_to_list(mark_data)` or `view.show_error(title, message)`. These methods are simple: they create widgets, update labels, append items to lists, or show dialogs. No computation, no state management—just UI operations.
 
-**Async-Safe Updates**: Because views are Tkinter-based and Tkinter is not thread-safe, all view updates must occur on the main thread. When a controller event handler (which runs in the GUI event loop thread) needs to update the view, it uses `schedule_ui_update(callback, *args)`, which schedules the callback to run on the main thread via Tkinter's `after()` method. This ensures thread safety without blocking the GUI event loop.
+**Async-Safe Updates**: Because views are Qt-based and Qt signals/slots operate on the main thread, all view updates must occur on the main thread. When a controller event handler (which runs in the GUI event loop thread) needs to update the view, it publishes the update to the event loop which marshals it back to the main Qt thread. This ensures thread safety without blocking the GUI event loop.
 
 Specialized Overlay Windows
 ==============================
@@ -80,52 +80,52 @@ At no point does any component block or wait. The view remains responsive to use
 Thread Safety in the UI Layer
 ==============================
 
-Vocalance runs three threads: the main thread (Tkinter UI loop), the GUI event loop thread (asyncio), and the audio thread (audio capture). The UI layer must handle cross-thread coordination carefully.
+Vocalance runs three threads: the main thread (Qt UI loop), the GUI event loop thread (asyncio), and the audio thread (audio capture). The UI layer must handle cross-thread coordination carefully.
 
-**Main Thread**: This is where Tkinter runs. All widget creation, configuration, and event handling must occur here. When the user clicks a button or types in a text field, the handler fires on the main thread.
+**Main Thread**: This is where Qt (PySide6) runs. All widget creation, configuration, and signal/slot handling must occur here. When the user clicks a button or types in a text field, the signal fires on the main thread.
 
 **GUI Event Loop Thread**: This is where the event bus worker runs, service event handlers execute, and asyncio operations happen. Controllers and services run in this thread.
 
-**Cross-Thread Updates**: When a service event handler (GUI event loop thread) needs to update a view (main thread), it must not call the view directly. Instead, it uses `schedule_ui_update(callback, *args)`, which registers the callback with Tkinter to run on the main thread.
+**Cross-Thread Updates**: When a service event handler (GUI event loop thread) needs to update a view (main thread), it must not call the view directly. Instead, the event loop marshals the callback to run on the main thread using Qt's signal/slot mechanism or async scheduling.
 
 **State Protection**: If a controller maintains state that can be accessed from both threads (e.g., whether mark visualization is active), that state must be protected by a lock (threading.RLock). The lock prevents one thread from modifying state while another thread is reading it.
 
 The Base Controller Pattern
 =============================
 
-All controllers inherit from `BaseController`, which provides:
+All controllers inherit from `BaseController` (or Qt-specific variants), which provides:
 
-- **Event subscription management**: `subscribe_to_events(list_of_event_type_handler_pairs)` registers handlers for event types.
-- **Event publishing**: `publish_event(event)` publishes events thread-safely to the event bus.
-- **UI scheduling**: `schedule_ui_update(callback, *args)` safely calls view methods from event handlers.
-- **State locking**: `_state_lock` (threading.RLock) protects controller state.
-- **View callbacks**: `set_view_callback(callback)` stores a reference to the AppControlRoom for specialized views (grid, mark overlay, dictation popup).
+- **Event subscription management**: Methods for registering handlers for specific event types.
+- **Event publishing**: Thread-safe publication of events to the event bus.
+- **UI scheduling**: Methods to safely call view methods from event handlers running in the event loop thread.
+- **State locking**: `_state_lock` (threading.RLock) protects controller state shared between threads.
+- **View callbacks**: Reference management for specialized views (grid, mark overlay, dictation popup).
 
-By inheriting from `BaseController`, each concrete controller (MarksController, DictationController, etc.) gets these capabilities without duplicating code. The concrete controller then implements its specific event handlers and view methods.
+By inheriting from the base controller class, each concrete controller gets these capabilities without duplicating code. The concrete controller then implements its specific event handlers and view methods.
 
 Concrete Controllers
 ---------------------
 
-**MarksController**: Handles mark creation, deletion, visualization, and execution. Subscribes to mark events from the mark service. Updates the marks list view. Controls the mark visualization overlay.
+**MarksController** (`qt_marks_controller.py`): Handles mark creation, deletion, visualization, and execution. Subscribes to mark events from the mark service. Updates the marks list view. Controls the mark visualization overlay.
 
-**CommandsController**: Displays command history and custom commands. Allows users to create, edit, and delete custom commands. Updates the commands view in real time.
+**CommandsController** (`qt_commands_controller.py`): Displays command history and custom commands. Allows users to create, edit, and delete custom commands. Updates the commands view in real time.
 
-**DictationController**: Manages dictation mode activation, shows dictation status and LLM model loading progress. Allows configuration of dictation modes and parameters. Controls the dictation popup window.
+**DictationController** (`qt_dictation_controller.py`): Manages dictation mode activation, shows dictation status and LLM model loading progress. Allows configuration of dictation modes and parameters. Controls the dictation popup window.
 
-**GridController**: Configures grid dimensions and appearance. Shows the grid overlay when requested. Handles grid cell selection and cursor movement.
+**GridController** (`qt_grid_controller.py`): Configures grid dimensions and appearance. Shows the grid overlay when requested. Handles grid cell selection and cursor movement.
 
-**SoundController**: Manages sound training (teaching the system to recognize custom sounds) and mapping sounds to commands. Updates the sound list and training status in the view.
+**SoundController** (`qt_sound_controller.py`): Manages sound training (teaching the system to recognize custom sounds) and mapping sounds to commands. Updates the sound list and training status in the view.
 
-**SettingsController**: Displays and manages application settings. Validates user input. Publishes setting changes to the settings service for persistence and propagation to other services.
+**SettingsController** (`qt_settings_controller.py`): Displays and manages application settings. Validates user input. Publishes setting changes to the settings service for persistence and propagation to other services.
 
-**SystemController**: Displays system status, logs, version info, and application uptime. Handles application shutdown via the shutdown coordinator.
+**DictationAliasController** (`qt_dictation_alias_controller.py`): Manages custom dictation aliases—shorthand phrases that expand to full text during dictation output.
 
 Theming and Styling
 ====================
 
-Vocalance uses CustomTkinter for a modern, dark-themed UI. All visual elements use a consistent color scheme and typography defined in `UITheme`. The `FontService` loads and caches custom fonts (Manrope) at startup, avoiding repeated disk I/O. The themed components (ThemedFrame, ThemedLabel, etc.) apply these colors and fonts automatically, ensuring consistency without repetitive configuration.
+Vocalance uses PySide6 (Qt) with a custom dark theme. All visual elements use a consistent color scheme and typography defined in the theme configuration (`qt_theme.py`). Custom fonts are loaded and cached at startup via `QtAssetCache`, avoiding repeated disk I/O. Styled components apply these colors and fonts automatically, ensuring consistency without repetitive configuration.
 
-When the user changes theme settings (if supported), the settings coordinator propagates the change to all affected services and widgets. Because UI elements use the themed components, a global theme change is reflected everywhere automatically.
+The theme uses QSS (Qt Style Sheets) for theming and Python configuration for dynamic property management. When the user changes theme settings (if supported), the settings coordinator propagates the change to all affected services and widgets. Because UI elements use the centralized theme, a global theme change is reflected everywhere automatically.
 
 Summary and Architecture Overview
 ===================================
@@ -138,6 +138,6 @@ Vocalance's UI architecture is built on these principles:
 4. **Lazy loading**: Views are created on-demand, reducing startup time and memory.
 5. **Responsive interaction**: The event bus is non-blocking, so the UI remains responsive even during long operations.
 
-The flow from user action to visual result involves multiple threads, multiple layers, and multiple events—yet the system responds quickly to the user. This is the result of coordination: using async operations in the event loop, using thread pools for CPU-intensive work, marshalling UI updates to the main thread, and designing services to publish completion events so the UI knows when to update.
+The flow from user action to visual result involves multiple threads, multiple layers, and multiple events—yet the system responds quickly to the user. This is the result of coordination: using async operations in the event loop, using thread pools for CPU-intensive work, marshalling UI updates to the main Qt thread, and designing services to publish completion events so the UI knows when to update.
 
 The underlying infrastructure enabling this coordination—the event bus, threading model, and service lifecycle—is covered in detail in :doc:`event_bus_and_infrastructure`.

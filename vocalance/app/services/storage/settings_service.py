@@ -129,7 +129,10 @@ class SettingsService:
                     "device": self._get_default_value("audio.device"),
                     "sample_rate": self._get_default_value("audio.sample_rate"),
                 },
-                "markov_predictor": {"confidence_threshold": self._get_default_value("markov_predictor.confidence_threshold")},
+                "markov_predictor": {
+                    "enabled": self._get_default_value("markov_predictor.enabled"),
+                    "confidence_threshold": self._get_default_value("markov_predictor.confidence_threshold"),
+                },
             }
 
             self._apply_overrides_to_effective_settings()
@@ -249,6 +252,57 @@ class SettingsService:
             logger.error(f"Failed to reset setting {setting_path}: {e}")
             return False
 
+    async def reset_to_defaults_async(self) -> tuple:
+        """Reset all user settings to defaults."""
+        try:
+            # Clear all user overrides
+            self._user_overrides = {}
+
+            # Save to storage
+            settings_data = SettingsData(user_overrides={})
+            success = await self._storage.write(data=settings_data)
+
+            if success:
+                # Rebuild effective settings (will use all defaults now)
+                await self._build_effective_settings()
+                await self._publish_settings_response()
+
+                logger.info("All settings reset to defaults successfully")
+                return True, "Settings reset to defaults successfully"
+            else:
+                error_msg = "Failed to save reset settings to storage"
+                logger.error(error_msg)
+                return False, error_msg
+
+        except Exception as e:
+            error_msg = f"Failed to reset settings to defaults: {e}"
+            logger.error(error_msg, exc_info=True)
+            return False, error_msg
+
+    def reset_to_defaults(self) -> tuple:
+        """Reset all user settings to defaults (sync wrapper for thread execution)."""
+        import asyncio
+
+        try:
+            # Get or create event loop
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop, create new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(self.reset_to_defaults_async())
+                loop.close()
+                return result
+            else:
+                # Running loop exists, use run_coroutine_threadsafe
+                future = asyncio.run_coroutine_threadsafe(self.reset_to_defaults_async(), loop)
+                return future.result(timeout=5.0)
+        except Exception as e:
+            error_msg = f"Failed to reset settings to defaults: {e}"
+            logger.error(error_msg, exc_info=True)
+            return False, error_msg
+
     def _validate_setting_value(self, setting_path: str, value: Any) -> bool:
         """Validate setting value based on setting type and constraints"""
         validation_rules = {
@@ -257,8 +311,8 @@ class SettingsService:
             "grid.default_rect_count": lambda v: isinstance(v, int) and v > 0,
             "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
             "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
+            "markov_predictor.enabled": lambda v: isinstance(v, bool),
             "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
-            "vad.energy_threshold": lambda v: isinstance(v, (int, float)) and v >= 0,
             "vad.dictation_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
             "vad.command_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
             "audio.device": lambda v: v is None or isinstance(v, int),

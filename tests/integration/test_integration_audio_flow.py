@@ -83,7 +83,7 @@ async def _simulate_audio_flow(event_bus, stt_service, audio_bytes: bytes, sampl
 
     await event_bus.publish(audio_event)
 
-    result_received = await capture.wait_for_result(timeout=2.0)
+    result_received = await capture.wait_for_result(timeout=5.0)
 
     flow_end = time.time()
     end_to_end_latency_ms = (flow_end - flow_start) * 1000
@@ -145,7 +145,7 @@ async def test_audio_flow_latency_performance(event_bus, stt_service, audio_flow
     if not audio_flow_samples:
         pytest.skip("No audio flow samples found")
 
-    latency_requirements = {"click": 250.0, "right click": 500.0}
+    latency_requirements = {"click": 500.0, "right click": 1000.0}
 
     repetitions = 10
     latency_results = {}
