@@ -83,7 +83,7 @@ class LoggingConfigModel(BaseModel):
     )
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s", description="Log message format")
     enable_logs: bool = Field(
-        default=True,
+        default=False,
         description="Enable logging. When true: logs go to console AND cache directory. When false: completely silent (privacy-first). Default: False",
     )
 
