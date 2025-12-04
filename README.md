@@ -27,7 +27,7 @@ To find out more about what Vocalance can do, including detailed instructions an
 
 Vocalance can be set up entirely from the source code in this repository. To do so, follow the instructions below (currently only supported on Windows):
 
-### Set Up UV
+### 1. Set Up UV
 
 1. Open Windows PowerShell and enter the script below to install [UV](https://github.com/astral-sh/uv) (Python package manager):
    ```powershell
@@ -39,7 +39,7 @@ Vocalance can be set up entirely from the source code in this repository. To do 
    $env:Path = "$HOME\.local\bin;$env:Path"
    ```
 
-### Set Up Vocalance
+### 2. Set Up Vocalance
 
 1. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
    ```bash
@@ -71,15 +71,23 @@ Vocalance can be set up entirely from the source code in this repository. To do 
    python vocalance.py
    ```
 
-The application will start up and download any required models (like speech recognition models) on first run (these are downloaded from Hugging Face or other reputable hosts).
-
-This may take several minutes depending on your internet connection.
+The application will start up and download any required models (like speech recognition models) on first run (these are downloaded from Hugging Face or other reputable hosts). This may take several minutes depending on your internet connection.
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how to get started.
 
-**NOTE**: The next time you run the application, you can skip the `uv sync --active` step and just run the application (in the environment you created earlier).
+### 3. Reopen Vocalance
 
-### Pip
+If you want to reopen Vocalance after you closed it, you can repeat above steps, but skipping all installation steps.
+
+Specificaly, open a new Windows PowerShell window and enter the following chained commands (taken from set up section):
+
+```bash
+$env:Path = "$HOME\.local\bin;$env:Path"; vocalance_env\Scripts\activate; cd vocalance; uv sync --active; python vocalance.py
+```
+
+This will start Vocalance.
+
+### An Aside on Pip
 
 The recommended approach is to install Vocalance with uv, since the developers can freeze and document all recommended dependancies in a `uv.lock` file, which you then install with `uv sync --active`.
 
