@@ -229,7 +229,7 @@ class SoundRecognizer:
 
         self.yamnet_model = None
         self.scaler = SimpleStandardScaler()
-        self.embeddings: np.ndarray = np.empty((0, 1024))
+        self.embeddings: np.ndarray = np.empty((0, 5120))
         self.labels: List[str] = []
         self.mappings: Dict[str, str] = {}
 
@@ -326,7 +326,8 @@ class SoundRecognizer:
                     self.scaler = pickle.load(f)
 
             unique_sounds = len(set(self.labels))
-            logger.info(f"Loaded model data: {len(self.embeddings)} embeddings, {unique_sounds} unique sounds")
+            if unique_sounds > 0:
+                logger.info(f"Loaded model data: {len(self.embeddings)} embeddings, {unique_sounds} unique sounds")
 
             await self._load_mappings_from_storage()
 
@@ -335,7 +336,7 @@ class SoundRecognizer:
         except Exception as e:
             logger.error(f"Failed to load model data: {e}", exc_info=True)
             with self._model_lock:
-                self.embeddings = np.empty((0, 1024))
+                self.embeddings = np.empty((0, 5120))
                 self.labels = []
                 self.mappings = {}
                 self.scaler = SimpleStandardScaler()
@@ -650,17 +651,20 @@ class SoundRecognizer:
         return None
 
     def _extract_embedding(self, audio: np.ndarray, sr: int) -> Optional[np.ndarray]:
-        """Extract YAMNet embedding with preprocessing.
+        """Extract temporally-aware YAMNet embedding with preprocessing.
 
         Preprocesses audio, converts to TensorFlow tensor, extracts embeddings using
-        YAMNet model, and averages embeddings across time for a single vector.
+        YAMNet model, and applies hybrid temporal aggregation (global statistics +
+        temporal bins) to preserve temporal structure.
 
         Args:
             audio: Audio numpy array.
             sr: Sample rate.
 
         Returns:
-            1024-dim embedding vector if successful, None otherwise.
+            5120-dim temporal embedding vector if successful, None otherwise.
+            Structure: [global_mean(1024), global_std(1024), early_max(1024),
+                       middle_max(1024), late_max(1024)]
         """
         try:
             # Preprocess audio
@@ -673,13 +677,14 @@ class SoundRecognizer:
 
             audio_tensor = tf.convert_to_tensor(processed_audio, dtype=tf.float32)
 
-            # Get YAMNet embeddings
+            # Get YAMNet embeddings (shape: num_frames x 1024)
             _, embeddings, _ = self.yamnet_model(audio_tensor)
+            embeddings_np = embeddings.numpy()
 
-            # Average embeddings across time
-            embedding = tf.reduce_mean(embeddings, axis=0).numpy()
+            # Apply hybrid temporal aggregation
+            temporal_embedding = self._aggregate_temporal_embeddings(embeddings_np)
 
-            return embedding
+            return temporal_embedding
 
         except ValueError as e:
             logger.error(f"Invalid audio for embedding: {e}")
@@ -687,6 +692,47 @@ class SoundRecognizer:
         except Exception as e:
             logger.error(f"Failed to extract embedding: {e}")
             return None
+
+    def _aggregate_temporal_embeddings(self, embeddings: np.ndarray) -> np.ndarray:
+        """Aggregate temporal embeddings using hybrid approach.
+
+        Combines global statistics with temporal bin pooling to preserve both
+        overall characteristics and temporal structure (attack/sustain/release).
+
+        Args:
+            embeddings: YAMNet embeddings of shape (num_frames, 1024)
+
+        Returns:
+            Aggregated embedding of shape (5120,) containing:
+            - Global mean (1024): Overall sound characteristics
+            - Global std (1024): Temporal variability
+            - Early max (1024): Onset/attack characteristics
+            - Middle max (1024): Sustain characteristics
+            - Late max (1024): Release/decay characteristics
+        """
+        num_frames = embeddings.shape[0]
+
+        # Global statistics (capture overall characteristics)
+        global_mean = np.mean(embeddings, axis=0)  # (1024,)
+        global_std = np.std(embeddings, axis=0)  # (1024,)
+
+        # Temporal bins (capture attack/sustain/release structure)
+        # Divide into thirds: early, middle, late
+        third = max(1, num_frames // 3)
+
+        early = embeddings[:third]
+        middle = embeddings[third : 2 * third]
+        late = embeddings[2 * third :]
+
+        # Max pool each temporal bin (captures salient events in each phase)
+        early_max = np.max(early, axis=0) if len(early) > 0 else np.zeros(1024, dtype=np.float32)
+        middle_max = np.max(middle, axis=0) if len(middle) > 0 else np.zeros(1024, dtype=np.float32)
+        late_max = np.max(late, axis=0) if len(late) > 0 else np.zeros(1024, dtype=np.float32)
+
+        # Concatenate all components
+        temporal_embedding = np.concatenate([global_mean, global_std, early_max, middle_max, late_max])
+
+        return temporal_embedding
 
     async def train_sound(self, label: str, samples: List[Tuple[np.ndarray, int]]) -> bool:
         """Train the recognizer with sound samples.
