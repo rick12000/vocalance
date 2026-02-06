@@ -521,8 +521,11 @@ class VocalanceMainWindow(QMainWindow):
 
     def set_settings_service(self, settings_service) -> None:
         self._settings_service = settings_service
+
+    def set_audio_service(self, audio_service) -> None:
+        self._audio_service = audio_service
         if self.settings_controller:
-            self.settings_controller.set_settings_service(settings_service)
+            self.settings_controller.audio_service = audio_service
 
     def closeEvent(self, event) -> None:
         """Handle window close event and trigger graceful shutdown."""
@@ -633,6 +636,10 @@ class VocalanceMainWindow(QMainWindow):
             from vocalance.app.ui.controls.qt_marks_controller import QtMarksController
             from vocalance.app.ui.controls.qt_settings_controller import QtSettingsController
             from vocalance.app.ui.controls.qt_sound_controller import QtSoundController
+            from vocalance.app.ui.controls.qt_system_controller import QtSystemController
+
+            # Initialize system controller for system-level events (always needed)
+            self.system_controller = QtSystemController(self.event_bus, self.event_loop, self)
 
             if hasattr(self, "_mark_service") and self._mark_service:
                 self.marks_controller = QtMarksController(self.event_bus, self.event_loop, self._mark_service, self.config, self)
@@ -662,8 +669,9 @@ class VocalanceMainWindow(QMainWindow):
                     )
 
             if hasattr(self, "_settings_service") and self._settings_service:
+                audio_service = getattr(self, "_audio_service", None)
                 self.settings_controller = QtSettingsController(
-                    self.event_bus, self.event_loop, self._settings_service, self.config, self
+                    self.event_bus, self.event_loop, self._settings_service, self.config, self, audio_service
                 )
 
             try:

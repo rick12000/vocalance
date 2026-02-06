@@ -8,6 +8,7 @@ from vocalance.app.config.command_types import (
     GridCommandType,
     MarkCommandType,
     SoundCommandType,
+    SystemControlCommandType,
 )
 from vocalance.app.events.base_event import BaseEvent, EventPriority
 
@@ -99,3 +100,13 @@ class CommandParseErrorEvent(BaseCommandEvent):
 
     error_message: str = Field(..., description="Description of the parsing error")
     attempted_parser: Optional[str] = Field(default=None, description="The parser that encountered the error")
+
+
+class SystemControlCommandParsedEvent(BaseCommandEvent):
+    """Event published when a system control command is parsed.
+
+    Attributes:
+        command: The parsed system control command.
+    """
+
+    command: SystemControlCommandType = Field(..., description="The parsed system control command")

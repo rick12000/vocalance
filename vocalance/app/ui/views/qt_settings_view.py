@@ -2,7 +2,8 @@ import logging
 from functools import partial
 from typing import Any, Dict, Optional
 
-from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
 from vocalance.app.ui.components.checkboxes import Checkbox
@@ -39,6 +40,7 @@ class QtSettingsView(QWidget):
     def set_controller(self, controller) -> None:
         """Set the controller and connect signals."""
         self.controller = controller
+        self._pending_save_section = None  # Track which section is being saved
 
         # Connect controller signals
         self.controller.settings_loaded.connect(self._on_settings_loaded)
@@ -101,6 +103,7 @@ class QtSettingsView(QWidget):
 
     def _on_error(self, error_msg: str) -> None:
         """Handle error from controller."""
+        self._pending_save_section = None  # Clear pending save on error
         self._show_error(error_msg)
 
     def _refresh_settings_display(self) -> None:
@@ -116,6 +119,9 @@ class QtSettingsView(QWidget):
 
         # Define which settings to display
         visible_settings = {
+            "Audio Settings": [
+                ("audio", "device", "Microphone Device"),
+            ],
             "LLM Model Settings": [
                 ("llm", "context_length", "Max Context Tokens"),
                 ("llm", "max_tokens", "Max Output Tokens"),
@@ -152,13 +158,25 @@ class QtSettingsView(QWidget):
                     value = self.settings[category].get(key)
 
                 if value is None:
-                    continue
+                    # Allow None for audio.device (system default)
+                    if category == "audio" and key == "device":
+                        pass
+                    else:
+                        continue
 
                 setting_key = f"{category}.{key}"
 
+                # Special handling for audio device dropdown
+                if setting_key == "audio.device":
+                    dropdown = self._create_device_dropdown(value)
+                    group = FormGroup(label_text, dropdown)
+                    self.scroll_container.add(group)
+                    self.setting_widgets[setting_key] = dropdown
+                    section_widgets_dict[setting_key] = dropdown
+
                 # Create widgets based on type
                 # CRITICAL: Check bool BEFORE int/float because isinstance(True, int) == True in Python!
-                if isinstance(value, bool):
+                elif isinstance(value, bool):
                     checkbox = Checkbox(
                         text=label_text,
                         checked=value,
@@ -222,7 +240,10 @@ class QtSettingsView(QWidget):
             settings_to_save = {}
             for setting_key, widget in section_info["widgets"].items():
                 # Get current value from widget
-                if isinstance(widget, Checkbox):
+                if isinstance(widget, QComboBox):
+                    # Get value from itemData
+                    value = widget.currentData()
+                elif isinstance(widget, Checkbox):
                     value = widget.isChecked()
                 elif isinstance(widget, TextInput):
                     text_value = widget.text().strip()
@@ -260,9 +281,10 @@ class QtSettingsView(QWidget):
 
             # Save all settings in this section
             if settings_to_save:
+                # Store section name for success callback
+                self._pending_save_section = section_name
                 self.controller.update_settings(settings_to_save)
                 self.logger.info(f"Saved {len(settings_to_save)} settings from section: {section_name}")
-                QMessageBox.information(self, "Success", f"{section_name} saved successfully!")
 
         except Exception as e:
             self.logger.error(f"Error saving section {section_name}: {e}", exc_info=True)
@@ -303,6 +325,8 @@ class QtSettingsView(QWidget):
     def _get_setting_types(self) -> Dict[str, type]:
         """Define the expected type for each setting."""
         return {
+            # Audio Settings
+            "audio.device": int,  # Device ID (can be None for default, handled by dropdown)
             # LLM Model Settings
             "llm.context_length": int,
             "llm.max_tokens": int,
@@ -318,6 +342,101 @@ class QtSettingsView(QWidget):
             "vad.dictation_silent_chunks_for_end": int,
             "vad.command_silent_chunks_for_end": int,
         }
+
+    def _create_device_dropdown(self, current_device_id: Optional[int]) -> QComboBox:
+        """Create dropdown for audio device selection.
+
+        Args:
+            current_device_id: Currently selected device ID (None for system default).
+
+        Returns:
+            Configured QComboBox widget with available audio devices.
+        """
+        from vocalance.app.services.audio.recorder import AudioRecorder
+
+        # Create styled combobox
+        combo = QComboBox()
+        combo.setFont(theme.get_font("medium"))
+        combo.setMinimumHeight(theme.config.components.input_height)
+
+        # Use consistent styling with other inputs (transparent background with border)
+        # Avoid scrollbar issues by not setting excessive padding that conflicts with height
+        combo.setStyleSheet(
+            f"""
+            QComboBox {{
+                background-color: transparent;
+                border: 1px solid {theme.config.shapes.light};
+                border-radius: {theme.config.radius.small}px;
+                padding-left: {theme.config.components.input_padding_horizontal}px;
+                padding-right: {theme.config.components.input_padding_horizontal}px;
+                color: {theme.config.text.light};
+            }}
+            QComboBox:hover {{
+                border-color: {theme.config.shapes.lightest};
+            }}
+            QComboBox:focus {{
+                border-color: {theme.config.blue.blue_2};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid {theme.config.text.light};
+                margin-right: 8px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {theme.config.shapes.darkest};
+                border: 1px solid {theme.config.shapes.light};
+                selection-background-color: {theme.config.blue.blue_2};
+                selection-color: {theme.config.text.light};
+                color: {theme.config.text.light};
+                outline: none;
+            }}
+            QComboBox QAbstractItemView::item {{
+                padding: 8px;
+                min-height: 24px;
+            }}
+        """
+        )
+
+        # Set palette to match TextInput (darkest background)
+        palette = combo.palette()
+        palette.setColor(QPalette.ColorRole.Base, QColor(theme.config.shapes.darkest))
+        palette.setColor(QPalette.ColorRole.Text, QColor(theme.config.text.light))
+        palette.setColor(QPalette.ColorRole.Button, QColor(theme.config.shapes.darkest))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(theme.config.text.light))
+        combo.setPalette(palette)
+
+        # Query and add devices
+        devices = AudioRecorder.query_available_devices()
+
+        # Add system default option
+        combo.addItem("System Default", None)
+
+        # Add discovered devices
+        for device_id, device_name, is_default in devices:
+            display_name = device_name
+            if is_default:
+                display_name += " (Current System Default)"
+            combo.addItem(display_name, device_id)
+
+        # Select current device
+        if current_device_id is None:
+            combo.setCurrentIndex(0)  # System Default
+        else:
+            # Find and select the device
+            for i in range(combo.count()):
+                if combo.itemData(i) == current_device_id:
+                    combo.setCurrentIndex(i)
+                    break
+
+        return combo
 
     def _show_error(self, message: str) -> None:
         """Show error message dialog."""

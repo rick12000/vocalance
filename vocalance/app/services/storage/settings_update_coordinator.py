@@ -20,8 +20,9 @@ class SettingsUpdateCoordinator:
     - grid.default_rect_count
     - vad.dictation_silent_chunks_for_end
     - vad.command_silent_chunks_for_end
+    - audio.device
 
-    Other settings (LLM, audio device) require app restart.
+    Other settings (LLM) require app restart.
 
     Flow:
     1. The GlobalAppConfig is updated (single source of truth)
@@ -99,6 +100,7 @@ class SettingsUpdateCoordinator:
             "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),
             "vad.dictation_silent_chunks_for_end": ("audio", "on_dictation_silent_chunks_updated"),
             "vad.command_silent_chunks_for_end": ("audio", "on_command_silent_chunks_updated"),
+            "audio.device": ("audio_recorder", "on_device_updated"),
         }
 
         for setting_path, value in updated_settings.items():
@@ -113,24 +115,30 @@ class SettingsUpdateCoordinator:
 
                 if service and hasattr(service, method_name):
                     method = getattr(service, method_name)
-                    if inspect.iscoroutinefunction(method):
-                        # Async method - await it
-                        if "threshold" in method_name:
-                            await method(threshold=value)
-                        elif "count" in method_name:
-                            await method(count=value)
-                        elif "chunks" in method_name:
-                            await method(chunks=value)
+
+                    # Determine argument name based on method name pattern
+                    kwargs = {}
+                    if "threshold" in method_name:
+                        kwargs["threshold"] = value
+                    elif "count" in method_name:
+                        kwargs["count"] = value
+                    elif "chunks" in method_name:
+                        kwargs["chunks"] = value
+                    elif "device" in method_name:
+                        kwargs["device_id"] = value
+
+                    # Call method (async or sync) with correct arguments
+                    is_async = inspect.iscoroutinefunction(method)
+
+                    if kwargs:
+                        if is_async:
+                            await method(**kwargs)
                         else:
-                            await method(value)
+                            method(**kwargs)
                     else:
-                        # Sync method - call directly
-                        if "threshold" in method_name:
-                            method(threshold=value)
-                        elif "count" in method_name:
-                            method(count=value)
-                        elif "chunks" in method_name:
-                            method(chunks=value)
+                        # Fallback for methods taking a single positional argument
+                        if is_async:
+                            await method(value)
                         else:
                             method(value)
                 else:

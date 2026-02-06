@@ -199,13 +199,20 @@ class QtGridController(QtBaseController):
     # --- Event Handlers ---
 
     async def _handle_show_grid_request(self, event_data) -> None:
-        """Handle request to show the grid."""
+        """Handle request to show the grid.
+
+        CRITICAL PATH: This is the primary handler for showing the grid.
+        Executes synchronously on the GUI thread for minimal latency.
+        """
         num_rects = None
         if event_data.rows and event_data.cols:
             num_rects = event_data.rows * event_data.cols
 
         # Pass click_mode to grid view
         click_mode = getattr(event_data, "click_mode", "click")
+
+        # Direct synchronous call - no async overhead
+        # This runs on the event loop thread which IS the Qt GUI thread
         self.show_grid_overlay(num_rects, click_mode)
 
     async def _handle_hide_grid_request(self, event_data) -> None:
@@ -227,7 +234,15 @@ class QtGridController(QtBaseController):
         self.handle_grid_selection(event_data.cell_label, click_mode)
 
     async def _handle_click_logged(self, event_data) -> None:
-        """Handle click logged event to refresh grid if visible. Thread-safe."""
+        """Handle click logged event to refresh grid if visible. Thread-safe.
+
+        IMPORTANT: Also invalidates the click count cache so the next grid display
+        will recalculate priorities based on the new click data.
+        """
+        # Invalidate click count cache when new clicks are added
+        if self.grid_view:
+            self.grid_view.invalidate_click_count_cache()
+
         with self._state_lock:
             grid_visible = self._grid_visible
 
@@ -235,20 +250,17 @@ class QtGridController(QtBaseController):
             self.refresh_grid_overlay()
 
     async def _handle_grid_visibility_changed(self, event_data) -> None:
-        """Handle grid visibility changed event. Thread-safe."""
+        """Handle grid visibility changed event. Thread-safe.
+
+        NOTE: This handler only updates state and emits signals. It does NOT show/hide
+        the grid to avoid duplicate operations. The grid is shown/hidden by the direct
+        _handle_show_grid_request and _handle_hide_grid_request handlers.
+        """
         with self._state_lock:
             self._grid_visible = event_data.visible
 
-        if self.grid_view:
-            if event_data.visible and not self.grid_view.is_active():
-                num_rects = None
-                if event_data.rows and event_data.cols:
-                    num_rects = event_data.rows * event_data.cols
-                self.show_grid_overlay(num_rects)
-            elif not event_data.visible and self.grid_view.is_active():
-                self.hide_grid_overlay()
-
-        # Emit signal
+        # Only emit signal - do NOT show/hide grid here to avoid duplicate operations
+        # The ShowGridRequestEventData handler already called show_grid_overlay()
         self.grid_visibility_changed.emit(event_data.visible, event_data.rows, event_data.cols)
 
     async def _handle_grid_config_updated(self, event_data) -> None:

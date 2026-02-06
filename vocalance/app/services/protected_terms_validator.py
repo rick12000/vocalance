@@ -68,6 +68,10 @@ class ProtectedTermsValidator:
         protected.add(dictation.visual_start_trigger.lower().strip())
         protected.add(dictation.hidden_start_trigger.lower().strip())
 
+        # System control commands
+        protected.add("pause")
+        protected.add("resume")
+
         try:
             marks_data = await self._storage.read(model_type=MarksData)
             protected.update(name.lower().strip() for name in marks_data.marks.keys())

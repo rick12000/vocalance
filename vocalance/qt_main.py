@@ -350,6 +350,10 @@ class FastServiceInitializer:
                 progress_tracker.update_status_animated(status="Setting up command processing")
 
             from vocalance.app.services.command_history_manager import CommandHistoryManager
+            from vocalance.app.services.pause_state_manager import PauseStateManager
+
+            # Create pause state manager
+            pause_state_manager = PauseStateManager(event_bus=self.event_bus)
 
             history_manager = CommandHistoryManager(storage=storage, protected_terms_validator=protected_terms_validator)
             centralized_parser = CentralizedCommandParser(
@@ -359,10 +363,12 @@ class FastServiceInitializer:
                 action_map_provider=action_map_provider,
                 history_manager=history_manager,
                 deduplicator=deduplicator,
+                pause_state_manager=pause_state_manager,
             )
             await centralized_parser.initialize()
 
             with self._services_lock:
+                self.services["pause_state_manager"] = pause_state_manager
                 self.services["history_manager"] = history_manager
                 self.services["centralized_parser"] = centralized_parser
 
@@ -477,6 +483,12 @@ class FastServiceInitializer:
                 if service_key in self.services:
                     coordinator.register_service(service_name=registration_name, service_instance=self.services[service_key])
 
+            # Register audio recorder separately for device switching
+            audio_service = self.services.get("audio")
+            if audio_service:
+                recorder = audio_service.get_recorder()
+                coordinator.register_service(service_name="audio_recorder", service_instance=recorder)
+
         logger.debug("Services registered with settings coordinator")
 
     async def _background_llm_init(self, dictation: Any) -> None:
@@ -510,6 +522,7 @@ class FastServiceInitializer:
                 "mark",
                 "sound_service",
                 "stt",
+                "pause_state_manager",
                 "centralized_parser",
                 "dictation",
                 "markov_predictor",
@@ -1320,6 +1333,8 @@ async def main() -> None:
         # Set all services for controller initialization
         if "settings" in services:
             main_window.set_settings_service(services["settings"])
+        if "audio" in services:
+            main_window.set_audio_service(services["audio"])
         if "mark" in services:
             main_window.set_mark_service(services["mark"])
         if "grid" in services:

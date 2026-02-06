@@ -51,6 +51,7 @@ class SettingsService:
         "grid.default_rect_count",
         "vad.dictation_silent_chunks_for_end",
         "vad.command_silent_chunks_for_end",
+        "audio.device",
     }
 
     def __init__(

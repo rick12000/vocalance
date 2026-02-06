@@ -26,6 +26,8 @@ from vocalance.app.config.command_types import (
     NoMatchResult,
     ParameterizedCommand,
     ParseResultType,
+    PauseCommand,
+    ResumeCommand,
     SoundDeleteCommand,
     SoundListAllCommand,
     SoundMapCommand,
@@ -41,6 +43,7 @@ from vocalance.app.events.command_events import (
     GridCommandParsedEvent,
     MarkCommandParsedEvent,
     SoundCommandParsedEvent,
+    SystemControlCommandParsedEvent,
 )
 from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
 from vocalance.app.events.core_events import (
@@ -88,6 +91,7 @@ class CentralizedCommandParser:
         action_map_provider: CommandActionMapProvider,
         history_manager: CommandHistoryManager,
         deduplicator: Optional[EventDeduplicator] = None,
+        pause_state_manager=None,
     ) -> None:
         """Initialize parser with dependencies and configuration.
 
@@ -98,6 +102,7 @@ class CentralizedCommandParser:
             action_map_provider: Provider for automation command action map.
             history_manager: Manager for command history tracking.
             deduplicator: EventDeduplicator for command deduplication (created if None).
+            pause_state_manager: PauseStateManager for checking pause state (optional).
         """
         self._event_bus: EventBus = event_bus
         self._app_config: GlobalAppConfig = app_config
@@ -106,6 +111,7 @@ class CentralizedCommandParser:
         self._history_manager: CommandHistoryManager = history_manager
         self._sound_to_command_mapping: Dict[str, str] = {}
         self._pending_markov_prediction: Optional[str] = None
+        self._pause_state_manager = pause_state_manager
         self._cache_config_data()
 
         # Use provided deduplicator or create new one
@@ -130,6 +136,10 @@ class CentralizedCommandParser:
         self._dictation_smart_trigger = self._app_config.dictation.smart_start_trigger.lower()
         self._dictation_visual_trigger = self._app_config.dictation.visual_start_trigger.lower()
         self._dictation_hidden_trigger = self._app_config.dictation.hidden_start_trigger.lower()
+
+        # System control triggers - using exact match phrases
+        self._pause_trigger = "pause"
+        self._resume_trigger = "resume"
 
     def setup_subscriptions(self) -> None:
         """Setup event subscriptions for command parsing.
@@ -264,6 +274,12 @@ class CentralizedCommandParser:
         parse_result = await self._parse_text(text)
 
         if isinstance(parse_result, BaseCommand):
+            # Check pause state - allow resume command through, block others when paused
+            if self._pause_state_manager and not isinstance(parse_result, ResumeCommand):
+                if await self._pause_state_manager.is_paused():
+                    logger.debug(f"Application paused - ignoring command: {text}")
+                    return
+
             await self._publish_command_event(parse_result, source)
             # Record event for deduplication (including Markov predictions)
             self._deduplicator.record_event(text, source=source or "unknown")
@@ -292,8 +308,17 @@ class CentralizedCommandParser:
         parse_result = await self._parse_text(text)
 
         if isinstance(parse_result, BaseCommand):
-            # Valid command - record to history and execute
-            await self._history_manager.record_command(command=text, source=source)
+            # Check pause state - allow resume command through, block others when paused
+            if self._pause_state_manager and not isinstance(parse_result, ResumeCommand):
+                if await self._pause_state_manager.is_paused():
+                    logger.debug(f"Application paused - ignoring command: {text}")
+                    return
+
+            # Valid command - record to history (skip system control commands) and execute
+            # System control commands (pause/resume) are not recorded in history
+            if not isinstance(parse_result, (PauseCommand, ResumeCommand)):
+                await self._history_manager.record_command(command=text, source=source)
+
             await self._publish_command_event(parse_result, source)
             self._deduplicator.record_event(text, source=source or "unknown")
         elif isinstance(parse_result, NoMatchResult):
@@ -324,8 +349,9 @@ class CentralizedCommandParser:
         if not normalized_text:
             return NoMatchResult()
 
-        # Parse in priority order
+        # Parse in priority order - system control commands have highest priority
         parsers = [
+            self._parse_system_control_commands,
             self._parse_dictation_commands,
             self._parse_mark_commands,
             self._parse_grid_commands,
@@ -340,6 +366,23 @@ class CentralizedCommandParser:
                 result = parser(normalized_text)
             if not isinstance(result, NoMatchResult):
                 return result
+
+        return NoMatchResult()
+
+    def _parse_system_control_commands(self, normalized_text: str) -> ParseResultType:
+        """Parse system control commands (pause/resume).
+
+        Args:
+            normalized_text: Normalized lowercase text.
+
+        Returns:
+            Parsed system control command or NoMatchResult.
+        """
+        if normalized_text == self._pause_trigger:
+            return PauseCommand()
+
+        if normalized_text == self._resume_trigger:
+            return ResumeCommand()
 
         return NoMatchResult()
 
@@ -570,6 +613,8 @@ class CentralizedCommandParser:
             SoundResetAllCommand: SoundCommandParsedEvent,
             SoundListAllCommand: SoundCommandParsedEvent,
             SoundMapCommand: SoundCommandParsedEvent,
+            PauseCommand: SystemControlCommandParsedEvent,
+            ResumeCommand: SystemControlCommandParsedEvent,
         }
 
         command_type = type(command)

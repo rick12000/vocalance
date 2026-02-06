@@ -304,6 +304,19 @@ class GetMainWindowHandleResponse(BaseEvent):
     priority: EventPriority = EventPriority.CRITICAL
 
 
+class AudioDeviceErrorEvent(BaseEvent):
+    """Event published when audio device connection is lost.
+
+    Attributes:
+        error_message: Description of the error that occurred.
+        device_id: ID of device that failed (None if using system default).
+    """
+
+    error_message: str = Field(description="Description of the error")
+    device_id: Optional[int] = Field(description="ID of device that failed")
+    priority: EventPriority = EventPriority.HIGH
+
+
 class ApplicationShutdownRequestedEvent(BaseEvent):
     """Event published when application shutdown is requested.
 

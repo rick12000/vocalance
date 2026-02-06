@@ -114,3 +114,42 @@ def test_callback_receives_audio_data(mock_app_config, mock_callback):
         audio_bytes, timestamp = mock_callback.call_args[0]
         assert isinstance(audio_bytes, bytes)
         assert isinstance(timestamp, float)
+
+
+def test_get_available_device_fallback(mock_app_config):
+    """Test that _get_available_device falls back to default when preferred device unavailable."""
+    mock_app_config.audio.device = 999  # Non-existent device
+
+    with patch("vocalance.app.services.audio.recorder.sd.query_devices") as mock_query:
+        # Mock query for specific device to fail, but default to succeed
+        def query_side_effect(device=None, kind=None):
+            if device == 999:
+                raise ValueError("Device not found")
+            elif kind == "input":
+                return {"name": "Default Microphone", "max_input_channels": 2}
+            else:
+                return [{"name": "Default Microphone", "max_input_channels": 2}]
+
+        mock_query.side_effect = query_side_effect
+
+        recorder = AudioRecorder(app_config=mock_app_config, on_audio_chunk=None)
+        device = recorder._get_available_device()
+
+        # Should return None (system default) since preferred device 999 doesn't exist
+        assert device is None
+
+
+def test_create_stream_handles_errors(mock_app_config, mock_callback):
+    """Test that _create_stream returns False on error instead of crashing."""
+    with patch("vocalance.app.services.audio.recorder.sd.InputStream") as mock_input_stream:
+        with patch("vocalance.app.services.audio.recorder.sd.query_devices") as mock_query:
+            mock_query.return_value = [{"name": "Test", "max_input_channels": 2}]
+            mock_query.side_effect = lambda kind=None: {"name": "Test", "max_input_channels": 2}
+
+            # Simulate stream creation failure
+            mock_input_stream.side_effect = OSError("Device busy")
+
+            recorder = AudioRecorder(app_config=mock_app_config, on_audio_chunk=mock_callback)
+            result = recorder._create_stream()
+
+            assert result is False

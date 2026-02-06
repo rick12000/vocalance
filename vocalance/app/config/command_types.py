@@ -101,6 +101,26 @@ class DictationHiddenStartCommand(DictationCommand):
     """
 
 
+class SystemControlCommand(BaseCommand):
+    """Base class for system control commands (pause, resume, etc.)."""
+
+
+class PauseCommand(SystemControlCommand):
+    """Command to pause all audio processing and command execution.
+
+    When paused, the application stops processing audio input and executing
+    commands, except for the resume command which can lift the pause state.
+    """
+
+
+class ResumeCommand(SystemControlCommand):
+    """Command to resume audio processing and command execution.
+
+    Lifts the pause state and allows normal audio processing and command
+    execution to continue.
+    """
+
+
 ActionType = Literal["hotkey", "key", "key_sequence", "click", "scroll"]
 
 
@@ -374,6 +394,10 @@ GridCommandType = Union[GridShowCommand, GridSelectCommand]
 
 SoundCommandType = Union[SoundTrainCommand, SoundDeleteCommand, SoundResetAllCommand, SoundListAllCommand, SoundMapCommand]
 
-AnyCommand = Union[DictationCommandType, AutomationCommandType, MarkCommandType, GridCommandType, SoundCommandType]
+SystemControlCommandType = Union[PauseCommand, ResumeCommand]
+
+AnyCommand = Union[
+    DictationCommandType, AutomationCommandType, MarkCommandType, GridCommandType, SoundCommandType, SystemControlCommandType
+]
 
 ParseResultType = Union[AnyCommand, NoMatchResult, ErrorResult]

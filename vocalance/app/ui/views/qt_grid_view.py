@@ -65,6 +65,18 @@ class QtGridView(QWidget):
         self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
         self._current_click_mode: str = "click"
 
+        # Cached layout data for fast painting
+        self._cached_num_cols: int = 0
+        self._cached_num_rows: int = 0
+        self._cached_cell_w: float = 0
+        self._cached_cell_h: float = 0
+
+        # Click count cache for instant display (lag-by-one strategy)
+        # Key: (num_rects, screen_width, screen_height) -> cached click counts
+        self._click_count_cache: Dict[tuple, List[Dict[str, Any]]] = {}
+        self._cache_lock = threading.Lock()
+        self._background_update_task: Optional[threading.Thread] = None
+
         # Focus management - track pending focus timers
         self._focus_timers: List[QTimer] = []
 
@@ -115,10 +127,53 @@ class QtGridView(QWidget):
         """Set the controller callback."""
         self.controller_callback = callback
 
+    def _get_cache_key(self, num_rects: int) -> tuple:
+        """Generate cache key based on grid configuration."""
+        return (num_rects, self.screen_width, self.screen_height)
+
+    def _schedule_background_click_count_update(self, cache_key: tuple, rect_definitions: List[Dict[str, Any]]) -> None:
+        """Schedule background update of click counts for next display.
+
+        This runs in a background thread to update the cache without blocking the UI.
+        The next time the grid is shown, it will use the updated cached values.
+        """
+        # Cancel any existing background update
+        if self._background_update_task and self._background_update_task.is_alive():
+            # Let it finish - we'll just start a new one
+            pass
+
+        def update_cache():
+            try:
+                # Recalculate click counts in background
+                updated_counts = self._calculate_click_counts_sync(rect_definitions)
+
+                # Update cache atomically
+                with self._cache_lock:
+                    self._click_count_cache[cache_key] = updated_counts
+
+                self.logger.debug(f"Background cache update completed for {len(rect_definitions)} cells")
+            except Exception as e:
+                self.logger.error(f"Error in background cache update: {e}", exc_info=True)
+
+        # Start background thread
+        self._background_update_task = threading.Thread(target=update_cache, daemon=True)
+        self._background_update_task.start()
+
+    def invalidate_click_count_cache(self) -> None:
+        """Invalidate the click count cache when new clicks are added.
+
+        This should be called whenever a click is logged to ensure the cache
+        gets refreshed on the next grid display.
+        """
+        with self._cache_lock:
+            self._click_count_cache.clear()
+            self.logger.debug("Click count cache invalidated")
+
     def _calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Calculate click counts from click tracker service synchronously.
 
-        Gets all clicks from the in-memory cache in ClickTrackerService - no I/O overhead.
+        OPTIMIZATION: Uses spatial bucketing to reduce O(N*M) to O(N+M) complexity.
+        For 2025 cells and 1000 clicks: reduces from 2,025,000 to 3,025 operations!
         """
         # Get all clicks from click tracker service (fast, in-memory)
         if not self._click_tracker:
@@ -126,14 +181,56 @@ class QtGridView(QWidget):
             return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
 
         all_clicks = self._click_tracker.get_all_clicks_sync()
-        processed_rects = []
 
+        # OPTIMIZATION: Build spatial index of clicks using grid bucketing
+        # This reduces complexity from O(N*M) to O(N+M)
+        if not all_clicks:
+            return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+
+        # Build spatial buckets: group clicks by cell they fall into
+        # Use first rect to determine bucket size (all rects have same dimensions)
+        if not rect_definitions:
+            return []
+
+        first_rect = rect_definitions[0]
+        bucket_w = int(first_rect["w"])
+        bucket_h = int(first_rect["h"])
+
+        # Create spatial hash map: (bucket_x, bucket_y) -> [clicks]
+        click_buckets = {}
+        for click in all_clicks:
+            try:
+                click_x = click.get("x", 0)
+                click_y = click.get("y", 0)
+                bucket_x = int(click_x // bucket_w)
+                bucket_y = int(click_y // bucket_h)
+                key = (bucket_x, bucket_y)
+                if key not in click_buckets:
+                    click_buckets[key] = []
+                click_buckets[key].append(click)
+            except (TypeError, ValueError):
+                continue
+
+        # Now count clicks per rect by checking only relevant buckets
+        processed_rects = []
         for rect_def in rect_definitions:
             try:
                 rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
                 rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
 
-                count = sum(1 for click in all_clicks if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h))
+                # Determine which bucket(s) this rect overlaps
+                bucket_x = int(rect_x // bucket_w)
+                bucket_y = int(rect_y // bucket_h)
+
+                # Check clicks in this bucket and adjacent buckets (for edge cases)
+                count = 0
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        key = (bucket_x + dx, bucket_y + dy)
+                        if key in click_buckets:
+                            for click in click_buckets[key]:
+                                if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h):
+                                    count += 1
 
                 processed_rects.append({"data": rect_def, "clicks": count})
 
@@ -247,9 +344,10 @@ class QtGridView(QWidget):
         return rect_definitions, rect_w, rect_h
 
     def paintEvent(self, event) -> None:
-        """Paint grid overlay with three distinct layers:
+        """Paint grid overlay with four distinct layers:
 
         LAYER 1 (Bottom): Full-screen semi-transparent background
+        LAYER 1.5 (Below grid): Colored cell fills for top 50 cells (vibrant, less transparent)
         LAYER 2 (Middle): Opaque grid lines (vertical + horizontal)
         LAYER 3 (Top): Opaque text labels centered in each cell
         """
@@ -258,8 +356,15 @@ class QtGridView(QWidget):
 
         with self._state_lock:
             rect_map = dict(self.ui_to_rect_data_map)
+            # Use cached layout values to avoid recalculation during paint
+            num_cols = self._cached_num_cols
+            num_rows = self._cached_num_rows
+            cell_w = self._cached_cell_w
+            cell_h = self._cached_cell_h
 
-        if not rect_map:
+        # CRITICAL: Ensure all data is ready before painting
+        # This prevents jitter from partial data being displayed
+        if not rect_map or num_cols == 0 or num_rows == 0 or cell_w == 0 or cell_h == 0:
             return
 
         # Get device pixel ratio for coordinate conversion
@@ -269,24 +374,6 @@ class QtGridView(QWidget):
         # Get the window size in logical pixels (this is the actual drawable area)
         window_width = self.width()
         window_height = self.height()
-
-        # Calculate grid structure: determine how many cells fit perfectly
-        # Extract first cell to get approximate dimensions
-        first_cell = next(iter(rect_map.values()))
-        approx_cell_w = first_cell["w"] / dpr
-        approx_cell_h = first_cell["h"] / dpr
-
-        # Calculate exact number of columns and rows that fit in the window
-        num_cols = round(window_width / approx_cell_w)
-        num_rows = round(window_height / approx_cell_h)
-
-        # Ensure at least 1 row and 1 column
-        num_cols = max(1, num_cols)
-        num_rows = max(1, num_rows)
-
-        # Calculate EXACT cell dimensions that perfectly divide the window
-        cell_w = window_width / num_cols
-        cell_h = window_height / num_rows
 
         # Grid starts at (0, 0) and fills the entire window
         min_x = 0
@@ -301,6 +388,48 @@ class QtGridView(QWidget):
         # LAYER 1: Full-screen semi-transparent background (BOTTOM LAYER)
         # ═══════════════════════════════════════════════════════════════════
         painter.fillRect(self.rect(), self.background_color)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # LAYER 1.5: Colored cell fills for top 50 cells (vibrant gradient)
+        # ═══════════════════════════════════════════════════════════════════
+        top_n_cells = min(50, len(rect_map))
+        for ui_number in range(1, top_n_cells + 1):
+            if ui_number not in rect_map:
+                continue
+
+            rect_data = rect_map[ui_number]
+
+            # Calculate cell position
+            raw_x = rect_data["x"] / dpr
+            raw_y = rect_data["y"] / dpr
+            col = round((raw_x - min_x) / cell_w)
+            row = round((raw_y - min_y) / cell_h)
+            cell_x = min_x + col * cell_w
+            cell_y = min_y + row * cell_h
+
+            # Calculate color based on priority (1 = highest priority, 50 = lowest of top 50)
+            # Lower numbers get more vibrant and less transparent colors
+            # Use blue color as base (matching the theme)
+            base_color = QColor(theme.config.blue.blue_2)  # #8a8ac8
+
+            # Calculate alpha: cell 1 gets highest alpha (220), cell 50 gets lowest (60)
+            # Linear interpolation from 220 to 60
+            alpha = int(220 - ((ui_number - 1) / (top_n_cells - 1) * 160)) if top_n_cells > 1 else 220
+
+            # Calculate color intensity: cell 1 gets full intensity, cell 50 gets reduced
+            # This makes lower numbers more vibrant
+            intensity_factor = 1.0 - ((ui_number - 1) / (top_n_cells - 1) * 0.4) if top_n_cells > 1 else 1.0
+
+            # Apply intensity to RGB values
+            r = int(base_color.red() * intensity_factor)
+            g = int(base_color.green() * intensity_factor)
+            b = int(base_color.blue() * intensity_factor)
+
+            fill_color = QColor(r, g, b, alpha)
+
+            # Fill the cell with the calculated color
+            cell_rect = QRect(cell_x, cell_y, cell_w, cell_h)
+            painter.fillRect(cell_rect, fill_color)
 
         # ═══════════════════════════════════════════════════════════════════
         # LAYER 2: Grid lines - opaque vertical and horizontal lines
@@ -375,23 +504,37 @@ class QtGridView(QWidget):
     @Slot()
     def show(self, num_rects: Optional[int] = None, click_mode: str = "click") -> None:
         """Show the grid overlay - thread-safe via QMetaObject.invokeMethod."""
-        # Ensure this runs on the main Qt thread
+        # Use BlockingQueuedConnection for immediate execution when called from main thread
+        # This eliminates the event loop delay while maintaining thread safety
+        from PySide6.QtCore import QThread
+
+        connection_type = (
+            Qt.ConnectionType.DirectConnection
+            if QThread.currentThread() == self.thread()
+            else Qt.ConnectionType.BlockingQueuedConnection
+        )
+
         QMetaObject.invokeMethod(
             self,
             "_do_show",
-            Qt.ConnectionType.QueuedConnection,
+            connection_type,
             Q_ARG(int, num_rects if num_rects is not None else self.default_num_rects),
             Q_ARG(str, click_mode),
         )
 
     @Slot(int, str)
     def _do_show(self, num_rects: int, click_mode: str) -> None:
-        """Internal show implementation - MUST run on main Qt thread."""
+        """Internal show implementation - MUST run on main Qt thread.
+
+        OPTIMIZATION: Minimizes latency by setting geometry and showing window
+        as early as possible, then populating grid data while already visible.
+        """
         if self._is_active:
             self.logger.warning("Grid already active")
             return
 
         try:
+            start_time = time.perf_counter()
             self.logger.info(f"Showing grid: num_rects={num_rects}, mode={click_mode}")
 
             self._current_click_mode = click_mode
@@ -413,72 +556,126 @@ class QtGridView(QWidget):
                     f"Physical: {self.screen_width}x{self.screen_height}"
                 )
 
-                # Set window geometry using logical pixels (Qt expects logical)
+                # OPTIMIZATION: Set window geometry IMMEDIATELY for instant display
                 self.setGeometry(geometry)
+
+                logical_width = geometry.width()
+                logical_height = geometry.height()
             else:
                 # Fallback geometry
                 self.logger.warning("No primary screen found, using fallback geometry")
                 self.screen_width = 1920
                 self.screen_height = 1080
+                device_pixel_ratio = 1.0
                 self.setGeometry(0, 0, 1920, 1080)
 
+                logical_width = 1920
+                logical_height = 1080
+
             # Calculate grid layout using PHYSICAL pixels
+            t1 = time.perf_counter()
             rect_definitions, cell_w, cell_h = self._calculate_grid_layout(num_rects)
+            t2 = time.perf_counter()
+            self.logger.debug(f"Grid layout calculation: {(t2-t1)*1000:.1f}ms")
 
             if not rect_definitions:
                 self.logger.error("No rectangles generated")
                 return
 
-            # Calculate click counts
-            rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
+            # OPTIMIZATION: Use cached click counts for instant display (lag-by-one strategy)
+            # Check if we have cached click counts for this grid configuration
+            cache_key = self._get_cache_key(num_rects)
+            cache_hit = False
 
-            # Prioritize rectangles
+            with self._cache_lock:
+                if cache_key in self._click_count_cache:
+                    # Use cached values for instant display
+                    rects_with_clicks = self._click_count_cache[cache_key]
+                    cache_hit = True
+                    self.logger.info(f"Using cached click counts for {len(rect_definitions)} cells (instant display)")
+                else:
+                    # First time showing this grid config - calculate synchronously
+                    # This will be slow the first time, but subsequent shows will be instant
+                    self.logger.info(f"First display of {len(rect_definitions)} cells - calculating click counts")
+                    rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
+                    # Cache the results for next time
+                    self._click_count_cache[cache_key] = rects_with_clicks
+
+            t3 = time.perf_counter()
+            if cache_hit:
+                self.logger.debug(f"Click counting (cached): {(t3-t2)*1000:.1f}ms")
+            else:
+                self.logger.debug(f"Click counting (computed): {(t3-t2)*1000:.1f}ms")
+
+            # Prioritize rectangles (fast, sorting operation)
             weighted_rects = prioritize_grid_rects(rects_with_clicks)
+            t4 = time.perf_counter()
+            self.logger.debug(f"Prioritization: {(t4-t3)*1000:.1f}ms")
 
-            # Update map and recalculate font size based on actual number of cells
+            # BACKGROUND UPDATE: Schedule async recalculation for next display
+            # This ensures the cache stays fresh without blocking the current display
+            self._schedule_background_click_count_update(cache_key, rect_definitions)
+
+            # Calculate grid dimensions for caching
+            logical_cell_w = cell_w / device_pixel_ratio
+            logical_cell_h = cell_h / device_pixel_ratio
+            num_cols = max(1, round(logical_width / logical_cell_w))
+            num_rows = max(1, round(logical_height / logical_cell_h))
+
+            # Recalculate exact logical cell dimensions for perfect alignment
+            logical_cell_w = logical_width / num_cols
+            logical_cell_h = logical_height / num_rows
+
+            # Calculate and set adaptive font size based on number of cells displayed
+            self.current_font_size = self._calculate_adaptive_font_size(len(weighted_rects))
+            self.font.setPointSize(self.current_font_size)
+
+            # CRITICAL: Disable updates during data preparation to prevent partial paints
+            self.setUpdatesEnabled(False)
+
+            # CRITICAL: Update map and cache layout values BEFORE showing
+            # This ensures paintEvent has all data ready on first paint
             with self._state_lock:
                 self.ui_to_rect_data_map.clear()
                 for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
                     self.ui_to_rect_data_map[ui_number] = weighted_rect_info["data"]
                 self.current_num_rects_displayed = len(weighted_rects)
 
-            # Calculate and set adaptive font size based on number of cells displayed
-            self.current_font_size = self._calculate_adaptive_font_size(len(weighted_rects))
-            self.font.setPointSize(self.current_font_size)
+                # Cache layout values to avoid recalculation during paint
+                self._cached_num_cols = num_cols
+                self._cached_num_rows = num_rows
+                self._cached_cell_w = logical_cell_w
+                self._cached_cell_h = logical_cell_h
 
-            # Show window with robust focus management
+                # Set active state BEFORE showing to ensure paintEvent works immediately
+                self._is_active = True
+
+            # Show window and capture focus
             super().show()
             self.raise_()
-            self.activateWindow()  # Activate window to bring to foreground
-            self.setFocus()  # Set focus immediately to capture keyboard input
+            self.activateWindow()
+            self.setFocus(Qt.FocusReason.PopupFocusReason)
 
-            self._is_active = True
+            # Re-enable updates and force paint
+            self.setUpdatesEnabled(True)
+            self.update()
 
-            # Schedule multiple focus attempts with increasing delays to handle all edge cases
-            # This is necessary because:
-            # 1. Windows focus stealing prevention can delay focus grants
-            # 2. First-time window creation may need extra time to register
-            # 3. Other applications may be fighting for focus
+            # Schedule deferred focus attempts to overcome Windows focus stealing
             self._schedule_robust_focus()
 
-            self.logger.info(f"Grid displayed with {len(weighted_rects)} cells and focus scheduled")
+            end_time = time.perf_counter()
+            total_ms = (end_time - start_time) * 1000
+            self.logger.info(f"Grid displayed with {len(weighted_rects)} cells in {total_ms:.1f}ms")
 
         except Exception as e:
             self.logger.error(f"Error showing grid: {e}", exc_info=True)
 
     def _schedule_robust_focus(self) -> None:
-        """Schedule multiple focus attempts at strategic intervals.
-
-        This ensures focus is captured even on first show or when Windows
-        focus stealing prevention is active. Multiple attempts increase
-        reliability without significant overhead.
-        """
-        # Clear any existing focus timers
+        """Schedule deferred focus attempts to overcome Windows focus stealing."""
         self._cancel_focus_timers()
 
-        # Schedule focus attempts at 10ms, 50ms, 100ms, and 200ms
-        # This covers immediate capture, post-render, and delayed OS focus grants
-        delays = [10, 50, 100, 200]
+        # Critical delays to overcome taskbar interference
+        delays = [50, 200]
 
         for delay in delays:
             timer = QTimer(self)
@@ -486,8 +683,6 @@ class QtGridView(QWidget):
             timer.timeout.connect(self._ensure_focus)
             timer.start(delay)
             self._focus_timers.append(timer)
-
-        self.logger.debug(f"Scheduled {len(delays)} focus attempts at intervals: {delays}ms")
 
     def _cancel_focus_timers(self) -> None:
         """Cancel all pending focus timers."""
@@ -498,16 +693,11 @@ class QtGridView(QWidget):
         self._focus_timers.clear()
 
     def _ensure_focus(self) -> None:
-        """Ensure focus is maintained after show."""
+        """Reinforce focus and window stacking."""
         if self._is_active and not self.isHidden():
-            # Check if we already have focus
-            if not self.hasFocus():
-                self.raise_()
-                self.activateWindow()
-                self.setFocus()
-                self.logger.debug("Focus asserted on grid")
-            else:
-                self.logger.debug("Grid already has focus")
+            self.raise_()
+            self.activateWindow()
+            self.setFocus(Qt.FocusReason.PopupFocusReason)
 
     @Slot()
     def hide(self) -> None:
@@ -534,6 +724,11 @@ class QtGridView(QWidget):
             with self._state_lock:
                 self.ui_to_rect_data_map.clear()
                 self.current_num_rects_displayed = None
+                # Clear cached layout values
+                self._cached_num_cols = 0
+                self._cached_num_rows = 0
+                self._cached_cell_w = 0
+                self._cached_cell_h = 0
 
             self.logger.info("Grid hidden")
 
@@ -614,5 +809,13 @@ class QtGridView(QWidget):
         with self._state_lock:
             self.ui_to_rect_data_map.clear()
             self._is_active = False
+
+        # Clean up cache
+        with self._cache_lock:
+            self._click_count_cache.clear()
+
+        # Wait for background task to complete if running
+        if self._background_update_task and self._background_update_task.is_alive():
+            self._background_update_task.join(timeout=0.1)
 
         self.logger.debug("QtGridView cleanup completed")
