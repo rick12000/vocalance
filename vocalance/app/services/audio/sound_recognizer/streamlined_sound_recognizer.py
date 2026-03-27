@@ -679,7 +679,13 @@ class SoundRecognizer:
 
             # Get YAMNet embeddings (shape: num_frames x 1024)
             _, embeddings, _ = self.yamnet_model(audio_tensor)
-            embeddings_np = embeddings.numpy()
+            
+            # Convert to numpy based on what the model returns
+            if hasattr(embeddings, "numpy"):
+                embeddings_np = embeddings.numpy()
+            else:
+                # If it's already a numpy array or list
+                embeddings_np = np.array(embeddings)
 
             # Apply hybrid temporal aggregation
             temporal_embedding = self._aggregate_temporal_embeddings(embeddings_np)

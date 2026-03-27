@@ -37,7 +37,6 @@ class SettingsService:
         "vad.energy_threshold",
         "vad.dictation_silent_chunks_for_end",
         "vad.command_silent_chunks_for_end",
-        "audio.device",
         "markov_predictor.enabled",
         "markov_predictor.confidence_threshold",
     }
@@ -51,7 +50,6 @@ class SettingsService:
         "grid.default_rect_count",
         "vad.dictation_silent_chunks_for_end",
         "vad.command_silent_chunks_for_end",
-        "audio.device",
     }
 
     def __init__(
@@ -97,11 +95,23 @@ class SettingsService:
             logger.error(f"Settings initialization error: {e}", exc_info=True)
             return False
 
+    def _strip_legacy_audio_device_override(self) -> None:
+        """Remove deprecated audio.device from loaded overrides (no longer used)."""
+        audio = self._user_overrides.get("audio")
+        if not isinstance(audio, dict):
+            return
+        if "device" in audio:
+            del audio["device"]
+            logger.debug("Removed legacy audio.device from user overrides")
+        if not audio:
+            del self._user_overrides["audio"]
+
     async def _load_user_overrides(self) -> None:
         """Load user setting overrides from storage"""
         try:
             settings_data = await self._storage.read(model_type=SettingsData)
             self._user_overrides = settings_data.user_overrides
+            self._strip_legacy_audio_device_override()
             logger.debug(f"Loaded {len(self._user_overrides)} user setting categories")
         except Exception as e:
             logger.error(f"Failed to load user overrides: {e}")
@@ -127,7 +137,6 @@ class SettingsService:
                     "command_silent_chunks_for_end": self._get_default_value("vad.command_silent_chunks_for_end"),
                 },
                 "audio": {
-                    "device": self._get_default_value("audio.device"),
                     "sample_rate": self._get_default_value("audio.sample_rate"),
                 },
                 "markov_predictor": {
@@ -316,7 +325,6 @@ class SettingsService:
             "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
             "vad.dictation_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
             "vad.command_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
-            "audio.device": lambda v: v is None or isinstance(v, int),
         }
 
         try:

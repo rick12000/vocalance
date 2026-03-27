@@ -483,12 +483,6 @@ class FastServiceInitializer:
                 if service_key in self.services:
                     coordinator.register_service(service_name=registration_name, service_instance=self.services[service_key])
 
-            # Register audio recorder separately for device switching
-            audio_service = self.services.get("audio")
-            if audio_service:
-                recorder = audio_service.get_recorder()
-                coordinator.register_service(service_name="audio_recorder", service_instance=recorder)
-
         logger.debug("Services registered with settings coordinator")
 
     async def _background_llm_init(self, dictation: Any) -> None:

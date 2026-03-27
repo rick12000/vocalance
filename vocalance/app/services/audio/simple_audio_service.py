@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
@@ -227,16 +227,3 @@ class AudioService:
             AudioRecorder instance used by this service.
         """
         return self._recorder
-
-    def test_audio_device(self, device_id: Optional[int]) -> Tuple[bool, str]:
-        """Test if an audio device can be opened successfully.
-
-        Args:
-            device_id: Device ID to test, or None for system default.
-
-        Returns:
-            Tuple of (success: bool, error_message: str).
-        """
-        if self._recorder:
-            return self._recorder.test_device(device_id)
-        return False, "Audio recorder not initialized"

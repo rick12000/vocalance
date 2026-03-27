@@ -20,7 +20,6 @@ class SettingsUpdateCoordinator:
     - grid.default_rect_count
     - vad.dictation_silent_chunks_for_end
     - vad.command_silent_chunks_for_end
-    - audio.device
 
     Other settings (LLM) require app restart.
 
@@ -100,7 +99,6 @@ class SettingsUpdateCoordinator:
             "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),
             "vad.dictation_silent_chunks_for_end": ("audio", "on_dictation_silent_chunks_updated"),
             "vad.command_silent_chunks_for_end": ("audio", "on_command_silent_chunks_updated"),
-            "audio.device": ("audio_recorder", "on_device_updated"),
         }
 
         for setting_path, value in updated_settings.items():
@@ -124,8 +122,6 @@ class SettingsUpdateCoordinator:
                         kwargs["count"] = value
                     elif "chunks" in method_name:
                         kwargs["chunks"] = value
-                    elif "device" in method_name:
-                        kwargs["device_id"] = value
 
                     # Call method (async or sync) with correct arguments
                     is_async = inspect.iscoroutinefunction(method)

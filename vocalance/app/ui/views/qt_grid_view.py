@@ -72,10 +72,12 @@ class QtGridView(QWidget):
         self._cached_cell_h: float = 0
 
         # Click count cache for instant display (lag-by-one strategy)
-        # Key: (num_rects, screen_width, screen_height) -> cached click counts
         self._click_count_cache: Dict[tuple, List[Dict[str, Any]]] = {}
         self._cache_lock = threading.Lock()
         self._background_update_task: Optional[threading.Thread] = None
+
+        # Prevent concurrent show() calls from causing flicker
+        self._is_preparing = False
 
         # Focus management - track pending focus timers
         self._focus_timers: List[QTimer] = []
@@ -351,19 +353,19 @@ class QtGridView(QWidget):
         LAYER 2 (Middle): Opaque grid lines (vertical + horizontal)
         LAYER 3 (Top): Opaque text labels centered in each cell
         """
+        if self._is_preparing:
+            return
+
         if not self._is_active:
             return
 
         with self._state_lock:
             rect_map = dict(self.ui_to_rect_data_map)
-            # Use cached layout values to avoid recalculation during paint
             num_cols = self._cached_num_cols
             num_rows = self._cached_num_rows
             cell_w = self._cached_cell_w
             cell_h = self._cached_cell_h
 
-        # CRITICAL: Ensure all data is ready before painting
-        # This prevents jitter from partial data being displayed
         if not rect_map or num_cols == 0 or num_rows == 0 or cell_w == 0 or cell_h == 0:
             return
 
@@ -524,14 +526,12 @@ class QtGridView(QWidget):
 
     @Slot(int, str)
     def _do_show(self, num_rects: int, click_mode: str) -> None:
-        """Internal show implementation - MUST run on main Qt thread.
-
-        OPTIMIZATION: Minimizes latency by setting geometry and showing window
-        as early as possible, then populating grid data while already visible.
-        """
-        if self._is_active:
-            self.logger.warning("Grid already active")
-            return
+        """Internal show implementation - MUST run on main Qt thread."""
+        with self._state_lock:
+            if self._is_active or self._is_preparing:
+                self.logger.warning("Grid already active or preparing - ignoring show request")
+                return
+            self._is_preparing = True
 
         try:
             start_time = time.perf_counter()
@@ -580,25 +580,20 @@ class QtGridView(QWidget):
 
             if not rect_definitions:
                 self.logger.error("No rectangles generated")
+                self._is_preparing = False
                 return
 
-            # OPTIMIZATION: Use cached click counts for instant display (lag-by-one strategy)
-            # Check if we have cached click counts for this grid configuration
             cache_key = self._get_cache_key(num_rects)
             cache_hit = False
 
             with self._cache_lock:
                 if cache_key in self._click_count_cache:
-                    # Use cached values for instant display
                     rects_with_clicks = self._click_count_cache[cache_key]
                     cache_hit = True
-                    self.logger.info(f"Using cached click counts for {len(rect_definitions)} cells (instant display)")
+                    self.logger.info(f"Using cached click counts for {len(rect_definitions)} cells")
                 else:
-                    # First time showing this grid config - calculate synchronously
-                    # This will be slow the first time, but subsequent shows will be instant
-                    self.logger.info(f"First display of {len(rect_definitions)} cells - calculating click counts")
+                    self.logger.info(f"Calculating click counts for {len(rect_definitions)} cells")
                     rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
-                    # Cache the results for next time
                     self._click_count_cache[cache_key] = rects_with_clicks
 
             t3 = time.perf_counter()
@@ -607,56 +602,45 @@ class QtGridView(QWidget):
             else:
                 self.logger.debug(f"Click counting (computed): {(t3-t2)*1000:.1f}ms")
 
-            # Prioritize rectangles (fast, sorting operation)
             weighted_rects = prioritize_grid_rects(rects_with_clicks)
             t4 = time.perf_counter()
             self.logger.debug(f"Prioritization: {(t4-t3)*1000:.1f}ms")
 
-            # BACKGROUND UPDATE: Schedule async recalculation for next display
-            # This ensures the cache stays fresh without blocking the current display
             self._schedule_background_click_count_update(cache_key, rect_definitions)
 
-            # Calculate grid dimensions for caching
             logical_cell_w = cell_w / device_pixel_ratio
             logical_cell_h = cell_h / device_pixel_ratio
             num_cols = max(1, round(logical_width / logical_cell_w))
             num_rows = max(1, round(logical_height / logical_cell_h))
 
-            # Recalculate exact logical cell dimensions for perfect alignment
             logical_cell_w = logical_width / num_cols
             logical_cell_h = logical_height / num_rows
 
-            # Calculate and set adaptive font size based on number of cells displayed
             self.current_font_size = self._calculate_adaptive_font_size(len(weighted_rects))
             self.font.setPointSize(self.current_font_size)
 
-            # CRITICAL: Disable updates during data preparation to prevent partial paints
             self.setUpdatesEnabled(False)
 
-            # CRITICAL: Update map and cache layout values BEFORE showing
-            # This ensures paintEvent has all data ready on first paint
             with self._state_lock:
                 self.ui_to_rect_data_map.clear()
                 for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
                     self.ui_to_rect_data_map[ui_number] = weighted_rect_info["data"]
                 self.current_num_rects_displayed = len(weighted_rects)
 
-                # Cache layout values to avoid recalculation during paint
                 self._cached_num_cols = num_cols
                 self._cached_num_rows = num_rows
                 self._cached_cell_w = logical_cell_w
                 self._cached_cell_h = logical_cell_h
 
-                # Set active state BEFORE showing to ensure paintEvent works immediately
                 self._is_active = True
 
-            # Show window and capture focus
             super().show()
             self.raise_()
             self.activateWindow()
             self.setFocus(Qt.FocusReason.PopupFocusReason)
 
-            # Re-enable updates and force paint
+            self._is_preparing = False
+
             self.setUpdatesEnabled(True)
             self.update()
 
@@ -668,6 +652,9 @@ class QtGridView(QWidget):
             self.logger.info(f"Grid displayed with {len(weighted_rects)} cells in {total_ms:.1f}ms")
 
         except Exception as e:
+            with self._state_lock:
+                self._is_preparing = False
+                self._is_active = False
             self.logger.error(f"Error showing grid: {e}", exc_info=True)
 
     def _schedule_robust_focus(self) -> None:
@@ -714,8 +701,8 @@ class QtGridView(QWidget):
         try:
             self.logger.info("Hiding grid")
 
-            # Cancel any pending focus timers before hiding
             self._cancel_focus_timers()
+            self._is_preparing = False
 
             self.clearFocus()
             super().hide()
@@ -724,7 +711,6 @@ class QtGridView(QWidget):
             with self._state_lock:
                 self.ui_to_rect_data_map.clear()
                 self.current_num_rects_displayed = None
-                # Clear cached layout values
                 self._cached_num_cols = 0
                 self._cached_num_rows = 0
                 self._cached_cell_w = 0

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from vocalance.app.config.logging_config import LoggingConfigModel
 
@@ -15,16 +15,17 @@ logger = logging.getLogger(__name__)
 class AudioConfig(BaseModel):
     """Configuration for audio capture settings and chunk sizing.
 
-    Controls sample rate, audio format, and device selection for the audio service.
-    Audio chunk size is fixed at 50ms (800 samples at 16kHz) for all modes.
+    Controls sample rate and format. Input uses the host default device; there is no
+    in-app microphone selection.
     """
+
+    model_config = ConfigDict(extra="ignore")
 
     sample_rate: int = 16000
     channels: int = 1
     dtype: Literal["int16", "float32", "int32"] = Field(
         "int16", description="Data type of audio samples (e.g., 'int16', 'float32')."
     )
-    device: Optional[int] = None
 
 
 class STTConfig(BaseModel):

@@ -105,7 +105,7 @@ def test_embedding_extraction_works(isolated_recognizer, sample_rate):
 
     assert embedding is not None
     assert isinstance(embedding, np.ndarray)
-    assert embedding.shape == (1024,)  # YAMNet embedding size
+    assert embedding.shape == (5120,)  # YAMNet temporal embedding size
 
 
 def test_recognize_returns_none_without_training(isolated_recognizer, sample_rate):

@@ -17,7 +17,7 @@ class QtSystemController(QtBaseController):
     """
 
     # Signals for system events
-    audio_device_error = Signal(str, object)  # error_message, device_id
+    audio_device_error = Signal(str)
 
     def __init__(self, event_bus, event_loop, main_window):
         """Initialize system controller.
@@ -57,27 +57,22 @@ class QtSystemController(QtBaseController):
             self.logger.warning(f"Audio device error: {event.error_message}")
 
             # Emit Qt signal (thread-safe - will invoke on main thread)
-            self.audio_device_error.emit(event.error_message, event.device_id)
+            self.audio_device_error.emit(event.error_message)
 
         except Exception as e:
             self.logger.error(f"Error handling audio device error: {e}", exc_info=True)
 
-    def _show_audio_device_error_dialog(self, error_message: str, device_id) -> None:
+    def _show_audio_device_error_dialog(self, error_message: str) -> None:
         """Show audio device error dialog to user (runs on Qt main thread).
 
         Args:
-            error_message: Error message from the audio service.
-            device_id: ID of device that failed (or None).
+            error_message: Full message from AudioDeviceErrorEvent.
         """
         try:
             msg = QMessageBox(self.main_window)
             msg.setIcon(QMessageBox.Icon.Warning)
-            msg.setWindowTitle("Microphone Connection Lost")
-            msg.setText(
-                "It looks like you unplugged your microphone, or we lost connection to your microphone.\n\n"
-                "Go to 'Settings > Audio Settings' to reselect an available microphone device.\n\n"
-                "If that doesn't work, restart Vocalance."
-            )
+            msg.setWindowTitle("Microphone unavailable")
+            msg.setText(error_message)
             msg.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg.exec()
 

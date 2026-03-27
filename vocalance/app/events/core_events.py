@@ -305,15 +305,13 @@ class GetMainWindowHandleResponse(BaseEvent):
 
 
 class AudioDeviceErrorEvent(BaseEvent):
-    """Event published when audio device connection is lost.
+    """Event published when the default input device is lost or capture fails.
 
     Attributes:
-        error_message: Description of the error that occurred.
-        device_id: ID of device that failed (None if using system default).
+        error_message: Full user-facing message for the warning dialog (restart urged).
     """
 
-    error_message: str = Field(description="Description of the error")
-    device_id: Optional[int] = Field(description="ID of device that failed")
+    error_message: str = Field(description="User-facing message for the warning dialog")
     priority: EventPriority = EventPriority.HIGH
 
 

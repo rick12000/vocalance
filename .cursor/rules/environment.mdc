@@ -1,7 +1,6 @@
 ---
-alwaysApply: false
+alwaysApply: true
 ---
-When executing code in the terminal, ALWAYS use:
-conda activate iris_env
-pip install .
-Then execute the program
+When executing code in the terminal During development ALWAYS use:
+conda activate vocalance_env_dev
+If you need to update the environment in any way always use uv pip install .

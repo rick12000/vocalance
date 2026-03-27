@@ -35,7 +35,6 @@ class QtSettingsController(QtBaseController):
         settings_service,
         config: GlobalAppConfig,
         main_window,
-        audio_service=None,
     ):
         """Initialize settings controller.
 
@@ -45,7 +44,6 @@ class QtSettingsController(QtBaseController):
             settings_service: Settings service instance.
             config: Global app configuration.
             main_window: Main window reference.
-            audio_service: Optional audio service for device validation.
         """
         super().__init__(
             event_bus=event_bus,
@@ -56,7 +54,6 @@ class QtSettingsController(QtBaseController):
         self.settings_service = settings_service
         self.config = config
         self.main_window = main_window
-        self.audio_service = audio_service
         self._cached_settings: Dict[str, Any] = {}
 
         # Subscribe to settings events
@@ -149,26 +146,8 @@ class QtSettingsController(QtBaseController):
         asyncio.run_coroutine_threadsafe(self.update_setting_async(key, value), self.event_loop)
 
     async def update_settings_async(self, settings: Dict[str, Any]) -> Tuple[bool, str]:
-        """Update multiple settings asynchronously.
-
-        Validates audio device changes before applying them.
-        """
+        """Update multiple settings asynchronously."""
         try:
-            # Special validation for audio.device changes
-            if "audio.device" in settings:
-                device_id = settings["audio.device"]
-
-                # Validate device can be opened
-                if self.audio_service:
-                    success, error_msg = self.audio_service.test_audio_device(device_id)
-                    if not success:
-                        error_message = f"Cannot use selected audio device: {error_msg}"
-                        self.logger.error(error_message)
-                        self.operation_error.emit(error_message)
-                        return False, error_message
-                else:
-                    self.logger.warning("Audio service not available for device validation")
-
             success = await self.settings_service.update_multiple_settings(settings)
             if success:
                 # Update cache with new values
