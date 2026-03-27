@@ -165,6 +165,7 @@ class DictationConfig(BaseModel):
     smart_start_trigger: str = "smart green"
     visual_start_trigger: str = "visual green"
     hidden_start_trigger: str = "hidden green"
+    amend_start_trigger: str = "amend"
 
     use_clipboard: bool = True
     typing_delay: float = 0.01

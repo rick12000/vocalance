@@ -102,7 +102,7 @@ Event Type Hierarchy
 
 Events are organized by functional area. The core events related to audio and recognition include `AudioChunkEvent` (50ms audio segments from the recorder), `CommandTextRecognizedEvent` (recognized command text from Vosk), `DictationTextRecognizedEvent` (recognized dictation from Whisper), `CustomSoundRecognizedEvent` (custom sound detection), and `CommandExecutedStatusEvent` (feedback on command execution results).
 
-Command events (`AutomationCommandParsedEvent`, `MarkCommandParsedEvent`, etc.) represent parsed commands ready for execution. Dictation events coordinate the dictation workflow: `DictationStatusChangedEvent` indicates active/inactive state, `PartialDictationTextEvent` and `FinalDictationTextEvent` provide accumulated text, and `LLMTokenGeneratedEvent` delivers streaming LLM output for smart dictation modes.
+Command events (`AutomationCommandParsedEvent`, `MarkCommandParsedEvent`, etc.) represent parsed commands ready for execution. Dictation events coordinate the dictation workflow: `DictationStatusChangedEvent` indicates active/inactive state, `PartialDictationTextEvent` and `FinalDictationTextEvent` drive streaming UI, and `LLMTokenGeneratedEvent` delivers streaming LLM output for smart and amend (dual-pane) modes. `SmartDictationStartedEvent` / `SmartDictationStoppedEvent` carry ``mode="smart"`` or ``"amend"`` so the UI can branch.
 
 Management events (`CommandMappingsUpdatedEvent`, `SettingsUpdatedEvent`, etc.) communicate configuration changes and operational state to services that need to adapt their behavior.
 

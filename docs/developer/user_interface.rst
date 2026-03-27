@@ -58,7 +58,7 @@ Beyond the main tabbed interface, Vocalance uses three specialized overlay windo
 
 **Mark Visualization**: Similarly, when the user requests mark visualization (by saying "show marks" or clicking a button), the `MarksController` shows the `MarkView`, another full-screen overlay. This overlay draws circles at the exact screen coordinates of each mark and labels each circle with the mark's name. The mark overlay is always visible unless explicitly hidden, allowing the user to see where marks are on screen. Hovering near a mark highlights it. Clicking on a mark's label clicks that mark's position.
 
-**Dictation Popup**: During dictation, a popup window appears in the center of the screen showing the text being dictated in real time. As the user speaks, the dictation service sends partial results and the popup updates incrementally. After dictation completes, the final text appears highlighted in the popup before being inserted into the target application.
+**Dictation Popup**: During dictation, a frameless overlay shows live feedback. Standard and type modes use a compact sound-wave “simple listening” state. Visual mode shows a single transcription pane. **Smart** and **amend** modes use the same dual-pane layout: streaming text on the left (column title “Dictation” vs “Prompt”), LLM output and a processing state on the right. Partial and final streaming segments update the left pane; tokens stream into the right pane after stop. The popup controller listens for ``SmartDictationStartedEvent`` / ``StoppedEvent`` and branches on ``event.mode`` (``"smart"`` or ``"amend"``).
 
 Event Flow: How User Actions Become Results
 =============================================

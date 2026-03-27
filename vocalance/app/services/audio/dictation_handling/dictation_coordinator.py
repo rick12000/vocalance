@@ -12,6 +12,7 @@ from typing import Optional
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
     DictationHiddenStartCommand,
+    DictationAmendStartCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -70,6 +71,7 @@ class DictationMode(Enum):
     TYPE: Direct typing of recognized text without formatting.
     VISUAL: Accumulated dictation with UI display but no LLM processing.
     HIDDEN: Silent accumulation without UI display, pastes on stop.
+    AMEND: Copy selection to clipboard, dictate instructions, LLM applies them to the selection.
     """
 
     INACTIVE = "inactive"
@@ -78,6 +80,15 @@ class DictationMode(Enum):
     TYPE = "type"
     VISUAL = "visual"
     HIDDEN = "hidden"
+    AMEND = "amend"
+
+
+# All modes that use the streaming Whisper loop (partial/final events).
+_STREAMING_STT_MODES = frozenset(
+    {DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN, DictationMode.AMEND}
+)
+# Subset that hands off to the LLM after stop.
+_STREAMING_LLM_MODES = frozenset({DictationMode.SMART, DictationMode.AMEND})
 
 
 class DictationState(Enum):
@@ -131,13 +142,15 @@ class LLMSession:
 
     Attributes:
         session_id: Unique LLM session identifier.
-        raw_text: Raw dictation text to process.
+        raw_text: Raw dictation text, or spoken instructions when ``clipboard_text`` is set.
         agentic_prompt: Generated agentic prompt for LLM.
+        clipboard_text: If set, amend path: text captured from selection before dictation.
     """
 
     session_id: str
     raw_text: str
     agentic_prompt: str
+    clipboard_text: Optional[str] = None
 
 
 class DictationCoordinator:
@@ -196,6 +209,7 @@ class DictationCoordinator:
         self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
 
         self._last_smart_dictation_text: Optional[str] = None
+        self._amend_clipboard_snapshot: Optional[str] = None
 
         self._streaming_buffer: Optional[StreamingAudioBuffer] = None
         self._streaming_task: Optional[asyncio.Task] = None
@@ -337,7 +351,7 @@ class DictationCoordinator:
                 if self._current_state != DictationState.RECORDING:
                     return
 
-                if session.mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
+                if session.mode in _STREAMING_STT_MODES:
                     logger.debug(f"Skipping VAD-based text for streaming mode: {session.mode.value}")
                     return
 
@@ -400,6 +414,7 @@ class DictationCoordinator:
             self._pending_llm_session = None
             self._llm_processing_task = None
             self._last_smart_dictation_text = None
+            self._amend_clipboard_snapshot = None
             self._set_state(DictationState.IDLE)
         await self._end_smart_session()
 
@@ -428,7 +443,7 @@ class DictationCoordinator:
         """Handle LLM failure - reset state and cleanup"""
         logger.warning(f"LLM processing failed: {event.error_message}")
         await self._cleanup_llm_session()
-        await self._publish_error("Smart dictation processing failed")
+        await self._publish_error("LLM processing failed")
 
     async def _handle_dictation_command(self, event: DictationCommandParsedEvent) -> None:
         """Handle dictation commands"""
@@ -446,9 +461,23 @@ class DictationCoordinator:
                 await self._start_session(DictationMode.VISUAL)
             elif isinstance(command, DictationHiddenStartCommand):
                 await self._start_session(DictationMode.HIDDEN)
+            elif isinstance(command, DictationAmendStartCommand):
+                await self._start_amend_session()
 
         except Exception as e:
             logger.error(f"Command handling error: {e}", exc_info=True)
+
+    async def _start_amend_session(self) -> None:
+        """Copy the foreground selection via Ctrl+C, then start streaming amend dictation."""
+        loop = asyncio.get_event_loop()
+        captured = await loop.run_in_executor(None, self.text_service.capture_selection_via_copy)
+        if not captured or not captured.strip():
+            logger.warning("Amend mode: no text captured from foreground selection")
+            await self._publish_error("Amend: no text captured — keep focus on the app with the selection")
+            return
+        with self._state_lock:
+            self._amend_clipboard_snapshot = captured.strip()
+        await self._start_session(DictationMode.AMEND)
 
     async def _handle_llm_processing_ready(self, event: LLMProcessingReadyEvent) -> None:
         """Handle LLM processing ready signal from UI"""
@@ -481,7 +510,7 @@ class DictationCoordinator:
             if not session or not buffer:
                 return
 
-            if session.mode not in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
+            if session.mode not in _STREAMING_STT_MODES:
                 return
 
             import numpy as np
@@ -522,7 +551,7 @@ class DictationCoordinator:
                         logger.debug("Streaming loop: No session or buffer, exiting")
                         break
 
-                    if session.mode not in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
+                    if session.mode not in _STREAMING_STT_MODES:
                         logger.debug("Streaming loop: Not in streaming mode, exiting")
                         break
 
@@ -800,7 +829,7 @@ class DictationCoordinator:
 
             final_text = self._streaming_finalized_text
 
-            if session.mode == DictationMode.HIDDEN and final_text:
+            if session.mode in (DictationMode.HIDDEN, DictationMode.AMEND) and final_text:
                 final_text = self._remove_stop_word(final_text)
             if final_text:
                 final_text = self.alias_service.apply_substitutions(final_text)
@@ -816,22 +845,35 @@ class DictationCoordinator:
             self._streaming_timestamp_offset = 0.0
 
             with self._state_lock:
-                if session.mode == DictationMode.SMART and final_text:
-                    self._set_state(DictationState.PROCESSING_LLM)
-                    agentic_prompt = self.agentic_service.get_current_prompt() or "Fix grammar and improve clarity."
-                    llm_session_id = str(uuid.uuid4())
-                    self._pending_llm_session = LLMSession(
-                        session_id=llm_session_id,
-                        raw_text=final_text,
-                        agentic_prompt=agentic_prompt,
-                    )
+                if session.mode in _STREAMING_LLM_MODES and final_text:
+                    if session.mode == DictationMode.AMEND and not self._amend_clipboard_snapshot:
+                        logger.error("Amend mode: clipboard snapshot missing")
+                        self._current_session = None
+                        self._set_state(DictationState.IDLE)
+                    else:
+                        self._set_state(DictationState.PROCESSING_LLM)
+                        default_prompt = (
+                            "Fix grammar and improve clarity."
+                            if session.mode is DictationMode.SMART
+                            else "Follow the spoken instructions when transforming the text."
+                        )
+                        agentic_prompt = self.agentic_service.get_current_prompt() or default_prompt
+                        llm_session_id = str(uuid.uuid4())
+                        self._pending_llm_session = LLMSession(
+                            session_id=llm_session_id,
+                            raw_text=final_text,
+                            agentic_prompt=agentic_prompt,
+                            clipboard_text=self._amend_clipboard_snapshot if session.mode == DictationMode.AMEND else None,
+                        )
                 else:
                     self._current_session = None
                     self._set_state(DictationState.IDLE)
 
-            if session.mode == DictationMode.SMART and final_text:
-                await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation processing"))
-                await self._publish_event(SmartDictationStoppedEvent(raw_text=final_text))
+            if session.mode in _STREAMING_LLM_MODES and final_text and self._pending_llm_session:
+                dual = "amend" if session.mode is DictationMode.AMEND else "smart"
+                reason = "Amend mode LLM processing" if dual == "amend" else "Smart dictation processing"
+                await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason=reason))
+                await self._publish_event(SmartDictationStoppedEvent(raw_text=final_text, mode=dual))
                 await self._publish_event(
                     LLMProcessingStartedEvent(
                         raw_text=final_text,
@@ -839,7 +881,7 @@ class DictationCoordinator:
                         session_id=self._pending_llm_session.session_id,
                     )
                 )
-            elif session.mode == DictationMode.SMART:
+            elif session.mode in _STREAMING_LLM_MODES:
                 await self._end_smart_session()
             elif session.mode == DictationMode.VISUAL:
                 if final_text:
@@ -927,6 +969,9 @@ class DictationCoordinator:
                 if mode == DictationMode.SMART:
                     self._last_smart_dictation_text = None
 
+                if mode != DictationMode.AMEND:
+                    self._amend_clipboard_snapshot = None
+
                 self.text_service.reset_session()
 
                 self._current_session = DictationSession(
@@ -942,7 +987,7 @@ class DictationCoordinator:
             await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
 
-            if mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
+            if mode in _STREAMING_STT_MODES:
                 self._streaming_buffer = StreamingAudioBuffer(sample_rate=self.config.audio.sample_rate)
                 self._streaming_finalized_text = ""
                 self._streaming_finalized_segments = []
@@ -961,6 +1006,8 @@ class DictationCoordinator:
 
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
+            elif mode == DictationMode.AMEND:
+                await self._publish_event(SmartDictationStartedEvent(mode="amend"))
             elif mode == DictationMode.VISUAL:
                 await self._publish_event(VisualDictationStartedEvent())
             elif mode == DictationMode.HIDDEN:
@@ -977,6 +1024,7 @@ class DictationCoordinator:
             logger.error(f"Session start error: {e}", exc_info=True)
             with self._state_lock:
                 self._current_session = None
+                self._amend_clipboard_snapshot = None
                 self._set_state(DictationState.IDLE)
 
     async def _stop_session(self) -> None:
@@ -999,7 +1047,7 @@ class DictationCoordinator:
                 if session.mode == DictationMode.TYPE:
                     self._cancel_type_silence_task()
 
-                if session.mode in (DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN):
+                if session.mode in _STREAMING_STT_MODES:
                     await self._stop_streaming_mode(session)
                     return
 
@@ -1025,16 +1073,32 @@ class DictationCoordinator:
                 self._start_streaming()
 
                 try:
-                    await self.llm_service.process_dictation_streaming(
-                        llm_session.raw_text, llm_session.agentic_prompt, token_callback=self._stream_token
-                    )
+                    if llm_session.clipboard_text is not None:
+                        await self.llm_service.process_amend_streaming(
+                            llm_session.clipboard_text,
+                            llm_session.raw_text,
+                            llm_session.agentic_prompt,
+                            token_callback=self._stream_token,
+                        )
+                    else:
+                        await self.llm_service.process_dictation_streaming(
+                            llm_session.raw_text, llm_session.agentic_prompt, token_callback=self._stream_token
+                        )
                 finally:
                     self._stop_streaming()
 
                 logger.info("LLM streaming processing completed")
             else:
                 logger.info("Starting LLM non-streaming processing...")
-                await self.llm_service.process_dictation(llm_session.raw_text, llm_session.agentic_prompt)
+                if llm_session.clipboard_text is not None:
+                    await self.llm_service.process_amend_streaming(
+                        llm_session.clipboard_text,
+                        llm_session.raw_text,
+                        llm_session.agentic_prompt,
+                        None,
+                    )
+                else:
+                    await self.llm_service.process_dictation(llm_session.raw_text, llm_session.agentic_prompt)
                 logger.info("LLM non-streaming processing completed")
 
         except Exception as e:
@@ -1169,6 +1233,7 @@ class DictationCoordinator:
             cfg.smart_start_trigger.lower(),
             cfg.visual_start_trigger.lower(),
             cfg.hidden_start_trigger.lower(),
+            cfg.amend_start_trigger.lower(),
         }
 
         words = [w for w in text.split() if w.lower().strip('.,!?;:"()[]{}') not in triggers]

@@ -67,29 +67,30 @@ Command Types
 Dictation Commands
 ------------------
 
-Dictation commands enter text-capture mode. Once activated, the system stops interpreting voice as commands and instead transcribes everything you say:
+Dictation commands enter text-capture mode. Once activated, the system stops interpreting voice as commands and instead transcribes everything you say (except the configured stop phrase, which ends the session).
+
+Phrases are **exact matches** on lowercased, trimmed text. They come from ``DictationConfig`` and are cached on the parser at startup—for example ``start_trigger`` (default ``green``), ``stop_trigger`` (``amber``), ``type_trigger``, ``smart_start_trigger`` (``smart green``), ``visual_start_trigger``, ``hidden_start_trigger``, and ``amend_start_trigger`` (``amend``).
 
 .. code-block:: python
 
    def _parse_dictation_commands(self, normalized_text: str) -> ParseResultType:
-       if normalized_text == "start dictation":
+       if normalized_text == self._dictation_start_trigger:
            return DictationStartCommand()
-
-       if normalized_text == "stop dictation":
+       if normalized_text == self._dictation_stop_trigger:
            return DictationStopCommand()
-
-       if normalized_text == "dictate type":
+       if normalized_text == self._dictation_type_trigger:
            return DictationTypeCommand()
-
-       if normalized_text == "dictate smart":
+       if normalized_text == self._dictation_smart_trigger:
            return DictationSmartStartCommand()
-
-       if normalized_text == "dictate visual":
+       if normalized_text == self._dictation_visual_trigger:
            return DictationVisualStartCommand()
-
+       if normalized_text == self._dictation_hidden_trigger:
+           return DictationHiddenStartCommand()
+       if normalized_text == self._dictation_amend_trigger:
+           return DictationAmendStartCommand()
        return NoMatchResult()
 
-Each trigger is a simple text match. Saying one of these phrases switches your input mode entirely.
+Defaults match ``vocalance.app.config.app_config.DictationConfig``; the parser stores lowercased trigger strings when it initializes (or when its config cache is rebuilt).
 
 Mark Commands
 -------------
@@ -396,23 +397,9 @@ Critical Exception: Dictation Mode
 
 Prediction is automatically disabled when dictation mode is active. This requires special handling because of how Markov chains work.
 
-**The problem**: Dictation mode works by setting a flag that tells the parser to treat all input as text to transcribe, not as commands. However, to exit dictation, you must say "stop dictation"—the only command that works during dictation. This creates a deterministic transition in the Markov model.
+**The problem**: Dictation mode works by setting a flag that tells the parser to treat all input as text to transcribe, not as commands. To exit, you must say your configured **stop** phrase—the only command path that still applies—so the Markov model sees a near-deterministic start → stop pair.
 
-After enough sessions of activating and deactivating dictation, the model learns:
-
-.. code-block:: text
-
-   "start dictation" → "stop dictation": 100% probability
-
-Why? Because the only way to get back to command mode is to say "stop dictation". The model sees this pattern repeatedly and assigns it maximum confidence.
-
-**The consequence**: If predictions were enabled during dictation, this is what would happen:
-
-1. You say "start dictation" (activates text transcription mode)
-2. The Markov predictor, with 100% confidence, immediately predicts "stop dictation"
-3. The predictor executes "stop dictation" before you speak any text
-4. Dictation mode is instantly terminated
-5. You never get to dictate anything
+**The consequence**: If predictions stayed enabled during dictation, the model could immediately predict the stop phrase right after the start phrase, execute it, and end dictation before you speak any content.
 
 **The solution**: Prediction is disabled the moment dictation starts:
 
@@ -424,7 +411,7 @@ Why? Because the only way to get back to command mode is to say "stop dictation"
 
        # ... normal prediction logic
 
-This ensures that whatever you say during dictation is transcribed as text, not interpreted as the predictable "stop dictation" command. Once you exit dictation manually, predictions resume.
+This ensures that whatever you say during dictation is transcribed as text, not replaced by a predicted stop phrase. Once you exit dictation manually, predictions resume.
 
 What Happens Next
 ==================

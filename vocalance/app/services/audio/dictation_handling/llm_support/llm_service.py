@@ -14,19 +14,26 @@ from vocalance.app.services.storage.llm_model_downloader import LLMModelDownload
 
 logger = logging.getLogger(__name__)
 
+_AMEND_SYSTEM_BASE = (
+    "You transform text according to instructions. The user message contains two labeled parts: "
+    "TEXT TO TRANSFORM (the source material copied from the user's selection) and "
+    "USER PROMPT (instructions they spoke).\n\n"
+    "Apply USER PROMPT to TEXT TO TRANSFORM. "
+    "Respond with only the transformed text: no explanations, preamble, markdown fences, "
+    "headings, apologies, or any text before or after the result."
+)
+
 
 class LLMService:
-    """High-performance LLM service optimized for speed and quality with proper resource management.
+    """Local LLM (llama.cpp) for smart dictation and amend-mode (selection + spoken instructions).
 
-    Manages local LLM model (llama.cpp) for smart dictation formatting and editing.
-    Handles model downloading, loading with performance optimizations (threading, GPU
-    layers, flash attention), warm-up, streaming generation, and resource cleanup.
+    Handles download/load, warm-up, streaming chat completion, and completion/failure events.
 
     Attributes:
-        llm: Loaded Llama model instance.
-        _model_loaded: Flag indicating successful model load.
-        _warmed_up: Flag indicating model warm-up completion.
-        model_downloader: LLMModelDownloader for model acquisition.
+        llm: Loaded Llama model instance, or None before load.
+        _model_loaded: Whether the model loaded successfully.
+        _warmed_up: Whether a warm-up completion has run.
+        model_downloader: Acquires model files on disk.
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
@@ -135,7 +142,7 @@ class LLMService:
             return None
 
     async def _warmup_model(self) -> None:
-        """Quick warmup using chat completion API"""
+        """Run a minimal chat completion to prime the runtime (failures are logged only)."""
         try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
@@ -148,39 +155,75 @@ class LLMService:
         except Exception as e:
             logger.warning(f"Warmup failed: {e}")
 
+    async def _run_chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        fallback_text: str,
+        agentic_prompt: str,
+        token_callback: Optional[Callable[[str], None]],
+    ) -> Optional[str]:
+        """Stream a chat completion, publish success/failure on the event bus, return final text."""
+        if not self._model_loaded or not self.llm:
+            logger.error("Model not loaded")
+            return fallback_text.strip()
+
+        try:
+            result = await self._generate_streaming(messages, token_callback)
+            final_result = result if result else fallback_text.strip()
+            await self._publish_completed(final_result, agentic_prompt)
+            return final_result
+        except Exception as e:
+            logger.error(f"Processing error: {e}", exc_info=True)
+            await self._publish_failed(str(e), fallback_text)
+            return fallback_text.strip()
+
     async def process_dictation_streaming(
         self, raw_text: str, agentic_prompt: str, token_callback: Optional[Callable[[str], None]] = None
     ) -> Optional[str]:
-        """Process text using chat completion API with streaming"""
-        if not self._model_loaded or not self.llm:
-            logger.error("Model not loaded")
-            return raw_text.strip()
-
-        try:
-            messages = self._build_messages(agentic_prompt, raw_text)
-            result = await self._generate_streaming(messages, token_callback)
-
-            final_result = result if result else raw_text.strip()
-            await self._publish_completed(final_result, agentic_prompt)
-            return final_result
-
-        except Exception as e:
-            logger.error(f"Processing error: {e}", exc_info=True)
-            await self._publish_failed(str(e), raw_text)
-            return raw_text.strip()
+        """Smart dictation: system = agentic preset, user = raw dictated text; stream tokens."""
+        messages = self._build_messages(agentic_prompt, raw_text)
+        return await self._run_chat_completion(messages, raw_text, agentic_prompt, token_callback)
 
     async def process_dictation(self, raw_text: str, agentic_prompt: str) -> Optional[str]:
-        """Non-streaming processing"""
+        """Non-streaming smart dictation (same message shape as ``process_dictation_streaming``)."""
         return await self.process_dictation_streaming(raw_text, agentic_prompt, None)
 
+    async def process_amend_streaming(
+        self,
+        clipboard_text: str,
+        spoken_prompt: str,
+        agentic_prompt: str,
+        token_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[str]:
+        """Amend mode: apply ``spoken_prompt`` to ``clipboard_text`` using amend system text plus agentic preset."""
+        messages = self._build_amend_messages(agentic_prompt, clipboard_text, spoken_prompt)
+        return await self._run_chat_completion(messages, spoken_prompt, agentic_prompt, token_callback)
+
     def _build_messages(self, agentic_prompt: str, raw_text: str) -> List[Dict[str, str]]:
-        """Build messages for chat completion API - optimized for prompt caching"""
+        """Chat messages for smart dictation (system = agentic preset, user = raw text)."""
         return [
             {
                 "role": "system",
                 "content": f"{agentic_prompt}",
             },
             {"role": "user", "content": raw_text},
+        ]
+
+    def _build_amend_messages(self, agentic_prompt: str, clipboard_text: str, spoken_prompt: str) -> List[Dict[str, str]]:
+        """Chat messages for amend mode: system = amend rules plus optional agentic preset; user = labeled sections."""
+        extra = (agentic_prompt or "").strip()
+        system_content = _AMEND_SYSTEM_BASE if not extra else f"{_AMEND_SYSTEM_BASE}\n\n{extra}"
+        user_content = (
+            "--- TEXT TO TRANSFORM (clipboard) ---\n"
+            f"{clipboard_text}\n"
+            "--- END TEXT ---\n\n"
+            "--- USER PROMPT (spoken instructions) ---\n"
+            f"{spoken_prompt}\n"
+            "--- END USER PROMPT ---"
+        )
+        return [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
         ]
 
     async def _generate_streaming(

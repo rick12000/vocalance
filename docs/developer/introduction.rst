@@ -286,6 +286,6 @@ Now that you know the basics, you can dive into the detailed documentation:
 - :doc:`Speech and Sound Recognition <speech_and_sound_recognition>`: How audio becomes recognized text
 - :doc:`Command Parsing & Prediction <command_parsing>`: How text becomes structured commands
 - :doc:`Command Execution Services <command_execution_services>`: How commands trigger actions
-- :doc:`Dictation System <dictation_system>`: How text becomes dictation outputs
+- :doc:`Dictation System <dictation_system>`: How text becomes dictation outputs (all modes, streaming, LLM, including amend)
 - :doc:`User Interface Architecture <user_interface>`: How the UI coordinates with services
 - :doc:`Event Bus and Infrastructure <event_bus_and_infrastructure>`: How services communicate

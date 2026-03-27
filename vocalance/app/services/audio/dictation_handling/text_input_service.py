@@ -185,6 +185,43 @@ class TextInputService:
             self.last_text = None
         logger.debug("TextInputService session reset")
 
+    def capture_selection_via_copy(self) -> str:
+        """Copy the current foreground selection via Ctrl+C and return captured text.
+
+        Restores the previous clipboard contents after reading. Used by amend mode
+        when the target application still holds the selection.
+        """
+        with self._clipboard_lock:
+            original = None
+            original_read_ok = False
+            try:
+                try:
+                    original = pyperclip.paste()
+                    original_read_ok = True
+                except (pyperclip.PyperclipException, OSError) as e:
+                    logger.warning(f"Could not read clipboard before copy: {e}")
+
+                time.sleep(self.config.clipboard_paste_delay_pre)
+                pyautogui.hotkey("ctrl", "c")
+                time.sleep(max(0.05, self.config.clipboard_paste_delay_post))
+
+                captured = ""
+                try:
+                    captured = pyperclip.paste() or ""
+                except (pyperclip.PyperclipException, OSError) as e:
+                    logger.warning(f"Could not read clipboard after copy: {e}")
+
+                if original_read_ok and original is not None:
+                    try:
+                        pyperclip.copy(original)
+                    except (pyperclip.PyperclipException, OSError) as e:
+                        logger.warning(f"Could not restore clipboard after capture: {e}")
+
+                return captured.strip()
+            except Exception as e:
+                logger.error(f"capture_selection_via_copy error: {e}", exc_info=True)
+                return ""
+
     async def input_text(self, text: str, add_trailing_space: bool = True) -> bool:
         if not text:
             return False

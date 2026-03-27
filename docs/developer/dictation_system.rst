@@ -1,7 +1,7 @@
 Dictation System
 ##################
 
-This page explains how Vocalance handles dictation through five distinct modes—standard, visual, smart, type, and hidden—each optimized for different use cases, all orchestrated by the DictationCoordinator.
+This page explains how Vocalance handles dictation through six modes—standard, visual, smart, amend, type, and hidden—each optimized for different use cases, all orchestrated by the ``DictationCoordinator``. Voice phrases that start or stop dictation are configured in ``DictationConfig`` (see :doc:`command_parsing`).
 
 System Overview
 ================
@@ -12,16 +12,18 @@ The dictation system operates independently from command execution. Once activat
 
    flowchart TD
        A[DictationCommandParsedEvent] --> B{Command Type}
-       B -->|start dictation| C[Standard Mode]
-       B -->|dictate visual| D[Visual Mode]
-       B -->|dictate smart| E[Smart Mode]
-       B -->|dictate type| F[Type Mode]
-       B -->|hidden| G[Hidden Mode]
-       B -->|stop dictation| H[Stop & Finalize]
+       B -->|standard start| C[Standard Mode]
+       B -->|visual start| D[Visual Mode]
+       B -->|smart start| E[Smart Mode]
+       B -->|amend start| AM[Amend Mode]
+       B -->|type start| F[Type Mode]
+       B -->|hidden start| G[Hidden Mode]
+       B -->|stop| H[Stop & Finalize]
 
        C --> I[DictationTextRecognizedEvent]
        D --> I
        E --> I
+       AM --> I
        F --> I
        G --> I
 
@@ -29,6 +31,7 @@ The dictation system operates independently from command execution. Once activat
        J -->|Standard| K[Direct Type]
        J -->|Visual| L[Popup Accumulate]
        J -->|Smart| M[LLM Queue]
+       J -->|Amend| M
        J -->|Type| N[Raw Type]
        J -->|Hidden| O[Silent Accumulate]
 
@@ -42,10 +45,11 @@ The dictation system operates independently from command execution. Once activat
        style C fill:#e8f5e9
        style D fill:#fff4e1
        style E fill:#e1f5ff
+       style AM fill:#d4e8fc
        style F fill:#fce4ec
        style G fill:#e8e8e8
 
-Dictation flows from parse event → mode selection → text recognition → mode-specific processing → output. Each mode has distinct behavior: standard types immediately, visual accumulates for review, smart uses LLM for formatting, type provides raw unformatted insertion, and hidden silently accumulates for pasting.
+Dictation flows from parse event → mode selection → text recognition → mode-specific processing → output. Standard types immediately; visual accumulates for review; **smart** and **amend** share streaming STT and a dual-pane LLM phase (smart formats dictated text; amend applies spoken instructions to a captured selection); type inserts raw text; hidden accumulates silently for paste on stop.
 
 The DictationCoordinator: Central Orchestration
 ================================================
@@ -63,8 +67,8 @@ The coordinator uses three core states with validated transitions:
        [*] --> IDLE
        IDLE --> RECORDING: Start dictation command
        RECORDING --> RECORDING: Accumulate text segments
-       RECORDING --> PROCESSING_LLM: Stop smart dictation
-       RECORDING --> IDLE: Stop standard/visual/type
+       RECORDING --> PROCESSING_LLM: Stop smart or amend
+       RECORDING --> IDLE: Stop standard/visual/hidden/type
        PROCESSING_LLM --> IDLE: LLM complete
        IDLE --> [*]
 
@@ -74,8 +78,8 @@ The coordinator uses three core states with validated transitions:
        end note
 
        note right of PROCESSING_LLM
-           Only for smart mode
-           LLM processing accumulated text
+           Smart & amend dual-pane modes
+           LLM on accumulated text
        end note
 
 **State validation**: The coordinator enforces valid transitions. Invalid transitions are logged as errors and rejected:
@@ -102,13 +106,7 @@ This prevents race conditions where text arrives after stop is called, or multip
 Mode Selection and Activation
 ------------------------------
 
-Dictation modes are triggered by voice commands parsed by the centralized parser:
-
-- **"start dictation"** → Standard mode (immediate typing)
-- **"dictate visual"** → Visual mode (popup accumulation)
-- **"dictate smart"** → Smart mode (LLM formatting)
-- **"dictate type"** → Type mode (raw insertion)
-- **"stop dictation"** → Stop active mode and finalize
+Dictation modes are triggered when recognized text matches the configured triggers (defaults: ``green``, ``visual green``, ``smart green``, ``amend``, ``type``, ``hidden green``, ``amber`` for stop—see ``DictationConfig``).
 
 The coordinator subscribes to ``DictationCommandParsedEvent`` and routes commands:
 
@@ -123,6 +121,10 @@ The coordinator subscribes to ``DictationCommandParsedEvent`` and routes command
            await self._start_session(DictationMode.VISUAL)
        elif isinstance(command, DictationSmartStartCommand):
            await self._start_session(DictationMode.SMART)
+       elif isinstance(command, DictationHiddenStartCommand):
+           await self._start_session(DictationMode.HIDDEN)
+       elif isinstance(command, DictationAmendStartCommand):
+           await self._start_session(DictationMode.AMEND)
        elif isinstance(command, DictationTypeCommand):
            await self._start_session(DictationMode.TYPE)
        elif isinstance(command, DictationStopCommand):
@@ -155,7 +157,7 @@ How It Works
        participant STT as SpeechToText
        participant Input as TextInputService
 
-       U->>Coord: "start dictation"
+       U->>Coord: Standard start (e.g. "green")
        Coord->>Coord: Enter RECORDING state
 
        U->>STT: Speak: "Hello world"
@@ -166,7 +168,7 @@ How It Works
        STT->>Coord: DictationTextRecognizedEvent("This is a test")
        Coord->>Input: Type " This is a test"
 
-       U->>Coord: "stop dictation"
+       U->>Coord: Stop phrase (e.g. "amber")
        Coord->>Coord: Enter IDLE state
 
 **Processing pipeline**:
@@ -223,12 +225,12 @@ Popup Lifecycle
 .. mermaid::
 
    flowchart TD
-       A["dictate visual"] --> B[Create Popup Window]
+       A["visual start phrase"] --> B[Create Popup Window]
        B --> C[Enter RECORDING State]
        C --> D[Accumulate Text Segments]
        D --> E{User Action}
 
-       E -->|Stop dictation| F[Insert Accumulated Text]
+       E -->|Stop phrase| F[Insert Accumulated Text]
        E -->|Close popup| G[Cancel - No Insert]
        E -->|More speech| D
 
@@ -240,7 +242,7 @@ Popup Lifecycle
        style F fill:#e8f5e9
        style G fill:#ffebee
 
-**Real-time updates**: Each ``DictationTextRecognizedEvent`` updates the popup, showing accumulated text as you speak.
+**Real-time updates**: The streaming pipeline publishes partial/final dictation events so the popup reflects text as you speak.
 
 **Review before insert**: Unlike standard mode, visual mode doesn't type immediately. Text is accumulated in the popup, and you can review before deciding to insert or cancel.
 
@@ -317,7 +319,7 @@ Architecture
 Streaming Transcription Architecture
 -------------------------------------
 
-Smart, Visual, and Hidden modes use streaming transcription to provide incremental text during speech. The core challenge: Whisper processes max 30 seconds of audio, but users speak longer. The solution: two offsets track which audio is finalized (text extracted) and which is trimmed (discarded), ensuring no text is lost during the trim cycle.
+Smart, amend, visual, and hidden modes use streaming transcription to provide incremental text during speech. The core challenge: Whisper processes max 30 seconds of audio, but users speak longer. The solution: two offsets track which audio is finalized (text extracted) and which is trimmed (discarded), ensuring no text is lost during the trim cycle.
 
 What Whisper Returns
 ~~~~~~~~~~~~~~~~~~~~
@@ -423,10 +425,10 @@ Two-Phase Workflow for Smart Mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Phase 1 - Streaming Accumulation** (RECORDING state):
-   Loop continuously calls Whisper → finalizes detected segments → accumulates text in `accumulated_text` → publishes partial events for Visual mode UI
+   Loop continuously calls Whisper → finalizes detected segments → accumulates text in `accumulated_text` → publishes partial/final events for dual-pane and visual UIs
 
-**Phase 2 - LLM Post-Processing** (PROCESSING_LLM state, smart mode only):
-   Send complete `accumulated_text` to LLM → stream tokens real-time → execute formatting commands (REMOVE:N for backspace, NEWLINE for line break, END to finish)
+**Phase 2 - LLM Post-Processing** (PROCESSING_LLM state, smart and amend only):
+   Smart: send accumulated dictation to ``process_dictation_streaming``. Amend: send clipboard snapshot plus accumulated spoken instructions to ``process_amend_streaming``. Both stream tokens and execute the same formatting commands (REMOVE:N, NEWLINE, END).
 
 LLM Service
 -----------
@@ -468,7 +470,7 @@ The LLM service wraps llama.cpp for local model inference:
 
 - **Startup**: Load during application initialization (slow startup, fast first use)
 - **Background**: Load in background after startup completes
-- **On-demand**: Load when first smart dictation command is issued
+- **On-demand**: Load when the first smart or amend dictation session runs
 
 Agentic Prompt System
 ---------------------
@@ -532,7 +534,7 @@ Smart mode shows LLM output in real-time as tokens are generated:
        participant LLM as LLMService
        participant Input as TextInputService
 
-       U->>C: "stop dictation" (smart mode)
+       U->>C: Stop phrase (smart mode)
        C->>LLM: Process "hello world new line goodbye"
 
        LLM->>C: Token: "Hello"
@@ -557,6 +559,11 @@ Smart mode shows LLM output in real-time as tokens are generated:
        C->>C: Finalize text
 
 This streaming provides visual feedback during ~2-5 second LLM processing.
+
+Amend mode (selection + instructions)
+======================================
+
+Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Streaming Whisper fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``SmartDictationStartedEvent`` / ``SmartDictationStoppedEvent`` use ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. If raw segments paste before the LLM finishes, verify streaming modes skip immediate typing from ``DictationTextRecognizedEvent`` (see ``_STREAMING_STT_MODES`` in the coordinator).
 
 Type Mode: Raw Insertion
 ==========================
@@ -629,7 +636,7 @@ How It Works
 
 **Processing**: Like visual mode, hidden mode uses streaming transcription. Text is accumulated but never displayed.
 
-**Output**: When you say "stop dictation", all accumulated text is pasted at once via clipboard.
+**Output**: When you say the configured stop phrase, all accumulated text is pasted at once via clipboard.
 
 **Use cases**:
 
@@ -651,7 +658,7 @@ While dictating, the system monitors for stop triggers. The command listener con
        D --> E[SpeechToTextService]
        E --> F{Recognition}
 
-       F -->|stop dictation| G[CommandTextRecognizedEvent]
+       F -->|stop phrase| G[CommandTextRecognizedEvent]
        F -->|other text| H[Discard - Not stop trigger]
 
        G --> I[CentralizedCommandParser]
@@ -663,9 +670,9 @@ While dictating, the system monitors for stop triggers. The command listener con
        style H fill:#ffebee
        style L fill:#e1f5ff
 
-**Why keep listening?** The command listener doesn't disable—it filters. This allows you to say "stop dictation" at any time without the listener interfering with dictation text.
+**Why keep listening?** The command listener doesn't disable—it filters. This allows you to say the stop phrase at any time without the listener interfering with dictation text.
 
-**Mode awareness**: When dictation starts, the coordinator publishes ``DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=...)`` with the specific mode (standard, visual, smart, or type). Other systems use this to:
+**Mode awareness**: When dictation starts, the coordinator publishes ``DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=...)`` with the specific mode (including ``amend``). Other systems use this to:
 
 - Filter STT output to only recognize stop trigger words
 - Disable sound recognition
@@ -752,19 +759,16 @@ Each dictation session maintains state that must be properly cleaned up:
                if session.mode == DictationMode.TYPE:
                    self._cancel_type_silence_task()
 
-               # For SMART/VISUAL: use streaming path
-               if session.mode in (DictationMode.SMART, DictationMode.VISUAL):
+               # Streaming STT modes (smart, amend, visual, hidden)
+               if session.mode in _STREAMING_STT_MODES:
                    await self._stop_streaming_mode(session)
                    return
 
-               # For STANDARD: finalize immediately
                self._current_session = None
                self._set_state(DictationState.IDLE)
 
-           # Notify other systems
-           await self.event_bus.publish(
-               DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")
-           )
+           if session:
+               await self._finalize_session(session)
        except Exception as e:
            logger.error(f"Session stop error: {e}", exc_info=True)
 

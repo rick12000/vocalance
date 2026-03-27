@@ -8,6 +8,7 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
     BaseCommand,
     DictationHiddenStartCommand,
+    DictationAmendStartCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -136,6 +137,7 @@ class CentralizedCommandParser:
         self._dictation_smart_trigger = self._app_config.dictation.smart_start_trigger.lower()
         self._dictation_visual_trigger = self._app_config.dictation.visual_start_trigger.lower()
         self._dictation_hidden_trigger = self._app_config.dictation.hidden_start_trigger.lower()
+        self._dictation_amend_trigger = self._app_config.dictation.amend_start_trigger.lower()
 
         # System control triggers - using exact match phrases
         self._pause_trigger = "pause"
@@ -414,6 +416,9 @@ class CentralizedCommandParser:
         if normalized_text == self._dictation_hidden_trigger:
             return DictationHiddenStartCommand()
 
+        if normalized_text == self._dictation_amend_trigger:
+            return DictationAmendStartCommand()
+
         return NoMatchResult()
 
     def _parse_mark_commands(self, normalized_text: str) -> ParseResultType:
@@ -598,6 +603,7 @@ class CentralizedCommandParser:
             DictationSmartStartCommand: DictationCommandParsedEvent,
             DictationVisualStartCommand: DictationCommandParsedEvent,
             DictationHiddenStartCommand: DictationCommandParsedEvent,
+            DictationAmendStartCommand: DictationCommandParsedEvent,
             ExactMatchCommand: AutomationCommandParsedEvent,
             ParameterizedCommand: AutomationCommandParsedEvent,
             MarkCreateCommand: MarkCommandParsedEvent,

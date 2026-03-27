@@ -68,7 +68,7 @@ The ``SpeechToTextService`` manages two STT engines:
 Dictation Mode
 ---------------------------
 
-**Command audio is processed differently depending on whether dictation mode is active**. When you enter dictation mode, Vocalance must allow dictation to proceed without command recognition interfering. However, stop triggers (like "stop dictation") must still be detected to exit dictation mode.
+**Command audio is processed differently depending on whether dictation mode is active**. When you enter dictation mode, Vocalance must allow dictation to proceed without command recognition interfering. However, your configured **stop** phrase (``DictationConfig.stop_trigger``, default ``amber``) must still be detected to exit dictation mode.
 
 An outline of how Vocalance handles switching in and out of dictation mode is provided below:
 
@@ -80,7 +80,7 @@ An outline of how Vocalance handles switching in and out of dictation mode is pr
        participant STT as SpeechToTextService
        participant Coord as DictationCoordinator
 
-       U->>Parser: Say "start dictation"
+       U->>Parser: Say standard start phrase (e.g. "green")
        Parser->>Coord: DictationCommandParsedEvent
        Coord->>STT: DictationModeDisableOthersEvent(active=true)
        Note over STT: Switch to stop-detection-only mode
@@ -92,9 +92,9 @@ An outline of how Vocalance handles switching in and out of dictation mode is pr
        U->>STT: Say "and this is great" (dictation segment)
        STT->>Coord: DictationTextRecognizedEvent(text="...")
 
-       U->>STT: Say "stop dictation" (command segment)
+       U->>STT: Say stop phrase (e.g. "amber")
        STT->>STT: Detect stop trigger!
-       STT->>Parser: CommandTextRecognizedEvent(text="stop dictation")
+       STT->>Parser: CommandTextRecognizedEvent(text="amber")
        Parser->>Coord: DictationStopCommand
        Coord->>STT: DictationModeDisableOthersEvent(active=false)
        Note over STT: Resume full command recognition
@@ -200,7 +200,7 @@ Produced by Vosk when a command is recognized. Emitted every time a command segm
        processing_time_ms=850.2
    )
 
-Produced by Whisper when dictation text is recognized. Emitted only when dictation mode is active; Whisper processing is skipped otherwise to save computational resources. The ``DictationCoordinator`` subscribes and routes to the appropriate dictation handler (standard text insertion, visual preview, or smart context-aware mode).
+Produced by Whisper when dictation text is recognized. Emitted only when dictation mode is active; Whisper processing is skipped otherwise to save computational resources. The ``DictationCoordinator`` subscribes and routes by mode (immediate insertion for standard/type; streaming accumulation and LLM handoff for visual, smart, hidden, and amend—without pasting raw segments in those streaming paths).
 
 .. code-block:: python
 
@@ -229,7 +229,7 @@ Event Routing Summary
    * - ``DictationTextRecognizedEvent``
      - Whisper
      - DictationCoordinator
-     - Insert dictated text
+     - Mode-specific output (insert or streaming pipeline)
    * - ``CustomSoundRecognizedEvent``
      - SoundService
      - CentralizedCommandParser

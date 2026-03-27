@@ -19,7 +19,9 @@ class DictationStatusChangedEvent(BaseEvent):
     """
 
     is_active: bool = Field(description="Whether dictation is currently active")
-    mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden"] = Field(description="Current dictation mode")
+    mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden", "amend"] = Field(
+        description="Current dictation mode"
+    )
     show_ui: bool = Field(default=False, description="Whether to show the dictation UI indicator")
     stop_command: Optional[str] = Field(default=None, description="The command to stop this dictation mode")
     priority: EventPriority = EventPriority.LOW
@@ -29,7 +31,7 @@ class DictationModeDisableOthersEvent(BaseEvent):
     """Event fired to disable other speech/sound processing during dictation"""
 
     dictation_mode_active: bool = Field(description="Whether dictation mode is active, disabling other processing")
-    dictation_mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden"]
+    dictation_mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden", "amend"]
     priority: EventPriority = EventPriority.CRITICAL
 
 
@@ -42,17 +44,20 @@ class AudioModeChangeRequestEvent(BaseEvent):
 
 
 class SmartDictationStartedEvent(BaseEvent):
-    """Event fired when smart dictation mode is activated"""
+    """Dual-pane LLM dictation started: smart (dictation column) or amend (spoken instructions column)."""
 
-    mode: Literal["smart"] = "smart"
+    mode: Literal["smart", "amend"] = Field(
+        default="smart",
+        description='"smart" = transcribed dictation; "amend" = spoken instructions for the copied selection',
+    )
     priority: EventPriority = EventPriority.NORMAL
 
 
 class SmartDictationStoppedEvent(BaseEvent):
-    """Event fired when smart dictation mode is deactivated"""
+    """Dual-pane LLM dictation stopped; raw segment proceeds to LLM."""
 
-    mode: Literal["smart"] = "smart"
-    raw_text: str = Field(description="Raw text that was dictated before LLM processing")
+    mode: Literal["smart", "amend"] = Field(default="smart", description="Which dual-pane mode ended")
+    raw_text: str = Field(description="Raw text before LLM (dictation or spoken prompt)")
     priority: EventPriority = EventPriority.NORMAL
 
 
@@ -95,11 +100,14 @@ class HiddenDictationStoppedEvent(BaseEvent):
 
 
 class LLMProcessingStartedEvent(BaseEvent):
-    """Event fired when LLM processing begins"""
+    """Event fired when LLM processing begins."""
 
     raw_text: str = Field(description="Raw dictated text to be processed")
     agentic_prompt: str = Field(description="The agentic prompt being used")
-    session_id: Optional[str] = None
+    session_id: Optional[str] = Field(
+        default=None,
+        description="LLM session identifier for correlating ready/token events, if set",
+    )
     priority: EventPriority = EventPriority.NORMAL
 
 
@@ -239,5 +247,5 @@ class DictationStopWordDetectedEvent(BaseEvent):
     UI should change the border color to orange to indicate the stop word was heard.
     """
 
-    mode: Literal["standard", "type", "smart", "visual", "hidden"] = Field(description="Current dictation mode")
+    mode: Literal["standard", "type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
     priority: EventPriority = EventPriority.HIGH

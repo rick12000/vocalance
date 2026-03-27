@@ -1,9 +1,10 @@
 import logging
 import threading
 from collections import deque
+from typing import Optional
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QTextCharFormat
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPaintEvent, QPainter, QTextCharFormat
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
@@ -14,14 +15,10 @@ from vocalance.app.ui.qt_theme import theme
 
 
 class QtDictationPopupView(QMainWindow):
-    """Dictation popup window for streaming transcription display.
+    """Dictation popup for streaming transcription and dual-pane LLM output.
 
-    Features:
-    - Three display modes: simple, smart, visual
-    - Real-time text streaming
-    - Non-intrusive (always-on-top, no focus stealing)
-    - Thread-safe token buffering
-    - Sound wave animation in simple mode
+    Modes include simple listening, smart dictation + LLM, amend (prompt + LLM),
+    and visual single-pane dictation. Updates are marshalled to the Qt main thread.
     """
 
     # Signals for thread-safe text updates
@@ -40,6 +37,7 @@ class QtDictationPopupView(QMainWindow):
     VISUAL_HEIGHT = 550
     WINDOW_MARGIN_X = 80
     WINDOW_MARGIN_Y = 80
+    DUAL_PANE_MODES: frozenset[str] = frozenset({"smart", "amend"})
 
     def __init__(self):
         """Initialize dictation popup view."""
@@ -56,8 +54,7 @@ class QtDictationPopupView(QMainWindow):
         self._flush_interval_ms = 16  # ~60 FPS
         self._pending_flush = False
 
-        # Current display mode
-        self.current_mode = None
+        self.current_mode: Optional[str] = None
 
         # Border color state (for stop word indication)
         self._border_is_orange = False
@@ -94,7 +91,7 @@ class QtDictationPopupView(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         """Draw rounded background with 3px gradient or orange border."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -173,10 +170,10 @@ class QtDictationPopupView(QMainWindow):
         dictation_layout.setSpacing(5)
 
         # Create title label with xlarge font and gradient
-        dictation_label = BoxTitleLabel("Dictation")
+        self.dictation_column_label = BoxTitleLabel("Dictation")
         # Ensure enough horizontal space for gradient calculation
-        dictation_label.setMinimumWidth(200)
-        dictation_layout.addWidget(dictation_label)
+        self.dictation_column_label.setMinimumWidth(200)
+        dictation_layout.addWidget(self.dictation_column_label)
 
         # Text box for dictation - inside a dark rounded container
         dictation_container_widget = TextDisplayContainer()
@@ -313,17 +310,32 @@ class QtDictationPopupView(QMainWindow):
         QMetaObject.invokeMethod(self, "_do_show_smart", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
-    def _do_show_smart(self) -> None:
-        """Internal show smart - MUST run on main Qt thread."""
+    def show_amend_dictation(self) -> None:
+        """Show amend mode: left = spoken instructions, right = LLM output (same layout as smart)."""
+        QMetaObject.invokeMethod(self, "_do_show_amend", Qt.ConnectionType.QueuedConnection)
+
+    def _apply_dual_pane_layout(self, mode: str, left_column_title: str) -> None:
+        """Apply the dual-pane window layout on the Qt main thread (via calling slots)."""
         with self._ui_lock:
             self._hide_all_modes()
-            self._border_is_orange = False  # Reset border color for new session
-            self.current_mode = "smart"
+            self._border_is_orange = False
+            self.current_mode = mode
+            self.dictation_column_label.setText(left_column_title)
             self.smart_widget.setVisible(True)
             self._clear_smart_content()
             self._position_window(self.SMART_WIDTH, self.SMART_HEIGHT, "center_left")
             self._show_window_with_animation()
-            self.logger.info(f"Smart dictation window shown, mode={self.current_mode}")
+            self.logger.info(f"Dual-pane dictation shown, mode={self.current_mode}")
+
+    @Slot()
+    def _do_show_smart(self) -> None:
+        """Internal show smart - MUST run on main Qt thread."""
+        self._apply_dual_pane_layout("smart", "Dictation")
+
+    @Slot()
+    def _do_show_amend(self) -> None:
+        """Internal show amend mode; must run on the Qt main thread."""
+        self._apply_dual_pane_layout("amend", "Prompt")
 
     @Slot()
     def show_visual_dictation(self) -> None:
@@ -354,7 +366,7 @@ class QtDictationPopupView(QMainWindow):
         """Internal show LLM processing - MUST run on main Qt thread."""
         # Keep smart widget visible, just update the status
         # This is called after dictation stops and before LLM processing starts
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             self.llm_label.setText("Processing...")
             # Start spinner when LLM processing begins
             if hasattr(self, "llm_spinner"):
@@ -395,7 +407,7 @@ class QtDictationPopupView(QMainWindow):
     def _do_append_dictation_text(self, text: str) -> None:
         """Internal append dictation text - MUST run on main Qt thread."""
         self.logger.debug(f"_do_append_dictation_text executing: mode={self.current_mode}, text='{text[:50]}...'")
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             cursor = self.dictation_box.textCursor()
             cursor.movePosition(cursor.MoveOperation.End)
             cursor.insertText(text)
@@ -435,19 +447,18 @@ class QtDictationPopupView(QMainWindow):
 
         # Determine which text box to use based on mode
         text_box = None
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             text_box = self.dictation_box
-            self.logger.info("Selected dictation_box for smart mode")
+            self.logger.info("Selected dictation_box for dual-pane mode")
         elif self.current_mode == "visual":
             text_box = self.visual_dictation_box
             self.logger.info("Selected visual_dictation_box for visual mode")
 
         if not text_box:
-            self.logger.error(f"NO TEXT BOX SELECTED! mode='{self.current_mode}'")
+            self.logger.error("No text box for current mode; partial text ignored (mode=%s)", self.current_mode)
             return
 
-        # CRITICAL: Remove ALL existing partial text before inserting new partial
-        # Legacy behavior (lines 258-264): only ONE partial text exists at a time
+        # Replace any previous partial segment so only one tentative block is shown.
         if not hasattr(self, "_partial_segments"):
             self._partial_segments = {}
 
@@ -483,8 +494,6 @@ class QtDictationPopupView(QMainWindow):
         partial_format.setForeground(QColor(theme.config.text.medium))
         partial_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))
 
-        # CRITICAL: Reset cursor format to partial format (not inheriting from previous text)
-        # This is at source - we explicitly set what format should be used
         cursor.setCharFormat(partial_format)
 
         # Store position before insertion
@@ -526,19 +535,18 @@ class QtDictationPopupView(QMainWindow):
 
         # Determine which text box to use based on mode
         text_box = None
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             text_box = self.dictation_box
-            self.logger.info("Selected dictation_box for smart mode")
+            self.logger.info("Selected dictation_box for dual-pane mode")
         elif self.current_mode == "visual":
             text_box = self.visual_dictation_box
             self.logger.info("Selected visual_dictation_box for visual mode")
 
         if not text_box:
-            self.logger.error(f"NO TEXT BOX SELECTED! mode='{self.current_mode}'")
+            self.logger.error("No text box for current mode; final text ignored (mode=%s)", self.current_mode)
             return
 
-        # Remove partial text with same segment_id if it exists
-        # Legacy behavior (lines 298-311): replace partial with final
+        # Remove partial text for this segment before inserting the final text.
         if hasattr(self, "_partial_segments") and segment_id in self._partial_segments:
             start_pos, end_pos = self._partial_segments[segment_id]
             doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
@@ -601,7 +609,7 @@ class QtDictationPopupView(QMainWindow):
         """
         self.logger.debug(f"_do_append_llm_token EXECUTING on main thread: token='{token}', mode={self.current_mode}")
 
-        if self.current_mode != "smart":
+        if self.current_mode not in self.DUAL_PANE_MODES:
             self.logger.warning(f"_do_append_llm_token called but mode is '{self.current_mode}'")
             return
 
@@ -625,7 +633,7 @@ class QtDictationPopupView(QMainWindow):
         """
         self.logger.debug(f"_flush_token_buffer CALLED: mode={self.current_mode}, buffer_size={len(self._token_buffer)}")
 
-        if self.current_mode != "smart":
+        if self.current_mode not in self.DUAL_PANE_MODES:
             with self._ui_lock:
                 self._token_buffer.clear()
                 self._pending_flush = False
@@ -697,7 +705,7 @@ class QtDictationPopupView(QMainWindow):
         Args:
             status: Status text to display. If "Complete!" or similar, stops spinner.
         """
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             self.llm_label.setText(status)
             # Stop spinner when LLM completes
             if hasattr(self, "llm_spinner"):

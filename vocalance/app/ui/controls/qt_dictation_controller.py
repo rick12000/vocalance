@@ -125,14 +125,13 @@ class QtDictationController(QtBaseController):
         mode = getattr(event, "mode", "inactive")
         self.dictation_status_changed.emit(is_active, mode)
 
-    async def _on_smart_started(self, event):
-        """Handle smart dictation started event."""
-        self.dictation_started.emit("smart")
+    async def _on_smart_started(self, event: SmartDictationStartedEvent) -> None:
+        """Handle dual-pane dictation started (smart or amend)."""
+        self.dictation_started.emit(event.mode)
 
-    async def _on_smart_stopped(self, event):
-        """Handle smart dictation stopped event."""
-        raw_text = getattr(event, "raw_text", "")
-        self.dictation_stopped.emit("smart", raw_text)
+    async def _on_smart_stopped(self, event: SmartDictationStoppedEvent) -> None:
+        """Handle dual-pane dictation stopped (pre-LLM)."""
+        self.dictation_stopped.emit(event.mode, event.raw_text)
 
     async def _on_visual_started(self, event):
         """Handle visual dictation started event."""

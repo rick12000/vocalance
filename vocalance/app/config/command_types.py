@@ -101,6 +101,10 @@ class DictationHiddenStartCommand(DictationCommand):
     """
 
 
+class DictationAmendStartCommand(DictationCommand):
+    """Command to start amend mode: copy selection, dictate instructions, LLM applies them."""
+
+
 class SystemControlCommand(BaseCommand):
     """Base class for system control commands (pause, resume, etc.)."""
 
@@ -382,6 +386,7 @@ DictationCommandType = Union[
     DictationSmartStartCommand,
     DictationVisualStartCommand,
     DictationHiddenStartCommand,
+    DictationAmendStartCommand,
 ]
 
 AutomationCommandType = Union[ExactMatchCommand, ParameterizedCommand]
