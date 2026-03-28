@@ -18,7 +18,6 @@ class SettingsUpdateCoordinator:
     - sound_recognizer.confidence_threshold
     - sound_recognizer.vote_threshold
     - grid.default_rect_count
-    - vad.dictation_silent_chunks_for_end
     - vad.command_silent_chunks_for_end
 
     Other settings (LLM) require app restart.
@@ -97,7 +96,6 @@ class SettingsUpdateCoordinator:
             "markov_predictor.confidence_threshold": ("markov_predictor", "on_confidence_threshold_updated"),
             "sound_recognizer.confidence_threshold": ("sound_recognizer", "on_confidence_threshold_updated"),
             "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),
-            "vad.dictation_silent_chunks_for_end": ("audio", "on_dictation_silent_chunks_updated"),
             "vad.command_silent_chunks_for_end": ("audio", "on_command_silent_chunks_updated"),
         }
 

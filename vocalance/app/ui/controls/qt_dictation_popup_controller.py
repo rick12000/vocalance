@@ -2,7 +2,6 @@ import asyncio
 import logging
 
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import AudioChunkEvent
 from vocalance.app.events.dictation_events import (
     DictationStatusChangedEvent,
     DictationStopWordDetectedEvent,
@@ -60,9 +59,6 @@ class QtDictationPopupController:
         """Subscribe to dictation-related events."""
         try:
             self.event_bus.subscribe(DictationStatusChangedEvent, self._on_dictation_status_changed)
-
-            # Audio visualization
-            self.event_bus.subscribe(AudioChunkEvent, self._on_audio_chunk)
 
             # Smart/Visual/Hidden dictation mode lifecycle
             self.event_bus.subscribe(SmartDictationStartedEvent, self._on_smart_started)
@@ -294,35 +290,26 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling stop word detection: {e}", exc_info=True)
 
-    async def _on_audio_chunk(self, event: AudioChunkEvent) -> None:
-        """Drive the simple-mode level meter from audio chunks."""
+    def feed_audio_chunk_for_level_meter(self, audio_chunk: bytes) -> None:
+        """Drive the simple-mode level meter from raw PCM (called from the audio VAD worker thread)."""
         if not self.popup_view.isVisible() or self.popup_view.current_mode != "simple":
             return
 
         try:
             import numpy as np
 
-            # Convert bytes to numpy array (assuming int16)
-            audio_data = np.frombuffer(event.audio_chunk, dtype=np.int16)
+            audio_data = np.frombuffer(audio_chunk, dtype=np.int16)
 
             if len(audio_data) == 0:
                 return
 
-            # Calculate RMS
-            # Convert to float for calculation to avoid overflow
             rms = np.sqrt(np.mean(audio_data.astype(float) ** 2))
-
-            # Normalize
-            # 16-bit audio max amplitude is 32768
-            # Normal speech might be around 1000-5000 RMS
-            # Use 5000 as reference max for visualization to make it sensitive
             max_ref = 5000.0
             normalized_level = min(1.0, rms / max_ref)
 
             self.popup_view.update_audio_level(normalized_level)
 
         except Exception:
-            # Fail silently for performance in high-frequency callback
             pass
 
     def cleanup(self) -> None:

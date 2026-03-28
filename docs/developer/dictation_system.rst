@@ -316,119 +316,25 @@ Architecture
        style D fill:#e1f5ff
        style I fill:#fff4e1
 
-Streaming Transcription Architecture
--------------------------------------
+Streaming transcription (Moonshine)
+------------------------------------
 
-Smart, amend, visual, and hidden modes use streaming transcription to provide incremental text during speech. The core challenge: Whisper processes max 30 seconds of audio, but users speak longer. The solution: two offsets track which audio is finalized (text extracted) and which is trimmed (discarded), ensuring no text is lost during the trim cycle.
+Smart, amend, visual, hidden, standard, and type dictation share the Moonshine streaming path: ``AudioService`` calls a dictation chunk callback from the recorder thread; ``DictationCoordinator`` enqueues PCM on an ingress thread and feeds ``MoonshineDictationStreamSession.add_audio_pcm16``. Native Moonshine callbacks deliver line text changes and completed lines; the coordinator publishes ``PartialDictationTextEvent``, ``FinalDictationTextEvent``, and (for standard/type) ``DictationTextRecognizedEvent`` with ``engine="moonshine"`` where appropriate.
 
-What Whisper Returns
-~~~~~~~~~~~~~~~~~~~~
+**Partials vs finals**: Partials update live UI; completed lines append to the session accumulator and emit finals for streaming modes. Duplicate-line and hallucination checks run before publishing.
 
-Each time the transcription loop calls Whisper, it returns a list of segments. Each segment contains:
+**Rotation**: When ``stt.moonshine_max_stream_line_duration_seconds`` is set, ``add_audio_pcm16`` signals the coordinator to close the current native stream and open a new one after enough audio on one line, bounding work on long sessions.
 
-- **text**: The recognized speech for this time interval
-- **start/end**: Timestamp boundaries (seconds from audio chunk start)
-- **no_speech_prob**: Confidence it's actual speech (0.0-1.0; <0.45 means speech detected)
+**Cadence**: ``stt.moonshine_stream_update_interval`` controls partial refresh frequency (trade-off: responsiveness vs CPU).
 
-Multiple segments (2+) means Whisper detected clear boundaries between phrases—it identified where one thought ends and another begins.
+**Batch API**: ``MoonshineSTT.recognize`` remains for short offline segments; continuous dictation does not use a rolling in-process buffer like the old streaming STT loop.
 
-The Two-Offset System
-~~~~~~~~~~~~~~~~~~~~~
+Two-phase workflow (smart / amend)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Problem: Buffer grows to 45 seconds then trims 30 seconds (to stay under Whisper's 30-second limit). If trimmed audio contained unfinalized text (detected speech not yet transcribed), that text is lost.
+**Phase 1 — Recording**: Moonshine partial/final events update the UI and ``accumulated_text`` (and the amend instructions column).
 
-Solution: Two offsets track different aspects of the audio lifecycle:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 50 20
-
-   * - Offset
-     - Meaning
-     - Advances When
-   * - ``frames_offset``
-     - Audio trimmed away (discarded)
-     - Buffer exceeds 45 seconds
-   * - ``timestamp_offset``
-     - Audio finalized (text extracted)
-     - Segment is finalized
-
-The rule: never trim audio before ``timestamp_offset``. This guarantees unfinalized audio is never lost.
-
-How Segments Are Finalized
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Segments finalize under three conditions:
-
-**1. Multi-segment output** (Whisper returns 2+ segments):
-   - If 2+ segments: all but the last are high-confidence (Whisper found clear boundaries)
-   - Finalize all except the last (which is still being refined as more audio arrives)
-   - Example: Whisper returns [segment 0-8s, segment 8-15s, partial 15-22s] → finalize first two
-
-**2. Same-output stability** (identical prediction 10+ times):
-   - Whisper returns the exact same text repeatedly → indicates no new information
-   - Text is stable; finalize it
-
-**3. Buffer trim approaching** (forced finalization):
-   - If buffer trim would discard unfinalized audio, force finalize it first
-   - Check: will trim discard audio before ``timestamp_offset``? If yes, finalize incomplete text and advance ``timestamp_offset``
-   - This prevents information loss at buffer boundaries
-
-Example Timeline
-~~~~~~~~~~~~~~~~
-
-.. code-block:: text
-
-   Initial state: Buffer [0s-------45s], no offsets set
-
-   Loop iteration 1 (t=0ms):
-   - Call Whisper on audio[0:45]
-   - Returns 3 segments: [0-8s "hello", 8-15s "world", 15-22s partial "how"]
-   - Finalize 0-8s and 8-15s (multi-segment detected)
-   - Advance timestamp_offset to 15s
-   - Publish partial: "how" (incomplete, for Visual mode)
-
-   Loop iteration 2 (t=100ms):
-   - New audio arrived; buffer now [0s-------50s]
-   - Call Whisper on audio[15:50] (only unfinalized portion)
-   - Returns 2 segments: [15-18s refined "how are", 18-25s partial "you"]
-   - Finalize 15-18s (multi-segment)
-   - Advance timestamp_offset to 18s
-   - Publish partial: "how are you" (accumulated)
-
-   Loop iteration 3 (t=200ms):
-   - Buffer still growing [0s-------52s]
-   - Trim triggered (buffer > 45s): remove [0s:30s], set frames_offset = 30s
-   - Check: is timestamp_offset (18s) < frames_offset (30s)? YES—unfinalized audio will be lost!
-   - Force finalize partial "you" at end of its segment (25s)
-   - Advance timestamp_offset to 25s
-   - Continue with audio[25:52] for next call
-
-Natural Overlap Mechanism
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Each loop iteration reprocesses unfinalized audio with fresh context:
-
-- Finalized segments: never reprocessed (locked in place)
-- Unfinalized segments: reprocessed each loop (refined with new audio context)
-
-This creates natural overlap without manual duplication. Whisper automatically improves incomplete segments as more audio arrives.
-
-Transcription Loop Timing
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-- **Minimum audio threshold**: Wait for 1+ second of audio before calling Whisper (ensures adequate context)
-- **Processing frequency**: Call Whisper every ~50-100ms (adaptive: faster when audio available, slower when silent)
-- **Unfinalized audio maximum**: If unfinalized audio exceeds 25 seconds with no valid finalization, clip to last 5 seconds (prevents unbounded growth)
-
-Two-Phase Workflow for Smart Mode
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-**Phase 1 - Streaming Accumulation** (RECORDING state):
-   Loop continuously calls Whisper → finalizes detected segments → accumulates text in `accumulated_text` → publishes partial/final events for dual-pane and visual UIs
-
-**Phase 2 - LLM Post-Processing** (PROCESSING_LLM state, smart and amend only):
-   Smart: send accumulated dictation to ``process_dictation_streaming``. Amend: send clipboard snapshot plus accumulated spoken instructions to ``process_amend_streaming``. Both stream tokens and execute the same formatting commands (REMOVE:N, NEWLINE, END).
+**Phase 2 — LLM** (``PROCESSING_LLM``): Smart sends accumulated dictation to ``process_dictation_streaming``; amend sends the selection snapshot plus spoken instructions to ``process_amend_streaming``. Both stream tokens and formatting commands (REMOVE:N, NEWLINE, END).
 
 LLM Service
 -----------
@@ -563,7 +469,7 @@ This streaming provides visual feedback during ~2-5 second LLM processing.
 Amend mode (selection + instructions)
 ======================================
 
-Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Streaming Whisper fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``SmartDictationStartedEvent`` / ``SmartDictationStoppedEvent`` use ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. If raw segments paste before the LLM finishes, verify streaming modes skip immediate typing from ``DictationTextRecognizedEvent`` (see ``_STREAMING_STT_MODES`` in the coordinator).
+Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Moonshine streaming fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``SmartDictationStartedEvent`` / ``SmartDictationStoppedEvent`` use ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. Streaming modes rely on partial/final dictation events rather than immediate typing from every ``DictationTextRecognizedEvent``.
 
 Type Mode: Raw Insertion
 ==========================

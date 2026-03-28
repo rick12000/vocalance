@@ -22,7 +22,7 @@ from vocalance.app.config.command_types import (
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.base_event import BaseEvent
 from vocalance.app.events.command_events import DictationCommandParsedEvent
-from vocalance.app.events.core_events import AudioChunkEvent, DictationTextRecognizedEvent
+from vocalance.app.events.core_events import DictationTextRecognizedEvent
 from vocalance.app.events.dictation_events import (
     AudioModeChangeRequestEvent,
     DictationModeDisableOthersEvent,
@@ -55,7 +55,6 @@ from vocalance.app.services.audio.dictation_handling.text_input_service import (
     should_lowercase_current_start,
     should_remove_previous_period,
 )
-from vocalance.app.services.audio.streaming_audio_buffer import StreamingAudioBuffer
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
 
@@ -83,7 +82,18 @@ class DictationMode(Enum):
     AMEND = "amend"
 
 
-# All modes that use the streaming Whisper loop (partial/final events).
+# Modes that stream PCM into Moonshine via the dedicated ingress thread (not the event bus).
+MOONSHINE_CHUNK_DICTATION_MODES = frozenset(
+    {
+        DictationMode.STANDARD,
+        DictationMode.TYPE,
+        DictationMode.SMART,
+        DictationMode.VISUAL,
+        DictationMode.HIDDEN,
+        DictationMode.AMEND,
+    }
+)
+# Modes that use partial/final dictation events (skip duplicate DictationTextRecognized from segment path).
 _STREAMING_STT_MODES = frozenset(
     {DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN, DictationMode.AMEND}
 )
@@ -211,19 +221,24 @@ class DictationCoordinator:
         self._last_smart_dictation_text: Optional[str] = None
         self._amend_clipboard_snapshot: Optional[str] = None
 
-        self._streaming_buffer: Optional[StreamingAudioBuffer] = None
-        self._streaming_task: Optional[asyncio.Task] = None
-        self._streaming_segment_id: str = ""
+        self._moonshine_session = None
         self._streaming_finalized_text: str = ""
         self._streaming_finalized_segments: list[str] = []
 
-        self._streaming_current_out: str = ""
-        self._streaming_prev_out: str = ""
-        self._streaming_same_output_count: int = 0
-        self._streaming_end_time_for_same_output: Optional[float] = None
-        self._streaming_timestamp_offset: float = 0.0
-
         self._stt_service = None
+
+        # Moonshine audio is fed from the recorder thread via an unbounded queue and a dedicated
+        # worker thread. Feeding through the asyncio event bus caused 100–500ms stalls per chunk.
+        # We do not drop PCM when the ingress thread is briefly behind (accuracy over bounded memory).
+        self._moonshine_ingress_queue: queue.Queue = queue.Queue()
+        self._moonshine_ingress_stop = threading.Event()
+        self._moonshine_ingress_thread: Optional[threading.Thread] = None
+        # Serializes ingress drain/stop vs add_audio; never acquire _state_lock before this lock.
+        self._moonshine_feed_lock = threading.Lock()
+        # Bumped whenever the Moonshine stream is opened or torn down so stale chunks still
+        # in the ingress queue cannot be fed into a new session (stop/start race).
+        self._moonshine_ingress_epoch: int = 0
+        self._start_moonshine_ingress_thread()
 
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
@@ -246,6 +261,119 @@ class DictationCoordinator:
         """
         self._stt_service = stt_service
         logger.debug("STT service reference set for streaming dictation")
+
+    def _start_moonshine_ingress_thread(self) -> None:
+        if self._moonshine_ingress_thread is not None and self._moonshine_ingress_thread.is_alive():
+            return
+        self._moonshine_ingress_stop.clear()
+        self._moonshine_ingress_thread = threading.Thread(
+            target=self._moonshine_ingress_loop, name="MoonshineAudioIngress", daemon=True
+        )
+        self._moonshine_ingress_thread.start()
+        logger.debug("Moonshine audio ingress thread started")
+
+    def _moonshine_ingress_loop(self) -> None:
+        """Drain PCM chunks from the recorder thread and call Moonshine on a dedicated thread."""
+        logger.debug("Moonshine audio ingress thread running")
+        while not self._moonshine_ingress_stop.is_set():
+            try:
+                stamped = self._moonshine_ingress_queue.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            try:
+                epoch, audio_bytes, sample_rate = stamped
+                rotate = False
+                with self._moonshine_feed_lock:
+                    with self._state_lock:
+                        if epoch != self._moonshine_ingress_epoch:
+                            continue
+                        ms = self._moonshine_session
+                    if ms is not None:
+                        rotate = ms.add_audio_pcm16(audio_bytes, sample_rate)
+                if rotate:
+                    self._moonshine_rotate_line()
+            except Exception as e:
+                logger.error("Moonshine ingress feed error: %s", e, exc_info=True)
+        logger.debug("Moonshine audio ingress thread exiting")
+
+    def _moonshine_rotate_line(self) -> None:
+        """Finalize the current Moonshine stream line and open a fresh native stream.
+
+        The Moonshine decoder's work per partial update grows with unbounded audio on a single
+        stream line; rotating keeps latency stable during long dictation.
+        """
+        loop = self.gui_event_loop
+        if loop is None:
+            logger.error("Moonshine stream rotation skipped: gui_event_loop is not set")
+            return
+
+        logger.info("Moonshine stream rotation: max line duration reached — starting new native stream")
+
+        with self._moonshine_feed_lock:
+            self._moonshine_ingress_epoch += 1
+            self._drain_moonshine_ingress_queue()
+            old = self._moonshine_session
+            self._moonshine_session = None
+
+        if old is not None:
+            try:
+                old.stop()
+            except Exception as e:
+                logger.warning("Moonshine stream rotation stop failed: %s", e, exc_info=True)
+
+        with self._state_lock:
+            session = self._current_session
+            state = self._current_state
+
+        if (
+            session is None
+            or session.mode not in MOONSHINE_CHUNK_DICTATION_MODES
+            or state != DictationState.RECORDING
+        ):
+            return
+
+        if not self._stt_service or not self._stt_service.moonshine_engine:
+            return
+
+        try:
+            new_sess = self._stt_service.moonshine_engine.open_dictation_stream(
+                loop,
+                self._moonshine_on_partial,
+                self._moonshine_on_final,
+            )
+        except Exception as e:
+            logger.error("Moonshine stream rotation reopen failed: %s", e, exc_info=True)
+            return
+
+        with self._moonshine_feed_lock:
+            self._moonshine_session = new_sess
+            self._moonshine_ingress_epoch += 1
+
+    def _drain_moonshine_ingress_queue(self) -> None:
+        while True:
+            try:
+                self._moonshine_ingress_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def feed_moonshine_audio_chunk(self, audio_bytes: bytes, sample_rate: int) -> None:
+        """Hot path from the audio recorder thread: queue PCM for Moonshine.
+
+        Uses an unbounded queue so we never drop audio for accuracy; memory grows only if the
+        ingress thread falls behind for an extended time.
+        """
+        if not audio_bytes:
+            return
+        with self._state_lock:
+            if self._current_state == DictationState.SHUTTING_DOWN:
+                return
+            session = self._current_session
+            if session is None or session.mode not in MOONSHINE_CHUNK_DICTATION_MODES:
+                return
+            if self._moonshine_session is None:
+                return
+            epoch = self._moonshine_ingress_epoch
+        self._moonshine_ingress_queue.put((epoch, audio_bytes, sample_rate))
 
     def _should_apply_formatting(self, mode: DictationMode) -> bool:
         """
@@ -324,7 +452,6 @@ class DictationCoordinator:
         """
         subscriptions = [
             (DictationTextRecognizedEvent, self._handle_dictation_text),
-            (AudioChunkEvent, self._handle_audio_chunk_for_streaming),
             (LLMProcessingCompletedEvent, self._handle_llm_completed),
             (LLMProcessingFailedEvent, self._handle_llm_failed),
             (DictationCommandParsedEvent, self._handle_dictation_command),
@@ -352,7 +479,7 @@ class DictationCoordinator:
                     return
 
                 if session.mode in _STREAMING_STT_MODES:
-                    logger.debug(f"Skipping VAD-based text for streaming mode: {session.mode.value}")
+                    logger.debug("Skipping VAD-based text for Moonshine chunk-stream mode: %s", session.mode.value)
                     return
 
             cleaned_text = self._clean_text(text)
@@ -496,207 +623,60 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"LLM processing ready handling error: {e}", exc_info=True)
 
-    async def _handle_audio_chunk_for_streaming(self, event: AudioChunkEvent) -> None:
-        """Route audio chunks to streaming buffer for smart/visual/hidden modes.
+    async def _moonshine_on_partial(self, text: str, segment_id: str) -> None:
+        """Moonshine line text update → partial dictation UI (smart/visual/amend)."""
+        with self._state_lock:
+            session = self._current_session
 
-        Args:
-            event: AudioChunkEvent containing 50ms audio chunk.
-        """
-        try:
-            with self._state_lock:
-                session = self._current_session
-                buffer = self._streaming_buffer
-
-            if not session or not buffer:
-                return
-
-            if session.mode not in _STREAMING_STT_MODES:
-                return
-
-            import numpy as np
-
-            chunk_np = np.frombuffer(event.audio_chunk, dtype=np.int16)
-            await buffer.add_chunk(chunk_np)
-
-        except Exception as e:
-            logger.error(f"Error handling audio chunk for streaming: {e}", exc_info=True)
-
-    async def _streaming_transcription_loop(self) -> None:
-        """Continuous speech-to-text transcription with streaming buffer management.
-
-        Processes unprocessed audio segments, detects speech, and finalizes text
-        after consistent repetition (indicating segment stability).
-        """
-        try:
-            MIN_AUDIO_SECONDS = 1.0
-            SAME_OUTPUT_THRESHOLD = 5  # Reduced from 10 for lower latency (~150ms vs 300ms)
-            NO_SPEECH_THRESH = 0.45
-
-            logger.info(f"Starting streaming loop (threshold={SAME_OUTPUT_THRESHOLD}, no_speech={NO_SPEECH_THRESH})")
-
-            text: list[str] = []
-            current_out = ""
-            prev_out = ""
-            same_output_count = 0
-            end_time_for_same_output: Optional[float] = None
-            segment_id = str(uuid.uuid4())
-            force_finalization_applied_this_loop = False
-
-            while True:
-                with self._state_lock:
-                    session = self._current_session
-                    buffer = self._streaming_buffer
-
-                    if not session or not buffer:
-                        logger.debug("Streaming loop: No session or buffer, exiting")
-                        break
-
-                    if session.mode not in _STREAMING_STT_MODES:
-                        logger.debug("Streaming loop: Not in streaming mode, exiting")
-                        break
-
-                forced_finalization_needed = await buffer.check_and_clear_forced_finalization_flag()
-
-                if forced_finalization_needed and current_out and not force_finalization_applied_this_loop:
-                    is_duplicate = text and text[-1].strip() == current_out.strip()
-                    if not is_duplicate and current_out.strip():
-                        text.append(current_out.strip())
-                        await self._emit_final_text_append(current_out.strip(), segment_id, session)
-                        logger.warning(f"Forced finalization: '{current_out[:50]}...'")
-
-                    offset_to_advance = end_time_for_same_output if end_time_for_same_output else 0.5
-                    await buffer.advance_timestamp_offset(max(0.1, offset_to_advance))
-
-                    current_out = ""
-                    prev_out = ""
-                    same_output_count = 0
-                    end_time_for_same_output = None
-                    segment_id = str(uuid.uuid4())
-                    force_finalization_applied_this_loop = True
-
-                    await asyncio.sleep(0.05)
-                    continue
-
-                audio_result = await buffer.get_audio_for_transcription()
-                if not audio_result:
-                    await asyncio.sleep(0.05)
-                    force_finalization_applied_this_loop = False
-                    continue
-
-                audio_bytes, duration = audio_result
-                if duration < MIN_AUDIO_SECONDS:
-                    await asyncio.sleep(0.1)
-                    force_finalization_applied_this_loop = False
-                    continue
-
-                if not self._stt_service:
-                    await asyncio.sleep(0.1)
-                    force_finalization_applied_this_loop = False
-                    continue
-
-                _, _, segments = await self._stt_service.recognize_streaming(
-                    audio_bytes=audio_bytes,
-                    sample_rate=self.config.audio.sample_rate,
-                    return_segments=True,
-                )
-
-                if not segments:
-                    await buffer.advance_timestamp_offset(duration)
-                    await asyncio.sleep(0.25)
-                    continue
-
-                offset: Optional[float] = None
-
-                if len(segments) > 1:
-                    last_seg_no_speech = segments[-1].get("no_speech_prob", 0)
-                    if last_seg_no_speech <= NO_SPEECH_THRESH:
-                        for seg in segments[:-1]:
-                            seg_text = seg["text"].strip()
-                            seg_no_speech = seg.get("no_speech_prob", 0)
-                            seg_end = seg["end"]
-
-                            if seg_no_speech > NO_SPEECH_THRESH or not seg_text:
-                                continue
-
-                            is_duplicate = text and text[-1].strip() == seg_text
-                            if not is_duplicate:
-                                text.append(seg_text)
-                                await self._emit_final_text_append(seg_text, str(uuid.uuid4()), session)
-                            offset = seg_end
-
-                last_segment = segments[-1]
-                last_seg_no_speech = last_segment.get("no_speech_prob", 0)
-                last_seg_text = last_segment["text"].strip()
-                last_seg_end = last_segment["end"]
-
-                if last_seg_no_speech <= NO_SPEECH_THRESH:
-                    if self._is_hallucination(last_seg_text, prev_out):
-                        current_out = ""
-                    else:
-                        current_out = last_seg_text
-                else:
-                    current_out = ""
-
-                if current_out.strip() == prev_out.strip() and current_out.strip():
-                    same_output_count += 1
-                    if end_time_for_same_output is None:
-                        end_time_for_same_output = last_seg_end
-                else:
-                    same_output_count = 0
-                    end_time_for_same_output = None
-
-                if same_output_count > SAME_OUTPUT_THRESHOLD:
-                    is_duplicate = text and text[-1].strip() == current_out.strip()
-                    if not is_duplicate and current_out.strip():
-                        text.append(current_out.strip())
-                        await self._emit_final_text_append(current_out.strip(), segment_id, session)
-
-                    offset = end_time_for_same_output
-                    current_out = ""
-                    prev_out = ""
-                    same_output_count = 0
-                    end_time_for_same_output = None
-                    segment_id = str(uuid.uuid4())
-                else:
-                    prev_out = current_out
-
-                if offset is not None:
-                    await buffer.advance_timestamp_offset(offset)
-
-                if current_out and session.mode != DictationMode.HIDDEN:
-                    text_with_subs = self.alias_service.apply_substitutions(current_out)
-                    await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
-
-                force_finalization_applied_this_loop = False
-                await asyncio.sleep(0.01)
-
-        except asyncio.CancelledError:
-            # Save remaining partial text
-            if current_out.strip():
-                is_duplicate = text and text[-1].strip() == current_out.strip()
-                if not is_duplicate:
-                    if self._streaming_finalized_text:
-                        self._streaming_finalized_text += " " + current_out.strip()
-                    else:
-                        self._streaming_finalized_text = current_out.strip()
-                    logger.info(f"Loop cancelled, saved remaining: '{current_out[:50]}...'")
-            logger.info("Streaming transcription loop cancelled")
-        except Exception as e:
-            logger.error(f"Error in streaming transcription loop: {e}", exc_info=True)
-
-    async def _emit_final_text(self, text: str, segment_id: str, session) -> None:
-        """Deprecated: Use _emit_final_text_append instead."""
-        if not text:
+        if not session or session.mode not in MOONSHINE_CHUNK_DICTATION_MODES:
             return
 
-        if session.mode != DictationMode.HIDDEN:
-            text_with_subs = self.alias_service.apply_substitutions(text)
-            await self._publish_event(FinalDictationTextEvent(text=text_with_subs, segment_id=segment_id or str(uuid.uuid4())))
+        if session.mode in (DictationMode.HIDDEN, DictationMode.STANDARD, DictationMode.TYPE):
+            return
 
-        self._streaming_finalized_text = text
+        if self._current_state != DictationState.RECORDING:
+            return
 
-        if self._stt_service:
-            await self._stt_service.add_finalized_segment(text)
+        if self._is_hallucination(text, ""):
+            return
+
+        cleaned = self._clean_text(text)
+        if not cleaned:
+            return
+
+        text_with_subs = self.alias_service.apply_substitutions(cleaned)
+        await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
+
+    async def _moonshine_on_final(self, text: str, segment_id: str) -> None:
+        """Moonshine completed line → segment typing or finalized chunk for LLM modes."""
+        with self._state_lock:
+            session = self._current_session
+
+        if not session or session.mode not in MOONSHINE_CHUNK_DICTATION_MODES:
+            return
+
+        if self._current_state != DictationState.RECORDING:
+            return
+
+        if self._is_hallucination(text, ""):
+            return
+
+        cleaned = self._clean_text(text)
+        if not cleaned:
+            return
+
+        if session.mode in (DictationMode.STANDARD, DictationMode.TYPE):
+            await self._publish_event(
+                DictationTextRecognizedEvent(
+                    text=cleaned,
+                    processing_time_ms=0.0,
+                    engine="moonshine",
+                    mode="dictation",
+                )
+            )
+            return
+
+        await self._emit_final_text_append(cleaned, segment_id, session)
 
     async def _emit_final_text_append(self, text: str, segment_id: str, session) -> None:
         """Emit final text and append to accumulator (prevents data loss)."""
@@ -720,30 +700,8 @@ class DictationCoordinator:
         else:
             self._streaming_finalized_text = text
 
-        if self._stt_service:
-            await self._stt_service.add_finalized_segment(text)
-
-    async def _finalize_text(self, text: str, segment_id: str, session) -> None:
-        """Finalize partial text and emit final event."""
-        if not text:
-            return
-
-        segment_id = segment_id or str(uuid.uuid4())
-
-        if session.mode != DictationMode.HIDDEN:
-            text_with_subs = self.alias_service.apply_substitutions(text)
-            await self._publish_event(FinalDictationTextEvent(text=text_with_subs, segment_id=segment_id))
-
-        if self._stt_service:
-            await self._stt_service.add_finalized_segment(text)
-
-        if self._streaming_finalized_text:
-            self._streaming_finalized_text += " " + text
-        else:
-            self._streaming_finalized_text = text
-
     def _is_hallucination(self, text: str, prev_text: str = "") -> bool:
-        """Detect Whisper hallucination patterns (repeated short words or character spam)."""
+        """Detect likely ASR hallucination patterns (repeated short words or character spam)."""
         if not text or len(text) < 3:
             return False
 
@@ -773,61 +731,27 @@ class DictationCoordinator:
         result = re.sub(pattern, "", text, flags=re.IGNORECASE)
         return " ".join(result.split())
 
-    def _normalize_for_comparison(self, text: str) -> list[str]:
-        """Normalize text by removing punctuation for comparison."""
-        import re
-
-        cleaned = re.sub(r"[^\w\s]", "", text.lower())
-        return cleaned.split()
-
-    def _strip_overlap(self, text: str) -> str:
-        """Strip overlapping prefix from new text that matches finalized text."""
-        if not self._streaming_finalized_text or not text:
-            return text
-
-        finalized_normalized = self._normalize_for_comparison(self._streaming_finalized_text)
-        text_words = text.split()
-        text_normalized = self._normalize_for_comparison(text)
-
-        if len(text_normalized) >= len(finalized_normalized):
-            if text_normalized[: len(finalized_normalized)] == finalized_normalized:
-                remaining_words = text_words[len(finalized_normalized) :]
-                return " ".join(remaining_words) if remaining_words else ""
-
-        max_overlap = min(len(finalized_normalized), len(text_normalized))
-        overlap_length = 0
-
-        for i in range(1, max_overlap + 1):
-            if finalized_normalized[-i:] == text_normalized[:i]:
-                overlap_length = i
-
-        if overlap_length > 0:
-            remaining_words = text_words[overlap_length:]
-            return " ".join(remaining_words) if remaining_words else ""
-
-        return text
-
     async def _stop_streaming_mode(self, session: DictationSession) -> None:
-        """Stop streaming and finalize transcription.
-
-        Cancels the streaming loop (which saves partial text on cancel),
-        collects finalized text, applies cleanup, and prepares for output.
-        """
+        """Stop Moonshine chunk stream and finalize transcription for supported modes."""
         try:
-            if self._streaming_task and not self._streaming_task.done():
-                self._streaming_task.cancel()
-                try:
-                    await self._streaming_task
-                except asyncio.CancelledError:
-                    pass
-                self._streaming_task = None
-
-            self._streaming_current_out = ""
-            self._streaming_prev_out = ""
-            self._streaming_same_output_count = 0
-            self._streaming_segment_id = ""
+            with self._moonshine_feed_lock:
+                self._moonshine_ingress_epoch += 1
+                self._drain_moonshine_ingress_queue()
+                if self._moonshine_session:
+                    self._moonshine_session.stop()
+                    self._moonshine_session = None
 
             final_text = self._streaming_finalized_text
+
+            if session.mode in (DictationMode.STANDARD, DictationMode.TYPE):
+                with self._state_lock:
+                    self._current_session = None
+                    self._set_state(DictationState.IDLE)
+                self._streaming_finalized_text = ""
+                self._streaming_finalized_segments = []
+                await self._finalize_session(session)
+                logger.info("Moonshine chunk session stopped (%s)", session.mode.value)
+                return
 
             if session.mode in (DictationMode.HIDDEN, DictationMode.AMEND) and final_text:
                 final_text = self._remove_stop_word(final_text)
@@ -835,14 +759,8 @@ class DictationCoordinator:
                 final_text = self.alias_service.apply_substitutions(final_text)
                 final_text = " ".join(final_text.split())
 
-            if self._streaming_buffer:
-                await self._streaming_buffer.clear()
-                self._streaming_buffer = None
-
             self._streaming_finalized_text = ""
             self._streaming_finalized_segments = []
-            self._streaming_end_time_for_same_output = None
-            self._streaming_timestamp_offset = 0.0
 
             with self._state_lock:
                 if session.mode in _STREAMING_LLM_MODES and final_text:
@@ -987,22 +905,19 @@ class DictationCoordinator:
             await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
 
-            if mode in _STREAMING_STT_MODES:
-                self._streaming_buffer = StreamingAudioBuffer(sample_rate=self.config.audio.sample_rate)
+            if mode in MOONSHINE_CHUNK_DICTATION_MODES:
                 self._streaming_finalized_text = ""
                 self._streaming_finalized_segments = []
-                self._streaming_segment_id = ""
-                self._streaming_current_out = ""
-                self._streaming_prev_out = ""
-                self._streaming_same_output_count = 0
-                self._streaming_end_time_for_same_output = None
-                self._streaming_timestamp_offset = 0.0
-
-                if self._stt_service:
-                    await self._stt_service.clear_streaming_context()
-
-                self._streaming_task = asyncio.create_task(self._streaming_transcription_loop())
-                logger.info(f"Initialized streaming dictation for {mode.value} mode")
+                if self._stt_service and self._stt_service.moonshine_engine:
+                    self._moonshine_session = self._stt_service.moonshine_engine.open_dictation_stream(
+                        asyncio.get_running_loop(),
+                        self._moonshine_on_partial,
+                        self._moonshine_on_final,
+                    )
+                    self._moonshine_ingress_epoch += 1
+                    logger.info("Initialized Moonshine dictation stream for %s mode", mode.value)
+                else:
+                    logger.error("Moonshine engine unavailable — cannot start chunk dictation for %s", mode.value)
 
             if mode == DictationMode.SMART:
                 await self._publish_event(SmartDictationStartedEvent())
@@ -1031,8 +946,8 @@ class DictationCoordinator:
         """Stop dictation session with proper cleanup.
 
         Routes to appropriate handler based on mode:
-        - SMART/VISUAL/HIDDEN: Use streaming mode handler
-        - STANDARD/TYPE: Use simple VAD-based handler
+        - Chunk-stream modes (see MOONSHINE_CHUNK_DICTATION_MODES): Moonshine stop + mode-specific finalize
+        - Other modes: simple VAD-based handler
         """
         try:
             with self._state_lock:
@@ -1047,7 +962,7 @@ class DictationCoordinator:
                 if session.mode == DictationMode.TYPE:
                     self._cancel_type_silence_task()
 
-                if session.mode in _STREAMING_STT_MODES:
+                if session.mode in MOONSHINE_CHUNK_DICTATION_MODES:
                     await self._stop_streaming_mode(session)
                     return
 
@@ -1284,15 +1199,20 @@ class DictationCoordinator:
 
             self._cancel_type_silence_task()
 
-            if self._streaming_task and not self._streaming_task.done():
-                logger.info("Cancelling active streaming task")
-                self._streaming_task.cancel()
-                try:
-                    await self._streaming_task
-                except asyncio.CancelledError:
-                    logger.info("Streaming task cancelled")
-                except Exception as e:
-                    logger.warning(f"Error cancelling streaming task: {e}")
+            self._moonshine_ingress_stop.set()
+            if self._moonshine_ingress_thread is not None:
+                self._moonshine_ingress_thread.join(timeout=5.0)
+                if self._moonshine_ingress_thread.is_alive():
+                    logger.warning("Moonshine ingress thread did not stop within timeout")
+                self._moonshine_ingress_thread = None
+
+            with self._moonshine_feed_lock:
+                self._moonshine_ingress_epoch += 1
+                self._drain_moonshine_ingress_queue()
+                if self._moonshine_session:
+                    logger.info("Stopping active Moonshine dictation stream")
+                    self._moonshine_session.stop()
+                    self._moonshine_session = None
 
             if self._llm_processing_task and not self._llm_processing_task.done():
                 logger.info("Cancelling active LLM processing task")
@@ -1305,10 +1225,6 @@ class DictationCoordinator:
                     logger.warning(f"Error cancelling LLM task: {e}")
 
             self._stop_streaming()
-
-            if self._streaming_buffer:
-                await self._streaming_buffer.clear()
-                self._streaming_buffer = None
 
             if has_active_session:
                 await self._stop_session()

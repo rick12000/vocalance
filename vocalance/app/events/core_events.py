@@ -29,38 +29,6 @@ class CommandAudioSegmentReadyEvent(BaseEvent):
     priority: EventPriority = EventPriority.HIGH
 
 
-class DictationAudioSegmentReadyEvent(BaseEvent):
-    """Audio segment ready for dictation mode processing.
-
-    Attributes:
-        audio_bytes: Audio data.
-        sample_rate: Sample rate of audio.
-    """
-
-    audio_bytes: bytes
-    sample_rate: int
-    priority: EventPriority = EventPriority.HIGH
-
-
-class AudioChunkEvent(BaseEvent):
-    """Continuous audio chunk stream from recorder (base unit: 50ms).
-
-    Published continuously by AudioRecorder at fixed intervals. Downstream
-    listeners (CommandAudioListener, DictationAudioListener) accumulate these
-    chunks and apply their own VAD logic and silence timeouts.
-
-    Attributes:
-        audio_chunk: Raw audio data for this chunk (numpy int16 format as bytes).
-        sample_rate: Sample rate of audio.
-        timestamp: Timestamp when chunk was captured.
-    """
-
-    audio_chunk: bytes
-    sample_rate: int
-    timestamp: float = Field(description="Timestamp when chunk was captured")
-    priority: EventPriority = EventPriority.CRITICAL  # High priority for real-time streaming
-
-
 class AudioDetectedEvent(BaseEvent):
     """Published immediately when audio above threshold is detected.
 
@@ -247,10 +215,7 @@ class CommandTextRecognizedEvent(TextRecognizedEvent):
 
 
 class DictationTextRecognizedEvent(TextRecognizedEvent):
-    """Text recognized in dictation mode.
-
-    Typically from a more accurate STT engine like Whisper.
-    """
+    """Text recognized in dictation mode (e.g. Moonshine streaming or segment batch)."""
 
 
 class STTProcessingStartedEvent(BaseEvent):

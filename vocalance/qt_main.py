@@ -319,16 +319,16 @@ class FastServiceInitializer:
         async def init_stt() -> None:
             """Initialize STT service with non-blocking imports."""
             if progress_tracker:
-                whisper_models_dir = os.path.join(self.config.storage.user_data_root, "whisper_models")
-                whisper_model_name = self.config.stt.whisper_model
-                model_exists = (
-                    os.path.exists(whisper_models_dir) and any(whisper_model_name in f for f in os.listdir(whisper_models_dir))
-                    if os.path.exists(whisper_models_dir)
-                    else False
-                )
+                try:
+                    from moonshine_voice.download_file import get_cache_dir
+
+                    _ms_cache = get_cache_dir()
+                    model_exists = _ms_cache.is_dir() and any(_ms_cache.iterdir())
+                except Exception:
+                    model_exists = False
 
                 status_message = (
-                    "Fetching STT model. This should take 1-5 minutes on first use."
+                    "Fetching Moonshine STT model. This may take several minutes on first use."
                     if not model_exists
                     else "Initializing speech-to-text"
                 )
@@ -453,9 +453,13 @@ class FastServiceInitializer:
         with self._services_lock:
             stt_service = self.services.get("stt")
             dictation = self.services.get("dictation")
+            audio = self.services.get("audio")
             if stt_service and dictation:
                 dictation.set_stt_service(stt_service)
                 logger.debug("STT service reference injected into dictation coordinator")
+            if audio and dictation:
+                audio.set_dictation_chunk_callback(dictation.feed_moonshine_audio_chunk)
+                logger.debug("Moonshine dictation fed from recorder thread (bypasses event bus for PCM)")
 
         await init_markov_predictor()
 

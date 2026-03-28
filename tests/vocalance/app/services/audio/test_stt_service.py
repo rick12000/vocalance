@@ -7,8 +7,6 @@ import pytest_asyncio
 from vocalance.app.events.core_events import (
     CommandAudioSegmentReadyEvent,
     CommandTextRecognizedEvent,
-    DictationAudioSegmentReadyEvent,
-    DictationTextRecognizedEvent,
 )
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
@@ -22,8 +20,8 @@ async def stt_service_with_mocked_engines(event_bus, app_config):
     service.vosk_engine = Mock()
     service.vosk_engine.recognize = AsyncMock(return_value="copy")
 
-    service.whisper_engine = Mock()
-    service.whisper_engine.recognize = AsyncMock(return_value="this is a test")
+    service.moonshine_engine = Mock()
+    service.moonshine_engine.recognize = AsyncMock(return_value="this is a test")
 
     service._engines_initialized = True
     service.setup_subscriptions()
@@ -53,32 +51,6 @@ async def test_command_audio_processing_normal_mode(stt_service_with_mocked_engi
     assert len(captured_events) == 1
     assert captured_events[0].text == "copy"
     assert captured_events[0].engine == "vosk"
-
-
-@pytest.mark.asyncio
-async def test_dictation_audio_processing(stt_service_with_mocked_engines, dictation_audio_bytes):
-    """Test dictation audio processing with Whisper engine."""
-    service = stt_service_with_mocked_engines
-    event_bus = service.event_bus
-
-    # Set service to dictation mode
-    service._dictation_active = True
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(DictationTextRecognizedEvent, capture_event)
-
-    event = DictationAudioSegmentReadyEvent(audio_bytes=dictation_audio_bytes, sample_rate=16000)
-    await event_bus.publish(event)
-    await asyncio.sleep(0.1)
-
-    assert len(captured_events) == 1
-    assert captured_events[0].text == "this is a test"
-    assert captured_events[0].engine == "whisper"
-    assert captured_events[0].mode == "dictation"
 
 
 @pytest.mark.asyncio
@@ -203,19 +175,3 @@ async def test_empty_text_does_not_trigger_sound_recognition_from_stt(stt_servic
 
     # STT service should NOT forward empty text to sound recognition
     assert len(captured_events) == 0
-
-
-@pytest.mark.asyncio
-async def test_context_segments_management(stt_service_with_mocked_engines, dictation_audio_bytes):
-    """Test that context segments are managed with maxlen of 10."""
-    service = stt_service_with_mocked_engines
-    event_bus = service.event_bus
-
-    for i in range(15):
-        service.whisper_engine.recognize = AsyncMock(return_value=f"segment {i}")
-        event = DictationAudioSegmentReadyEvent(audio_bytes=dictation_audio_bytes, sample_rate=16000)
-        await event_bus.publish(event)
-        await asyncio.sleep(0.05)
-
-    async with service._context_lock:
-        assert len(service._context_segments) <= 10

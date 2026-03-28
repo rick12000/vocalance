@@ -1,15 +1,32 @@
 import asyncio
+import time
 
 import numpy as np
 import pytest
+import pytest_asyncio
 
-from vocalance.app.events.core_events import AudioChunkEvent, AudioDetectedEvent, CommandAudioSegmentReadyEvent
+from vocalance.app.events.core_events import AudioDetectedEvent, CommandAudioSegmentReadyEvent
 from vocalance.app.services.audio.audio_listeners import CommandAudioListener
 
+_SAMPLE_RATE = 16000
 
-@pytest.fixture
-def command_listener(event_bus, app_config):
-    return CommandAudioListener(event_bus, app_config)
+
+def _normalized_rms_energy(chunk: np.ndarray) -> float:
+    if chunk.dtype == np.int16:
+        return float(np.sqrt(np.mean((chunk.astype(np.float32) / 32768.0) ** 2)))
+    return float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+
+
+def _feed_chunk(listener: CommandAudioListener, chunk: np.ndarray, timestamp: float | None = None) -> None:
+    ts = time.time() if timestamp is None else timestamp
+    listener.process_audio_chunk(chunk.tobytes(), ts)
+
+
+@pytest_asyncio.fixture
+async def command_listener(event_bus, app_config):
+    listener = CommandAudioListener(event_bus, app_config)
+    listener.set_main_event_loop(asyncio.get_running_loop())
+    return listener
 
 
 @pytest.fixture
@@ -20,21 +37,14 @@ def speech_chunk():
 
 @pytest.fixture
 def silence_chunk():
-    # Create a very quiet chunk that should be below the silence threshold
     chunk = np.random.randint(-10, 10, size=800, dtype=np.int16)
     return chunk
-
-
-def create_audio_event(chunk: np.ndarray, timestamp: float = None) -> AudioChunkEvent:
-    if timestamp is None:
-        timestamp = asyncio.get_event_loop().time()
-    return AudioChunkEvent(audio_chunk=chunk.tobytes(), sample_rate=16000, timestamp=timestamp)
 
 
 @pytest.mark.asyncio
 async def test_energy_calculation_int16(command_listener):
     chunk = np.array([0, 16384, -16384, 32767, -32768], dtype=np.int16)
-    energy = command_listener._calculate_energy(chunk)
+    energy = _normalized_rms_energy(chunk)
 
     assert 0.0 < energy < 1.0
     assert isinstance(energy, (float, np.floating))
@@ -52,12 +62,10 @@ async def test_speech_onset_detection(command_listener, speech_chunk, event_bus)
     event_bus.subscribe(AudioDetectedEvent, capture_audio_detected)
     await event_bus.start_worker()
 
-    event = create_audio_event(speech_chunk)
-    await command_listener._handle_audio_chunk(event)
+    _feed_chunk(command_listener, speech_chunk)
 
     await asyncio.sleep(0.05)
 
-    # Should detect speech and emit AudioDetectedEvent
     assert len(captured_events) == 1
 
     await event_bus.stop_worker()
@@ -68,13 +76,9 @@ async def test_pre_roll_included_in_recording(command_listener, silence_chunk, s
     command_listener.setup_subscriptions()
 
     for _ in range(command_listener.pre_roll_chunks):
-        event = create_audio_event(silence_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, silence_chunk)
 
-    event = create_audio_event(speech_chunk)
-    await command_listener._handle_audio_chunk(event)
-
-    # Pre-roll chunks should be included in recording
+    _feed_chunk(command_listener, speech_chunk)
 
 
 @pytest.mark.asyncio
@@ -89,13 +93,11 @@ async def test_silence_detection_ends_recording(command_listener, speech_chunk, 
 
     event_bus.subscribe(CommandAudioSegmentReadyEvent, capture_segment)
 
-    event = create_audio_event(speech_chunk)
-    await command_listener._handle_audio_chunk(event)
+    _feed_chunk(command_listener, speech_chunk)
     await asyncio.sleep(0.01)
 
     for _ in range(command_listener.silent_chunks_for_end):
-        event = create_audio_event(silence_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, silence_chunk)
         await asyncio.sleep(0.01)
 
     await asyncio.sleep(0.2)
@@ -120,13 +122,11 @@ async def test_segment_ready_event_emission(command_listener, speech_chunk, sile
     event_bus.subscribe(CommandAudioSegmentReadyEvent, capture_segment)
 
     for _ in range(5):
-        event = create_audio_event(speech_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, speech_chunk)
         await asyncio.sleep(0.01)
 
     for _ in range(command_listener.silent_chunks_for_end):
-        event = create_audio_event(silence_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, silence_chunk)
         await asyncio.sleep(0.01)
 
     await asyncio.sleep(0.2)
@@ -134,7 +134,7 @@ async def test_segment_ready_event_emission(command_listener, speech_chunk, sile
     assert len(captured_events) >= 1
     segment_event = captured_events[0]
     assert isinstance(segment_event.audio_bytes, bytes)
-    assert segment_event.sample_rate == 16000
+    assert segment_event.sample_rate == _SAMPLE_RATE
     assert len(segment_event.audio_bytes) > 0
 
     await event_bus.stop_worker()
@@ -142,7 +142,6 @@ async def test_segment_ready_event_emission(command_listener, speech_chunk, sile
 
 @pytest.mark.asyncio
 async def test_maximum_duration_enforced(command_listener, speech_chunk, event_bus):
-    """Test that recordings are cut off at maximum duration."""
     command_listener.setup_subscriptions()
     await event_bus.start_worker()
 
@@ -153,15 +152,12 @@ async def test_maximum_duration_enforced(command_listener, speech_chunk, event_b
 
     event_bus.subscribe(CommandAudioSegmentReadyEvent, capture_segment)
 
-    # Send more chunks than maximum duration allows
     for _ in range(command_listener.max_duration_chunks + 5):
-        event = create_audio_event(speech_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, speech_chunk)
         await asyncio.sleep(0.001)
 
     await asyncio.sleep(0.1)
 
-    # Should produce exactly one segment (cut off at max duration)
     assert len(captured_events) == 1
 
     await event_bus.stop_worker()
@@ -180,18 +176,15 @@ async def test_state_reset_after_segment(command_listener, speech_chunk, silence
     event_bus.subscribe(CommandAudioSegmentReadyEvent, capture_segment)
 
     for _ in range(3):
-        event = create_audio_event(speech_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, speech_chunk)
         await asyncio.sleep(0.01)
 
     for _ in range(command_listener.silent_chunks_for_end):
-        event = create_audio_event(silence_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, silence_chunk)
         await asyncio.sleep(0.01)
 
     await asyncio.sleep(0.2)
 
-    # Should have produced a segment
     assert len(captured_events) > 0
 
     await event_bus.stop_worker()
@@ -199,7 +192,6 @@ async def test_state_reset_after_segment(command_listener, speech_chunk, silence
 
 @pytest.mark.asyncio
 async def test_audio_detected_event_once_per_session(command_listener, speech_chunk, silence_chunk, event_bus):
-    """Test that AudioDetectedEvent is emitted once per recording session (on speech onset)."""
     command_listener.setup_subscriptions()
     await event_bus.start_worker()
 
@@ -210,28 +202,19 @@ async def test_audio_detected_event_once_per_session(command_listener, speech_ch
 
     event_bus.subscribe(AudioDetectedEvent, capture_audio_detected)
 
-    # Start recording with speech - should emit event
-    event = create_audio_event(speech_chunk)
-    await command_listener._handle_audio_chunk(event)
+    _feed_chunk(command_listener, speech_chunk)
     await asyncio.sleep(0.05)
 
-    # Send more speech - should not emit another event
-    event = create_audio_event(speech_chunk)
-    await command_listener._handle_audio_chunk(event)
+    _feed_chunk(command_listener, speech_chunk)
     await asyncio.sleep(0.05)
 
-    # End recording with silence
     for _ in range(command_listener.silent_chunks_for_end):
-        event = create_audio_event(silence_chunk)
-        await command_listener._handle_audio_chunk(event)
+        _feed_chunk(command_listener, silence_chunk)
     await asyncio.sleep(0.05)
 
-    # Start new recording - should emit AudioDetectedEvent again (new session)
-    event = create_audio_event(speech_chunk)
-    await command_listener._handle_audio_chunk(event)
+    _feed_chunk(command_listener, speech_chunk)
     await asyncio.sleep(0.05)
 
-    # Should have exactly two events: one per recording session
     assert len(audio_detected_events) == 2
 
     await event_bus.stop_worker()
@@ -239,13 +222,11 @@ async def test_audio_detected_event_once_per_session(command_listener, speech_ch
 
 @pytest.mark.asyncio
 async def test_concurrent_chunk_processing_safe(command_listener, speech_chunk):
-    """Test that concurrent chunk processing is thread-safe."""
     command_listener.setup_subscriptions()
 
-    tasks = []
-    for i in range(10):
-        event = create_audio_event(speech_chunk, timestamp=float(i))
-        tasks.append(command_listener._handle_audio_chunk(event))
-
-    # Should complete without errors
-    await asyncio.gather(*tasks)
+    await asyncio.gather(
+        *[
+            asyncio.to_thread(command_listener.process_audio_chunk, speech_chunk.tobytes(), float(i))
+            for i in range(10)
+        ]
+    )

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from vocalance.app.config.logging_config import LoggingConfigModel
 
@@ -31,17 +31,44 @@ class AudioConfig(BaseModel):
 class STTConfig(BaseModel):
     """Configuration for speech-to-text engines and processing parameters.
 
-    Manages Whisper model selection and retry behavior, configures debouncing and
-    duplicate suppression intervals separately for command and dictation modes to
-    optimize responsiveness vs accuracy tradeoffs.
+    Dictation uses Moonshine Voice (streaming + batch). Command mode uses Vosk.
     """
 
-    whisper_model: Literal["tiny", "base", "small", "medium"] = "base"
-    whisper_device: Literal["cpu", "cuda"] = "cpu"
-    whisper_max_retries: int = Field(default=3, description="Maximum retry attempts for Whisper model loading")
-    whisper_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Whisper retry attempts")
+    model_config = ConfigDict(extra="ignore")
+
+    moonshine_language: str = Field(default="en", description="Two-letter language code for Moonshine models")
+    moonshine_model_arch: str = Field(
+        default="small-streaming",
+        description=(
+            "Moonshine architecture id, e.g. small-streaming, base-en, medium-streaming. "
+            "small-streaming trades accuracy for lower latency and smaller download."
+        ),
+    )
+    moonshine_stream_update_interval: float = Field(
+        default=0.12,
+        description="Seconds between Moonshine streaming partial updates (lower = snappier UI, more CPU).",
+    )
+    moonshine_max_stream_line_duration_seconds: float = Field(
+        default=32.0,
+        ge=0.0,
+        le=600.0,
+        description=(
+            "After this many seconds of audio on one Moonshine stream line, start a new native stream. "
+            "Decoder cost grows with unbounded line length; rotation keeps partial latency stable. "
+            "0 disables rotation."
+        ),
+    )
+    moonshine_max_retries: int = Field(default=3, description="Maximum retry attempts for Moonshine model loading")
+    moonshine_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Moonshine load retries")
 
     sample_rate: int = 16000
+
+    @field_validator("moonshine_model_arch", mode="before")
+    @classmethod
+    def _default_moonshine_arch_if_empty(cls, v: object) -> object:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return "small-streaming"
+        return v
 
 
 class SoundRecognizerConfig(BaseModel):
@@ -259,11 +286,9 @@ class LLMConfig(BaseModel):
 
 
 class VADConfig(BaseModel):
-    """Configuration for Voice Activity Detection (VAD) across multiple modes.
+    """Configuration for Voice Activity Detection (VAD) for command and sound modes.
 
-    Defines energy thresholds, recording durations, silence detection parameters, and
-    pre-roll buffering separately optimized for command mode (low latency), dictation mode
-    (longer speech), and training mode (sample collection).
+    Dictation uses continuous audio chunks fed to Moonshine streaming (no separate VAD segment pipeline).
 
     The VAD system uses continuous adaptive noise floor estimation with audio normalization
     to work robustly across different microphones. Key features:
@@ -289,7 +314,7 @@ class VADConfig(BaseModel):
     )
     sound_energy_threshold: float = Field(
         default=0.003,
-        description="Minimum energy threshold for sound recognition - higher than command/dictation to reduce false triggers.",
+        description="Minimum energy threshold for sound recognition - higher than command to reduce false triggers.",
     )
     command_silent_chunks_for_end: int = Field(
         default=5,
@@ -301,17 +326,6 @@ class VADConfig(BaseModel):
         description="Pre-roll buffers for command mode (210ms at 30ms chunks) - captures word attack.",
     )
 
-    dictation_energy_threshold: float = Field(
-        default=0.0035,
-        description="Minimum energy threshold for dictation mode (used as floor when noise is very low).",
-    )
-    dictation_silent_chunks_for_end: int = Field(
-        default=27,
-        description="Number of consecutive silent chunks to end recording in dictation mode (27 chunks = 810ms at 30ms/chunk).",
-    )
-    dictation_max_recording_duration: float = Field(default=30.0, description="Maximum recording duration for dictation mode.")
-    dictation_pre_roll_buffers: int = Field(default=7, description="Pre-roll buffers for dictation mode (210ms at 30ms/chunk).")
-
     silence_threshold_multiplier: float = Field(
         default=0.45, description="Multiplier for silence threshold relative to speech threshold"
     )
@@ -322,9 +336,6 @@ class VADConfig(BaseModel):
         default=5.0,
         description="Multiplier applied to noise floor for sound detection - higher than speech to reduce false triggers.",
     )
-    dictation_adaptive_margin_multiplier: float = Field(
-        default=2.5, description="Multiplier applied to noise floor for dictation speech threshold."
-    )
     adaptive_threshold_max_multiplier: float = Field(
         default=2.0, description="Maximum multiplier before applying adaptive threshold (legacy, kept for compatibility)"
     )
@@ -334,9 +345,6 @@ class VADConfig(BaseModel):
 
     command_min_recording_duration: float = Field(
         default=0.05, description="Minimum recording duration for command mode in seconds"
-    )
-    dictation_min_recording_duration: float = Field(
-        default=0.1, description="Minimum recording duration for dictation mode in seconds"
     )
 
     max_noise_samples: int = Field(

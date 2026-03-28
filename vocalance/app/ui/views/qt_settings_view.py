@@ -134,7 +134,6 @@ class QtSettingsView(QWidget):
                 ("sound_recognizer", "vote_threshold", "Vote Threshold"),
             ],
             "Voice Settings": [
-                ("vad", "dictation_silent_chunks_for_end", "Max Silent Dictation Chunks"),
                 ("vad", "command_silent_chunks_for_end", "Max Silent Command Chunks"),
             ],
         }
@@ -318,7 +317,6 @@ class QtSettingsView(QWidget):
             "sound_recognizer.confidence_threshold": float,
             "sound_recognizer.vote_threshold": float,
             # Voice Settings
-            "vad.dictation_silent_chunks_for_end": int,
             "vad.command_silent_chunks_for_end": int,
         }
 

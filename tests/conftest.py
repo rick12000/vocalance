@@ -12,7 +12,6 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
-from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
 
 
 @pytest.fixture
@@ -305,10 +304,12 @@ def vosk_test_files(audio_samples_path):
     return [f for f in all_files if f.name != "this_is_a_test_of_the_dictation_capabilities.bytes"]
 
 
-@pytest.fixture
-def whisper_stt(sample_rate, stt_config):
-    """Initialize Whisper STT instance."""
-    return WhisperSTT(model_name="base", device="cpu", sample_rate=sample_rate, config=stt_config)
+@pytest.fixture(scope="module")
+def moonshine_stt(sample_rate, stt_config):
+    """Real Moonshine STT (downloads model on first use — keep for integration tests)."""
+    from vocalance.app.services.audio.stt.moonshine_stt import MoonshineSTT
+
+    return MoonshineSTT(sample_rate=sample_rate, config=stt_config)
 
 
 @pytest.fixture
@@ -379,12 +380,6 @@ async def stt_service(event_bus, app_config):
 def command_audio_bytes():
     """Generate sample command audio bytes."""
     return np.random.randint(0, 256, size=16000, dtype=np.uint8).tobytes()
-
-
-@pytest.fixture
-def dictation_audio_bytes():
-    """Generate sample dictation audio bytes."""
-    return np.random.randint(0, 256, size=32000, dtype=np.uint8).tobytes()
 
 
 @pytest.fixture
@@ -496,30 +491,20 @@ def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, stt_config):
 
 
 @pytest.fixture
-def mock_whisper_model():
-    """Mock faster-whisper model."""
-    model = Mock()
+def moonshine_stt_instance(stt_config):
+    """MoonshineSTT with model load and Transcriber mocked."""
+    from moonshine_voice.moonshine_api import ModelArch
 
-    mock_segment = Mock()
-    mock_segment.text = "test"
-    mock_segment.avg_logprob = -0.5
+    mock_line = Mock()
+    mock_line.text = "test recognition"
 
-    mock_info = Mock()
+    with patch("moonshine_voice.download.get_model_for_language", return_value=("/tmp/moonshine_test_model", ModelArch.TINY)):
+        with patch("moonshine_voice.transcriber.Transcriber") as transcriber_cls:
+            mock_tb = transcriber_cls.return_value
+            mock_tb.transcribe_without_streaming = Mock(return_value=Mock(lines=[mock_line]))
+            from vocalance.app.services.audio.stt.moonshine_stt import MoonshineSTT
 
-    model.transcribe = Mock(return_value=([mock_segment], mock_info))
-
-    return model
-
-
-@pytest.fixture
-def whisper_stt_instance(mock_whisper_model, stt_config):
-    """Create Whisper STT instance with mocked dependencies."""
-    with patch("vocalance.app.services.audio.stt.whisper_stt.WhisperModel", return_value=mock_whisper_model):
-        from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
-
-        instance = WhisperSTT(model_name="base", device="cpu", sample_rate=16000, config=stt_config)
-        instance._model = mock_whisper_model
-        return instance
+            return MoonshineSTT(sample_rate=16000, config=stt_config)
 
 
 @pytest.fixture
@@ -578,6 +563,14 @@ def mock_action_map_provider():
 
     async def mock_get_action_map():
         return {
+            "click": AutomationCommand(
+                command_key="click",
+                action_type="click",
+                action_value="left",
+                is_custom=False,
+                short_description="Click",
+                long_description="Mouse click",
+            ),
             "copy": AutomationCommand(
                 command_key="copy",
                 action_type="hotkey",
@@ -618,113 +611,3 @@ def mock_command_history_manager():
     manager.get_full_history = AsyncMock(return_value=[])
     manager.shutdown = AsyncMock(return_value=True)
     return manager
-
-
-@pytest.fixture
-def sample_audio_chunks():
-    """Generate realistic 50ms audio chunks in int16 format."""
-    import numpy as np
-
-    chunks = {
-        "speech": np.random.randint(-5000, 5000, size=800, dtype=np.int16),
-        "silence": np.random.randint(-50, 50, size=800, dtype=np.int16),
-        "noise": np.random.randint(-200, 200, size=800, dtype=np.int16),
-    }
-    return chunks
-
-
-@pytest.fixture
-def speech_energy_chunk():
-    """Generate chunk with energy above typical threshold."""
-    import numpy as np
-
-    return np.random.randint(-8000, 8000, size=800, dtype=np.int16)
-
-
-@pytest.fixture
-def silence_chunk():
-    """Generate chunk with energy below typical threshold."""
-    import numpy as np
-
-    return np.random.randint(-30, 30, size=800, dtype=np.int16)
-
-
-@pytest.fixture
-def mock_audio_recorder():
-    """Mock AudioRecorder with controllable callback."""
-    recorder = Mock()
-    recorder.start = Mock()
-    recorder.stop = Mock()
-    recorder.set_active = Mock()
-    recorder.is_recording = Mock(return_value=False)
-    recorder.is_active = Mock(return_value=True)
-    recorder.sample_rate = 16000
-    recorder.chunk_size = 800
-    recorder.on_audio_chunk = None
-    return recorder
-
-
-@pytest.fixture
-def mock_command_listener():
-    """Mock CommandAudioListener."""
-    listener = Mock()
-    listener.setup_subscriptions = Mock()
-    listener._handle_audio_chunk = AsyncMock()
-    return listener
-
-
-@pytest.fixture
-def mock_dictation_listener():
-    """Mock DictationAudioListener."""
-    listener = Mock()
-    listener.setup_subscriptions = Mock()
-    listener._handle_audio_chunk = AsyncMock()
-    listener.update_silent_chunks_threshold = AsyncMock()
-    return listener
-
-
-@pytest.fixture
-def mock_sound_listener():
-    """Mock SoundAudioListener."""
-    listener = Mock()
-    listener.setup_subscriptions = Mock()
-    listener._handle_audio_chunk = AsyncMock()
-    return listener
-
-
-@pytest.fixture
-def mock_audio_service():
-    """Mock AudioService with all listeners."""
-    service = Mock()
-    service.init_listeners = Mock()
-    service.setup_subscriptions = Mock()
-    service.start_processing = Mock()
-    service.stop_processing = Mock()
-    service.shutdown = AsyncMock()
-    service.on_dictation_silent_chunks_updated = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def mock_streaming_buffer():
-    """Mock StreamingAudioBuffer."""
-    buffer = Mock()
-    buffer.add_chunk = AsyncMock()
-    buffer.get_audio_for_transcription = AsyncMock(return_value=(b"\x00" * 1600, 0.1))
-    buffer.advance_timestamp = AsyncMock()
-    buffer.get_timestamp_offset = AsyncMock(return_value=0.0)
-    buffer.get_untranscribed_duration = AsyncMock(return_value=0.0)
-    buffer.clear = AsyncMock()
-    buffer.get_last_chunk_time = Mock(return_value=0.0)
-    buffer.get_stats = Mock(
-        return_value={
-            "buffer_duration_seconds": 0.0,
-            "sample_count": 0,
-            "max_buffer_samples": 720000,
-            "timestamp_offset": 0.0,
-            "frames_offset": 0.0,
-            "total_chunks_added": 0,
-            "last_chunk_time": 0.0,
-        }
-    )
-    return buffer

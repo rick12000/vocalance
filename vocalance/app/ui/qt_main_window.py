@@ -678,6 +678,11 @@ class VocalanceMainWindow(QMainWindow):
             except Exception as e:
                 self.logger.warning(f"Could not initialize dictation popup controller: {e}")
 
+            audio = getattr(self, "_audio_service", None)
+            popup = getattr(self, "dictation_popup_controller", None)
+            if audio is not None and popup is not None:
+                audio.set_level_meter_callback(popup.feed_audio_chunk_for_level_meter)
+
             self._initialize_overlay_views()
             self._connect_controllers_to_views()
 
