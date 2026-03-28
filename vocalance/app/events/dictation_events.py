@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Literal, Optional
 
+DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling"]
+
 from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent, EventPriority
@@ -248,4 +250,24 @@ class DictationStopWordDetectedEvent(BaseEvent):
     """
 
     mode: Literal["standard", "type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
+    priority: EventPriority = EventPriority.HIGH
+
+
+class DictationModifierPhraseEvent(BaseEvent):
+    """Published when Vosk recognizes a configured modifier phrase while dictation is active.
+
+    Does not produce ``CommandTextRecognizedEvent``; the coordinator updates session state only.
+    """
+
+    modifier_id: DictationModifierId = Field(description="Which modifier phrase matched")
+    raw_recognized_text: str = Field(default="", description="Raw Vosk text for logging")
+    priority: EventPriority = EventPriority.HIGH
+
+
+class DictationModifierStateChangedEvent(BaseEvent):
+    """Published when the active dictation modifier is toggled, switched, or cleared."""
+
+    active: bool = Field(description="True when a modifier is now active")
+    modifier_id: Optional[DictationModifierId] = Field(default=None, description="Active modifier, if any")
+    display_label: str = Field(default="", description="Human-readable label for the chip, e.g. 'Upper'")
     priority: EventPriority = EventPriority.HIGH

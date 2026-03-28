@@ -3,6 +3,7 @@ import logging
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import (
+    DictationModifierStateChangedEvent,
     DictationStatusChangedEvent,
     DictationStopWordDetectedEvent,
     FinalDictationTextEvent,
@@ -82,6 +83,7 @@ class QtDictationPopupController:
 
             # Stop word detection event
             self.event_bus.subscribe(DictationStopWordDetectedEvent, self._on_stop_word_detected)
+            self.event_bus.subscribe(DictationModifierStateChangedEvent, self._on_modifier_state_changed)
 
             self.logger.debug("Dictation popup event subscriptions configured")
         except Exception as e:
@@ -274,6 +276,16 @@ class QtDictationPopupController:
 
         QTimer.singleShot(1500, self.hide_popup)  # 1500ms = 1.5s
         self.logger.debug("Scheduled popup hide after 1.5s delay")
+
+    async def _on_modifier_state_changed(self, event: DictationModifierStateChangedEvent) -> None:
+        """Forward modifier state to the popup view (chip appears only in smart, amend, and visual layouts)."""
+        try:
+            if event.active and event.display_label:
+                self.popup_view.set_modifier_banner(event.display_label, True)
+            else:
+                self.popup_view.set_modifier_banner("", False)
+        except Exception as e:
+            self.logger.error("Error handling modifier state: %s", e, exc_info=True)
 
     async def _on_stop_word_detected(self, event: DictationStopWordDetectedEvent) -> None:
         """Set an orange border when the stop phrase is detected in supported modes."""

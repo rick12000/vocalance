@@ -1,5 +1,6 @@
 import logging
-from typing import Dict, Optional, Set
+import re
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,135 @@ def detect_digit_sequence(text: str) -> Optional[str]:
         return "".join(digit_map[word] for word in words)
 
     return None
+
+
+_SCALES_NON_HUNDRED: Dict[str, int] = {
+    "thousand": 10**3,
+    "million": 10**6,
+    "billion": 10**9,
+    "trillion": 10**12,
+}
+
+
+def _strip_token_punct(token: str) -> Tuple[str, str, str]:
+    """Return (leading, core, trailing) punctuation split for a whitespace token."""
+    m = re.match(r"^(['\"(\[{<]*)(.*?)(['\")\]}>:;,.!?]*)$", token)
+    if not m:
+        return "", token, ""
+    return m.group(1), m.group(2), m.group(3)
+
+
+def parse_cardinal_words(words: List[str]) -> Optional[int]:
+    """Parse a sequence of lowercase English cardinal words as one integer.
+
+    Examples: twenty three -> 23, one hundred forty two -> 142, two thousand -> 2000.
+    Returns None if the sequence is not a valid cardinal phrase.
+    """
+    if not words:
+        return None
+    for w in words:
+        if w not in NUMBER_WORDS and w not in SCALE_WORDS:
+            return None
+
+    total = 0
+    current = 0
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if w == "hundred":
+            if current == 0:
+                current = 1
+            current *= 100
+            i += 1
+            continue
+        if w in _SCALES_NON_HUNDRED:
+            mag = _SCALES_NON_HUNDRED[w]
+            if current == 0:
+                current = 1
+            total += current * mag
+            current = 0
+            i += 1
+            continue
+        if w in NUMBER_WORDS:
+            current += NUMBER_WORDS[w]
+            i += 1
+            continue
+        return None
+
+    return total + current
+
+
+def _try_spoken_number_from_words(core_words: List[str]) -> Optional[int]:
+    """Normalize and parse a spoken number from word cores (no punctuation)."""
+    if not core_words:
+        return None
+    phrase = " ".join(core_words)
+    if len(core_words) > 1:
+        phrase = normalize_homophones(phrase)
+    phrase = remove_number_conjunctions(phrase)
+    words = phrase.lower().split()
+    if not words:
+        return None
+
+    digit_seq = detect_digit_sequence(phrase)
+    if digit_seq is not None:
+        try:
+            return int(digit_seq)
+        except ValueError:
+            return None
+
+    return parse_cardinal_words(words)
+
+
+def replace_spoken_numbers_in_text(text: str, max_words_per_number: int = 12) -> str:
+    """Replace runs of spoken number words in text with decimal digit strings.
+
+    Leaves non-number tokens unchanged. Uses longest-match greedy scanning.
+    """
+    if not text or not text.strip():
+        return text
+
+    raw_tokens = text.split()
+    if not raw_tokens:
+        return text
+
+    rebuilt: List[str] = []
+    i = 0
+    while i < len(raw_tokens):
+        best_val: Optional[int] = None
+        best_len = 0
+        for take in range(min(max_words_per_number, len(raw_tokens) - i), 0, -1):
+            core_parts: List[str] = []
+            valid = True
+            for t in raw_tokens[i : i + take]:
+                _, c, _ = _strip_token_punct(t)
+                if not c:
+                    valid = False
+                    break
+                if c.replace(",", "").isdigit():
+                    valid = False
+                    break
+                core_parts.append(c.lower())
+
+            if not valid or not core_parts:
+                continue
+
+            n = _try_spoken_number_from_words(core_parts)
+            if n is not None:
+                best_val = n
+                best_len = take
+                break
+
+        if best_val is not None and best_len > 0:
+            fl, _, _ = _strip_token_punct(raw_tokens[i])
+            _, _, lt = _strip_token_punct(raw_tokens[i + best_len - 1])
+            rebuilt.append(f"{fl}{best_val}{lt}")
+            i += best_len
+        else:
+            rebuilt.append(raw_tokens[i])
+            i += 1
+
+    return " ".join(rebuilt)
 
 
 def text2int(textnum: str, numwords: Optional[Dict] = None) -> Optional[int]:

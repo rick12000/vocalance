@@ -1,11 +1,15 @@
+"""Coordinates dictation sessions, Moonshine streaming, modifiers, LLM handoff, and text output."""
+
 import asyncio
 import gc
 import logging
 import queue
+import re
 import threading
 import time
 import uuid
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from enum import Enum
 from typing import Optional
 
@@ -26,6 +30,9 @@ from vocalance.app.events.core_events import DictationTextRecognizedEvent
 from vocalance.app.events.dictation_events import (
     AudioModeChangeRequestEvent,
     DictationModeDisableOthersEvent,
+    DictationModifierId,
+    DictationModifierPhraseEvent,
+    DictationModifierStateChangedEvent,
     DictationStatusChangedEvent,
     FinalDictationTextEvent,
     HiddenDictationStartedEvent,
@@ -36,25 +43,20 @@ from vocalance.app.events.dictation_events import (
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
     PartialDictationTextEvent,
-    SmartDictationRemoveCharactersEvent,
     SmartDictationStartedEvent,
     SmartDictationStoppedEvent,
-    SmartDictationTextDisplayEvent,
     VisualDictationStartedEvent,
     VisualDictationStoppedEvent,
 )
 from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
 from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
-from vocalance.app.services.audio.dictation_handling.text_input_service import (
-    TextInputService,
-    clean_dictation_text,
-    get_trailing_whitespace_count,
-    lowercase_first_letter,
-    remove_formatting,
-    should_lowercase_current_start,
-    should_remove_previous_period,
+from vocalance.app.services.audio.dictation_handling.dictation_postprocess import (
+    apply_dictation_postprocess,
+    apply_dictation_postprocess_partial,
+    modifier_display_label,
 )
+from vocalance.app.services.audio.dictation_handling.text_input_service import TextInputService, remove_formatting
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
 
@@ -100,6 +102,8 @@ _STREAMING_STT_MODES = frozenset(
 # Subset that hands off to the LLM after stop.
 _STREAMING_LLM_MODES = frozenset({DictationMode.SMART, DictationMode.AMEND})
 
+MOONSHINE_MODIFIER_SUPPRESS_SEC: float = 0.55
+
 
 class DictationState(Enum):
     """Explicit state machine for dictation coordinator.
@@ -136,6 +140,7 @@ class DictationSession:
         accumulated_text: Accumulated dictation text from STT.
         last_text_time: Timestamp of last text segment.
         is_first_segment: Flag indicating if next segment is first.
+        active_modifier: Optional voice post-process modifier (at most one).
     """
 
     session_id: str
@@ -144,6 +149,7 @@ class DictationSession:
     accumulated_text: str = ""
     last_text_time: Optional[float] = None
     is_first_segment: bool = True
+    active_modifier: Optional[DictationModifierId] = None
 
 
 @dataclass
@@ -238,6 +244,8 @@ class DictationCoordinator:
         # Bumped whenever the Moonshine stream is opened or torn down so stale chunks still
         # in the ingress queue cannot be fed into a new session (stop/start race).
         self._moonshine_ingress_epoch: int = 0
+        self._moonshine_suppress_until: float = 0.0
+        self._modifier_phrases_lc: tuple[str, ...] = self._build_modifier_phrases_lc()
         self._start_moonshine_ingress_thread()
 
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
@@ -291,23 +299,22 @@ class DictationCoordinator:
                     if ms is not None:
                         rotate = ms.add_audio_pcm16(audio_bytes, sample_rate)
                 if rotate:
-                    self._moonshine_rotate_line()
+                    self._moonshine_rotate_line(reason="max_line_duration")
             except Exception as e:
                 logger.error("Moonshine ingress feed error: %s", e, exc_info=True)
         logger.debug("Moonshine audio ingress thread exiting")
 
-    def _moonshine_rotate_line(self) -> None:
-        """Finalize the current Moonshine stream line and open a fresh native stream.
+    def _moonshine_rotate_line(self, reason: str = "max_line_duration") -> None:
+        """Stop the current Moonshine stream and open a new one (bounded line length for latency).
 
-        The Moonshine decoder's work per partial update grows with unbounded audio on a single
-        stream line; rotating keeps latency stable during long dictation.
+        Must run on the Moonshine audio ingress thread (same thread that calls ``add_audio_pcm16``).
         """
         loop = self.gui_event_loop
         if loop is None:
             logger.error("Moonshine stream rotation skipped: gui_event_loop is not set")
             return
 
-        logger.info("Moonshine stream rotation: max line duration reached — starting new native stream")
+        logger.info("Moonshine stream rotation (%s) — starting new native stream", reason)
 
         with self._moonshine_feed_lock:
             self._moonshine_ingress_epoch += 1
@@ -374,15 +381,6 @@ class DictationCoordinator:
                 return
             epoch = self._moonshine_ingress_epoch
         self._moonshine_ingress_queue.put((epoch, audio_bytes, sample_rate))
-
-    def _should_apply_formatting(self, mode: DictationMode) -> bool:
-        """
-        Determine if formatting should be applied based on mode and config.
-        TYPE mode always disables formatting regardless of config.
-        """
-        if mode == DictationMode.TYPE:
-            return False
-        return self.config.dictation.enable_dictation_formatting
 
     def _get_state(self) -> DictationState:
         """Thread-safe state getter"""
@@ -456,12 +454,142 @@ class DictationCoordinator:
             (LLMProcessingFailedEvent, self._handle_llm_failed),
             (DictationCommandParsedEvent, self._handle_dictation_command),
             (LLMProcessingReadyEvent, self._handle_llm_processing_ready),
+            (DictationModifierPhraseEvent, self._handle_dictation_modifier_phrase),
         ]
 
         for event_type, handler in subscriptions:
             self.subscription_manager.subscribe(event_type, handler)
 
         logger.info("Event subscriptions configured")
+
+    async def _handle_dictation_modifier_phrase(self, event: DictationModifierPhraseEvent) -> None:
+        """Apply a Vosk-side modifier phrase: toggle off if repeated, else switch, publish UI state, suppress Moonshine."""
+        try:
+            with self._state_lock:
+                session = self._current_session
+                if not session or self._current_state != DictationState.RECORDING:
+                    return
+                mid = event.modifier_id
+                current = session.active_modifier
+                if current == mid:
+                    new_mod: Optional[DictationModifierId] = None
+                    label = ""
+                    active = False
+                else:
+                    new_mod = mid
+                    label = f"{modifier_display_label(mid)} active"
+                    active = True
+                self._current_session = DictationSession(
+                    session_id=session.session_id,
+                    mode=session.mode,
+                    start_time=session.start_time,
+                    accumulated_text=session.accumulated_text,
+                    last_text_time=session.last_text_time,
+                    is_first_segment=session.is_first_segment,
+                    active_modifier=new_mod,
+                )
+
+            await self._publish_event(
+                DictationModifierStateChangedEvent(active=active, modifier_id=new_mod, display_label=label)
+            )
+            logger.info("Dictation modifier: %s -> %s", current, new_mod)
+            if session.mode in MOONSHINE_CHUNK_DICTATION_MODES:
+                self._moonshine_suppress_until = time.monotonic() + MOONSHINE_MODIFIER_SUPPRESS_SEC
+        except Exception as e:
+            logger.error("Modifier phrase handling error: %s", e, exc_info=True)
+
+    def _build_modifier_phrases_lc(self) -> tuple[str, ...]:
+        """Lowercase modifier phrases from config (for ASR echo filtering)."""
+        cfg = self.config.dictation
+        phrases = (
+            cfg.modifier_upper_phrase,
+            cfg.modifier_capitals_phrase,
+            cfg.modifier_camel_phrase,
+            cfg.modifier_snake_phrase,
+            cfg.modifier_spelling_phrase,
+        )
+        return tuple(p.strip().lower() for p in phrases if p and str(p).strip())
+
+    def _is_likely_modifier_asr_echo(self, cleaned: str) -> bool:
+        """Drop short text that closely matches a configured modifier phrase (homophone ASR junk).
+
+        Uses :class:`difflib.SequenceMatcher` ratios 0.78 (full string) / 0.76 (prefix) so the English
+        word *spell* is not treated as the phrase *spelling*.
+        """
+        t = cleaned.strip().lower()
+        if not t:
+            return True
+        if len(t) > 56:
+            return False
+        words = t.split()
+        if len(words) > 5:
+            return False
+        for ph in self._modifier_phrases_lc:
+            if not ph:
+                continue
+            if SequenceMatcher(None, t, ph).ratio() >= 0.78:
+                return True
+            ph_wc = len(ph.split())
+            if len(words) <= ph_wc + 2:
+                head = " ".join(words[: max(ph_wc + 1, len(words))])
+                if len(head) >= 4 and SequenceMatcher(None, head, ph).ratio() >= 0.76:
+                    return True
+        return False
+
+    @staticmethod
+    def _is_isolated_stt_noise_fragment(text: str) -> bool:
+        """True for tiny punctuation-only tails Moonshine may emit after command-only modifier audio."""
+        t = text.strip()
+        if not t:
+            return True
+        if t in ("?", "？", "¿", "\ufffd", ""):
+            return True
+        if len(t) <= 2 and all(not (c.isalnum() or c == "_") for c in t):
+            return True
+        return False
+
+    def _prepare_dictation_segment_final(self, raw_text: str, session: DictationSession) -> str:
+        """Strip triggers, aliases, base number + modifier post-process (final/stable text)."""
+        cleaned = self._clean_text(raw_text)
+        if not cleaned or self._is_isolated_stt_noise_fragment(cleaned):
+            return ""
+        if self._is_likely_modifier_asr_echo(cleaned):
+            return ""
+        with_subs = self.alias_service.apply_substitutions(cleaned)
+        if self._is_isolated_stt_noise_fragment(with_subs):
+            return ""
+        return apply_dictation_postprocess(with_subs, session.active_modifier)
+
+    def _prepare_dictation_segment_partial(self, raw_text: str, session: DictationSession) -> str:
+        """Same cleaning and filtering as finals, but spelling modifier is deferred (streaming UI)."""
+        cleaned = self._clean_text(raw_text)
+        if not cleaned or self._is_isolated_stt_noise_fragment(cleaned):
+            return ""
+        if self._is_likely_modifier_asr_echo(cleaned):
+            return ""
+        with_subs = self.alias_service.apply_substitutions(cleaned)
+        if self._is_isolated_stt_noise_fragment(with_subs):
+            return ""
+        return apply_dictation_postprocess_partial(with_subs, session.active_modifier)
+
+    async def _publish_modifier_cleared(self) -> None:
+        """Emit inactive modifier state (session end and similar)."""
+        await self._publish_event(
+            DictationModifierStateChangedEvent(active=False, modifier_id=None, display_label="")
+        )
+
+    @staticmethod
+    def _dictation_segment_input_options(
+        mode: DictationMode, modifier: Optional[DictationModifierId]
+    ) -> tuple[bool, bool]:
+        """Return ``(add_trailing_space, skip_prose_segment_join_rules)`` for :meth:`TextInputService.input_text`.
+
+        Camel, snake, and spelling modifiers disable trailing spaces and prose join rules (period removal
+        and forced lowercase after a non-sentence boundary) so identifiers and spoken punctuation stay intact.
+        """
+        skip_join = modifier in ("camel", "snake", "spelling")
+        add_trailing = mode != DictationMode.TYPE and not skip_join
+        return add_trailing, skip_join
 
     async def _handle_dictation_text(self, event: DictationTextRecognizedEvent) -> None:
         """Handle dictated text - centralized processing for all dictation modes"""
@@ -482,14 +610,9 @@ class DictationCoordinator:
                     logger.debug("Skipping VAD-based text for Moonshine chunk-stream mode: %s", session.mode.value)
                     return
 
-            cleaned_text = self._clean_text(text)
+            cleaned_text = self._prepare_dictation_segment_final(text, session)
             if not cleaned_text:
                 return
-
-            cleaned_text = self.alias_service.apply_substitutions(cleaned_text)
-
-            if not self._should_apply_formatting(mode=session.mode):
-                cleaned_text = remove_formatting(text=cleaned_text, is_first_word_of_session=session.is_first_segment)
 
             updated_session = DictationSession(
                 session_id=session.session_id,
@@ -498,6 +621,7 @@ class DictationCoordinator:
                 accumulated_text=self._append_text(session.accumulated_text, cleaned_text),
                 last_text_time=time.time() if session.mode == DictationMode.TYPE else None,
                 is_first_segment=False,
+                active_modifier=session.active_modifier,
             )
 
             with self._state_lock:
@@ -506,30 +630,14 @@ class DictationCoordinator:
                 else:
                     return
 
-            if updated_session.mode == DictationMode.SMART:
-                display_text = clean_dictation_text(text=cleaned_text, add_trailing_space=True)
-
-                if self._last_smart_dictation_text and should_remove_previous_period(
-                    self._last_smart_dictation_text, display_text
-                ):
-                    trailing_whitespace_count = get_trailing_whitespace_count(self._last_smart_dictation_text)
-                    chars_to_remove = 1 + trailing_whitespace_count
-                    await self._publish_event(SmartDictationRemoveCharactersEvent(count=chars_to_remove))
-                    display_text = " " + display_text
-
-                if self._last_smart_dictation_text and should_lowercase_current_start(
-                    self._last_smart_dictation_text, display_text
-                ):
-                    display_text = lowercase_first_letter(display_text)
-
-                self._last_smart_dictation_text = display_text
-                await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
-            elif updated_session.mode == DictationMode.VISUAL:
-                display_text = clean_dictation_text(text=cleaned_text, add_trailing_space=True)
-                await self._publish_event(SmartDictationTextDisplayEvent(text=display_text))
-            else:
-                add_trailing_space = updated_session.mode != DictationMode.TYPE
-                await self.text_service.input_text(text=cleaned_text, add_trailing_space=add_trailing_space)
+            add_trailing, skip_join = self._dictation_segment_input_options(
+                updated_session.mode, updated_session.active_modifier
+            )
+            await self.text_service.input_text(
+                text=cleaned_text,
+                add_trailing_space=add_trailing,
+                skip_prose_segment_join_rules=skip_join,
+            )
 
         except Exception as e:
             logger.error(f"Dictation text error: {e}", exc_info=True)
@@ -543,6 +651,7 @@ class DictationCoordinator:
             self._last_smart_dictation_text = None
             self._amend_clipboard_snapshot = None
             self._set_state(DictationState.IDLE)
+        await self._publish_modifier_cleared()
         await self._end_smart_session()
 
     async def _handle_llm_completed(self, event: LLMProcessingCompletedEvent) -> None:
@@ -623,8 +732,14 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"LLM processing ready handling error: {e}", exc_info=True)
 
+    def _moonshine_output_suppressed(self) -> bool:
+        """Whether Moonshine partial/final handlers should drop output (post-modifier window)."""
+        return time.monotonic() < self._moonshine_suppress_until
+
     async def _moonshine_on_partial(self, text: str, segment_id: str) -> None:
         """Moonshine line text update → partial dictation UI (smart/visual/amend)."""
+        if self._moonshine_output_suppressed():
+            return
         with self._state_lock:
             session = self._current_session
 
@@ -640,15 +755,20 @@ class DictationCoordinator:
         if self._is_hallucination(text, ""):
             return
 
-        cleaned = self._clean_text(text)
-        if not cleaned:
+        with self._state_lock:
+            live = self._current_session
+            if not live or live.session_id != session.session_id:
+                return
+            session = live
+        partial_text = self._prepare_dictation_segment_partial(text, session)
+        if not partial_text:
             return
-
-        text_with_subs = self.alias_service.apply_substitutions(cleaned)
-        await self._publish_event(PartialDictationTextEvent(text=text_with_subs, segment_id=segment_id))
+        await self._publish_event(PartialDictationTextEvent(text=partial_text, segment_id=segment_id))
 
     async def _moonshine_on_final(self, text: str, segment_id: str) -> None:
         """Moonshine completed line → segment typing or finalized chunk for LLM modes."""
+        if self._moonshine_output_suppressed():
+            return
         with self._state_lock:
             session = self._current_session
 
@@ -661,14 +781,14 @@ class DictationCoordinator:
         if self._is_hallucination(text, ""):
             return
 
-        cleaned = self._clean_text(text)
-        if not cleaned:
+        line = text.strip()
+        if not line:
             return
 
         if session.mode in (DictationMode.STANDARD, DictationMode.TYPE):
             await self._publish_event(
                 DictationTextRecognizedEvent(
-                    text=cleaned,
+                    text=line,
                     processing_time_ms=0.0,
                     engine="moonshine",
                     mode="dictation",
@@ -676,29 +796,45 @@ class DictationCoordinator:
             )
             return
 
-        await self._emit_final_text_append(cleaned, segment_id, session)
+        with self._state_lock:
+            live = self._current_session
+            if not live or live.session_id != session.session_id:
+                return
+            session = live
+        await self._emit_final_text_append(line, segment_id, session)
 
     async def _emit_final_text_append(self, text: str, segment_id: str, session) -> None:
         """Emit final text and append to accumulator (prevents data loss)."""
         if not text or not text.strip():
             return
 
-        text = text.strip()
+        raw_line = text.strip()
+
+        with self._state_lock:
+            live = self._current_session
+            if not live or live.session_id != session.session_id:
+                return
+            session = live
+
+        processed = self._prepare_dictation_segment_final(raw_line, session)
+        if not processed:
+            return
 
         if self._streaming_finalized_segments:
-            if self._streaming_finalized_segments[-1].strip().lower() == text.lower():
+            if self._streaming_finalized_segments[-1].strip().lower() == processed.lower():
                 return
 
         if session.mode != DictationMode.HIDDEN:
-            text_with_subs = self.alias_service.apply_substitutions(text)
-            await self._publish_event(FinalDictationTextEvent(text=text_with_subs, segment_id=segment_id or str(uuid.uuid4())))
+            await self._publish_event(
+                FinalDictationTextEvent(text=processed, segment_id=segment_id or str(uuid.uuid4()))
+            )
 
-        self._streaming_finalized_segments.append(text)
+        self._streaming_finalized_segments.append(processed)
 
         if self._streaming_finalized_text:
-            self._streaming_finalized_text += " " + text
+            self._streaming_finalized_text += " " + processed
         else:
-            self._streaming_finalized_text = text
+            self._streaming_finalized_text = processed
 
     def _is_hallucination(self, text: str, prev_text: str = "") -> bool:
         """Detect likely ASR hallucination patterns (repeated short words or character spam)."""
@@ -762,12 +898,14 @@ class DictationCoordinator:
             self._streaming_finalized_text = ""
             self._streaming_finalized_segments = []
 
+            amend_clipboard_error = False
             with self._state_lock:
                 if session.mode in _STREAMING_LLM_MODES and final_text:
                     if session.mode == DictationMode.AMEND and not self._amend_clipboard_snapshot:
                         logger.error("Amend mode: clipboard snapshot missing")
                         self._current_session = None
                         self._set_state(DictationState.IDLE)
+                        amend_clipboard_error = True
                     else:
                         self._set_state(DictationState.PROCESSING_LLM)
                         default_prompt = (
@@ -787,7 +925,11 @@ class DictationCoordinator:
                     self._current_session = None
                     self._set_state(DictationState.IDLE)
 
+            if amend_clipboard_error:
+                await self._publish_modifier_cleared()
+
             if session.mode in _STREAMING_LLM_MODES and final_text and self._pending_llm_session:
+                await self._publish_modifier_cleared()
                 dual = "amend" if session.mode is DictationMode.AMEND else "smart"
                 reason = "Amend mode LLM processing" if dual == "amend" else "Smart dictation processing"
                 await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason=reason))
@@ -825,6 +967,7 @@ class DictationCoordinator:
             with self._state_lock:
                 self._current_session = None
                 self._set_state(DictationState.IDLE)
+            await self._publish_modifier_cleared()
 
     async def _monitor_type_silence(self) -> None:
         """Monitor silence timeout for TYPE dictation mode with safety limits"""
@@ -899,6 +1042,7 @@ class DictationCoordinator:
                     accumulated_text="",
                     last_text_time=None,
                     is_first_segment=True,
+                    active_modifier=None,
                 )
                 self._set_state(DictationState.RECORDING)
 
@@ -1125,6 +1269,7 @@ class DictationCoordinator:
     async def _finalize_session(self, session: DictationSession) -> None:
         """Finalize non-smart session"""
         try:
+            await self._publish_modifier_cleared()
             await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Dictation stopped"))
 
             # Notify STT service about dictation mode deactivation
@@ -1136,7 +1281,7 @@ class DictationCoordinator:
             logger.error(f"Session finalization error: {e}", exc_info=True)
 
     def _clean_text(self, text: str) -> str:
-        """Clean dictated text by removing triggers"""
+        """Clean dictated text by removing start/stop triggers and modifier voice phrases."""
         if not text:
             return ""
 
@@ -1152,7 +1297,22 @@ class DictationCoordinator:
         }
 
         words = [w for w in text.split() if w.lower().strip('.,!?;:"()[]{}') not in triggers]
-        return " ".join(words).strip()
+        s = " ".join(words).strip()
+
+        modifier_phrases = (
+            cfg.modifier_upper_phrase,
+            cfg.modifier_capitals_phrase,
+            cfg.modifier_camel_phrase,
+            cfg.modifier_snake_phrase,
+            cfg.modifier_spelling_phrase,
+        )
+        for phrase in modifier_phrases:
+            p = phrase.strip()
+            if not p:
+                continue
+            pat = r"(?i)\b" + re.escape(p) + r"\b"
+            s = re.sub(pat, " ", s)
+        return " ".join(s.split()).strip()
 
     def _append_text(self, existing: str, new_text: str) -> str:
         """Append text with proper spacing"""

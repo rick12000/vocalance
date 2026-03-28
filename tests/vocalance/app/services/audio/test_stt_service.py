@@ -175,3 +175,20 @@ async def test_empty_text_does_not_trigger_sound_recognition_from_stt(stt_servic
 
     # STT service should NOT forward empty text to sound recognition
     assert len(captured_events) == 0
+
+
+def test_match_modifier_phrase_detects_configured_substrings(app_config):
+    """Vosk path: substring match against sorted (longest-first) modifier phrases."""
+    service = SpeechToTextService(Mock(), app_config)
+    assert service._match_modifier_phrase("please toggle camel now") == "camel"
+    assert service._match_modifier_phrase("use spelling mode") == "spelling"
+    assert service._match_modifier_phrase("CAPITALS lock") == "capitals"
+    assert service._match_modifier_phrase(None) is None
+    assert service._match_modifier_phrase("") is None
+    assert service._match_modifier_phrase("nothing familiar here") is None
+
+
+def test_match_modifier_phrase_prefers_longer_phrase(app_config):
+    """When multiple phrases match, the longest phrase wins (table order)."""
+    service = SpeechToTextService(Mock(), app_config)
+    assert service._match_modifier_phrase("upper capitals mixed") == "capitals"

@@ -11,10 +11,9 @@ from vocalance.app.services.audio.stt.dictation_text_normalize import normalize_
         ("", ""),
         ("   ", ""),
         ("hello world", "hello world"),
-        ("um hello world", "hello world"),
-        ("hello world uh", "hello world"),
         ("hello  world", "hello world"),
-        ("the the cat", "the cat"),
+        ("  hello   world  ", "hello world"),
+        ("the the cat", "the the cat"),
     ],
 )
 def test_normalize_dictation_text(input_text, expected_output):

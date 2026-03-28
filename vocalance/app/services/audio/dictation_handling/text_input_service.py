@@ -222,7 +222,18 @@ class TextInputService:
                 logger.error(f"capture_selection_via_copy error: {e}", exc_info=True)
                 return ""
 
-    async def input_text(self, text: str, add_trailing_space: bool = True) -> bool:
+    async def input_text(
+        self,
+        text: str,
+        add_trailing_space: bool = True,
+        skip_prose_segment_join_rules: bool = False,
+    ) -> bool:
+        """Paste or type ``text`` after :func:`clean_dictation_text`.
+
+        When ``skip_prose_segment_join_rules`` is False (default), applies period removal and mid-sentence
+        lowercasing against ``last_text`` so consecutive dictation segments read as one sentence. Identifier
+        and spelling modifiers pass ``True`` to preserve casing and avoid a trailing space.
+        """
         if not text:
             return False
 
@@ -231,19 +242,15 @@ class TextInputService:
             if not cleaned_text:
                 return False
 
-            # NOTE: If last segment ended with a period and current segment starts with a lowercase letter, remove the period from the previous paste
-            # Below methods also count trailing spaces and add back leading space to current segment to maintain proper concatenation
-            if self.last_text and should_remove_previous_period(self.last_text, cleaned_text):
-                trailing_whitespace_count = get_trailing_whitespace_count(self.last_text)
-                await self.backspace(1 + trailing_whitespace_count)
-                cleaned_text = " " + cleaned_text
+            if not skip_prose_segment_join_rules:
+                if self.last_text and should_remove_previous_period(self.last_text, cleaned_text):
+                    trailing_whitespace_count = get_trailing_whitespace_count(self.last_text)
+                    await self.backspace(1 + trailing_whitespace_count)
+                    cleaned_text = " " + cleaned_text
 
-            # Apply capitalization rule: lowercase first letter if no sentence boundary
-            # This handles mid-sentence concatenation when current text starts with capital
-            if self.last_text and should_lowercase_current_start(self.last_text, cleaned_text):
-                cleaned_text = lowercase_first_letter(cleaned_text)
+                if self.last_text and should_lowercase_current_start(self.last_text, cleaned_text):
+                    cleaned_text = lowercase_first_letter(cleaned_text)
 
-            # Use clipboard or typing based on config
             if self.config.use_clipboard:
                 success = await asyncio.get_event_loop().run_in_executor(None, self._paste_clipboard, cleaned_text)
             else:

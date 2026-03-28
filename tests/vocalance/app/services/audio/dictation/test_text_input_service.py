@@ -436,6 +436,29 @@ async def test_input_text_lowercases_first_letter(mock_press, mock_keyup, mock_k
 
 
 @pytest.mark.asyncio
+@patch("pyperclip.copy")
+@patch("pyperclip.paste")
+@patch("pyautogui.keyDown")
+@patch("pyautogui.keyUp")
+@patch("pyautogui.press")
+async def test_input_text_skip_prose_preserves_leading_capital(
+    mock_press, mock_keyup, mock_keydown, mock_paste, mock_copy, text_input_service
+):
+    """Identifier-style segments must not trigger mid-sentence lowercasing."""
+    text_input_service.last_text = "some prior chunk "
+    _setup_clipboard_mocks(mock_paste, mock_copy, "HelloWorld")
+
+    result = await text_input_service.input_text(
+        "HelloWorld", skip_prose_segment_join_rules=True, add_trailing_space=False
+    )
+
+    assert result is True
+    assert text_input_service.last_text == "HelloWorld"
+    copy_calls = [call[0][0] for call in mock_copy.call_args_list if call[0]]
+    assert "HelloWorld" in copy_calls
+
+
+@pytest.mark.asyncio
 async def test_add_space(text_input_service):
     """Test adding a space character."""
     with patch("pyautogui.press"):

@@ -208,6 +208,14 @@ class DictationConfig(BaseModel):
         default=True, description="Enable automatic formatting (punctuation, capitalization) in dictation output"
     )
 
+    modifier_upper_phrase: str = Field(default="upper", description="Voice phrase to toggle title-case modifier")
+    modifier_capitals_phrase: str = Field(default="capitals", description="Voice phrase to toggle ALL CAPS modifier")
+    modifier_camel_phrase: str = Field(
+        default="camel", description="Voice phrase to toggle UpperCamelCase (PascalCase) identifier modifier"
+    )
+    modifier_snake_phrase: str = Field(default="snake", description="Voice phrase to toggle snake_case modifier")
+    modifier_spelling_phrase: str = Field(default="spelling", description="Voice phrase to toggle spoken-punctuation modifier")
+
 
 class LLMConfig(BaseModel):
     """Configuration for LLM service.

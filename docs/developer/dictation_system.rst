@@ -51,6 +51,32 @@ The dictation system operates independently from command execution. Once activat
 
 Dictation flows from parse event → mode selection → text recognition → mode-specific processing → output. Standard types immediately; visual accumulates for review; **smart** and **amend** share streaming STT and a dual-pane LLM phase (smart formats dictated text; amend applies spoken instructions to a captured selection); type inserts raw text; hidden accumulates silently for paste on stop.
 
+Post-processing and modifiers
+-----------------------------
+
+After Moonshine (or VAD) emits text, the coordinator runs a **base** pass on every segment: spoken cardinals and digit-by-digit sequences are replaced with decimal numerals via ``vocalance.app.utils.number_parser.replace_spoken_numbers_in_text``. Optional **modifiers** (at most one active) add transforms: title case (**upper**), ALL CAPS (**capitals**), UpperCamelCase (**camel**; punctuation stripped), snake_case (**snake**; punctuation stripped), and a **spelling** mode that strips punctuation then maps spoken punctuation words to symbols and reapplies sentence casing. Modifier phrases are configured on ``DictationConfig`` (defaults: ``upper``, ``capitals``, ``camel``, ``snake``, ``spelling``).
+
+While dictation is active, **Vosk** still runs on command audio segments. Besides the shared stop phrase, it detects modifier phrases and publishes ``DictationModifierPhraseEvent`` (no ``CommandTextRecognizedEvent``). The coordinator toggles the same phrase off or switches to another modifier, updates session state, publishes ``DictationModifierStateChangedEvent`` (the **smart**, **amend**, and **visual** popup layouts show a small faded modifier chip; standard, type, and hidden wave-only UIs do not), and starts a short **Moonshine suppress window** (monotonic clock) so partials/finals from the same utterance are dropped; short near-matches to configured modifier phrases are also discarded in segment prep. **Type** mode’s silence timeout only advances on segments that yield non-empty text after trigger stripping and post-processing; Vosk-only modifier phrases do not touch that timer.
+
+.. _modifier-pipeline-reference:
+
+Modifier pipeline (reference)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The following ties together the pieces added for voice modifiers; all phrase strings live on ``DictationConfig``.
+
+1. **Detection** — ``SpeechToTextService`` runs Vosk on each command segment while dictation is active. If the transcript contains a configured modifier phrase (longest match first), it publishes ``DictationModifierPhraseEvent``. Stop phrase handling is unchanged.
+
+2. **Session state** — ``DictationCoordinator._handle_dictation_modifier_phrase`` updates ``DictationSession.active_modifier`` (same phrase toggles off; a different phrase replaces the active modifier). It publishes ``DictationModifierStateChangedEvent`` and sets ``_moonshine_suppress_until`` to ``time.monotonic() + MOONSHINE_MODIFIER_SUPPRESS_SEC`` (~0.55s) so ``_moonshine_on_partial`` / ``_moonshine_on_final`` return early during that window.
+
+3. **Segment text** — ``_clean_text`` removes start/stop/type/smart/visual/hidden/amend triggers and strips modifier phrases from the transcript. ``_prepare_dictation_segment_final`` / ``_prepare_dictation_segment_partial`` apply aliases, drop isolated punctuation fragments and fuzzy modifier echoes (``SequenceMatcher`` thresholds in ``_is_likely_modifier_asr_echo``), then call ``dictation_postprocess.apply_dictation_postprocess`` or ``apply_dictation_postprocess_partial`` (partials skip the **spelling** transform).
+
+4. **Typing** — For standard/type modes, ``_dictation_segment_input_options`` passes ``add_trailing_space=False`` and ``skip_prose_segment_join_rules=True`` when the active modifier is **camel**, **snake**, or **spelling**, so ``TextInputService.input_text`` does not append a trailing space or apply mid-sentence lowercasing that would break identifiers.
+
+5. **UI** — ``QtDictationPopupController`` forwards ``DictationModifierStateChangedEvent`` to ``QtDictationPopupView.set_modifier_banner``; reserved labels beside the dictation column titles (dual-pane and visual) show the faded chip. Wave-only popups ignore active modifier display.
+
+6. **Types** — ``DictationModifierId`` is defined once in ``vocalance.app.events.dictation_events`` and reused by post-processing, the coordinator, and STT.
+
 The DictationCoordinator: Central Orchestration
 ================================================
 
@@ -137,7 +163,7 @@ When dictation starts, the coordinator broadcasts ``DictationModeDisableOthersEv
 
 - **Disables Markov predictions** (prevents false command predictions)
 - **Disables sound recognition** (prevents sound-mapped commands)
-- **Filters speech recognition** to only recognize stop trigger words
+- **Narrows command-path recognition** to the stop phrase and configured modifier phrases (see ``SpeechToTextService``)
 
 When dictation stops, ``DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")`` re-enables all systems.
 
@@ -199,12 +225,14 @@ Before output, text is cleaned and concatenated:
 
        return cleaned
 
-**Segment joining rules**:
+**Segment joining rules** (when ``skip_prose_segment_join_rules`` is false — default prose dictation):
 
 - **First segment**: No leading space (e.g., "Hello world")
 - **Subsequent segments**: Leading space added (e.g., " this is a test")
 - **Period removal**: If previous segment ends with "." and current starts lowercase, remove period
 - **Capitalization**: If no sentence boundary (no period), lowercase first letter of current segment
+
+**Modifier modes** (camel, snake, spelling): the coordinator passes ``skip_prose_segment_join_rules=True`` and usually ``add_trailing_space=False`` so segments are not merged as running prose; see :ref:`modifier-pipeline-reference`.
 
 Example:
 

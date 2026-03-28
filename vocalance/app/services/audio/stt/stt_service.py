@@ -14,7 +14,12 @@ from vocalance.app.events.core_events import (
     STTProcessingCompletedEvent,
     STTProcessingStartedEvent,
 )
-from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent, DictationStopWordDetectedEvent
+from vocalance.app.events.dictation_events import (
+    DictationModeDisableOthersEvent,
+    DictationModifierId,
+    DictationModifierPhraseEvent,
+    DictationStopWordDetectedEvent,
+)
 from vocalance.app.services.audio.stt.moonshine_stt import MoonshineSTT
 from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
 
@@ -49,6 +54,15 @@ class SpeechToTextService:
         self.moonshine_engine: Optional[MoonshineSTT] = None
         self._engines_initialized: bool = False
         self._stop_trigger = config.dictation.stop_trigger
+        d = config.dictation
+        mod_pairs: list[tuple[str, DictationModifierId]] = [
+            (d.modifier_upper_phrase.lower(), "upper"),
+            (d.modifier_capitals_phrase.lower(), "capitals"),
+            (d.modifier_camel_phrase.lower(), "camel"),
+            (d.modifier_snake_phrase.lower(), "snake"),
+            (d.modifier_spelling_phrase.lower(), "spelling"),
+        ]
+        self._modifier_phrases = sorted(mod_pairs, key=lambda x: -len(x[0]))
 
         logger.debug("SpeechToTextService initialized - initial dictation_active: %s", self._dictation_active)
 
@@ -137,7 +151,14 @@ class SpeechToTextService:
                 await self._publish_stop_word_detected_event()
                 await self._publish_recognition_result(vosk_result, 0, "vosk")
             else:
-                logger.debug("No stop trigger detected in: '%s' - ignoring during dictation", vosk_result)
+                mod = self._match_modifier_phrase(vosk_result)
+                if mod:
+                    logger.info("Dictation modifier phrase detected: %s in '%s'", mod, vosk_result)
+                    await self.event_bus.publish(
+                        DictationModifierPhraseEvent(modifier_id=mod, raw_recognized_text=vosk_result or "")
+                    )
+                else:
+                    logger.debug("No stop trigger or modifier in: '%s' - ignoring during dictation", vosk_result)
             return
 
         logger.debug("Processing command audio in normal mode")
@@ -165,6 +186,16 @@ class SpeechToTextService:
         if not text:
             return False
         return self._stop_trigger in text.lower().strip()
+
+    def _match_modifier_phrase(self, text: Optional[str]) -> Optional[DictationModifierId]:
+        """Return the configured modifier id if ``text`` contains that phrase (substring match, longest first)."""
+        if not text:
+            return None
+        t = text.lower().strip()
+        for phrase, mid in self._modifier_phrases:
+            if phrase and phrase in t:
+                return mid
+        return None
 
     async def _publish_stop_word_detected_event(self) -> None:
         """Notify listeners that the stop word was heard (when a dictation mode is active)."""

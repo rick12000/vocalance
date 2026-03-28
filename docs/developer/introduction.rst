@@ -50,7 +50,7 @@ The general pattern is:
 
 - The recorder streams ~30 ms PCM frames; ``AudioService`` enqueues them for a VAD worker and optionally forwards raw bytes to dictation
 - ``CommandAudioListener`` and ``SoundAudioListener`` apply VAD on the worker thread and publish segment events to the bus (via the main asyncio loop)
-- ``SpeechToTextService`` runs Vosk on command segments (full commands, or stop-word-only while dictation is active); it loads Moonshine for use by ``DictationCoordinator``, not for command segments
+- ``SpeechToTextService`` runs Vosk on command segments (full commands, or stop phrase plus dictation modifier phrases while dictation is active); it loads Moonshine for use by ``DictationCoordinator``, not for command segments
 - Dictation text comes from Moonshine streams in the coordinator (all streaming dictation modes), not from a third audio listener
 - ``SoundAudioListener`` publishes sound segments; ``SoundService`` classifies them without going through Vosk/Moonshine
 - ``CentralizedCommandParser`` combines command text and sound-derived commands; services execute the parsed result
