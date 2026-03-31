@@ -27,6 +27,12 @@ def test_apply_base_postprocess_spoken_numbers(raw: str, expected_substr: str) -
     assert expected_substr in apply_base_postprocess(raw)
 
 
+def test_apply_base_postprocess_does_not_homophone_map_common_words() -> None:
+    """Dictation keeps ordinary *to* / *for*; homophones apply only on command paths."""
+    assert apply_base_postprocess("go to the store") == "go to the store"
+    assert apply_base_postprocess("waiting for you") == "waiting for you"
+
+
 def test_strip_trailing_period_after_number() -> None:
     assert strip_trailing_period_after_numbers("total 42.") == "total 42"
     assert strip_trailing_period_after_numbers("total 42 .") == "total 42"

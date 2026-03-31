@@ -406,8 +406,8 @@ class LicenseFetcher:
 def main():
     import argparse
 
-    script_dir = Path(__file__).parent
-    repo_root = script_dir.parent
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parent.parent
     uv_lock_path = repo_root / "uv.lock"
 
     parser = argparse.ArgumentParser(description="Fetch PyPI licenses and notices")

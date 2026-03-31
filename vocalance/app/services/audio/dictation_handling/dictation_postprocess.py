@@ -38,7 +38,7 @@ def apply_base_postprocess(text: str) -> str:
     s = re.sub(r"\s+", " ", text.strip())
     if not s:
         return ""
-    s = replace_spoken_numbers_in_text(s)
+    s = replace_spoken_numbers_in_text(s, apply_homophones=False)
     return strip_trailing_period_after_numbers(s)
 
 

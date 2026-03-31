@@ -59,21 +59,6 @@ def test_dictation_segment_input_options(
 
 
 @pytest.mark.parametrize(
-    "cleaned,expected_echo",
-    [
-        ("", True),
-        ("hello world", False),
-        ("offer", False),
-        ("spell", True),
-        ("upper", True),
-        ("spelling", True),
-    ],
-)
-def test_is_likely_modifier_asr_echo(coordinator_minimal: DictationCoordinator, cleaned: str, expected_echo: bool) -> None:
-    assert coordinator_minimal._is_likely_modifier_asr_echo(cleaned) is expected_echo
-
-
-@pytest.mark.parametrize(
     "raw,expected",
     [
         ("hello upper world", "hello world"),
@@ -85,6 +70,25 @@ def test_clean_text_strips_default_modifier_phrases(
     coordinator_minimal: DictationCoordinator, raw: str, expected: str
 ) -> None:
     assert coordinator_minimal._clean_text(raw) == expected
+
+
+def test_clean_text_strips_stop_trigger_as_whole_word_only(coordinator_minimal: DictationCoordinator) -> None:
+    """Stop trigger defaults to ``amber`` (DictationConfig), not the substring of unrelated words."""
+    stop = coordinator_minimal.config.dictation.stop_trigger
+    assert stop == "amber"
+    assert coordinator_minimal._clean_text("the amber lamp") == "the lamp"
+    assert coordinator_minimal._clean_text("shambers of commerce") == "shambers of commerce"
+
+
+def test_clean_text_strips_start_and_multiword_smart_triggers(coordinator_minimal: DictationCoordinator) -> None:
+    assert coordinator_minimal._clean_text("hello green fields") == "hello fields"
+    assert coordinator_minimal._clean_text("now smart green tomorrow") == "now tomorrow"
+
+
+def test_clean_text_keeps_spell_when_not_exact_modifier_phrase(coordinator_minimal: DictationCoordinator) -> None:
+    """Only exact configured modifier phrases are removed; ``spell`` is not ``spelling``."""
+    assert coordinator_minimal._clean_text("spell check this") == "spell check this"
+    assert coordinator_minimal._clean_text("use spelling mode") == "use mode"
 
 
 @pytest.mark.parametrize(
@@ -101,12 +105,5 @@ def test_is_isolated_stt_noise_fragment(text: str, expected_noise: bool) -> None
     assert DictationCoordinator._is_isolated_stt_noise_fragment(text) is expected_noise
 
 
-def test_build_modifier_phrases_lc_matches_config(coordinator_minimal: DictationCoordinator) -> None:
-    cfg = coordinator_minimal.config.dictation
-    assert coordinator_minimal._modifier_phrases_lc == (
-        cfg.modifier_upper_phrase.strip().lower(),
-        cfg.modifier_capitals_phrase.strip().lower(),
-        cfg.modifier_camel_phrase.strip().lower(),
-        cfg.modifier_snake_phrase.strip().lower(),
-        cfg.modifier_spelling_phrase.strip().lower(),
-    )
+def test_strip_config_phrases_idempotent_on_empty_phrases() -> None:
+    assert DictationCoordinator._strip_config_phrases_case_insensitive("a b c", ()) == "a b c"

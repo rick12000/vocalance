@@ -1,8 +1,12 @@
-import logging
+"""Spoken and numeric text parsing: one pipeline for commands, dictation, and inline replacement.
+
+Homophone mapping (e.g. *to* → *two*, *won* → *one*) is **on by default** for command recognition.
+Dictation passes ``apply_homophones=False`` into :func:`replace_spoken_numbers_in_text` to avoid
+rewriting ordinary words.
+"""
+
 import re
 from typing import Dict, List, Optional, Set, Tuple
-
-logger = logging.getLogger(__name__)
 
 NUMBER_WORDS: Dict[str, int] = {
     "zero": 0,
@@ -48,18 +52,36 @@ HOMOPHONES: Dict[str, str] = {
     "ate": "eight",
 }
 
+_ORDINAL_WORDS: Dict[str, int] = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+    "tenth": 10,
+    "eleventh": 11,
+    "twelfth": 12,
+    "thirteenth": 13,
+    "twentieth": 20,
+    "thirtieth": 30,
+    "fortieth": 40,
+    "fiftieth": 50,
+}
+
+_SCALES_NON_HUNDRED: Dict[str, int] = {
+    "thousand": 10**3,
+    "million": 10**6,
+    "billion": 10**9,
+    "trillion": 10**12,
+}
+
 
 def is_number(text: str) -> bool:
-    """Check if text represents a numeric value.
-
-    Handles commas and decimals in numeric strings.
-
-    Args:
-        text: Text to check.
-
-    Returns:
-        True if text is numeric, False otherwise.
-    """
+    """True if ``text`` parses as a float (allows commas; e.g. ``1,234``)."""
     if isinstance(text, str):
         text = text.replace(",", "")
     try:
@@ -69,43 +91,29 @@ def is_number(text: str) -> bool:
     return True
 
 
-def normalize_homophones(text: str) -> str:
-    """Replace homophones with standard number words.
+def normalize_homophones(text: str, *, apply_homophones: bool = True) -> str:
+    """Lowercase and collapse whitespace; optionally map ASR homophones to number words.
 
-    Examples: 'won hundred' -> 'one hundred', 'to fifty' -> 'two fifty'
-
-    Args:
-        text: Text to normalize.
-
-    Returns:
-        Normalized text with homophones replaced.
+    Default ``True`` matches command recognition. Use ``False`` for dictation-style text.
     """
     if not isinstance(text, str):
         return text
 
     words = text.lower().split()
-    normalized_words = [HOMOPHONES.get(word, word) for word in words]
-    return " ".join(normalized_words)
+    if not apply_homophones:
+        return " ".join(words)
+    return " ".join(HOMOPHONES.get(word, word) for word in words)
 
 
 def remove_number_conjunctions(text: str) -> str:
-    """Remove 'and' when it appears between number words.
-
-    Examples: 'four hundred and nine' -> 'four hundred nine'
-
-    Args:
-        text: Text to clean.
-
-    Returns:
-        Text with number conjunctions removed.
-    """
+    """Drop *and* when it sits between number-related words (``four hundred and nine`` → ``four hundred nine``)."""
     if not isinstance(text, str):
         return text
 
     words = text.lower().split()
     all_number_words = NUMBER_WORDS.keys() | SCALE_WORDS
 
-    filtered_words = []
+    filtered_words: List[str] = []
     for i, word in enumerate(words):
         if word == "and":
             prev_is_number = i > 0 and words[i - 1] in all_number_words
@@ -118,53 +126,36 @@ def remove_number_conjunctions(text: str) -> str:
 
 
 def detect_digit_sequence(text: str) -> Optional[str]:
-    """Detect if text represents a sequence of individual digits.
-
-    Handles cases where users say individual digits that should be
-    concatenated rather than added (e.g., phone numbers, codes).
-
-    Examples: 'four zero nine' -> '409', 'four hundred nine' -> None
-
-    Args:
-        text: Text to check.
-
-    Returns:
-        String representation of digits if detected, None otherwise.
-    """
+    """If all tokens are spoken digits (no scales), return concatenated digits (``four zero nine`` → ``409``)."""
     if not isinstance(text, str):
         return None
 
     words = text.lower().split()
 
-    if len(words) > 1 and all(word in SINGLE_DIGIT_WORDS for word in words) and not any(word in SCALE_WORDS for word in words):
+    if len(words) > 1 and all(word in SINGLE_DIGIT_WORDS for word in words) and not any(
+        word in SCALE_WORDS for word in words
+    ):
         digit_map = {word: str(NUMBER_WORDS[word]) for word in SINGLE_DIGIT_WORDS}
         return "".join(digit_map[word] for word in words)
 
     return None
 
 
-_SCALES_NON_HUNDRED: Dict[str, int] = {
-    "thousand": 10**3,
-    "million": 10**6,
-    "billion": 10**9,
-    "trillion": 10**12,
-}
-
-
-def _strip_token_punct(token: str) -> Tuple[str, str, str]:
-    """Return (leading, core, trailing) punctuation split for a whitespace token."""
-    m = re.match(r"^(['\"(\[{<]*)(.*?)(['\")\]}>:;,.!?]*)$", token)
-    if not m:
-        return "", token, ""
-    return m.group(1), m.group(2), m.group(3)
+def normalize_spoken_number_phrase(text: str, *, apply_homophones: bool = True) -> str:
+    """Normalize whitespace and hyphens; optional homophones; remove number-only *and*."""
+    if not text or not isinstance(text, str):
+        return ""
+    s = text.replace("-", " ").strip()
+    s = " ".join(s.split())
+    if not s:
+        return ""
+    s = normalize_homophones(s, apply_homophones=apply_homophones)
+    s = remove_number_conjunctions(s)
+    return " ".join(s.split())
 
 
 def parse_cardinal_words(words: List[str]) -> Optional[int]:
-    """Parse a sequence of lowercase English cardinal words as one integer.
-
-    Examples: twenty three -> 23, one hundred forty two -> 142, two thousand -> 2000.
-    Returns None if the sequence is not a valid cardinal phrase.
-    """
+    """Parse lowercase cardinal tokens as one integer, or None if invalid."""
     if not words:
         return None
     for w in words:
@@ -199,32 +190,83 @@ def parse_cardinal_words(words: List[str]) -> Optional[int]:
     return total + current
 
 
-def _try_spoken_number_from_words(core_words: List[str]) -> Optional[int]:
-    """Normalize and parse a spoken number from word cores (no punctuation)."""
-    if not core_words:
+def _parse_single_ordinal_token(word: str) -> Optional[int]:
+    """Map one lowercase token (``first``, ``twentieth``) to its integer, if recognized."""
+    w = word.lower().strip()
+    if not w:
         return None
-    phrase = " ".join(core_words)
-    if len(core_words) > 1:
-        phrase = normalize_homophones(phrase)
-    phrase = remove_number_conjunctions(phrase)
-    words = phrase.lower().split()
-    if not words:
+    return _ORDINAL_WORDS.get(w)
+
+
+def _strip_token_punct(token: str) -> Tuple[str, str, str]:
+    """Return ``(leading, core, trailing)`` punctuation split for a whitespace token."""
+    m = re.match(r"^(['\"(\[{<]*)(.*?)(['\")\]}>:;,.!?]*)$", token)
+    if not m:
+        return "", token, ""
+    return m.group(1), m.group(2), m.group(3)
+
+
+def parse_spoken_integer(text: Optional[str], *, apply_homophones: bool = True) -> Optional[int]:
+    """Parse a single spoken or numeric phrase into an integer.
+
+    Pipeline: strip → ASCII digits → normalize (hyphens, optional homophones, *and*) →
+    digit-by-digit sequence → cardinals → single-word ordinals.
+    """
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        text = str(text)
+    text = text.strip()
+    if not text:
         return None
 
-    digit_seq = detect_digit_sequence(phrase)
-    if digit_seq is not None:
+    if is_number(text):
         try:
-            return int(digit_seq)
+            return int(float(text.replace(",", "")))
         except ValueError:
             return None
 
-    return parse_cardinal_words(words)
+    prepared = normalize_spoken_number_phrase(text, apply_homophones=apply_homophones)
+    if not prepared:
+        return None
+
+    if is_number(prepared):
+        try:
+            return int(float(prepared.replace(",", "")))
+        except ValueError:
+            return None
+
+    digit_sequence = detect_digit_sequence(prepared)
+    if digit_sequence is not None:
+        try:
+            return int(digit_sequence)
+        except ValueError:
+            return None
+
+    words = prepared.lower().split()
+    cardinal = parse_cardinal_words(words)
+    if cardinal is not None:
+        return cardinal
+
+    if len(words) == 1:
+        return _parse_single_ordinal_token(words[0])
+
+    return None
 
 
-def replace_spoken_numbers_in_text(text: str, max_words_per_number: int = 12) -> str:
-    """Replace runs of spoken number words in text with decimal digit strings.
+def _try_spoken_number_from_words(core_words: List[str], *, apply_homophones: bool = True) -> Optional[int]:
+    """Parse a run of word cores (from inline token scanning) using :func:`parse_spoken_integer`."""
+    if not core_words:
+        return None
+    return parse_spoken_integer(" ".join(core_words), apply_homophones=apply_homophones)
 
-    Leaves non-number tokens unchanged. Uses longest-match greedy scanning.
+
+def replace_spoken_numbers_in_text(
+    text: str, max_words_per_number: int = 12, *, apply_homophones: bool = True
+) -> str:
+    """Replace maximal runs of spoken number words with digit strings; other tokens unchanged.
+
+    Default ``True`` for command-style text. Dictation should pass ``apply_homophones=False``.
     """
     if not text or not text.strip():
         return text
@@ -254,7 +296,7 @@ def replace_spoken_numbers_in_text(text: str, max_words_per_number: int = 12) ->
             if not valid or not core_parts:
                 continue
 
-            n = _try_spoken_number_from_words(core_parts)
+            n = _try_spoken_number_from_words(core_parts, apply_homophones=apply_homophones)
             if n is not None:
                 best_val = n
                 best_len = take
@@ -272,194 +314,19 @@ def replace_spoken_numbers_in_text(text: str, max_words_per_number: int = 12) ->
     return " ".join(rebuilt)
 
 
-def text2int(textnum: str, numwords: Optional[Dict] = None) -> Optional[int]:
-    """Convert text number to integer using word-based parsing.
+def parse_number(
+    text: Optional[str],
+    min_value: int = 1,
+    max_value: int = 5000,
+    *,
+    apply_homophones: bool = True,
+) -> Optional[int]:
+    """Parse text to an integer and enforce ``[min_value, max_value]``.
 
-    Handles complex number phrases like 'four hundred twenty three'.
-
-    Args:
-        textnum: Text representation of a number.
-        numwords: Optional precomputed numwords dictionary.
-
-    Returns:
-        Converted integer or None if conversion fails.
-    """
-    if not textnum:
-        return None
-    if is_number(textnum):
-        try:
-            return int(float(textnum.replace(",", "")))
-        except ValueError:
-            return None
-
-    if numwords is None:
-        numwords = {}
-        numwords["and"] = (1, 0)
-        units = [
-            "zero",
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-            "six",
-            "seven",
-            "eight",
-            "nine",
-            "ten",
-            "eleven",
-            "twelve",
-            "thirteen",
-            "fourteen",
-            "fifteen",
-            "sixteen",
-            "seventeen",
-            "eighteen",
-            "nineteen",
-        ]
-        tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
-        scales = ["hundred", "thousand", "million", "billion", "trillion"]
-        for idx, word in enumerate(units):
-            numwords[word] = (1, idx)
-        for idx, word in enumerate(tens):
-            if word:
-                numwords[word] = (1, idx * 10)
-        for idx, word in enumerate(scales):
-            numwords[word] = (10 ** (idx * 3 or 2), 0)
-
-    textnum = str(textnum).replace("-", " ")
-    current = result = 0
-    curstring = ""
-    onnumber = False
-    lastunit = False
-    lastscale = False
-
-    ordinal_words: Dict[str, int] = {
-        "first": 1,
-        "second": 2,
-        "third": 3,
-        "fourth": 4,
-        "fifth": 5,
-        "sixth": 6,
-        "seventh": 7,
-        "eighth": 8,
-        "ninth": 9,
-        "tenth": 10,
-        "eleventh": 11,
-        "twelfth": 12,
-        "thirteenth": 13,
-        "twentieth": 20,
-        "thirtieth": 30,
-        "fortieth": 40,
-        "fiftieth": 50,
-    }
-    ordinal_endings = [("ieth", "y"), ("th", "")]
-
-    def is_numword(x: str) -> bool:
-        if is_number(x):
-            return True
-        if x in numwords:
-            return True
-        return False
-
-    def from_numword(x: str):
-        if is_number(x):
-            scale = 0
-            try:
-                increment = int(float(x.replace(",", "")))
-                return scale, increment
-            except ValueError:
-                return 0, 0
-        return numwords.get(x, (0, 0))
-
-    try:
-        for word in textnum.split():
-            word_lower = word.lower()
-            if word_lower in ordinal_words:
-                scale, increment = (1, ordinal_words[word_lower])
-                current = current * scale + increment
-                if scale > 100:
-                    result += current
-                    current = 0
-                onnumber = True
-                lastunit = False
-                lastscale = False
-                continue
-
-            original_word_for_numword_check = word
-            for ending, replacement in ordinal_endings:
-                if word_lower.endswith(ending):
-                    base_word = word_lower[: -len(ending)] + replacement
-                    if base_word in numwords:
-                        original_word_for_numword_check = base_word
-                        break
-
-            if (not is_numword(original_word_for_numword_check)) or (original_word_for_numword_check == "and" and not lastscale):
-                if onnumber:
-                    curstring += str(result + current) + " "
-                curstring += word + " "
-                result = current = 0
-                onnumber = False
-                lastunit = False
-                lastscale = False
-            else:
-                scale, increment = from_numword(original_word_for_numword_check)
-                onnumber = True
-                if lastunit and (original_word_for_numword_check not in scales):
-                    curstring += str(result + current) + " "
-                    result = current = 0
-                if scale > 1:
-                    current = max(1, current)
-                current = current * scale + increment
-                if scale > 100:
-                    result += current
-                    current = 0
-                lastscale = False
-                lastunit = False
-                if original_word_for_numword_check in scales:
-                    lastscale = True
-                elif original_word_for_numword_check in numwords:
-                    lastunit = True
-
-        if onnumber:
-            curstring += str(result + current)
-
-        parts = curstring.strip().split()
-        if parts:
-            try:
-                final_num_str = "".join(filter(str.isdigit, parts[-1]))
-                if final_num_str:
-                    return int(final_num_str)
-                if curstring.strip().isdigit():
-                    return int(curstring.strip())
-            except ValueError:
-                pass
-        return None
-    except Exception as e:
-        logger.error(f"Error in text2int: {e} for input: '{textnum}'", exc_info=True)
-        return None
-
-
-def parse_number(text: str, min_value: int = 1, max_value: int = 5000) -> Optional[int]:
-    """Parse text to extract a number using a multi-stage pipeline.
-
-    Stages:
-    1. Direct numeric conversion (for '123', '1,234', etc.)
-    2. Homophone normalization ('won' -> 'one')
-    3. Conjunction removal ('four hundred and nine' -> 'four hundred nine')
-    4. Digit sequence detection ('four zero nine' -> '409')
-    5. Complex number parsing ('four hundred nine' -> 409)
-
-    Args:
-        text: Input text to parse.
-        min_value: Minimum allowed value (inclusive).
-        max_value: Maximum allowed value (inclusive).
-
-    Returns:
-        Integer if successfully parsed and within range, None otherwise.
+    Homophones apply by default for commands; not used from dictation (that path uses
+    :func:`replace_spoken_numbers_in_text` with ``apply_homophones=False``).
     """
     if text is None or text == "":
-        logger.debug("Text is None or empty")
         return None
 
     if isinstance(text, (int, float)):
@@ -467,38 +334,9 @@ def parse_number(text: str, min_value: int = 1, max_value: int = 5000) -> Option
     elif not isinstance(text, str):
         return None
 
-    if is_number(text):
-        try:
-            num = int(float(text.replace(",", "")))
-            if min_value <= num <= max_value:
-                return num
-            else:
-                return None
-        except ValueError:
-            logger.debug(f"ValueError parsing '{text}' as direct number")
-
-    normalized_text = normalize_homophones(text)
-    cleaned_text = remove_number_conjunctions(normalized_text)
-
-    digit_sequence = detect_digit_sequence(cleaned_text)
-    if digit_sequence:
-        try:
-            num = int(digit_sequence)
-            if min_value <= num <= max_value:
-                return num
-            else:
-                return None
-        except ValueError:
-            logger.debug(f"ValueError parsing digit sequence '{digit_sequence}'")
-
-    try:
-        num = text2int(cleaned_text)
-        if num is not None:
-            if min_value <= num <= max_value:
-                return num
-            else:
-                return None
-    except Exception as e:
-        logger.error(f"Error parsing '{text}' with text2int: {e}", exc_info=True)
-
+    n = parse_spoken_integer(text.strip(), apply_homophones=apply_homophones)
+    if n is None:
+        return None
+    if min_value <= n <= max_value:
+        return n
     return None

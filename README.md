@@ -25,9 +25,43 @@ To find out more about what Vocalance can do, including detailed instructions an
 
 ## 💻 Installation
 
-Vocalance can be set up entirely from the source code in this repository. To do so, follow the instructions below (currently only supported on Windows):
+Vocalance can be set up entirely from the source code in this repository (currently only supported on Windows).
 
-### 1. Set Up UV
+### Easy Setup
+
+
+<div style="background:#fff9e6;border-left:4px solid #f2c94c;border-radius:8px;padding:12px 14px;max-width:720px;margin-bottom:12px;">
+  <div style="display:flex;gap:12px;align-items:flex-start;">
+    <div style="font-size:18px;line-height:1;color:#b06f00;margin-top:2px;">⚠️</div>
+    <div style="min-width:0">
+      <div style="font-weight:600;color:#2c2c2c;margin-bottom:6px;">Requirement</div>
+      <div style="color:#333;line-height:1.4;">
+        Ensure Git is installed. If not, download the latest Git for Windows:
+        <a href="https://git-scm.com/download/win">https://git-scm.com/download/win</a>.
+      </div>
+    </div>
+  </div>
+</div>
+
+1. Open PowerShell (from Start).
+
+2. Paste and run:
+
+    ```powershell
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/main/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+    ```
+
+   What the script does:
+   - Clones the repository
+   - Creates or recreates the `vocalance_env` virtual environment
+   - Installs dependencies from the locked manifest
+   - Creates a Start Menu shortcut to launch Vocalance (no console)
+
+3. Open Vocalance from the Start menu.
+
+### Manual Setup
+
+#### 1. Set Up UV
 
 1. Open Windows PowerShell and enter the script below to install [UV](https://github.com/astral-sh/uv) (Python package manager):
    ```powershell
@@ -39,7 +73,7 @@ Vocalance can be set up entirely from the source code in this repository. To do 
    $env:Path = "$HOME\.local\bin;$env:Path"
    ```
 
-### 2. Set Up Vocalance
+#### 2. Set Up Vocalance
 
 1. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
    ```bash
@@ -75,7 +109,7 @@ The application will start up and download any required models (like speech reco
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how to get started.
 
-### 3. Reopen Vocalance
+#### 3. Reopen Vocalance
 
 If you want to reopen Vocalance after you closed it, you can repeat above steps, but skipping all installation steps.
 
@@ -92,6 +126,8 @@ This will start Vocalance.
 The recommended approach is to install Vocalance with uv, since the developers can freeze and document all recommended dependancies in a `uv.lock` file, which you then install with `uv sync --active`.
 
 If you're more familiar with a mixture of a virtual environment manager (eg. `venv` or `conda` or `pyenv`) + `pip` however, you can absolutely replace above uv steps with your environment manager and replace `uv sync --active` with `pip install .` to install Vocalance as a package. Note this is at your discretion, and license disclosures in this repository pertain to pinned package versions in `uv.lock`.
+
+**Maintainers — PyPI license fetch:** From the repo root, run `python scripts/licensing/fetch_licenses.py` (see [scripts/licensing/fetch_licenses.py](scripts/licensing/fetch_licenses.py)) to refresh `NOTICES/PYPI_LICENSES`.
 
 ## 🔧 System Requirements
 

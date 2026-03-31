@@ -28,6 +28,67 @@ class AudioConfig(BaseModel):
     )
 
 
+class MoonshineStreamingConfig(BaseModel):
+    """Tuning for Moonshine streaming dictation (partial cadence, native VAD, decode gating).
+
+    Values map to string options passed to ``moonshine_load_transcriber_from_files`` (see Moonshine
+    ``parse_transcriber_options``). ``stream_update_interval`` is the Python transcriber/stream
+    update cadence, not a native option key.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    stream_update_interval: float = Field(
+        default=0.5,
+        ge=0.05,
+        le=2.0,
+        description="Seconds of stream time between partial refresh calls (higher = fewer partials, less CPU).",
+    )
+    transcription_interval: float = Field(
+        default=0.6,
+        ge=0.05,
+        le=2.0,
+        description="Native transcription_interval: minimum seconds of buffered audio before each stream decode pass.",
+    )
+    vad_threshold: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Native vad_threshold; lower than 0.5 tends to reduce premature line finals on short pauses.",
+    )
+    vad_window_duration: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=2.0,
+        description="Optional native vad_window_duration (seconds); omit for library default.",
+    )
+    vad_max_segment_duration: float = Field(
+        default=32.0,
+        ge=5.0,
+        le=120.0,
+        description="Native vad_max_segment_duration (seconds) before a forced VAD segment split; default raised from library ~15s.",
+    )
+    max_tokens_per_second: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=30.0,
+        description="Optional native max_tokens_per_second; omit for library default.",
+    )
+
+    def transcriber_load_options(self) -> dict[str, str]:
+        """Key/value strings for ``Transcriber(..., options=...)`` at model load."""
+        opts: dict[str, str] = {
+            "transcription_interval": str(self.transcription_interval),
+            "vad_threshold": str(self.vad_threshold),
+        }
+        if self.vad_window_duration is not None:
+            opts["vad_window_duration"] = str(self.vad_window_duration)
+        opts["vad_max_segment_duration"] = str(self.vad_max_segment_duration)
+        if self.max_tokens_per_second is not None:
+            opts["max_tokens_per_second"] = str(self.max_tokens_per_second)
+        return opts
+
+
 class STTConfig(BaseModel):
     """Configuration for speech-to-text engines and processing parameters.
 
@@ -38,18 +99,18 @@ class STTConfig(BaseModel):
 
     moonshine_language: str = Field(default="en", description="Two-letter language code for Moonshine models")
     moonshine_model_arch: str = Field(
-        default="small-streaming",
+        default="medium-streaming",
         description=(
-            "Moonshine architecture id, e.g. small-streaming, base-en, medium-streaming. "
-            "small-streaming trades accuracy for lower latency and smaller download."
+            "Moonshine architecture id: tiny, base, tiny-streaming, base-streaming, small-streaming, medium-streaming. "
+            "medium-streaming is larger than small-streaming and usually more accurate (higher latency, bigger download)."
         ),
     )
-    moonshine_stream_update_interval: float = Field(
-        default=0.12,
-        description="Seconds between Moonshine streaming partial updates (lower = snappier UI, more CPU).",
+    moonshine_streaming: MoonshineStreamingConfig = Field(
+        default_factory=MoonshineStreamingConfig,
+        description="Streaming partial cadence and native Moonshine transcriber options (VAD, decode interval).",
     )
     moonshine_max_stream_line_duration_seconds: float = Field(
-        default=32.0,
+        default=45.0,
         ge=0.0,
         le=600.0,
         description=(
@@ -67,7 +128,7 @@ class STTConfig(BaseModel):
     @classmethod
     def _default_moonshine_arch_if_empty(cls, v: object) -> object:
         if v is None or (isinstance(v, str) and not v.strip()):
-            return "small-streaming"
+            return "medium-streaming"
         return v
 
 

@@ -9,7 +9,6 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from enum import Enum
 from typing import Optional
 
@@ -245,7 +244,6 @@ class DictationCoordinator:
         # in the ingress queue cannot be fed into a new session (stop/start race).
         self._moonshine_ingress_epoch: int = 0
         self._moonshine_suppress_until: float = 0.0
-        self._modifier_phrases_lc: tuple[str, ...] = self._build_modifier_phrases_lc()
         self._start_moonshine_ingress_thread()
 
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
@@ -498,44 +496,6 @@ class DictationCoordinator:
         except Exception as e:
             logger.error("Modifier phrase handling error: %s", e, exc_info=True)
 
-    def _build_modifier_phrases_lc(self) -> tuple[str, ...]:
-        """Lowercase modifier phrases from config (for ASR echo filtering)."""
-        cfg = self.config.dictation
-        phrases = (
-            cfg.modifier_upper_phrase,
-            cfg.modifier_capitals_phrase,
-            cfg.modifier_camel_phrase,
-            cfg.modifier_snake_phrase,
-            cfg.modifier_spelling_phrase,
-        )
-        return tuple(p.strip().lower() for p in phrases if p and str(p).strip())
-
-    def _is_likely_modifier_asr_echo(self, cleaned: str) -> bool:
-        """Drop short text that closely matches a configured modifier phrase (homophone ASR junk).
-
-        Uses :class:`difflib.SequenceMatcher` ratios 0.78 (full string) / 0.76 (prefix) so the English
-        word *spell* is not treated as the phrase *spelling*.
-        """
-        t = cleaned.strip().lower()
-        if not t:
-            return True
-        if len(t) > 56:
-            return False
-        words = t.split()
-        if len(words) > 5:
-            return False
-        for ph in self._modifier_phrases_lc:
-            if not ph:
-                continue
-            if SequenceMatcher(None, t, ph).ratio() >= 0.78:
-                return True
-            ph_wc = len(ph.split())
-            if len(words) <= ph_wc + 2:
-                head = " ".join(words[: max(ph_wc + 1, len(words))])
-                if len(head) >= 4 and SequenceMatcher(None, head, ph).ratio() >= 0.76:
-                    return True
-        return False
-
     @staticmethod
     def _is_isolated_stt_noise_fragment(text: str) -> bool:
         """True for tiny punctuation-only tails Moonshine may emit after command-only modifier audio."""
@@ -553,8 +513,6 @@ class DictationCoordinator:
         cleaned = self._clean_text(raw_text)
         if not cleaned or self._is_isolated_stt_noise_fragment(cleaned):
             return ""
-        if self._is_likely_modifier_asr_echo(cleaned):
-            return ""
         with_subs = self.alias_service.apply_substitutions(cleaned)
         if self._is_isolated_stt_noise_fragment(with_subs):
             return ""
@@ -564,8 +522,6 @@ class DictationCoordinator:
         """Same cleaning and filtering as finals, but spelling modifier is deferred (streaming UI)."""
         cleaned = self._clean_text(raw_text)
         if not cleaned or self._is_isolated_stt_noise_fragment(cleaned):
-            return ""
-        if self._is_likely_modifier_asr_echo(cleaned):
             return ""
         with_subs = self.alias_service.apply_substitutions(cleaned)
         if self._is_isolated_stt_noise_fragment(with_subs):
@@ -1280,24 +1236,40 @@ class DictationCoordinator:
         except Exception as e:
             logger.error(f"Session finalization error: {e}", exc_info=True)
 
+    @staticmethod
+    def _strip_config_phrases_case_insensitive(text: str, phrases: tuple[str, ...]) -> str:
+        """Remove each non-empty phrase as a whole token run (word boundaries); case-insensitive.
+
+        Multi-word phrases are stripped before single-word ones so e.g. ``smart green`` is removed
+        entirely and the embedded ``green`` start trigger does not fire first.
+        """
+        s = " ".join(text.split()).strip()
+        if not s:
+            return ""
+        nonempty = [p.strip() for p in phrases if p and p.strip()]
+        nonempty.sort(key=lambda p: (len(p.split()), len(p)), reverse=True)
+        for p in nonempty:
+            pat = r"(?i)\b" + re.escape(p) + r"\b"
+            s = re.sub(pat, " ", s)
+            s = " ".join(s.split()).strip()
+        return s
+
     def _clean_text(self, text: str) -> str:
-        """Clean dictated text by removing start/stop triggers and modifier voice phrases."""
+        """Remove configured dictation triggers and modifier phrases (exact phrase matches only)."""
         if not text:
             return ""
 
         cfg = self.config.dictation
-        triggers = {
-            cfg.start_trigger.lower(),
-            cfg.stop_trigger.lower(),
-            cfg.type_trigger.lower(),
-            cfg.smart_start_trigger.lower(),
-            cfg.visual_start_trigger.lower(),
-            cfg.hidden_start_trigger.lower(),
-            cfg.amend_start_trigger.lower(),
-        }
-
-        words = [w for w in text.split() if w.lower().strip('.,!?;:"()[]{}') not in triggers]
-        s = " ".join(words).strip()
+        trigger_phrases = (
+            cfg.start_trigger,
+            cfg.stop_trigger,
+            cfg.type_trigger,
+            cfg.smart_start_trigger,
+            cfg.visual_start_trigger,
+            cfg.hidden_start_trigger,
+            cfg.amend_start_trigger,
+        )
+        s = self._strip_config_phrases_case_insensitive(text, trigger_phrases)
 
         modifier_phrases = (
             cfg.modifier_upper_phrase,
@@ -1306,13 +1278,7 @@ class DictationCoordinator:
             cfg.modifier_snake_phrase,
             cfg.modifier_spelling_phrase,
         )
-        for phrase in modifier_phrases:
-            p = phrase.strip()
-            if not p:
-                continue
-            pat = r"(?i)\b" + re.escape(p) + r"\b"
-            s = re.sub(pat, " ", s)
-        return " ".join(s.split()).strip()
+        return self._strip_config_phrases_case_insensitive(s, modifier_phrases)
 
     def _append_text(self, existing: str, new_text: str) -> str:
         """Append text with proper spacing"""

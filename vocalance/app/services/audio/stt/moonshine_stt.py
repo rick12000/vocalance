@@ -154,10 +154,12 @@ class MoonshineSTT:
                 model_path, model_arch = get_model_for_language(lang, arch)
                 from moonshine_voice.transcriber import Transcriber
 
+                ms = self._config.stt.moonshine_streaming
                 self._transcriber = Transcriber(
                     model_path=model_path,
                     model_arch=model_arch,
-                    update_interval=self._config.stt.moonshine_stream_update_interval,
+                    update_interval=ms.stream_update_interval,
+                    options=ms.transcriber_load_options(),
                 )
                 logger.info("Moonshine transcriber loaded: %s arch=%s", model_path, model_arch)
                 return
@@ -218,7 +220,7 @@ class MoonshineSTT:
         use_max = max_line_f if max_line_f > 0 else None
         return MoonshineDictationStreamSession(
             self._transcriber,
-            self._config.stt.moonshine_stream_update_interval,
+            self._config.stt.moonshine_streaming.stream_update_interval,
             loop,
             on_partial,
             on_final,
