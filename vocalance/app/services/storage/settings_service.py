@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.config.llm_whitelist import is_whitelisted_llm_model_id
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import DynamicSettingsUpdatedEvent, SettingsResponseEvent
 from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
@@ -31,6 +32,7 @@ class SettingsService:
     OVERRIDEABLE_SETTINGS = {
         "llm.context_length",
         "llm.max_tokens",
+        "llm.selected_model_id",
         "grid.default_rect_count",
         "sound_recognizer.confidence_threshold",
         "sound_recognizer.vote_threshold",
@@ -48,6 +50,9 @@ class SettingsService:
         "sound_recognizer.vote_threshold",
         "grid.default_rect_count",
         "vad.command_silent_chunks_for_end",
+        "llm.selected_model_id",
+        "llm.context_length",
+        "llm.max_tokens",
     }
 
     def __init__(
@@ -123,6 +128,7 @@ class SettingsService:
                 "llm": {
                     "context_length": self._get_default_value("llm.context_length"),
                     "max_tokens": self._get_default_value("llm.max_tokens"),
+                    "selected_model_id": self._get_default_value("llm.selected_model_id"),
                 },
                 "grid": {"default_rect_count": self._get_default_value("grid.default_rect_count")},
                 "sound_recognizer": {
@@ -315,6 +321,7 @@ class SettingsService:
         validation_rules = {
             "llm.context_length": lambda v: isinstance(v, int) and 128 <= v <= 32768,
             "llm.max_tokens": lambda v: isinstance(v, int) and 1 <= v <= 4096,
+            "llm.selected_model_id": lambda v: isinstance(v, str) and is_whitelisted_llm_model_id(v),
             "grid.default_rect_count": lambda v: isinstance(v, int) and v > 0,
             "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
             "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,

@@ -367,44 +367,25 @@ Two-phase workflow (smart / amend)
 LLM Service
 -----------
 
-The LLM service wraps llama.cpp for local model inference:
+The LLM service uses llama.cpp with **CPU-only** inference. Weights come from a fixed
+whitelist of official `Qwen …-Instruct-GGUF` repositories (Q5_K_M). The active model
+is selected in Settings (``llm.selected_model_id``). The setting updates when the
+chosen model is already on disk, or after a successful download from Settings.
+Additional models use a cancellable download dialog; the previous active model stays
+in effect until a new one is fully installed.
 
-.. code-block:: python
+On first launch, if the configured model bundle is missing, startup **blocks** with
+the splash progress UI until that bundle is fetched.
 
-   class LLMService:
-       def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
-           self.llm: Optional[Llama] = None
-           self._model_loaded = False
-           self._warmed_up = False
+For each request, the service loads the GGUF from disk (first shard path for split
+files), runs chat completion, then unloads to avoid keeping large models resident
+between sessions.
 
-           # Auto-calculate threads: 75% of CPU cores, capped at 12
-           cpu_count = multiprocessing.cpu_count()
-           self.n_threads = config.llm.n_threads or max(4, min(int(cpu_count * 0.75), 12))
+**Model loading options** (CPU):
 
-       async def initialize(self) -> bool:
-           # Download model if missing
-           if not self.model_downloader.model_exists(self.model_filename):
-               await self.model_downloader.download_model(...)
-
-           # Load with performance optimizations
-           self.llm = await self._load_model_async()
-
-           # Warm up with quick inference
-           await self._warmup_model()
-           return True
-
-**Model loading options**:
-
-- **GPU layers**: Configurable number of GPU-accelerated layers (0 = CPU only)
-- **Flash attention**: Optional fast attention computation
-- **Memory mapping**: Maps model file to memory for efficient loading
-- **Thread configuration**: Configurable CPU threads for parallel token generation
-
-**Model startup modes**:
-
-- **Startup**: Load during application initialization (slow startup, fast first use)
-- **Background**: Load in background after startup completes
-- **On-demand**: Load when the first smart or amend dictation session runs
+- **Flash attention**: Optional faster attention where supported by the build
+- **Memory mapping**: Maps model files for efficient loading
+- **Thread configuration**: Configurable CPU threads for prompt batching and generation
 
 Agentic Prompt System
 ---------------------

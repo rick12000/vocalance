@@ -3,11 +3,17 @@ import gc
 import logging
 import multiprocessing
 import os
-from typing import Callable, Dict, List, Optional
+import threading
+from typing import Callable, Dict, List, Optional, Tuple
 
 from llama_cpp import Llama
 
 from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.config.llm_whitelist import (
+    DEFAULT_LLM_MODEL_ID,
+    WhitelistedLLMModel,
+    get_whitelisted_llm_model,
+)
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
@@ -25,98 +31,40 @@ _AMEND_SYSTEM_BASE = (
 
 
 class LLMService:
-    """Local LLM (llama.cpp) for smart dictation and amend-mode (selection + spoken instructions).
+    """Local LLM (llama.cpp, CPU-only) for smart dictation and amend-mode.
 
-    Handles download/load, warm-up, streaming chat completion, and completion/failure events.
-
-    Attributes:
-        llm: Loaded Llama model instance, or None before load.
-        _model_loaded: Whether the model loaded successfully.
-        _warmed_up: Whether a warm-up completion has run.
-        model_downloader: Acquires model files on disk.
+    Loads the selected whitelisted GGUF from disk for each inference request, then unloads
+    it to avoid holding large weights in memory between sessions.
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
-        """Initialize LLM service with configuration.
-
-        Args:
-            event_bus: EventBus for pub/sub messaging.
-            config: Global application configuration.
-        """
         self.event_bus = event_bus
         self.config = config
         self.llm: Optional[Llama] = None
         self._model_loaded = False
-        self._warmed_up = False
 
         self.model_downloader = LLMModelDownloader(config)
-        self.model_info = config.llm.model_info
-        self.model_filename = config.llm.get_model_filename()
-        self.model_path: Optional[str] = None
 
         cpu_count = multiprocessing.cpu_count()
         self.n_threads = config.llm.n_threads if config.llm.n_threads else max(4, min(int(cpu_count * 0.75), 12))
         self.n_threads_batch = config.llm.n_threads_batch if config.llm.n_threads_batch else self.n_threads
 
-        logger.debug(f"LLMService initialized: {self.model_filename}")
+        self._request_lock = asyncio.Lock()
+
+        logger.debug("LLMService initialized (per-request load, CPU-only)")
+
+    def _active_spec(self) -> Optional[WhitelistedLLMModel]:
+        spec = get_whitelisted_llm_model(self.config.llm.selected_model_id)
+        if spec:
+            return spec
+        return get_whitelisted_llm_model(DEFAULT_LLM_MODEL_ID)
 
     async def initialize(self) -> bool:
-        """Initialize LLM model with atomic download and retry logic.
-
-        Downloads model if not present, loads with performance optimizations, and
-        performs warm-up inference to prepare for real requests.
-
-        Returns:
-            True if initialization and warm-up successful, False otherwise.
-        """
-        try:
-            if not self.model_downloader.model_exists(self.model_filename):
-                logger.debug(f"Downloading model: {self.model_filename}")
-                model_path = await self.model_downloader.download_model(
-                    repo_id=self.model_info["repo_id"], filename=self.model_info["filename"]
-                )
-                if not model_path:
-                    logger.error("Model download failed after all retry attempts")
-                    return False
-
-            self.model_path = self.model_downloader.get_model_path(self.model_filename)
-
-            if not os.path.exists(self.model_path):
-                logger.error(f"Model not found: {self.model_path}")
-                return False
-
-            logger.debug(f"Loading model: {os.path.basename(self.model_path)}")
-
-            loop = asyncio.get_event_loop()
-            self.llm = await loop.run_in_executor(None, self._load_model, self.model_path)
-
-            if self.llm:
-                self._model_loaded = True
-                logger.debug("Model loaded successfully, warming up...")
-                await self._warmup_model()
-                self._warmed_up = True
-                logger.debug("Model initialization and warmup complete")
-                return True
-
-            logger.error("Model loading failed")
-            return False
-
-        except Exception as e:
-            logger.error(f"Initialization error: {e}", exc_info=True)
-            return False
+        """No longer preloads weights; dictation stack can start without a local GGUF."""
+        return True
 
     def _load_model(self, model_path: str) -> Optional[Llama]:
-        """Load model with performance-optimized settings.
-
-        Configures llama.cpp with threading, GPU layers, flash attention, quantization
-        types, and memory mapping for optimal inference performance.
-
-        Args:
-            model_path: Path to GGUF model file.
-
-        Returns:
-            Loaded Llama model instance if successful, None otherwise.
-        """
+        """Load GGUF for inference on CPU (llama.cpp)."""
         try:
             cfg = self.config.llm
             model = Llama(
@@ -125,12 +73,12 @@ class LLMService:
                 n_threads=self.n_threads,
                 n_threads_batch=self.n_threads_batch,
                 n_batch=cfg.n_batch,
-                n_gpu_layers=cfg.n_gpu_layers,
+                n_gpu_layers=0,
                 flash_attn=cfg.flash_attn,
                 use_mmap=True,
                 use_mlock=cfg.use_mlock,
                 chat_format="chatml",
-                seed=-1,  # -1 for random seed (non-deterministic), 42 for reproducibility
+                seed=-1,
                 type_k=cfg.type_k,
                 type_v=cfg.type_v,
                 verbose=cfg.verbose,
@@ -141,19 +89,80 @@ class LLMService:
             logger.error(f"Model load error: {e}", exc_info=True)
             return None
 
-    async def _warmup_model(self) -> None:
-        """Run a minimal chat completion to prime the runtime (failures are logged only)."""
+    async def _dispose_loaded_model(self) -> None:
+        if not self.llm:
+            self._model_loaded = False
+            return
         try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self.llm.create_chat_completion(
-                    messages=[{"role": "user", "content": "Hi"}], max_tokens=5, temperature=0.3
-                ),
-            )
-            logger.info("Model warmed up")
+            async with asyncio.timeout(5.0):
+                loop = asyncio.get_event_loop()
+                if hasattr(self.llm, "close"):
+                    await loop.run_in_executor(None, self.llm.close)
+        except asyncio.TimeoutError:
+            logger.warning("LLM close timed out after 5s")
         except Exception as e:
-            logger.warning(f"Warmup failed: {e}")
+            logger.warning(f"Error closing LLM model: {e}")
+        finally:
+            self.llm = None
+            self._model_loaded = False
+            gc.collect()
+
+    def is_whitelisted_bundle_on_disk(self, model_id: str) -> bool:
+        spec = get_whitelisted_llm_model(model_id)
+        if not spec:
+            return False
+        return self.model_downloader.model_bundle_complete(spec.gguf_filenames)
+
+    async def download_whitelisted_model(self, model_id: str) -> Tuple[bool, str]:
+        """Download all GGUF files for a whitelisted model (blocking hub path with retries)."""
+        spec = get_whitelisted_llm_model(model_id)
+        if not spec:
+            return False, f"Unknown model id: {model_id}"
+        try:
+            primary = await self.model_downloader.download_model_bundle(
+                repo_id=spec.repo_id,
+                filenames=list(spec.gguf_filenames),
+            )
+            if primary:
+                return True, f"Downloaded: {spec.label}"
+            return False, f"Download failed for {spec.label}"
+        except Exception as e:
+            logger.error(f"LLM download error: {e}", exc_info=True)
+            return False, str(e)
+
+    async def download_whitelisted_model_cancellable(
+        self,
+        model_id: str,
+        cancel_event: threading.Event,
+        progress_message_cb: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[bool, str]:
+        """Cancellable download; reverts any files that were not on disk before this attempt."""
+        spec = get_whitelisted_llm_model(model_id)
+        if not spec:
+            return False, f"Unknown model id: {model_id}"
+        fns = list(spec.gguf_filenames)
+        had_before = {fn: self.model_downloader.model_exists(fn) for fn in fns}
+        try:
+            primary = await self.model_downloader.download_model_bundle(
+                repo_id=spec.repo_id,
+                filenames=fns,
+                force_download=False,
+                max_retries=1,
+                retry_delay_seconds=0,
+                cancel_event=cancel_event,
+                progress_message_cb=progress_message_cb,
+            )
+            if cancel_event.is_set():
+                self.model_downloader.revert_partial_bundle(fns, had_before)
+                return False, "Download cancelled"
+            if primary:
+                return True, f"Downloaded: {spec.label}"
+            self.model_downloader.revert_partial_bundle(fns, had_before)
+            return False, f"Download failed for {spec.label}"
+        except Exception as e:
+            logger.error(f"LLM download error: {e}", exc_info=True)
+            self.model_downloader.revert_partial_bundle(fns, had_before)
+            return False, str(e)
 
     async def _run_chat_completion(
         self,
@@ -163,29 +172,51 @@ class LLMService:
         token_callback: Optional[Callable[[str], None]],
     ) -> Optional[str]:
         """Stream a chat completion, publish success/failure on the event bus, return final text."""
-        if not self._model_loaded or not self.llm:
-            logger.error("Model not loaded")
-            return fallback_text.strip()
+        async with self._request_lock:
+            spec = self._active_spec()
+            if not spec:
+                logger.error("No valid whitelisted LLM configuration")
+                await self._publish_failed("Invalid LLM configuration", fallback_text)
+                return fallback_text.strip()
 
-        try:
-            result = await self._generate_streaming(messages, token_callback)
-            final_result = result if result else fallback_text.strip()
-            await self._publish_completed(final_result, agentic_prompt)
-            return final_result
-        except Exception as e:
-            logger.error(f"Processing error: {e}", exc_info=True)
-            await self._publish_failed(str(e), fallback_text)
-            return fallback_text.strip()
+            if not self.model_downloader.model_bundle_complete(spec.gguf_filenames):
+                msg = "LLM model files missing. Download the selected model in Settings."
+                logger.error(msg)
+                await self._publish_failed(msg, fallback_text)
+                return fallback_text.strip()
+
+            model_path = self.model_downloader.get_model_path(spec.load_path_filename)
+            if not os.path.exists(model_path) or os.path.getsize(model_path) <= 0:
+                await self._publish_failed("LLM model file missing or empty", fallback_text)
+                return fallback_text.strip()
+
+            loop = asyncio.get_event_loop()
+            self.llm = await loop.run_in_executor(None, self._load_model, model_path)
+            if not self.llm:
+                self._model_loaded = False
+                await self._publish_failed("LLM failed to load", fallback_text)
+                return fallback_text.strip()
+
+            self._model_loaded = True
+            try:
+                result = await self._generate_streaming(messages, token_callback)
+                final_result = result if result else fallback_text.strip()
+                await self._publish_completed(final_result, agentic_prompt)
+                return final_result
+            except Exception as e:
+                logger.error(f"Processing error: {e}", exc_info=True)
+                await self._publish_failed(str(e), fallback_text)
+                return fallback_text.strip()
+            finally:
+                await self._dispose_loaded_model()
 
     async def process_dictation_streaming(
         self, raw_text: str, agentic_prompt: str, token_callback: Optional[Callable[[str], None]] = None
     ) -> Optional[str]:
-        """Smart dictation: system = agentic preset, user = raw dictated text; stream tokens."""
         messages = self._build_messages(agentic_prompt, raw_text)
         return await self._run_chat_completion(messages, raw_text, agentic_prompt, token_callback)
 
     async def process_dictation(self, raw_text: str, agentic_prompt: str) -> Optional[str]:
-        """Non-streaming smart dictation (same message shape as ``process_dictation_streaming``)."""
         return await self.process_dictation_streaming(raw_text, agentic_prompt, None)
 
     async def process_amend_streaming(
@@ -195,22 +226,16 @@ class LLMService:
         agentic_prompt: str,
         token_callback: Optional[Callable[[str], None]] = None,
     ) -> Optional[str]:
-        """Amend mode: apply ``spoken_prompt`` to ``clipboard_text`` using amend system text plus agentic preset."""
         messages = self._build_amend_messages(agentic_prompt, clipboard_text, spoken_prompt)
         return await self._run_chat_completion(messages, spoken_prompt, agentic_prompt, token_callback)
 
     def _build_messages(self, agentic_prompt: str, raw_text: str) -> List[Dict[str, str]]:
-        """Chat messages for smart dictation (system = agentic preset, user = raw text)."""
         return [
-            {
-                "role": "system",
-                "content": f"{agentic_prompt}",
-            },
+            {"role": "system", "content": f"{agentic_prompt}"},
             {"role": "user", "content": raw_text},
         ]
 
     def _build_amend_messages(self, agentic_prompt: str, clipboard_text: str, spoken_prompt: str) -> List[Dict[str, str]]:
-        """Chat messages for amend mode: system = amend rules plus optional agentic preset; user = labeled sections."""
         extra = (agentic_prompt or "").strip()
         system_content = _AMEND_SYSTEM_BASE if not extra else f"{_AMEND_SYSTEM_BASE}\n\n{extra}"
         user_content = (
@@ -229,17 +254,20 @@ class LLMService:
     async def _generate_streaming(
         self, messages: List[Dict[str, str]], token_callback: Optional[Callable[[str], None]] = None
     ) -> Optional[str]:
-        """Generate using chat completion API with async streaming"""
         try:
             cfg = self.config.llm
             loop = asyncio.get_event_loop()
             token_queue = asyncio.Queue(maxsize=50)
             full_text = []
 
+            if not self.llm:
+                return None
+
+            llm_ref = self.llm
+
             def sync_generate():
-                """Run llama.cpp generation in thread and feed tokens to async queue"""
                 try:
-                    stream = self.llm.create_chat_completion(
+                    stream = llm_ref.create_chat_completion(
                         messages=messages,
                         max_tokens=cfg.max_tokens,
                         temperature=cfg.temperature,
@@ -251,7 +279,7 @@ class LLMService:
                         mirostat_mode=cfg.mirostat_mode,
                         mirostat_tau=cfg.mirostat_tau,
                         mirostat_eta=cfg.mirostat_eta,
-                        stop=[],  # Explicitly disable stop sequences
+                        stop=[],
                         stream=True,
                     )
 
@@ -316,51 +344,22 @@ class LLMService:
             return None
 
     async def _publish_completed(self, processed_text: str, agentic_prompt: str) -> None:
-        """Publish completion event"""
         event = LLMProcessingCompletedEvent(processed_text=processed_text, agentic_prompt=agentic_prompt)
         await self.event_bus.publish(event)
 
     async def _publish_failed(self, error_message: str, original_text: str) -> None:
-        """Publish failure event"""
         event = LLMProcessingFailedEvent(error_message=error_message, original_text=original_text)
         await self.event_bus.publish(event)
 
     def is_ready(self) -> bool:
-        """Check if ready"""
         return self._model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
-        """Shutdown and cleanup with proper resource management and timeout protection"""
         try:
-            logger.info("LLM service shutting down - cleaning up model and GPU memory")
-            self._model_loaded = False
-
-            # Use timeout to prevent shutdown hang
-            try:
-                async with asyncio.timeout(5.0):
-                    if self.llm:
-                        try:
-                            # Run close in thread pool to avoid blocking
-                            if hasattr(self.llm, "close"):
-                                loop = asyncio.get_event_loop()
-                                await loop.run_in_executor(None, self.llm.close)
-                                logger.info("LLM model closed successfully")
-                        except Exception as e:
-                            logger.warning(f"Error closing LLM model: {e}")
-                        finally:
-                            # Delete reference to allow garbage collection
-                            del self.llm
-                            self.llm = None
-            except asyncio.TimeoutError:
-                logger.warning("LLM shutdown timed out after 5s, forcing cleanup")
-                self.llm = None
-
-            # Force garbage collection to free memory immediately
-            # Multiple rounds to catch cyclic references
-            for i in range(2):
+            logger.info("LLM service shutting down")
+            await self._dispose_loaded_model()
+            for _ in range(2):
                 gc.collect()
-                logger.debug(f"Garbage collection round {i + 1} performed")
-
             logger.info("LLM service shutdown complete")
         except Exception as e:
             logger.error(f"Shutdown error: {e}", exc_info=True)

@@ -7,6 +7,7 @@ from typing import Dict, List, Literal, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from vocalance.app.config.llm_whitelist import DEFAULT_LLM_MODEL_ID, is_whitelisted_llm_model_id
 from vocalance.app.config.logging_config import LoggingConfigModel
 
 logger = logging.getLogger(__name__)
@@ -279,24 +280,25 @@ class DictationConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    """Configuration for LLM service.
+    """Configuration for llama.cpp-based local LLM inference (CPU-only).
 
-    Comprehensive configuration for llama.cpp-based LLM inference including model selection,
-    context/generation limits, threading/batching parameters, quantization settings,
-    sampling parameters, GPU offloading, and startup initialization mode. Tuned for
-    dictation formatting on CPU with optimal speed/quality balance.
+    Model weights are chosen from a fixed whitelist of official Qwen GGUF builds; the
+    active artifact is selected at runtime via ``selected_model_id`` and can be changed
+    from settings without restarting the app.
     """
 
-    model_info: Dict[str, str] = Field(
-        default={"repo_id": "Qwen/Qwen2.5-1.5B-Instruct-GGUF", "filename": "qwen2.5-1.5b-instruct-q5_k_m.gguf"},
-        description="Internal model configuration",
+    model_config = ConfigDict(extra="ignore")
+
+    selected_model_id: str = Field(
+        default=DEFAULT_LLM_MODEL_ID,
+        description="Whitelisted local model id (maps to official Qwen GGUF Q5_K_M builds)",
     )
 
     context_length: int = Field(
         default=2048, description="Model context window - 2048 is optimal for dictation (faster than 4096)"
     )
 
-    max_tokens: int = Field(default=1024, description="Max output tokens - sufficient for most dictation, faster than 2600")
+    max_tokens: int = Field(default=1500, description="Max output tokens - sufficient for most dictation, faster than 2600")
 
     n_threads: Optional[int] = Field(default=None, description="Threads for token generation (None = auto: cpu_count - 1, max 6)")
 
@@ -323,8 +325,6 @@ class LLMConfig(BaseModel):
     mirostat_tau: float = Field(default=5.0, ge=0.0, le=10.0, description="Not used when mirostat_mode=0")
     mirostat_eta: float = Field(default=0.1, ge=0.0, le=1.0, description="Not used when mirostat_mode=0")
 
-    n_gpu_layers: int = Field(default=0, ge=0, description="Number of layers to offload to GPU (0 = CPU only, -1 = all layers)")
-
     verbose: bool = Field(default=False, description="Enable verbose llama.cpp logging for debugging")
 
     flash_attn: bool = Field(default=True, description="Enable flash attention for faster computation (recommended)")
@@ -341,17 +341,12 @@ class LLMConfig(BaseModel):
 
     generation_timeout_sec: float = Field(default=45.0, description="Max time for generation before timeout")
 
-    startup_mode: Literal["startup", "background", "lazy"] = Field(
-        default="startup", description="When to initialize LLM: 'startup', 'background', 'lazy'"
-    )
-
-    def get_model_filename(self) -> str:
-        """Get the GGUF model filename from model_info dictionary.
-
-        Returns:
-            Model filename string extracted from model_info.
-        """
-        return self.model_info["filename"]
+    @field_validator("selected_model_id")
+    @classmethod
+    def _validate_selected_model_id(cls, v: str) -> str:
+        if not is_whitelisted_llm_model_id(v):
+            raise ValueError(f"selected_model_id must be a whitelisted LLM id, got {v!r}")
+        return v
 
 
 class VADConfig(BaseModel):

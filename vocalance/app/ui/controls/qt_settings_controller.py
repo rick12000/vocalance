@@ -1,8 +1,12 @@
 import asyncio
 import logging
-from typing import Any, Dict, Tuple
+import threading
+from typing import Any, Dict, Optional, Tuple
 
 from PySide6.QtCore import Signal
+
+from vocalance.app.config.llm_whitelist import get_whitelisted_llm_model
+from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
@@ -27,6 +31,8 @@ class QtSettingsController(QtBaseController):
     all_settings_changed = Signal(dict)  # All settings
     settings_reset = Signal()
     operation_error = Signal(str)
+    llm_download_progress = Signal(str)
+    llm_cancellable_download_finished = Signal(bool, str)
 
     def __init__(
         self,
@@ -55,6 +61,7 @@ class QtSettingsController(QtBaseController):
         self.config = config
         self.main_window = main_window
         self._cached_settings: Dict[str, Any] = {}
+        self._fallback_llm_downloader: Optional[LLMModelDownloader] = None
 
         # Subscribe to settings events
         self._subscribe_to_events()
@@ -144,6 +151,51 @@ class QtSettingsController(QtBaseController):
     def update_setting(self, key: str, value: Any) -> None:
         """Update a single setting."""
         asyncio.run_coroutine_threadsafe(self.update_setting_async(key, value), self.event_loop)
+
+    def _llm_downloader(self) -> LLMModelDownloader:
+        dictation = getattr(self.main_window, "_dictation_service", None)
+        llm = getattr(dictation, "llm_service", None) if dictation else None
+        if llm is not None:
+            return llm.model_downloader
+        if self._fallback_llm_downloader is None:
+            self._fallback_llm_downloader = LLMModelDownloader(self.config)
+        return self._fallback_llm_downloader
+
+    def llm_bundle_on_disk(self, model_id: str) -> bool:
+        spec = get_whitelisted_llm_model(model_id)
+        if not spec:
+            return False
+        return self._llm_downloader().model_bundle_complete(spec.gguf_filenames)
+
+    def schedule_llm_cancellable_download(self, model_id: str, cancel_event: threading.Event) -> None:
+        """Run a cancellable GGUF download on the app asyncio loop; completion via llm_cancellable_download_finished (Qt thread-safe)."""
+
+        async def _run() -> Tuple[bool, str]:
+            def _progress(msg: str) -> None:
+                self.llm_download_progress.emit(msg)
+
+            dictation = getattr(self.main_window, "_dictation_service", None)
+            llm = getattr(dictation, "llm_service", None) if dictation else None
+            if not llm:
+                return False, "Dictation service is not available yet."
+            return await llm.download_whitelisted_model_cancellable(model_id, cancel_event, _progress)
+
+        fut = asyncio.run_coroutine_threadsafe(_run(), self.event_loop)
+
+        def _done(f: asyncio.Future) -> None:
+            try:
+                ok, msg = f.result()
+            except Exception as e:
+                ok, msg = False, str(e)
+            self.logger.info(
+                "LLM cancellable download finished model_id=%s ok=%s msg=%s",
+                model_id,
+                ok,
+                (msg[:120] + "…") if len(msg) > 120 else msg,
+            )
+            self.llm_cancellable_download_finished.emit(ok, msg)
+
+        fut.add_done_callback(_done)
 
     async def update_settings_async(self, settings: Dict[str, Any]) -> Tuple[bool, str]:
         """Update multiple settings asynchronously."""

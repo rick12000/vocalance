@@ -10,22 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 class SettingsUpdateCoordinator:
-    """
-    Coordinates real-time settings updates across services.
+    """Coordinates real-time settings updates across services.
 
-    This coordinator handles settings that can be updated without restart:
-    - markov_predictor.confidence_threshold
-    - sound_recognizer.confidence_threshold
-    - sound_recognizer.vote_threshold
-    - grid.default_rect_count
-    - vad.command_silent_chunks_for_end
-
-    Other settings (LLM) require app restart.
-
-    Flow:
-    1. The GlobalAppConfig is updated (single source of truth)
-    2. Real-time settings are propagated to registered services
-    3. Changes are logged for debugging
+    Updates ``GlobalAppConfig`` from events, then invokes registered services where a
+    callback exists. Some paths (for example ``llm.selected_model_id``) only update
+    config; services read the config on their next operation.
     """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
@@ -99,9 +88,19 @@ class SettingsUpdateCoordinator:
             "vad.command_silent_chunks_for_end": ("audio", "on_command_silent_chunks_updated"),
         }
 
+        config_only_paths = frozenset(
+            {
+                "llm.selected_model_id",
+                "llm.context_length",
+                "llm.max_tokens",
+            }
+        )
+
         for setting_path, value in updated_settings.items():
             # GridService reads directly from config - no callback needed
             if setting_path == "grid.default_rect_count":
+                continue
+            if setting_path in config_only_paths:
                 continue
 
             service_info = propagation_map.get(setting_path)

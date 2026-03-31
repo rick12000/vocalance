@@ -11,6 +11,8 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load_app_config
+from vocalance.app.config.llm_whitelist import DEFAULT_LLM_MODEL_ID, get_whitelisted_llm_model
+from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
@@ -376,32 +378,35 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Preparing dictation system")
 
+            spec = get_whitelisted_llm_model(self.config.llm.selected_model_id) or get_whitelisted_llm_model(
+                DEFAULT_LLM_MODEL_ID
+            )
+            llm_downloader = LLMModelDownloader(self.config)
+            if spec and not llm_downloader.model_bundle_complete(spec.gguf_filenames):
+                if progress_tracker:
+                    progress_tracker.update_sub_step(
+                        sub_step_name="Fetching default local LLM (~2–4 GB). First launch may take several minutes.",
+                        progress=0.35,
+                    )
+                primary = await llm_downloader.download_model_bundle(
+                    repo_id=spec.repo_id,
+                    filenames=list(spec.gguf_filenames),
+                )
+                if not primary:
+                    logger.error("Startup LLM bundle download failed")
+                    raise RuntimeError("Critical asset download failed: LLM model")
+
             dictation = DictationCoordinator(
                 event_bus=self.event_bus, config=self.config, storage=storage, gui_event_loop=self.gui_loop
             )
 
-            llm_mode = getattr(self.config.llm, "startup_mode", "startup")
-            if llm_mode == "startup":
-                llm_filename = self.config.llm.get_model_filename()
-                llm_models_dir = os.path.join(self.config.storage.user_data_root, "llm_models")
-                llm_model_path = os.path.join(llm_models_dir, llm_filename)
-                llm_exists = os.path.exists(llm_model_path) and os.path.getsize(llm_model_path) > 0
+            if progress_tracker:
+                progress_tracker.update_sub_step(sub_step_name="Initializing dictation", progress=0.55)
 
-                if progress_tracker:
-                    sub_message = (
-                        "Fetching LLM model. This should take 5-15 minutes on first use."
-                        if not llm_exists
-                        else "Setting up LLM resources"
-                    )
-                    progress_tracker.update_sub_step(sub_step_name=sub_message)
-
-                initialization_success = await dictation.initialize()
-                if not initialization_success:
-                    logger.error("Failed to initialize dictation service")
-                    raise RuntimeError("Critical asset download failed: LLM model")
-            elif llm_mode == "background":
-                llm_task = asyncio.create_task(self._background_llm_init(dictation=dictation))
-                self._background_tasks.append(llm_task)
+            initialization_success = await dictation.initialize()
+            if not initialization_success:
+                logger.error("Failed to initialize dictation service")
+                raise RuntimeError("Critical dictation initialization failed")
 
             with self._services_lock:
                 self.services["dictation"] = dictation
@@ -488,19 +493,6 @@ class FastServiceInitializer:
                     coordinator.register_service(service_name=registration_name, service_instance=self.services[service_key])
 
         logger.debug("Services registered with settings coordinator")
-
-    async def _background_llm_init(self, dictation: Any) -> None:
-        """Initialize LLM model in background after application startup completes.
-
-        Delays initialization by 2 seconds to avoid blocking startup, then initializes
-        the LLM model asynchronously. Used when startup_mode is set to 'background'.
-
-        Args:
-            dictation: DictationCoordinator instance requiring LLM initialization.
-        """
-        await asyncio.sleep(2.0)
-        await dictation.initialize()
-        logger.debug("LLM initialized in background")
 
     async def activate_all_services(self) -> None:
         """Activate all services by setting up event subscriptions and starting audio processing.
@@ -798,8 +790,7 @@ def _cleanup_memory() -> None:
 
     Runs multiple garbage collection cycles and attempts to call malloc_trim on
     Linux systems to return freed memory to the operating system immediately rather
-    than keeping it in the process heap. Also cleans up TensorFlow/PyTorch/llama.cpp
-    resources on Windows.
+    than keeping it in the process heap. Also cleans up TensorFlow/PyTorch resources where applicable.
     """
     # Clean up TensorFlow sessions and models
     try:
