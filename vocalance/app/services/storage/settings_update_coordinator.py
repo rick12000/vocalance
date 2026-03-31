@@ -10,12 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class SettingsUpdateCoordinator:
-    """Coordinates real-time settings updates across services.
-
-    Updates ``GlobalAppConfig`` from events, then invokes registered services where a
-    callback exists. Some paths (for example ``llm.selected_model_id``) only update
-    config; services read the config on their next operation.
-    """
+    """Apply ``DynamicSettingsUpdatedEvent`` to ``GlobalAppConfig`` and notify registered services."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
         self._event_bus = event_bus
@@ -30,13 +25,7 @@ class SettingsUpdateCoordinator:
         logger.debug("SettingsUpdateCoordinator subscriptions configured")
 
     def register_service(self, service_name: str, service_instance: Any) -> None:
-        """
-        Register a service that needs real-time settings updates.
-
-        Services must implement specific update methods for their settings:
-        - MarkovCommandService: update_confidence_threshold(float)
-        - SoundRecognizer: update_confidence_threshold(float), update_vote_threshold(float)
-        """
+        """Register a service instance looked up by name in ``_propagate_to_services``."""
         self._service_registry[service_name] = service_instance
         logger.debug(f"Registered service for settings updates: {service_name}")
 

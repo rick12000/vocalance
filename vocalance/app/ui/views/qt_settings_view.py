@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
-from vocalance.app.config.llm_whitelist import DEFAULT_LLM_MODEL_ID, WHITELISTED_LLM_MODELS
+from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, get_whitelisted_llm_model, local_llm_allowlist
 from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
 from vocalance.app.ui.components.checkboxes import Checkbox
 from vocalance.app.ui.components.complex_components import FormGroup
@@ -179,8 +179,8 @@ class QtSettingsView(QWidget):
                     section_widgets_dict[setting_key] = checkbox
 
                 elif isinstance(value, (int, float, str)):
-                    inp = TextInput(str(value))
-                    # Don't connect to auto-save on editing finished
+                    inp = TextInput()
+                    inp.setText(str(value))
 
                     group = FormGroup(label_text, inp)
                     self.scroll_container.add(group)
@@ -227,7 +227,7 @@ class QtSettingsView(QWidget):
 
         combo = QComboBox(self)
         self._apply_llm_model_combo_style(combo)
-        for m in WHITELISTED_LLM_MODELS:
+        for m in local_llm_allowlist().artifacts:
             combo.addItem(m.label, m.id)
         current_id = DEFAULT_LLM_MODEL_ID
         if "llm" in self.settings and isinstance(self.settings["llm"], dict):
@@ -264,7 +264,8 @@ class QtSettingsView(QWidget):
             if value is None:
                 continue
             setting_key = f"{category}.{key}"
-            inp = TextInput(str(value))
+            inp = TextInput()
+            inp.setText(str(value))
             group = FormGroup(label_text, inp)
             self.scroll_container.add(group)
             llm_widgets[setting_key] = inp
@@ -396,8 +397,6 @@ class QtSettingsView(QWidget):
         if self.controller.llm_bundle_on_disk(mid):
             self._sync_llm_model_ui_state()
             return
-
-        from vocalance.app.config.llm_whitelist import get_whitelisted_llm_model
 
         spec = get_whitelisted_llm_model(mid)
         dlg = LlmDownloadProgressDialog(self, model_label=spec.label if spec else mid)

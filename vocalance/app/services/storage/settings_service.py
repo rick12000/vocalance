@@ -1,8 +1,7 @@
 import logging
 from typing import Any, Dict, Optional
 
-from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.config.llm_whitelist import is_whitelisted_llm_model_id
+from vocalance.app.config.app_config import GlobalAppConfig, is_whitelisted_llm_model_id
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import DynamicSettingsUpdatedEvent, SettingsResponseEvent
 from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
@@ -155,13 +154,20 @@ class SettingsService:
             self._effective_settings = {}
 
     def _apply_overrides_to_effective_settings(self) -> None:
-        """Apply user overrides to effective settings"""
+        """Merge user overrides into effective settings; invalid values are skipped (defaults kept)."""
         for category, category_overrides in self._user_overrides.items():
-            if category in self._effective_settings:
-                for key, value in category_overrides.items():
-                    setting_path = f"{category}.{key}"
-                    if setting_path in self.OVERRIDEABLE_SETTINGS:
-                        self._effective_settings[category][key] = value
+            if category not in self._effective_settings:
+                continue
+            if not isinstance(category_overrides, dict):
+                continue
+            for key, value in category_overrides.items():
+                setting_path = f"{category}.{key}"
+                if setting_path not in self.OVERRIDEABLE_SETTINGS:
+                    continue
+                if not self._validate_setting_value(setting_path, value):
+                    logger.warning("Skipping invalid persisted override %s=%r", setting_path, value)
+                    continue
+                self._effective_settings[category][key] = value
 
     async def get_effective_settings(self) -> Dict[str, Any]:
         """Get current effective settings (defaults + overrides)"""
@@ -319,15 +325,16 @@ class SettingsService:
     def _validate_setting_value(self, setting_path: str, value: Any) -> bool:
         """Validate setting value based on setting type and constraints"""
         validation_rules = {
-            "llm.context_length": lambda v: isinstance(v, int) and 128 <= v <= 32768,
-            "llm.max_tokens": lambda v: isinstance(v, int) and 1 <= v <= 4096,
+            "llm.context_length": lambda v: type(v) is int and 128 <= v <= 32768,
+            "llm.max_tokens": lambda v: type(v) is int and 1 <= v <= 4096,
             "llm.selected_model_id": lambda v: isinstance(v, str) and is_whitelisted_llm_model_id(v),
-            "grid.default_rect_count": lambda v: isinstance(v, int) and v > 0,
-            "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
-            "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
+            "grid.default_rect_count": lambda v: type(v) is int and v > 0,
+            "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= float(v) <= 1.0,
+            "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= float(v) <= 1.0,
             "markov_predictor.enabled": lambda v: isinstance(v, bool),
-            "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
-            "vad.command_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
+            "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= float(v) <= 1.0,
+            "vad.energy_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 < float(v) <= 1.0,
+            "vad.command_silent_chunks_for_end": lambda v: type(v) is int and 1 <= v <= 1000,
         }
 
         try:

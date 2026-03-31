@@ -16,6 +16,13 @@ from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects
 from vocalance.app.ui.qt_theme import theme
 
+# Drag mode: PyAutoGUI only interpolates pointer motion when duration > 0.1s. A short settle after the
+# final move helps many Windows targets register the drop at the cell center before button-up.
+_GRID_DRAG_MOVE_MIN_S = 0.22
+_GRID_DRAG_MOVE_MAX_S = 0.85
+_GRID_DRAG_MOVE_DIST_DIVISOR = 2200.0
+_GRID_DRAG_SETTLE_S = 0.05
+
 
 class QtGridView(QWidget):
     """Thread-safe grid overlay for PySide6.
@@ -64,6 +71,7 @@ class QtGridView(QWidget):
         self.current_num_rects_displayed: Optional[int] = None
         self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
         self._current_click_mode: str = "click"
+        self._drag_origin: Optional[Tuple[int, int]] = None
 
         # Cached layout data for fast painting
         self._cached_num_cols: int = 0
@@ -537,7 +545,13 @@ class QtGridView(QWidget):
             start_time = time.perf_counter()
             self.logger.info(f"Showing grid: num_rects={num_rects}, mode={click_mode}")
 
-            self._current_click_mode = click_mode
+            with self._state_lock:
+                self._current_click_mode = click_mode
+                if click_mode == "drag":
+                    pos = pyautogui.position()
+                    self._drag_origin = (round(pos[0]), round(pos[1]))
+                else:
+                    self._drag_origin = None
 
             # Get PRIMARY screen for physical pixel calculations
             primary = QApplication.primaryScreen()
@@ -580,6 +594,8 @@ class QtGridView(QWidget):
 
             if not rect_definitions:
                 self.logger.error("No rectangles generated")
+                with self._state_lock:
+                    self._drag_origin = None
                 self._is_preparing = False
                 return
 
@@ -655,6 +671,7 @@ class QtGridView(QWidget):
             with self._state_lock:
                 self._is_preparing = False
                 self._is_active = False
+                self._drag_origin = None
             self.logger.error(f"Error showing grid: {e}", exc_info=True)
 
     def _schedule_robust_focus(self) -> None:
@@ -715,6 +732,7 @@ class QtGridView(QWidget):
                 self._cached_num_rows = 0
                 self._cached_cell_w = 0
                 self._cached_cell_h = 0
+                self._drag_origin = None
 
             self.logger.info("Grid hidden")
 
@@ -725,6 +743,46 @@ class QtGridView(QWidget):
         """Refresh the grid display."""
         if self._is_active and self.current_num_rects_displayed:
             self.update()
+
+    def _publish_grid_mouse_click(self, x: int, y: int) -> None:
+        """Log a grid-originated click at physical coordinates (click tracking)."""
+        ev = PerformMouseClickEventData(x=x, y=y, source="grid")
+        asyncio.run_coroutine_threadsafe(self.event_bus.publish(ev), self.event_loop)
+
+    def _execute_grid_pointer_action(
+        self,
+        click_mode: str,
+        center_x: float,
+        center_y: float,
+        drag_origin: Optional[Tuple[int, int]],
+    ) -> None:
+        """Perform pyautogui action for grid cell (physical pixel coordinates)."""
+        cx, cy = int(center_x), int(center_y)
+        if click_mode == "click":
+            pyautogui.click(cx, cy)
+            self._publish_grid_mouse_click(cx, cy)
+        elif click_mode == "hover":
+            pyautogui.moveTo(cx, cy)
+        elif click_mode == "drag":
+            if drag_origin is None:
+                raise RuntimeError("Drag mode requires a recorded start position")
+            ox, oy = drag_origin
+            tx, ty = round(center_x), round(center_y)
+            dist = math.hypot(float(tx - ox), float(ty - oy))
+            duration = min(
+                _GRID_DRAG_MOVE_MAX_S,
+                max(_GRID_DRAG_MOVE_MIN_S, dist / _GRID_DRAG_MOVE_DIST_DIVISOR),
+            )
+            pyautogui.moveTo(ox, oy, duration=0.0, _pause=False)
+            pyautogui.mouseDown(ox, oy, button="left", _pause=False)
+            try:
+                pyautogui.moveTo(tx, ty, duration=duration, _pause=False)
+                time.sleep(_GRID_DRAG_SETTLE_S)
+            finally:
+                pyautogui.mouseUp(tx, ty, button="left", _pause=False)
+            self._publish_grid_mouse_click(tx, ty)
+        else:
+            raise ValueError(f"Unsupported grid click_mode: {click_mode!r}")
 
     def handle_selection(self, selection_key: str, click_mode: str = "click") -> bool:
         """Handle grid cell selection.
@@ -744,6 +802,11 @@ class QtGridView(QWidget):
                 return False
 
             rect_data = self.ui_to_rect_data_map[selected_number]
+            drag_origin = self._drag_origin if click_mode == "drag" else None
+
+        if click_mode == "drag" and drag_origin is None:
+            self.logger.error("Drag mode selection failed: no recorded start position")
+            return False
 
         # Coordinates are already in physical pixels (matching pyautogui)
         center_x = rect_data["center_x"]
@@ -762,13 +825,7 @@ class QtGridView(QWidget):
                 # Small delay to ensure overlay is fully hidden
                 time.sleep(0.05)  # 50ms delay
 
-                if click_mode == "click":
-                    pyautogui.click(center_x, center_y)
-                    # Publish click event so it gets tracked in the cache
-                    click_event = PerformMouseClickEventData(x=int(center_x), y=int(center_y), source="grid")
-                    asyncio.run_coroutine_threadsafe(self.event_bus.publish(click_event), self.event_loop)
-                elif click_mode == "hover":
-                    pyautogui.moveTo(center_x, center_y)
+                self._execute_grid_pointer_action(click_mode, center_x, center_y, drag_origin)
 
                 self.logger.info(f"Action '{click_mode}' performed at ({center_x}, {center_y})")
 

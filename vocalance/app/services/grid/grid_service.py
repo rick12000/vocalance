@@ -110,7 +110,7 @@ class GridService:
             await self._publish_visibility_event(True, rows, cols)
 
             # Publish status asynchronously (non-blocking, low priority)
-            mode_desc = "hover mode" if click_mode == "hover" else "click mode"
+            mode_desc = {"hover": "hover mode", "drag": "drag mode"}.get(click_mode, "click mode")
             self._publish_command_status(
                 command_type,
                 True,
@@ -133,7 +133,7 @@ class GridService:
             click_event = ClickGridCellRequestEventData(cell_label=str(command.selected_number), click_mode=click_mode)
             self.event_publisher.publish(click_event)
 
-            action_desc = "hovered" if click_mode == "hover" else "selected"
+            action_desc = {"hover": "hovered", "drag": "dragged to"}.get(click_mode, "selected")
             self._publish_command_status(
                 command_type,
                 True,

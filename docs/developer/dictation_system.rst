@@ -367,8 +367,8 @@ Two-phase workflow (smart / amend)
 LLM Service
 -----------
 
-The LLM service uses llama.cpp with **CPU-only** inference. Weights come from a fixed
-whitelist of official `Qwen …-Instruct-GGUF` repositories (Q5_K_M). The active model
+The LLM service uses llama.cpp with **CPU-only** inference. Weights come from the
+built-in allow list (``LocalLLMAllowList`` in ``app_config``) of official `Qwen …-Instruct-GGUF` repositories (Q5_K_M). The active model
 is selected in Settings (``llm.selected_model_id``). The setting updates when the
 chosen model is already on disk, or after a successful download from Settings.
 Additional models use a cancellable download dialog; the previous active model stays

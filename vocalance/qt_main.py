@@ -11,7 +11,6 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load_app_config
-from vocalance.app.config.llm_whitelist import DEFAULT_LLM_MODEL_ID, get_whitelisted_llm_model
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
@@ -378,9 +377,8 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Preparing dictation system")
 
-            spec = get_whitelisted_llm_model(self.config.llm.selected_model_id) or get_whitelisted_llm_model(
-                DEFAULT_LLM_MODEL_ID
-            )
+            allow = self.config.local_llm_allowlist
+            spec = allow.artifact_for(self.config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
             llm_downloader = LLMModelDownloader(self.config)
             if spec and not llm_downloader.model_bundle_complete(spec.gguf_filenames):
                 if progress_tracker:

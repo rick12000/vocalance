@@ -9,9 +9,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 from llama_cpp import Llama
 
 from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.config.llm_whitelist import (
+from vocalance.app.config.app_config import (
     DEFAULT_LLM_MODEL_ID,
-    WhitelistedLLMModel,
+    LocalLLMArtifact,
     get_whitelisted_llm_model,
 )
 from vocalance.app.event_bus import EventBus
@@ -31,11 +31,7 @@ _AMEND_SYSTEM_BASE = (
 
 
 class LLMService:
-    """Local LLM (llama.cpp, CPU-only) for smart dictation and amend-mode.
-
-    Loads the selected whitelisted GGUF from disk for each inference request, then unloads
-    it to avoid holding large weights in memory between sessions.
-    """
+    """llama.cpp CPU inference: load GGUF per request, unload after."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         self.event_bus = event_bus
@@ -51,20 +47,18 @@ class LLMService:
 
         self._request_lock = asyncio.Lock()
 
-        logger.debug("LLMService initialized (per-request load, CPU-only)")
+        logger.debug("LLMService initialized")
 
-    def _active_spec(self) -> Optional[WhitelistedLLMModel]:
+    def _active_spec(self) -> Optional[LocalLLMArtifact]:
         spec = get_whitelisted_llm_model(self.config.llm.selected_model_id)
         if spec:
             return spec
         return get_whitelisted_llm_model(DEFAULT_LLM_MODEL_ID)
 
     async def initialize(self) -> bool:
-        """No longer preloads weights; dictation stack can start without a local GGUF."""
         return True
 
     def _load_model(self, model_path: str) -> Optional[Llama]:
-        """Load GGUF for inference on CPU (llama.cpp)."""
         try:
             cfg = self.config.llm
             model = Llama(
@@ -113,30 +107,12 @@ class LLMService:
             return False
         return self.model_downloader.model_bundle_complete(spec.gguf_filenames)
 
-    async def download_whitelisted_model(self, model_id: str) -> Tuple[bool, str]:
-        """Download all GGUF files for a whitelisted model (blocking hub path with retries)."""
-        spec = get_whitelisted_llm_model(model_id)
-        if not spec:
-            return False, f"Unknown model id: {model_id}"
-        try:
-            primary = await self.model_downloader.download_model_bundle(
-                repo_id=spec.repo_id,
-                filenames=list(spec.gguf_filenames),
-            )
-            if primary:
-                return True, f"Downloaded: {spec.label}"
-            return False, f"Download failed for {spec.label}"
-        except Exception as e:
-            logger.error(f"LLM download error: {e}", exc_info=True)
-            return False, str(e)
-
     async def download_whitelisted_model_cancellable(
         self,
         model_id: str,
         cancel_event: threading.Event,
         progress_message_cb: Optional[Callable[[str], None]] = None,
     ) -> Tuple[bool, str]:
-        """Cancellable download; reverts any files that were not on disk before this attempt."""
         spec = get_whitelisted_llm_model(model_id)
         if not spec:
             return False, f"Unknown model id: {model_id}"
@@ -171,7 +147,7 @@ class LLMService:
         agentic_prompt: str,
         token_callback: Optional[Callable[[str], None]],
     ) -> Optional[str]:
-        """Stream a chat completion, publish success/failure on the event bus, return final text."""
+        """Run one completion, emit bus events, return final text."""
         async with self._request_lock:
             spec = self._active_spec()
             if not spec:

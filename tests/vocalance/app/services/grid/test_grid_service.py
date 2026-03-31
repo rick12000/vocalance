@@ -123,6 +123,36 @@ async def test_grid_select_cell(grid_service):
 
 
 @pytest.mark.asyncio
+async def test_grid_select_cell_drag_mode(grid_service):
+    """Selecting a cell after drag-mode show carries click_mode drag."""
+    service = grid_service
+    event_bus = service._event_bus
+
+    async with service._state_lock:
+        service._visible = True
+        service._current_click_mode = "drag"
+
+    captured_events = []
+
+    async def capture_event(event):
+        captured_events.append(event)
+
+    from vocalance.app.events.grid_events import ClickGridCellRequestEventData
+
+    event_bus.subscribe(ClickGridCellRequestEventData, capture_event)
+
+    command = GridSelectCommand(selected_number=3)
+    event = GridCommandParsedEvent(command=command, source="speech")
+    await event_bus.publish(event)
+    await asyncio.sleep(0.1)
+
+    click_events = [e for e in captured_events if isinstance(e, ClickGridCellRequestEventData)]
+    assert len(click_events) == 1
+    assert click_events[0].cell_label == "3"
+    assert click_events[0].click_mode == "drag"
+
+
+@pytest.mark.asyncio
 async def test_grid_select_when_not_visible(grid_service):
     """Test that grid select is rejected when grid is not visible."""
     service = grid_service

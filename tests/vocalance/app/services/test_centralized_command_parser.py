@@ -175,6 +175,52 @@ async def test_parse_grid_show_with_number(command_parser):
 
 
 @pytest.mark.asyncio
+async def test_parse_grid_drag_show_command(command_parser):
+    """Test parsing grid show in drag mode (default phrase 'move')."""
+    parser = command_parser
+    event_bus = parser._event_bus
+
+    captured_events = []
+
+    async def capture_event(event):
+        captured_events.append(event)
+
+    event_bus.subscribe(GridCommandParsedEvent, capture_event)
+
+    event = CommandTextRecognizedEvent(text="move", engine="vosk")
+    await event_bus.publish(event)
+    await asyncio.sleep(0.1)
+
+    assert len(captured_events) == 1
+    assert isinstance(captured_events[0].command, GridShowCommand)
+    assert captured_events[0].command.click_mode == "drag"
+
+
+@pytest.mark.asyncio
+async def test_parse_grid_drag_show_with_number(command_parser):
+    """Test drag grid show with explicit rectangle count."""
+    parser = command_parser
+    event_bus = parser._event_bus
+
+    captured_events = []
+
+    async def capture_event(event):
+        captured_events.append(event)
+
+    event_bus.subscribe(GridCommandParsedEvent, capture_event)
+
+    event = CommandTextRecognizedEvent(text="move 9", engine="vosk")
+    await event_bus.publish(event)
+    await asyncio.sleep(0.1)
+
+    assert len(captured_events) == 1
+    cmd = captured_events[0].command
+    assert isinstance(cmd, GridShowCommand)
+    assert cmd.click_mode == "drag"
+    assert cmd.num_rects == 9
+
+
+@pytest.mark.asyncio
 async def test_parse_grid_select_number(command_parser):
     """Test parsing grid select command with number."""
     parser = command_parser

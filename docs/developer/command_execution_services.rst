@@ -131,46 +131,40 @@ When visualization is active, a background task monitors cursor position every 5
 GridService
 ============
 
-The ``GridService`` displays an overlay grid that divides the screen into numbered cells. You can select cells by voice to click or hover over precise locations without using the mouse.
+The ``GridService`` displays an overlay grid that divides the primary screen into numbered cells. You can select cells by voice (or keyboard while the overlay has focus) to click, hover, or drag between precise locations.
 
 Displaying the Grid
 -------------------
 
-The grid supports two modes: **click mode** (default) and **hover mode**.
+The grid supports three modes, selected by which show phrase was recognized. Each maps to a ``GridShowCommand`` with a ``click_mode`` of ``"click"``, ``"hover"``, or ``"drag"``. Default phrases are configured on ``GridConfig`` (``show_grid_phrase``, ``hover_grid_phrase``, ``drag_grid_phrase``).
 
-When you say "**go**", the service displays the grid in click mode:
+When a ``GridShowCommand`` is handled, the service computes rows and columns, stores ``click_mode`` for the next selection, and publishes ``ShowGridRequestEventData``:
 
 .. code-block:: python
 
    if isinstance(command, GridShowCommand):
        num_rects = command.num_rects or self._config.grid.default_rect_count
        rows, cols = self._calculate_grid_dimensions(num_rects)
-       click_mode = command.click_mode  # "click" or "hover"
+       click_mode = command.click_mode  # "click", "hover", or "drag"
 
        show_event = ShowGridRequestEventData(rows=rows, cols=cols, click_mode=click_mode)
        self.event_publisher.publish(show_event)
        await self._publish_visibility_event(True, rows, cols)
 
-When you say "**hover**", the grid displays in hover mode instead. In hover mode, selecting a cell moves the mouse without clicking.
+**Click mode** (e.g. saying ``go``): opening phrase shows the grid for point-and-click targeting.
 
-The service optimizes dimensions to minimize aspect ratio distortion:
+**Hover mode** (e.g. saying ``hover``): selecting a cell moves the pointer only.
 
-- 36 cells → 6 columns × 6 rows (square)
-- 50 cells → 8 columns × 7 rows (near-square)
-- 100 cells → 10 columns × 10 rows (square)
+**Drag mode** (e.g. saying ``move``): the view records the pointer position when the overlay is shown; selecting a cell performs a left-button drag from that recorded point to the cell center (see ``QtGridView``).
 
-Both grid phrases support optional cell counts: "go 100" or "hover 50".
+The service optimizes dimensions to keep the layout nearly square (for example, 36 cells → 6×6, 100 cells → 10×10).
 
-Cell Selection: Click vs Hover Modes
---------------------------------------
+Each show phrase supports an optional cell count (e.g. ``go 100``, ``hover 50``, ``move 200``).
 
-Once displayed, you can select cells by voice. The behavior depends on which trigger phrase you used:
+Cell Selection: Click, Hover, and Drag
+----------------------------------------
 
-**Click Mode** (triggered by "go"): When you say a number, the mouse moves to that cell and clicks.
-
-**Hover Mode** (triggered by "hover"): When you say a number, the mouse only moves to that cell without clicking.
-
-The service tracks the current mode and applies it when processing cell selections:
+Once displayed, a spoken number selects a cell. The service reads the stored ``click_mode`` and publishes ``ClickGridCellRequestEventData``:
 
 .. code-block:: python
 
@@ -179,7 +173,7 @@ The service tracks the current mode and applies it when processing cell selectio
            is_visible = self._visible
            if not is_visible:
                return
-           click_mode = self._current_click_mode  # Stored from GridShowCommand
+           click_mode = self._current_click_mode  # From the last GridShowCommand
 
        click_event = ClickGridCellRequestEventData(
            cell_label=str(command.selected_number),
@@ -187,31 +181,22 @@ The service tracks the current mode and applies it when processing cell selectio
        )
        self.event_publisher.publish(click_event)
 
-The view layer (GridView) respects the click_mode:
+The view hides the overlay first, then uses PyAutoGUI: ``click`` or ``moveTo`` for click and hover modes; for ``drag``, an interpolated move while the button is held, a short settle at the target, and ``mouseUp`` at the rounded cell center (so Windows drag-and-drop targets see a proper move stream before drop).
 
-.. code-block:: python
+**Cell selection**: Cells are identified by number (1, 2, 3, etc.). The UI maps each label to a cell center in physical pixels.
 
-   if click_mode == "hover":
-       pyautogui.moveTo(center_x, center_y)  # Only move mouse
-   else:
-       pyautogui.click(center_x, center_y)  # Move and click
-       )
+**Click tracking**: Grid clicks (including drag drop positions) can be logged for frequency-based cell prioritization on the next grid display.
 
-**Cell selection**: Cells are identified by number (1, 2, 3, etc.). The service sends the cell number to the UI, which calculates the cell center and clicks. The grid auto-hides after a successful click.
-
-**Click tracking**: The system logs which cells are clicked to identify frequently-used areas. This passive learning helps suggest marks for commonly-accessed positions.
-
-**Auto-hide**: The grid automatically hides after a successful click to avoid cluttering the screen.
+**Auto-hide**: The grid hides after a successful selection.
 
 Configuration
 --------------
 
 Grid behavior can be customized through settings:
 
-- **Default cell count**: How many cells to display (default: 36)
-- **Cell colors**: Overlay appearance and contrast
-- **Label font**: Cell label typography
-- **Transparency**: Overlay opacity for visibility
+- **Default cell count**: How many cells to show when the phrase does not include a number
+- **Show phrases**: Configurable strings for click, hover, and drag modes (avoid reusing the same phrase as an automation command)
+- **Cell colors, label font, transparency**: Overlay appearance
 
 Configuration changes are propagated through ``GridConfigUpdatedEvent``, which the service handles by updating internal settings.
 

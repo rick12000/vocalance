@@ -52,6 +52,8 @@ async def test_get_protected_terms_includes_grid_phrase(validator, mock_storage,
     protected = await validator.get_all_protected_terms()
 
     assert app_config.grid.show_grid_phrase.lower() in protected
+    assert app_config.grid.hover_grid_phrase.lower() in protected
+    assert app_config.grid.drag_grid_phrase.lower() in protected
 
 
 @pytest.mark.asyncio

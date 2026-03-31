@@ -7,7 +7,6 @@ from typing import Dict, List, Literal, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from vocalance.app.config.llm_whitelist import DEFAULT_LLM_MODEL_ID, is_whitelisted_llm_model_id
 from vocalance.app.config.logging_config import LoggingConfigModel
 
 logger = logging.getLogger(__name__)
@@ -223,6 +222,10 @@ class GridConfig(BaseModel):
 
     show_grid_phrase: str = "go"
     hover_grid_phrase: str = "hover"
+    drag_grid_phrase: str = Field(
+        default="move",
+        description="Voice phrase to show the grid in drag mode (click-hold from pointer at show time to chosen cell).",
+    )
     select_cell_phrase: str = "select"
 
 
@@ -279,19 +282,98 @@ class DictationConfig(BaseModel):
     modifier_spelling_phrase: str = Field(default="spelling", description="Voice phrase to toggle spoken-punctuation modifier")
 
 
-class LLMConfig(BaseModel):
-    """Configuration for llama.cpp-based local LLM inference (CPU-only).
+class LocalLLMArtifact(BaseModel):
+    """One built-in GGUF bundle (Hugging Face repo + filenames + UI label)."""
 
-    Model weights are chosen from a fixed whitelist of official Qwen GGUF builds; the
-    active artifact is selected at runtime via ``selected_model_id`` and can be changed
-    from settings without restarting the app.
-    """
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    label: str
+    repo_id: str
+    gguf_filenames: tuple[str, ...]
+    model_card_url: str
+
+    @property
+    def load_path_filename(self) -> str:
+        return self.gguf_filenames[0]
+
+
+class LocalLLMAllowList(BaseModel):
+    """Built-in local LLM bundles the app may download and run."""
+
+    model_config = ConfigDict(frozen=True)
+
+    artifacts: tuple[LocalLLMArtifact, ...]
+
+    def artifact_for(self, model_id: str) -> Optional[LocalLLMArtifact]:
+        for artifact in self.artifacts:
+            if artifact.id == model_id:
+                return artifact
+        return None
+
+    def has_id(self, model_id: str) -> bool:
+        return any(a.id == model_id for a in self.artifacts)
+
+    @property
+    def default_id(self) -> str:
+        return self.artifacts[0].id
+
+
+def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
+    return LocalLLMAllowList(
+        artifacts=(
+            LocalLLMArtifact(
+                id="qwen2.5-1.5b-q5km",
+                label="Qwen 2.5 1.5B Instruct (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+                gguf_filenames=("qwen2.5-1.5b-instruct-q5_k_m.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+            ),
+            LocalLLMArtifact(
+                id="qwen2.5-3b-q5km",
+                label="Qwen 2.5 3B Instruct (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF",
+                gguf_filenames=("qwen2.5-3b-instruct-q5_k_m.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF",
+            ),
+            LocalLLMArtifact(
+                id="qwen2.5-7b-q5km",
+                label="Qwen 2.5 7B Instruct (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen2.5-7B-Instruct-GGUF",
+                gguf_filenames=(
+                    "qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf",
+                    "qwen2.5-7b-instruct-q5_k_m-00002-of-00002.gguf",
+                ),
+                model_card_url="https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF",
+            ),
+        )
+    )
+
+
+_LOCAL_LLM_ALLOWLIST: LocalLLMAllowList = _builtin_local_llm_allowlist()
+DEFAULT_LLM_MODEL_ID: str = _LOCAL_LLM_ALLOWLIST.default_id
+
+
+def get_whitelisted_llm_model(model_id: str) -> Optional[LocalLLMArtifact]:
+    return _LOCAL_LLM_ALLOWLIST.artifact_for(model_id)
+
+
+def is_whitelisted_llm_model_id(model_id: str) -> bool:
+    return _LOCAL_LLM_ALLOWLIST.has_id(model_id)
+
+
+def local_llm_allowlist() -> LocalLLMAllowList:
+    return _LOCAL_LLM_ALLOWLIST
+
+
+class LLMConfig(BaseModel):
+    """Local LLM (llama.cpp, CPU): built-in Qwen GGUF bundles only."""
 
     model_config = ConfigDict(extra="ignore")
 
     selected_model_id: str = Field(
         default=DEFAULT_LLM_MODEL_ID,
-        description="Whitelisted local model id (maps to official Qwen GGUF Q5_K_M builds)",
+        description="Id of a built-in GGUF bundle (see LocalLLMAllowList).",
     )
 
     context_length: int = Field(
@@ -344,8 +426,8 @@ class LLMConfig(BaseModel):
     @field_validator("selected_model_id")
     @classmethod
     def _validate_selected_model_id(cls, v: str) -> str:
-        if not is_whitelisted_llm_model_id(v):
-            raise ValueError(f"selected_model_id must be a whitelisted LLM id, got {v!r}")
+        if not _LOCAL_LLM_ALLOWLIST.has_id(v):
+            raise ValueError(f"selected_model_id must be a built-in LLM id, got {v!r}")
         return v
 
 
@@ -768,6 +850,10 @@ class GlobalAppConfig(BaseModel):
         storage.click_tracker_dir = click_tracker_dir
         storage.llm_models_dir = llm_models_dir
         storage.command_history_dir = command_history_dir
+
+    @property
+    def local_llm_allowlist(self) -> LocalLLMAllowList:
+        return _LOCAL_LLM_ALLOWLIST
 
 
 CONFIG_FILE_NAME = "settings.yaml"

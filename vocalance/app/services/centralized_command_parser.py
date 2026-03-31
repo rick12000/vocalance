@@ -1,6 +1,6 @@
 import inspect
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 import pyautogui
 
@@ -126,6 +126,7 @@ class CentralizedCommandParser:
         """Cache frequently accessed configuration values."""
         self._grid_show_phrase = self._app_config.grid.show_grid_phrase.lower()
         self._grid_hover_phrase = self._app_config.grid.hover_grid_phrase.lower()
+        self._grid_drag_phrase = self._app_config.grid.drag_grid_phrase.lower()
         self._mark_create_prefix = self._app_config.mark.triggers.create_mark.lower()
         self._mark_delete_prefix = self._app_config.mark.triggers.delete_mark.lower()
         self._mark_visualize_phrases = [p.lower() for p in self._app_config.mark.triggers.visualize_marks]
@@ -461,6 +462,22 @@ class CentralizedCommandParser:
 
         return NoMatchResult()
 
+    def _parse_grid_show_for_phrase(
+        self, normalized_text: str, phrase: str, click_mode: str
+    ) -> Union[GridShowCommand, ErrorResult, None]:
+        """If text is a grid-show phrase (optional cell count), return command or parse error."""
+        if not normalized_text.startswith(phrase):
+            return None
+        if normalized_text == phrase:
+            return GridShowCommand(num_rects=None, click_mode=click_mode)
+        after_trigger = normalized_text[len(phrase) :].strip()
+        if not after_trigger:
+            return None
+        parsed_num = parse_number(text=after_trigger)
+        if parsed_num is not None and parsed_num > 0:
+            return GridShowCommand(num_rects=parsed_num, click_mode=click_mode)
+        return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
+
     async def _parse_grid_commands(self, normalized_text: str) -> ParseResultType:
         """Parse grid commands.
 
@@ -475,31 +492,14 @@ class CentralizedCommandParser:
         if not words:
             return NoMatchResult()
 
-        # Check for "go" (click mode)
-        if normalized_text.startswith(self._grid_show_phrase):
-            if normalized_text == self._grid_show_phrase:
-                return GridShowCommand(num_rects=None, click_mode="click")
-
-            after_trigger = normalized_text[len(self._grid_show_phrase) :].strip()
-            if after_trigger:
-                parsed_num = parse_number(text=after_trigger)
-                if parsed_num is not None and parsed_num > 0:
-                    return GridShowCommand(num_rects=parsed_num, click_mode="click")
-                else:
-                    return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
-
-        # Check for "hover" (hover mode)
-        if normalized_text.startswith(self._grid_hover_phrase):
-            if normalized_text == self._grid_hover_phrase:
-                return GridShowCommand(num_rects=None, click_mode="hover")
-
-            after_trigger = normalized_text[len(self._grid_hover_phrase) :].strip()
-            if after_trigger:
-                parsed_num = parse_number(text=after_trigger)
-                if parsed_num is not None and parsed_num > 0:
-                    return GridShowCommand(num_rects=parsed_num, click_mode="hover")
-                else:
-                    return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
+        for phrase, mode in (
+            (self._grid_show_phrase, "click"),
+            (self._grid_hover_phrase, "hover"),
+            (self._grid_drag_phrase, "drag"),
+        ):
+            parsed = self._parse_grid_show_for_phrase(normalized_text, phrase, mode)
+            if parsed is not None:
+                return parsed
 
         action_map = await self._action_map_provider.get_action_map()
 

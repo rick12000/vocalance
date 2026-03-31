@@ -20,11 +20,7 @@ _PROGRESS_INTERVAL_BYTES = 50 * 1024 * 1024
 
 
 class LLMModelDownloader:
-    """Download LLM GGUF files from Hugging Face with atomic commits and optional cancellation.
-
-    Non-cancellable path uses ``hf_hub_download`` (retries, LFS/xet as supported by the hub).
-    Cancellable path streams via HTTP with cooperative cancel checks between chunks.
-    """
+    """Hugging Face GGUF downloads: hub client (retries) or HTTP stream (cancellable)."""
 
     def __init__(self, config: GlobalAppConfig):
         self._config = config
@@ -34,7 +30,6 @@ class LLMModelDownloader:
         self._temp_dir = os.path.join(config.storage.user_data_root, "llm_models_temp")
         os.makedirs(self._models_dir, exist_ok=True)
         os.makedirs(self._temp_dir, exist_ok=True)
-        self._active_cancel_event: Optional[threading.Event] = None
         logger.debug(f"LLM models directory: {self._models_dir}")
         logger.debug(f"LLM temp directory: {self._temp_dir}")
 
@@ -50,18 +45,6 @@ class LLMModelDownloader:
 
     def get_model_path(self, filename: str) -> str:
         return os.path.join(self._models_dir, filename)
-
-    def attach_cancel_event(self, cancel_event: threading.Event) -> None:
-        """Register the cancel event for the current cancellable operation (cleared in ``finally``)."""
-        self._active_cancel_event = cancel_event
-
-    def detach_cancel_event(self) -> None:
-        self._active_cancel_event = None
-
-    def request_cancel_active_download(self) -> None:
-        ev = self._active_cancel_event
-        if ev is not None:
-            ev.set()
 
     def remove_bundle_artifacts(self, filenames: Sequence[str]) -> None:
         """Remove committed GGUF files and known temp dirs for these filenames (best-effort)."""
@@ -279,29 +262,24 @@ class LLMModelDownloader:
         progress_message_cb: Optional[Callable[[str], None]] = None,
     ) -> Optional[str]:
         """Download every file in order; returns path to the first file if all succeed."""
-        try:
-            if cancel_event is not None:
-                self.attach_cancel_event(cancel_event)
-            for i, fn in enumerate(filenames):
-                if cancel_event is not None and cancel_event.is_set():
-                    return None
-                label = f"File {i + 1}/{len(filenames)}: {fn}"
-                if progress_message_cb:
-                    progress_message_cb(label)
-                path = await self.download_model(
-                    repo_id=repo_id,
-                    filename=fn,
-                    force_download=force_download,
-                    max_retries=max_retries,
-                    retry_delay_seconds=retry_delay_seconds,
-                    cancel_event=cancel_event,
-                    progress_message_cb=progress_message_cb,
-                )
-                if not path:
-                    return None
-            return self.get_model_path(filenames[0])
-        finally:
-            self.detach_cancel_event()
+        for i, fn in enumerate(filenames):
+            if cancel_event is not None and cancel_event.is_set():
+                return None
+            label = f"File {i + 1}/{len(filenames)}: {fn}"
+            if progress_message_cb:
+                progress_message_cb(label)
+            path = await self.download_model(
+                repo_id=repo_id,
+                filename=fn,
+                force_download=force_download,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                cancel_event=cancel_event,
+                progress_message_cb=progress_message_cb,
+            )
+            if not path:
+                return None
+        return self.get_model_path(filenames[0])
 
     def get_download_status(self) -> Dict[str, Any]:
         status = {"models_directory": self._models_dir, "available_models": [], "total_size_mb": 0}

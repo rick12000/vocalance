@@ -1,11 +1,12 @@
 import asyncio
 import logging
 import threading
+from concurrent.futures import Future
 from typing import Any, Dict, Optional, Tuple
 
 from PySide6.QtCore import Signal
 
-from vocalance.app.config.llm_whitelist import get_whitelisted_llm_model
+from vocalance.app.config.app_config import get_whitelisted_llm_model
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -168,8 +169,6 @@ class QtSettingsController(QtBaseController):
         return self._llm_downloader().model_bundle_complete(spec.gguf_filenames)
 
     def schedule_llm_cancellable_download(self, model_id: str, cancel_event: threading.Event) -> None:
-        """Run a cancellable GGUF download on the app asyncio loop; completion via llm_cancellable_download_finished (Qt thread-safe)."""
-
         async def _run() -> Tuple[bool, str]:
             def _progress(msg: str) -> None:
                 self.llm_download_progress.emit(msg)
@@ -182,7 +181,7 @@ class QtSettingsController(QtBaseController):
 
         fut = asyncio.run_coroutine_threadsafe(_run(), self.event_loop)
 
-        def _done(f: asyncio.Future) -> None:
+        def _done(f: Future) -> None:
             try:
                 ok, msg = f.result()
             except Exception as e:

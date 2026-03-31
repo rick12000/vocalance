@@ -128,31 +128,32 @@ The mark parser recognizes four operations: creating a mark at your current posi
 Grid Commands
 -------------
 
-The grid system displays a clickable overlay divided into numbered cells. Saying a number selects that cell:
+The grid system shows a full-screen overlay of numbered cells. Configured phrases (from ``GridConfig``) open the grid in **click**, **hover**, or **drag** mode; a bare number then selects a cell. The parser tries each show phrase in order via a shared helper:
 
 .. code-block:: python
 
-   async def _parse_grid_commands(self, normalized_text: str) -> ParseResultType:
-       # "show grid" → display the grid
-       if normalized_text == "show grid":
-           return GridShowCommand(num_rects=None)
+   from typing import Union
 
-       # "show grid 20" → display grid with 20 cells
-       if normalized_text.startswith("show grid "):
-           after_trigger = normalized_text[len("show grid "):].strip()
-           parsed_num = parse_number(text=after_trigger)
-           if parsed_num is not None and parsed_num > 0:
-               return GridShowCommand(num_rects=parsed_num)
+   def _parse_grid_show_for_phrase(
+       self, normalized_text: str, phrase: str, click_mode: str
+   ) -> Union[GridShowCommand, ErrorResult, None]:
+       if not normalized_text.startswith(phrase):
+           return None
+       if normalized_text == phrase:
+           return GridShowCommand(num_rects=None, click_mode=click_mode)
+       after_trigger = normalized_text[len(phrase) :].strip()
+       if not after_trigger:
+           return None
+       parsed_num = parse_number(text=after_trigger)
+       if parsed_num is not None and parsed_num > 0:
+           return GridShowCommand(num_rects=parsed_num, click_mode=click_mode)
+       return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
 
-       # "5" → select cell 5 (if not part of an automation command)
-       if not is_automation_prefix(normalized_text):
-           parsed_num = parse_number(text=normalized_text)
-           if parsed_num is not None and parsed_num > 0:
-               return GridSelectCommand(selected_number=parsed_num)
+   # In _parse_grid_commands: for (phrase, mode) in ("go", "click"), ("hover", "hover"), ("move", "drag"): ...
 
-       return NoMatchResult()
+The default phrases are ``go``, ``hover``, and ``move`` (the latter opens **drag** mode), each optionally followed by a cell count (e.g. ``go 100``). Grid parsing runs **before** automation parsing, so an exact show phrase is always a grid command, not an automation match.
 
-The grid parser checks for display commands and cell selection. A bare number like "5" could be ambiguous—it might be the start of "5 press right" (press right 5 times), so the parser checks whether the full text is an automation command before treating it as a grid selection.
+For cell selection, a bare number becomes ``GridSelectCommand`` only when the full normalized text is **not** an automation prefix—otherwise ``5 press right`` would be parsed as automation rather than grid cell ``5``.
 
 Automation Commands
 -------------------

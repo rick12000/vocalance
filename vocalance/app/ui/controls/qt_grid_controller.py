@@ -75,7 +75,7 @@ class QtGridController(QtBaseController):
         # Grid state tracking (protected by _state_lock)
         self._state_lock = threading.RLock()
         self._grid_visible = False
-        self._current_click_mode = "click"  # Track current click mode ("click" or "hover")
+        self._current_click_mode = "click"  # "click", "hover", or "drag"
 
         # Subscribe to grid events
         self._subscribe_to_events()
