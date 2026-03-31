@@ -52,26 +52,6 @@ HOMOPHONES: Dict[str, str] = {
     "ate": "eight",
 }
 
-_ORDINAL_WORDS: Dict[str, int] = {
-    "first": 1,
-    "second": 2,
-    "third": 3,
-    "fourth": 4,
-    "fifth": 5,
-    "sixth": 6,
-    "seventh": 7,
-    "eighth": 8,
-    "ninth": 9,
-    "tenth": 10,
-    "eleventh": 11,
-    "twelfth": 12,
-    "thirteenth": 13,
-    "twentieth": 20,
-    "thirtieth": 30,
-    "fortieth": 40,
-    "fiftieth": 50,
-}
-
 _SCALES_NON_HUNDRED: Dict[str, int] = {
     "thousand": 10**3,
     "million": 10**6,
@@ -190,14 +170,6 @@ def parse_cardinal_words(words: List[str]) -> Optional[int]:
     return total + current
 
 
-def _parse_single_ordinal_token(word: str) -> Optional[int]:
-    """Map one lowercase token (``first``, ``twentieth``) to its integer, if recognized."""
-    w = word.lower().strip()
-    if not w:
-        return None
-    return _ORDINAL_WORDS.get(w)
-
-
 def _strip_token_punct(token: str) -> Tuple[str, str, str]:
     """Return ``(leading, core, trailing)`` punctuation split for a whitespace token."""
     m = re.match(r"^(['\"(\[{<]*)(.*?)(['\")\]}>:;,.!?]*)$", token)
@@ -210,7 +182,7 @@ def parse_spoken_integer(text: Optional[str], *, apply_homophones: bool = True) 
     """Parse a single spoken or numeric phrase into an integer.
 
     Pipeline: strip → ASCII digits → normalize (hyphens, optional homophones, *and*) →
-    digit-by-digit sequence → cardinals → single-word ordinals.
+    digit-by-digit sequence → cardinals. Ordinal words (e.g. *first*) are not converted.
     """
     if text is None:
         return None
@@ -247,9 +219,6 @@ def parse_spoken_integer(text: Optional[str], *, apply_homophones: bool = True) 
     cardinal = parse_cardinal_words(words)
     if cardinal is not None:
         return cardinal
-
-    if len(words) == 1:
-        return _parse_single_ordinal_token(words[0])
 
     return None
 

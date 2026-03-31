@@ -95,22 +95,6 @@ def test_parse_spoken_integer_basic(text, expected):
     assert parse_spoken_integer(text) == expected
 
 
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("first", 1),
-        ("second", 2),
-        ("third", 3),
-        ("tenth", 10),
-        ("twentieth", 20),
-        ("thirtieth", 30),
-    ],
-)
-def test_parse_spoken_integer_ordinals(text, expected):
-    """Single-token ordinals map to integers."""
-    assert parse_spoken_integer(text) == expected
-
-
 def test_parse_spoken_integer_complex_numbers():
     """Long cardinals and mixed scales."""
     assert parse_spoken_integer("twenty three") == 23
