@@ -1,10 +1,10 @@
 from typing import Any, Dict, List, Literal, Optional
 
-DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling"]
-
 from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent, EventPriority
+
+DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling"]
 
 
 class DictationStatusChangedEvent(BaseEvent):

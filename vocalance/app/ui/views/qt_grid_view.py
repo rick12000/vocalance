@@ -542,7 +542,7 @@ class QtGridView(QWidget):
             t1 = time.perf_counter()
             rect_definitions, cell_w, cell_h = self._calculate_grid_layout(num_rects)
             t2 = time.perf_counter()
-            self.logger.debug(f"Grid layout calculation: {(t2-t1)*1000:.1f}ms")
+            self.logger.debug(f"Grid layout calculation: {(t2 - t1) * 1000:.1f}ms")
 
             if not rect_definitions:
                 self.logger.error("No rectangles generated")
@@ -554,11 +554,11 @@ class QtGridView(QWidget):
             self.logger.debug(f"Calculating click counts for {len(rect_definitions)} cells")
             rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
             t3 = time.perf_counter()
-            self.logger.debug(f"Click counting: {(t3-t2)*1000:.1f}ms")
+            self.logger.debug(f"Click counting: {(t3 - t2) * 1000:.1f}ms")
 
             weighted_rects = prioritize_grid_rects(rects_with_clicks)
             t4 = time.perf_counter()
-            self.logger.debug(f"Prioritization: {(t4-t3)*1000:.1f}ms")
+            self.logger.debug(f"Prioritization: {(t4 - t3) * 1000:.1f}ms")
 
             logical_cell_w = cell_w / device_pixel_ratio
             logical_cell_h = cell_h / device_pixel_ratio
