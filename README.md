@@ -87,7 +87,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
 
 3. Clone the repository:
    ```bash
-   git clone --branch misc-optimizations --single-branch https://github.com/rick12000/vocalance.git
+   git clone https://github.com/rick12000/vocalance.git
    ```
 
 4. Go to the repository directory:
