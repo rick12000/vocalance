@@ -162,8 +162,8 @@ $shell = New-Object -ComObject WScript.Shell
 $programs = [Environment]::GetFolderPath('Programs')
 $shortcutPath = Join-Path $programs 'Vocalance.lnk'
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $pyExe
-$shortcut.Arguments = "`"$mainScript`""
+$shortcut.TargetPath = "cmd.exe"
+$shortcut.Arguments = "/k `"`"$pyExe`" `"$mainScript`"`""
 $shortcut.WorkingDirectory = $repoRoot
 if (Test-Path -LiteralPath $iconPath) {
     $shortcut.IconLocation = "$iconPath,0"
