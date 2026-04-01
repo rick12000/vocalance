@@ -6,7 +6,7 @@ import pytest_asyncio
 from vocalance.app.config.command_types import PauseCommand, ResumeCommand
 from vocalance.app.events.command_events import AutomationCommandParsedEvent, SystemControlCommandParsedEvent
 from vocalance.app.events.core_events import CommandTextRecognizedEvent
-from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
+from vocalance.app.services.commands.parser import CentralizedCommandParser
 from vocalance.app.services.pause_state_manager import PauseStateManager
 
 
@@ -23,13 +23,12 @@ async def pause_state_manager(event_bus):
 
 @pytest_asyncio.fixture
 async def command_parser_with_pause(
-    event_bus, app_config, mock_storage_service, mock_action_map_provider, mock_command_history_manager, pause_state_manager
+    event_bus, app_config, mock_action_map_provider, mock_command_history_manager, pause_state_manager
 ):
     """Create command parser with pause state manager."""
     parser = CentralizedCommandParser(
         event_bus=event_bus,
         app_config=app_config,
-        storage=mock_storage_service,
         action_map_provider=mock_action_map_provider,
         history_manager=mock_command_history_manager,
         pause_state_manager=pause_state_manager,

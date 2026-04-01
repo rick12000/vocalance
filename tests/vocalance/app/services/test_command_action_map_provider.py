@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from vocalance.app.config.command_types import AutomationCommand
-from vocalance.app.services.command_action_map_provider import CommandActionMapProvider
+from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
 from vocalance.app.services.storage.storage_models import CommandsData
 
 

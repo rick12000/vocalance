@@ -115,13 +115,9 @@ class AutomationService:
         if not action_function:
             return False
 
-        if not self._execution_lock.locked():
-            async with self._execution_lock:
-                loop = asyncio.get_running_loop()
-                return await loop.run_in_executor(self._thread_pool, lambda: self._execute_action(action_function, count))
-        else:
-            logger.warning("Could not acquire execution lock - another command in progress")
-            return False
+        async with self._execution_lock:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(self._thread_pool, lambda: self._execute_action(action_function, count))
 
     def _execute_action(self, action_function: Callable[[], None], count: int) -> bool:
         """Execute action function multiple times.

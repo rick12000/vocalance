@@ -2,7 +2,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import AutomationCommand
 from vocalance.app.events.command_management_events import (
     AddCustomCommandEvent,
@@ -11,7 +10,7 @@ from vocalance.app.events.command_management_events import (
     ResetCommandsToDefaultsEvent,
     UpdateCommandPhraseEvent,
 )
-from vocalance.app.services.command_management_service import CommandManagementService
+from vocalance.app.services.commands.management import CommandManagementService
 from vocalance.app.services.storage.storage_models import CommandsData
 
 
@@ -50,17 +49,10 @@ def mock_action_map_provider():
 
 
 @pytest.fixture
-def app_config():
-    """Create application configuration."""
-    return GlobalAppConfig()
-
-
-@pytest.fixture
-def command_management_service(mock_event_bus, app_config, mock_storage, mock_protected_terms_validator, mock_action_map_provider):
+def command_management_service(mock_event_bus, mock_storage, mock_protected_terms_validator, mock_action_map_provider):
     """Create CommandManagementService instance."""
     return CommandManagementService(
         event_bus=mock_event_bus,
-        app_config=app_config,
         storage=mock_storage,
         protected_terms_validator=mock_protected_terms_validator,
         action_map_provider=mock_action_map_provider,
@@ -232,6 +224,7 @@ async def test_request_command_mappings(command_management_service, mock_storage
 @pytest.mark.asyncio
 async def test_reset_to_defaults(command_management_service, mock_storage, mock_event_bus):
     """Test resetting commands to defaults."""
+    mock_storage.read.return_value = CommandsData()
     mock_storage.write.return_value = True
 
     event = ResetCommandsToDefaultsEvent()

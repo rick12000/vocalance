@@ -169,7 +169,7 @@ class FastServiceInitializer:
         Args:
             progress_tracker: Optional tracker for reporting progress to the startup UI.
         """
-        from vocalance.app.services.command_management_service import CommandManagementService
+        from vocalance.app.services.commands.management import CommandManagementService
         from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
         from vocalance.app.services.mark_service import MarkService
         from vocalance.app.services.storage.settings_service import SettingsService
@@ -205,15 +205,15 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Setting up command storage")
 
-            from vocalance.app.services.command_action_map_provider import CommandActionMapProvider
+            from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
             from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 
             protected_terms_validator = ProtectedTermsValidator(config=self.config, storage=storage)
+            protected_terms_validator.setup_invalidation_subscriptions(self.event_bus)
             action_map_provider = CommandActionMapProvider(storage=storage)
 
             command_management = CommandManagementService(
                 event_bus=self.event_bus,
-                app_config=self.config,
                 storage=storage,
                 protected_terms_validator=protected_terms_validator,
                 action_map_provider=action_map_provider,
@@ -267,9 +267,9 @@ class FastServiceInitializer:
         """
         from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
         from vocalance.app.services.audio.simple_audio_service import AudioService
-        from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
+        from vocalance.app.services.commands.markov import MarkovCommandService
+        from vocalance.app.services.commands.parser import CentralizedCommandParser
         from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
-        from vocalance.app.services.markov_command_predictor import MarkovCommandService
 
         with self._services_lock:
             storage = self.services["storage"]
@@ -350,7 +350,7 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Setting up command processing")
 
-            from vocalance.app.services.command_history_manager import CommandHistoryManager
+            from vocalance.app.services.commands.history import CommandHistoryManager
             from vocalance.app.services.pause_state_manager import PauseStateManager
 
             # Create pause state manager
@@ -360,7 +360,6 @@ class FastServiceInitializer:
             centralized_parser = CentralizedCommandParser(
                 event_bus=self.event_bus,
                 app_config=self.config,
-                storage=storage,
                 action_map_provider=action_map_provider,
                 history_manager=history_manager,
                 deduplicator=deduplicator,
@@ -552,7 +551,6 @@ class FastServiceInitializer:
         with self._services_lock:
             storage = self.services.get("storage")
             settings = self.services.get("settings")
-            mark = self.services.get("mark")
 
         control_room_logger = logging.getLogger("AppControlRoom")
         control_room = AppControlRoom(
@@ -569,10 +567,6 @@ class FastServiceInitializer:
 
         with self._services_lock:
             self.services["control_room"] = control_room
-
-        if mark:
-            self.gui_loop.create_task(mark.start_service_tasks())
-
 
 def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
     """Validate that critical assets exist before starting application.

@@ -4,6 +4,9 @@ from typing import Optional, Set, Tuple
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.automation_command_registry import AutomationCommandRegistry
+from vocalance.app.event_bus import EventBus
+from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
+from vocalance.app.events.sound_events import SoundToCommandMappingUpdatedEvent
 from vocalance.app.services.storage.storage_models import MarksData, SoundMappingsData
 from vocalance.app.services.storage.storage_service import StorageService
 
@@ -31,6 +34,20 @@ class ProtectedTermsValidator:
         self._cache_ttl: float = config.protected_terms_validator.cache_ttl_seconds
 
         logger.debug("ProtectedTermsValidator initialized")
+
+    def setup_invalidation_subscriptions(self, event_bus: EventBus) -> None:
+        """Invalidate cache when command or sound mappings change (marks invalidate via MarkService)."""
+
+        def _on_mappings_updated(event: CommandMappingsUpdatedEvent) -> None:
+            if event.success:
+                self.invalidate_cache()
+
+        def _on_sound_mapping_updated(event: SoundToCommandMappingUpdatedEvent) -> None:
+            if event.success:
+                self.invalidate_cache()
+
+        event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=_on_mappings_updated)
+        event_bus.subscribe(event_type=SoundToCommandMappingUpdatedEvent, handler=_on_sound_mapping_updated)
 
     async def get_all_protected_terms(self) -> Set[str]:
         """Get all protected terms from all sources with caching.
@@ -74,17 +91,11 @@ class ProtectedTermsValidator:
         protected.add("pause")
         protected.add("resume")
 
-        try:
-            marks_data = await self._storage.read(model_type=MarksData)
-            protected.update(name.lower().strip() for name in marks_data.marks.keys())
-        except Exception as e:
-            logger.debug(f"Could not fetch mark names for protection: {e}")
+        marks_data = await self._storage.read(model_type=MarksData)
+        protected.update(name.lower().strip() for name in marks_data.marks.keys())
 
-        try:
-            sound_data = await self._storage.read(model_type=SoundMappingsData)
-            protected.update(sound.lower().strip() for sound in sound_data.mappings.keys())
-        except Exception as e:
-            logger.debug(f"Could not fetch sound names for protection: {e}")
+        sound_data = await self._storage.read(model_type=SoundMappingsData)
+        protected.update(sound.lower().strip() for sound in sound_data.mappings.keys())
 
         self._cached_terms = protected
         self._cache_expiry = current_time + self._cache_ttl

@@ -1,8 +1,11 @@
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
+from vocalance.app.events.sound_events import SoundToCommandMappingUpdatedEvent
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 from vocalance.app.services.storage.storage_models import MarksData, SoundMappingsData
 
@@ -116,15 +119,12 @@ async def test_get_protected_terms_includes_sound_mappings(validator, mock_stora
 
 
 @pytest.mark.asyncio
-async def test_get_protected_terms_handles_storage_error(validator, mock_storage):
-    """Test protected terms handles storage read errors gracefully."""
+async def test_get_protected_terms_propagates_storage_error(validator, mock_storage):
+    """Storage failures surface so callers do not assume marks/sounds were loaded."""
     mock_storage.read.side_effect = Exception("Storage error")
 
-    protected = await validator.get_all_protected_terms()
-
-    # Should still return system protected terms
-    assert "copy" in protected
-    assert len(protected) > 0
+    with pytest.raises(Exception, match="Storage error"):
+        await validator.get_all_protected_terms()
 
 
 @pytest.mark.asyncio
@@ -241,6 +241,33 @@ async def test_cache_behavior(validator, mock_storage):
 
     assert protected1 == protected2
     assert call_count_second == call_count_first
+
+
+@pytest.mark.asyncio
+async def test_invalidation_subscriptions(event_bus, app_config, mock_storage):
+    """Command/sound mapping updates invalidate cache when successful."""
+    mock_storage.read.side_effect = lambda model_type: (
+        MarksData(marks={}) if model_type == MarksData else SoundMappingsData(mappings={})
+    )
+    v = ProtectedTermsValidator(config=app_config, storage=mock_storage)
+    v.setup_invalidation_subscriptions(event_bus)
+    await event_bus.start_worker()
+
+    await v.get_all_protected_terms()
+    first_reads = mock_storage.read.call_count
+
+    await event_bus.publish(CommandMappingsUpdatedEvent(success=False, message="noop"))
+    await event_bus.publish(SoundToCommandMappingUpdatedEvent(sound_label="x", command_phrase="y", success=False))
+    await asyncio.sleep(0.05)
+    await v.get_all_protected_terms()
+    assert mock_storage.read.call_count == first_reads
+
+    await event_bus.publish(CommandMappingsUpdatedEvent(success=True, message="ok"))
+    await asyncio.sleep(0.05)
+    await v.get_all_protected_terms()
+    assert mock_storage.read.call_count > first_reads
+
+    await event_bus.stop_worker()
 
 
 @pytest.mark.asyncio
