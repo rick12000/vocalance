@@ -3,7 +3,8 @@ import logging
 import threading
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -81,8 +82,6 @@ class VocalanceMainWindow(QMainWindow):
 
         # Set window background color programmatically
         palette = self.palette()
-        from PySide6.QtGui import QColor, QPalette
-
         palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
         self.setPalette(palette)
         self.setAutoFillBackground(True)
@@ -95,8 +94,6 @@ class VocalanceMainWindow(QMainWindow):
             # Fallback: load icon directly if manager not available
             icon_path = self.asset_cache.get_icon_path()
             if icon_path and icon_path.exists():
-                from PySide6.QtGui import QIcon
-
                 self.setWindowIcon(QIcon(str(icon_path)))
                 self.logger.debug("Icon applied to main window directly")
 
@@ -258,7 +255,7 @@ class VocalanceMainWindow(QMainWindow):
         """Create sidebar logo with transparent background.
 
         Uses fixed-width container matching collapsed sidebar to keep logo
-        positioned consistently during animation. Logo is aligned with button icons.
+        positioned consistently during animation. Logo is centered in the rail like the nav icons.
         """
         from PySide6.QtWidgets import QHBoxLayout
 
@@ -289,29 +286,26 @@ class VocalanceMainWindow(QMainWindow):
         self.sidebar_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sidebar_logo.setAutoFillBackground(False)
 
-        # Position logo to align with button icons
-        # Button icons are offset by container padding, so shift logo right to match
         logo_area_layout.addStretch()
         logo_area_layout.addWidget(self.sidebar_logo, alignment=Qt.AlignmentFlag.AlignCenter)
         logo_area_layout.addStretch()
 
-        # Shift logo positioning to match button icon alignment
-        # Button icon center is at 50px from left edge of sidebar
-        # Logo currently centers at 40px, so shift right by 10px
-        # Left margin needed: solve M + (80-M)/2 = 50 → M = 20px
-        logo_area_layout.setContentsMargins(20, 0, 0, 0)
-
         logo_layout.addWidget(logo_area)
-        logo_layout.addStretch()  # Push logo area to left
+        logo_layout.addStretch()
 
         self.sidebar_logo_frame = logo_frame
 
     def _create_sidebar_separator(self) -> None:
-        """Create separator line between sidebar and content - transparent."""
+        """Create hairline between sidebar and main content."""
         self.sidebar_separator = QFrame()
         self.sidebar_separator.setFrameShape(QFrame.Shape.NoFrame)
         self.sidebar_separator.setFixedWidth(theme.config.sidebar.border_width)
-        self.sidebar_separator.setAutoFillBackground(False)
+        self.sidebar_separator.setAutoFillBackground(True)
+        sep_palette = self.sidebar_separator.palette()
+        line = QColor(255, 255, 255)
+        line.setAlpha(8)
+        sep_palette.setColor(QPalette.ColorRole.Window, line)
+        self.sidebar_separator.setPalette(sep_palette)
 
     def _create_header(self) -> None:
         """Create the header section."""
@@ -391,9 +385,6 @@ class VocalanceMainWindow(QMainWindow):
 
     def _on_documentation_clicked(self) -> None:
         """Handle documentation button click - open user guide URL."""
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
-
         documentation_url = "https://www.vocalance.com/instructions.html"
         self.logger.info(f"Opening documentation: {documentation_url}")
         QDesktopServices.openUrl(QUrl(documentation_url))

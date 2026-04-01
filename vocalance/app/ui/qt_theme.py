@@ -14,33 +14,33 @@ class FontSizes:
 
     small: int = 10
     medium: int = 12
-    moderate: int = 16
-    large: int = 20
-    xlarge: int = 24
-    xxlarge: int = 30
+    moderate: int = 15
+    large: int = 19
+    xlarge: int = 22
+    xxlarge: int = 28
 
 
 @dataclass
 class TextColors:
     """Text color design tokens."""
 
-    lightest: str = "#f4f4f5"
-    light: str = "#a1a1aa"
-    medium: str = "#61616b"
-    gradient_colors: list = field(default_factory=lambda: ["#696AC2", "#a8c7fa", "#b8d3ff"])
-    title_gradient: list = field(default_factory=lambda: ["#696AC2", "#a8c7fa", "#b8d3ff"])
+    lightest: str = "#e8e8ed"
+    light: str = "#94a3b8"
+    medium: str = "#64748b"
+    gradient_colors: list = field(default_factory=lambda: ["#6f7699", "#8e96b8", "#a8b0cc"])
+    title_gradient: list = field(default_factory=lambda: ["#7a80a3", "#959bb8", "#b0b6cc"])
 
 
 @dataclass
 class ShapeColors:
     """Shape/background color design tokens."""
 
-    accent: str = "#71717a"
-    lightest: str = "#393946"
-    light: str = "#2d2d34"
-    medium: str = "#1a1a1c"
-    dark: str = "#131314"
-    darkest: str = "#0e0e0f"
+    accent: str = "#788499"
+    lightest: str = "#32323a"
+    light: str = "#26262e"
+    medium: str = "#1a1a22"
+    dark: str = "#121218"
+    darkest: str = "#0c0c10"
     orange: str = "#ff8c00"  # Orange color for dictation stop word indicator
 
 
@@ -48,8 +48,8 @@ class ShapeColors:
 class BlueColors:
     """Blue color design tokens."""
 
-    blue_1: str = "#1f1f22"
-    blue_2: str = "#8a8ac8"
+    blue_1: str = "#16161e"
+    blue_2: str = "#98a3df"
 
 
 @dataclass
@@ -69,9 +69,9 @@ class Spacing:
 class BorderRadius:
     """Border radius design tokens."""
 
-    small: int = 4
-    medium: int = 8
-    rounded: int = 15
+    small: int = 8
+    medium: int = 12
+    rounded: int = 14
 
 
 @dataclass
@@ -85,13 +85,13 @@ class ContainerLayout:
     """
 
     # Box containers (primary content boxes)
-    box_padding: int = 20  # Padding from border to content
-    box_spacing_between: int = 20  # Space between adjacent boxes
-    box_title_spacing: int = 16  # Space after box title before content
+    box_padding: int = 16  # Padding from border to content
+    box_spacing_between: int = 14  # Space between adjacent boxes
+    box_title_spacing: int = 12  # Space after box title before content
 
     # Content inside boxes
     content_horizontal_margin: int = 0  # Additional horizontal margin for content (titles align with border + padding)
-    content_vertical_spacing: int = 14  # Space between stacked content items
+    content_vertical_spacing: int = 10  # Space between stacked content items
 
     # List items
     list_item_padding_vertical: int = 4  # Vertical padding within each list item
@@ -112,14 +112,14 @@ class ComponentSizes:
     """Component dimension tokens."""
 
     # Interactive elements
-    button_height: int = 24
+    button_height: int = 28
     button_padding_horizontal: int = 16
     button_padding_vertical: int = 2
     button_action_width: int = 80
 
-    input_height: int = 35
-    input_padding_horizontal: int = 10
-    input_padding_vertical: int = 6
+    input_height: int = 36
+    input_padding_horizontal: int = 12
+    input_padding_vertical: int = 7
 
     # Windows
     main_window_width: int = 1000
@@ -150,17 +150,18 @@ class SidebarLayout:
 
     collapsed_width: int = 80
     expanded_width: int = 200
-    animation_duration: int = 200
-    padding_top: int = 20
-    padding_horizontal: int = 10
-    button_padding_left: int = 10
-    button_padding_right: int = 10
-    button_spacing_vertical: int = 6
-    button_icon_size: int = 38  # Reduced from 70 to match logo size and fit in container
-    button_min_height: int = 50
-    logo_max_size: int = 38
+    animation_duration: int = 260
+    padding_top: int = 18
+    padding_horizontal: int = 0
+    # Icons + logo are centered in collapsed_width; no extra L/R inset on the rail.
+    button_padding_left: int = 0
+    button_padding_right: int = 0
+    button_spacing_vertical: int = 5
+    button_icon_size: int = 36
+    button_min_height: int = 44
+    logo_max_size: int = 36
     logo_padding_top: int = 0
-    logo_padding_bottom: int = 30
+    logo_padding_bottom: int = 22
     border_width: int = 1
     button_icon_text_spacing: int = 4
 
@@ -169,21 +170,21 @@ class SidebarLayout:
 class HeaderLayout:
     """Header layout configuration."""
 
-    padding_horizontal: int = 30
-    content_padding_left: int = 20  # Matches box_padding for vertical alignment with box titles
-    content_padding_right: int = 20  # Matches box_padding for consistent spacing
-    height: int = 100
+    padding_horizontal: int = 28
+    content_padding_left: int = 18  # Matches box_padding for vertical alignment with box titles
+    content_padding_right: int = 18  # Matches box_padding for consistent spacing
+    height: int = 88
     title_offset_y: int = 10
     title_y_offset: int = 0
-    spacing: int = 2  # Reduced spacing between title and subtitle
-    padding_bottom: int = 20  # Space after header content (subtitle) - reduced from 20
-    icon_size: int = 40  # Reduced from 55 to be proportional to sidebar icons
+    spacing: int = 4
+    padding_bottom: int = 16
+    icon_size: int = 36
     text_icon_spacing: int = 20  # Space between text and icon in header button
 
 
 @dataclass
 class IconProperties:
-    color: str = "#71717a"
+    color: str = "#788499"
     full_logo_filename: str = "grey_icon_full_size.png"
     icon_logo_filename: str = "grey_icon_full_size.png"
     full_logo_apply_monochrome: bool = False

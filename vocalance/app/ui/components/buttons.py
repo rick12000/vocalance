@@ -83,24 +83,18 @@ class PrimaryButton(QPushButton):
         rect = self.rect()
         border_width = 1
 
-        # Create gradient for border
-        gradient_colors = theme.config.text.gradient_colors
-        gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
-        gradient.setColorAt(0, QColor(gradient_colors[0]))
-        gradient.setColorAt(1, QColor(gradient_colors[1]))
-
-        # Draw 1px gradient border using pen
         border_path = QPainterPath()
         border_path.addRoundedRect(0.5, 0.5, rect.width() - 1, rect.height() - 1, self._border_radius, self._border_radius)
 
-        pen = QPen(gradient, border_width)
+        accent = QColor(theme.config.blue.blue_2)
+        accent.setAlpha(130)
+        pen = QPen(accent, border_width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.GlobalColor.transparent)
         painter.drawPath(border_path)
 
-        # Draw text with blue_2 color
         painter.setPen(QColor(theme.config.blue.blue_2))
         painter.setFont(self.font())
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
@@ -193,12 +187,13 @@ class DangerButton(QPushButton):
         border_path = QPainterPath()
         border_path.addRoundedRect(0.5, 0.5, self.width() - 1, self.height() - 1, self._border_radius, self._border_radius)
 
-        pen = QPen(QColor(theme.config.shapes.lightest), 1.0)
+        border = QColor(theme.config.shapes.light)
+        border.setAlpha(200)
+        pen = QPen(border, 1.0)
         painter.setPen(pen)
         painter.drawPath(border_path)
 
-        # Draw text with blue_2 color
-        painter.setPen(QColor(theme.config.shapes.accent))
+        painter.setPen(QColor(theme.config.text.light))
         painter.setFont(self.font())
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
 
@@ -241,13 +236,13 @@ class GhostButton(QPushButton):
                 padding: 2px 16px;
             }}
             GhostButton:hover {{
-                background-color: {theme.config.shapes.medium};
+                background-color: {theme.config.shapes.light};
             }}
             GhostButton:pressed {{
-                background-color: {theme.config.shapes.dark};
+                background-color: {theme.config.shapes.medium};
             }}
             GhostButton:disabled {{
-                color: {theme.config.shapes.light};
+                color: {theme.config.text.medium};
             }}
         """
         )
@@ -333,11 +328,10 @@ class ChangeButton(PrimaryButton):
         path = QPainterPath()
         path.addRoundedRect(0, 0, width, height, self._border_radius, self._border_radius)
 
-        # Determine background color based on state
         if self._is_pressed:
             bg_color = QColor(theme.config.shapes.medium)
         elif self._is_hovered:
-            bg_color = QColor(theme.config.shapes.medium)
+            bg_color = QColor(theme.config.shapes.light)
         else:
             bg_color = QColor(theme.config.shapes.medium)
 
@@ -412,7 +406,9 @@ class DeleteButton(DangerButton):
         border_path = QPainterPath()
         border_path.addRoundedRect(0.5, 0.5, width - 1, height - 1, self._border_radius, self._border_radius)
 
-        pen = QPen(QColor(theme.config.shapes.lightest), 1.0)
+        b = QColor(theme.config.shapes.light)
+        b.setAlpha(200)
+        pen = QPen(b, 1.0)
         painter.setPen(pen)
         painter.drawPath(border_path)
 
@@ -485,7 +481,9 @@ class ExpandButton(PrimaryButton):
         border_path = QPainterPath()
         border_path.addRoundedRect(0.5, 0.5, width - 1, height - 1, self._border_radius, self._border_radius)
 
-        pen = QPen(QColor(theme.config.shapes.light), 1.0)
+        e = QColor(theme.config.shapes.light)
+        e.setAlpha(180)
+        pen = QPen(e, 1.0)
         painter.setPen(pen)
         painter.drawPath(border_path)
 
@@ -558,7 +556,9 @@ class CollapseButton(PrimaryButton):
         border_path = QPainterPath()
         border_path.addRoundedRect(0.5, 0.5, width - 1, height - 1, self._border_radius, self._border_radius)
 
-        pen = QPen(QColor(theme.config.shapes.light), 1.0)
+        c = QColor(theme.config.shapes.light)
+        c.setAlpha(180)
+        pen = QPen(c, 1.0)
         painter.setPen(pen)
         painter.drawPath(border_path)
 

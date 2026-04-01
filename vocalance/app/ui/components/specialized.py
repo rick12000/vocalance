@@ -69,7 +69,7 @@ class ExpandableSidebar(QFrame):
         self._anim_max = QPropertyAnimation(self, b"maximumWidth")
         for anim in (self._anim_min, self._anim_max):
             anim.setDuration(theme.config.sidebar.animation_duration)
-            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            anim.setEasingCurve(QEasingCurve.Type.OutQuart)
 
         # Track animation progress
         self._anim_min.valueChanged.connect(self._on_width_changed)
