@@ -41,7 +41,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
 
    *If you'd like to inspect what the script will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.*
 
-3. Open Vocalance from the Start Menu (search "vocalance" if not featured).
+3. Open Vocalance from the Start Menu (search "vocalance" if not featured):
 
 <p align="center">
   <img src="vocalance/app/assets/repo/shortcut.png" alt="Vocalance shortcut in the Windows Start menu under Recently added" width="200" />
