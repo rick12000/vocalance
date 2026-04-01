@@ -67,7 +67,7 @@ class Tile(BaseContainer):
             parent=parent,
             layout="vertical",
             bg_color="transparent",
-            border_color=theme.config.shapes.accent,
+            border_color=theme.config.shapes.light,
             border_radius=theme.config.radius.rounded,
         )
 
@@ -242,9 +242,9 @@ class SidebarButton(QWidget):
         # Store border radius for custom painting
         self._border_radius = theme.config.radius.small
 
-        # Calculate icon position (centered in collapsed width)
+        # Icon column matches collapsed rail width; glyph is centered inside it.
         self._icon_area_width = theme.config.sidebar.collapsed_width
-        self._button_padding = 4
+        self._button_padding_v = 3
 
         # Ensure no background fill - we handle all painting in paintEvent
         self.setAutoFillBackground(False)
@@ -273,14 +273,13 @@ class SidebarButton(QWidget):
         """
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(self._button_padding, self._button_padding, self._button_padding, self._button_padding)
+        layout.setContentsMargins(0, self._button_padding_v, 0, self._button_padding_v)
         layout.setSpacing(0)
-        # CRITICAL: Anchor content to the left to prevent centering jolt when text is hidden
         layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        # Icon area: fixed width container that matches collapsed sidebar width
+        # Full collapsed width so icons align with the centered logo
         self.icon_area = QWidget()
-        self.icon_area.setFixedWidth(self._icon_area_width - (2 * self._button_padding))
+        self.icon_area.setFixedWidth(self._icon_area_width)
         icon_area_layout = QHBoxLayout(self.icon_area)
         icon_area_layout.setContentsMargins(0, 0, 0, 0)
         icon_area_layout.setSpacing(0)
@@ -493,13 +492,13 @@ class HeaderIconButton(QWidget):
         """Setup animation for text expansion."""
         # Animation for text label width
         self._text_anim = QPropertyAnimation(self.text_label, b"maximumWidth")
-        self._text_anim.setDuration(200)
-        self._text_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._text_anim.setDuration(260)
+        self._text_anim.setEasingCurve(QEasingCurve.Type.OutQuart)
 
         # Animation for spacer width
         self._spacer_anim = QPropertyAnimation(self.spacer, b"maximumWidth")
-        self._spacer_anim.setDuration(200)
-        self._spacer_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._spacer_anim.setDuration(260)
+        self._spacer_anim.setEasingCurve(QEasingCurve.Type.OutQuart)
 
     def _color_pixmap(self, pixmap: QPixmap, color: str) -> QPixmap:
         """Color a pixmap by replacing pixels with the given color."""

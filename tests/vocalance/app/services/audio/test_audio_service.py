@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -30,9 +30,7 @@ def audio_service(event_bus, app_config):
     loop = asyncio.new_event_loop()
     with patch("vocalance.app.services.audio.simple_audio_service.AudioRecorder"), patch(
         "vocalance.app.services.audio.simple_audio_service.CommandAudioListener"
-    ), patch("vocalance.app.services.audio.simple_audio_service.DictationAudioListener"), patch(
-        "vocalance.app.services.audio.simple_audio_service.SoundAudioListener"
-    ):
+    ), patch("vocalance.app.services.audio.simple_audio_service.SoundAudioListener"):
         service = AudioService(event_bus, app_config, main_event_loop=loop)
         yield service
     loop.close()
@@ -45,7 +43,6 @@ async def test_shutdown_cleans_up_resources(audio_service):
 
     assert audio_service._recorder is None
     assert audio_service._command_listener is None
-    assert audio_service._dictation_listener is None
     assert audio_service._sound_listener is None
 
 
@@ -68,20 +65,13 @@ async def test_audio_mode_change_handling(audio_service):
     await audio_service._handle_audio_mode_change_request(event)
 
 
-@pytest.mark.asyncio
-async def test_dictation_silent_chunks_update_propagates(audio_service):
-    """Test that dictation silent chunks updates are propagated to listener."""
-    audio_service._dictation_listener.update_silent_chunks_threshold = AsyncMock()
+def test_dictation_chunk_callback_registration(audio_service):
+    """Moonshine PCM ingress is wired via set_dictation_chunk_callback (recorder thread, not the bus)."""
 
-    await audio_service.on_dictation_silent_chunks_updated(20)
+    def _cb(_b: bytes, _sr: int) -> None:
+        pass
 
-    audio_service._dictation_listener.update_silent_chunks_threshold.assert_called_once_with(20)
-
-
-@pytest.mark.asyncio
-async def test_dictation_silent_chunks_update_handles_missing_listener(audio_service):
-    """Test that dictation silent chunks updates handle missing listener gracefully."""
-    audio_service._dictation_listener = None
-
-    # Should not raise an exception
-    await audio_service.on_dictation_silent_chunks_updated(20)
+    audio_service.set_dictation_chunk_callback(_cb)
+    assert audio_service._dictation_chunk_callback is _cb
+    audio_service.set_dictation_chunk_callback(None)
+    assert audio_service._dictation_chunk_callback is None

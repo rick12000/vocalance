@@ -1,5 +1,4 @@
 import logging
-import random
 import threading
 import time
 from typing import Any, Dict, List
@@ -7,7 +6,6 @@ from typing import Any, Dict, List
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import ClickLoggedEventData, PerformMouseClickEventData
-from vocalance.app.events.grid_events import ClickCountsForGridEventData, RequestClickCountsForGridEventData
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
@@ -16,18 +14,30 @@ logger = logging.getLogger(__name__)
 
 
 def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Sort rectangles by click frequency for grid optimization."""
+    """Sort rectangles by click frequency (desc), then by stable screen position.
+
+    Random tie-breaks caused visible renumbering when the grid repainted or when
+    equal-click cells were re-sorted; geographic order is deterministic.
+    """
     if not rect_details_with_clicks:
         return []
 
-    for item in rect_details_with_clicks:
-        item["rand_tiebreak"] = random.random()
-
-    def sort_key(rect_item):
+    def sort_key(rect_item: Dict[str, Any]) -> tuple:
         clicks = rect_item.get("clicks", 0)
         if not isinstance(clicks, (int, float)):
             clicks = 0
-        return (-clicks, rect_item["rand_tiebreak"])
+        data = rect_item.get("data") or {}
+        try:
+            x = float(data.get("x", 0))
+            y = float(data.get("y", 0))
+        except (TypeError, ValueError):
+            x, y = 0.0, 0.0
+        tie = rect_item.get("id", 0)
+        try:
+            tie_i = int(tie)
+        except (TypeError, ValueError):
+            tie_i = 0
+        return (-float(clicks), y, x, tie_i)
 
     return sorted(rect_details_with_clicks, key=sort_key)
 
@@ -91,7 +101,6 @@ class ClickTrackerService:
         """Set up event subscriptions for click tracking."""
         subscriptions = [
             (PerformMouseClickEventData, self._handle_mouse_click),
-            (RequestClickCountsForGridEventData, self._handle_click_counts_request),
         ]
 
         for event_type, handler in subscriptions:
@@ -116,18 +125,6 @@ class ClickTrackerService:
         self.event_publisher.publish(click_logged_event)
 
         logger.debug(f"Click logged to memory cache: ({event_data.x}, {event_data.y}) - total: {click_count}")
-
-    async def _handle_click_counts_request(self, event_data: RequestClickCountsForGridEventData) -> None:
-        """Calculate click counts from in-memory cache - no storage I/O."""
-        with self._lock:
-            all_clicks = [click.model_dump() for click in self._clicks]
-
-        processed_rects = self._calculate_click_counts(all_clicks, event_data.rect_definitions)
-
-        response_event = ClickCountsForGridEventData(request_id=event_data.request_id, processed_rects_with_clicks=processed_rects)
-
-        self.event_publisher.publish(response_event)
-        logger.debug(f"Published click counts for request {event_data.request_id} (from memory cache)")
 
     def _calculate_click_counts(
         self, all_clicks: List[Dict[str, Any]], rect_definitions: List[Dict[str, Any]]

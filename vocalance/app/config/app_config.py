@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from vocalance.app.config.logging_config import LoggingConfigModel
 
@@ -15,32 +15,121 @@ logger = logging.getLogger(__name__)
 class AudioConfig(BaseModel):
     """Configuration for audio capture settings and chunk sizing.
 
-    Controls sample rate, audio format, and device selection for the audio service.
-    Audio chunk size is fixed at 50ms (800 samples at 16kHz) for all modes.
+    Controls sample rate and format. Input uses the host default device; there is no
+    in-app microphone selection.
     """
+
+    model_config = ConfigDict(extra="ignore")
 
     sample_rate: int = 16000
     channels: int = 1
     dtype: Literal["int16", "float32", "int32"] = Field(
         "int16", description="Data type of audio samples (e.g., 'int16', 'float32')."
     )
-    device: Optional[int] = None
+
+
+class MoonshineStreamingConfig(BaseModel):
+    """Tuning for Moonshine streaming dictation (partial cadence, native VAD, decode gating).
+
+    Values map to string options passed to ``moonshine_load_transcriber_from_files`` (see Moonshine
+    ``parse_transcriber_options``). ``stream_update_interval`` is the Python transcriber/stream
+    update cadence, not a native option key.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    stream_update_interval: float = Field(
+        default=0.5,
+        ge=0.05,
+        le=2.0,
+        description="Seconds of stream time between partial refresh calls (higher = fewer partials, less CPU).",
+    )
+    transcription_interval: float = Field(
+        default=0.6,
+        ge=0.05,
+        le=2.0,
+        description="Native transcription_interval: minimum seconds of buffered audio before each stream decode pass.",
+    )
+    vad_threshold: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Native vad_threshold; lower than 0.5 tends to reduce premature line finals on short pauses.",
+    )
+    vad_window_duration: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=2.0,
+        description="Optional native vad_window_duration (seconds); omit for library default.",
+    )
+    vad_max_segment_duration: float = Field(
+        default=32.0,
+        ge=5.0,
+        le=120.0,
+        description="Native vad_max_segment_duration (seconds) before a forced VAD segment split; default raised from library ~15s.",
+    )
+    max_tokens_per_second: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=30.0,
+        description="Optional native max_tokens_per_second; omit for library default.",
+    )
+
+    def transcriber_load_options(self) -> dict[str, str]:
+        """Key/value strings for ``Transcriber(..., options=...)`` at model load."""
+        opts: dict[str, str] = {
+            "transcription_interval": str(self.transcription_interval),
+            "vad_threshold": str(self.vad_threshold),
+        }
+        if self.vad_window_duration is not None:
+            opts["vad_window_duration"] = str(self.vad_window_duration)
+        opts["vad_max_segment_duration"] = str(self.vad_max_segment_duration)
+        if self.max_tokens_per_second is not None:
+            opts["max_tokens_per_second"] = str(self.max_tokens_per_second)
+        return opts
 
 
 class STTConfig(BaseModel):
     """Configuration for speech-to-text engines and processing parameters.
 
-    Manages Whisper model selection and retry behavior, configures debouncing and
-    duplicate suppression intervals separately for command and dictation modes to
-    optimize responsiveness vs accuracy tradeoffs.
+    Dictation uses Moonshine Voice (streaming + batch). Command mode uses Vosk.
     """
 
-    whisper_model: Literal["tiny", "base", "small", "medium"] = "base"
-    whisper_device: Literal["cpu", "cuda"] = "cpu"
-    whisper_max_retries: int = Field(default=3, description="Maximum retry attempts for Whisper model loading")
-    whisper_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Whisper retry attempts")
+    model_config = ConfigDict(extra="ignore")
+
+    moonshine_language: str = Field(default="en", description="Two-letter language code for Moonshine models")
+    moonshine_model_arch: str = Field(
+        default="medium-streaming",
+        description=(
+            "Moonshine architecture id: tiny, base, tiny-streaming, base-streaming, small-streaming, medium-streaming. "
+            "medium-streaming is larger than small-streaming and usually more accurate (higher latency, bigger download)."
+        ),
+    )
+    moonshine_streaming: MoonshineStreamingConfig = Field(
+        default_factory=MoonshineStreamingConfig,
+        description="Streaming partial cadence and native Moonshine transcriber options (VAD, decode interval).",
+    )
+    moonshine_max_stream_line_duration_seconds: float = Field(
+        default=45.0,
+        ge=0.0,
+        le=600.0,
+        description=(
+            "After this many seconds of audio on one Moonshine stream line, start a new native stream. "
+            "Decoder cost grows with unbounded line length; rotation keeps partial latency stable. "
+            "0 disables rotation."
+        ),
+    )
+    moonshine_max_retries: int = Field(default=3, description="Maximum retry attempts for Moonshine model loading")
+    moonshine_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Moonshine load retries")
 
     sample_rate: int = 16000
+
+    @field_validator("moonshine_model_arch", mode="before")
+    @classmethod
+    def _default_moonshine_arch_if_empty(cls, v: object) -> object:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return "medium-streaming"
+        return v
 
 
 class SoundRecognizerConfig(BaseModel):
@@ -133,6 +222,10 @@ class GridConfig(BaseModel):
 
     show_grid_phrase: str = "go"
     hover_grid_phrase: str = "hover"
+    drag_grid_phrase: str = Field(
+        default="move",
+        description="Voice phrase to show the grid in drag mode (click-hold from pointer at show time to chosen cell).",
+    )
     select_cell_phrase: str = "select"
 
 
@@ -164,6 +257,7 @@ class DictationConfig(BaseModel):
     smart_start_trigger: str = "smart green"
     visual_start_trigger: str = "visual green"
     hidden_start_trigger: str = "hidden green"
+    amend_start_trigger: str = "amend"
 
     use_clipboard: bool = True
     typing_delay: float = 0.01
@@ -179,26 +273,114 @@ class DictationConfig(BaseModel):
         default=True, description="Enable automatic formatting (punctuation, capitalization) in dictation output"
     )
 
+    modifier_upper_phrase: str = Field(default="upper", description="Voice phrase to toggle title-case modifier")
+    modifier_capitals_phrase: str = Field(default="capitals", description="Voice phrase to toggle ALL CAPS modifier")
+    modifier_camel_phrase: str = Field(
+        default="camel", description="Voice phrase to toggle UpperCamelCase (PascalCase) identifier modifier"
+    )
+    modifier_snake_phrase: str = Field(default="snake", description="Voice phrase to toggle snake_case modifier")
+    modifier_spelling_phrase: str = Field(default="spelling", description="Voice phrase to toggle spoken-punctuation modifier")
+
+
+class LocalLLMArtifact(BaseModel):
+    """One built-in GGUF bundle (Hugging Face repo + filenames + UI label)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    label: str
+    repo_id: str
+    gguf_filenames: tuple[str, ...]
+    model_card_url: str
+
+    @property
+    def load_path_filename(self) -> str:
+        return self.gguf_filenames[0]
+
+
+class LocalLLMAllowList(BaseModel):
+    """Built-in local LLM bundles the app may download and run."""
+
+    model_config = ConfigDict(frozen=True)
+
+    artifacts: tuple[LocalLLMArtifact, ...]
+
+    def artifact_for(self, model_id: str) -> Optional[LocalLLMArtifact]:
+        for artifact in self.artifacts:
+            if artifact.id == model_id:
+                return artifact
+        return None
+
+    def has_id(self, model_id: str) -> bool:
+        return any(a.id == model_id for a in self.artifacts)
+
+    @property
+    def default_id(self) -> str:
+        return self.artifacts[0].id
+
+
+def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
+    return LocalLLMAllowList(
+        artifacts=(
+            LocalLLMArtifact(
+                id="qwen2.5-1.5b-q5km",
+                label="Qwen 2.5 1.5B Instruct (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+                gguf_filenames=("qwen2.5-1.5b-instruct-q5_k_m.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+            ),
+            LocalLLMArtifact(
+                id="qwen2.5-3b-q5km",
+                label="Qwen 2.5 3B Instruct (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF",
+                gguf_filenames=("qwen2.5-3b-instruct-q5_k_m.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF",
+            ),
+            LocalLLMArtifact(
+                id="qwen2.5-7b-q5km",
+                label="Qwen 2.5 7B Instruct (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen2.5-7B-Instruct-GGUF",
+                gguf_filenames=(
+                    "qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf",
+                    "qwen2.5-7b-instruct-q5_k_m-00002-of-00002.gguf",
+                ),
+                model_card_url="https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF",
+            ),
+        )
+    )
+
+
+_LOCAL_LLM_ALLOWLIST: LocalLLMAllowList = _builtin_local_llm_allowlist()
+DEFAULT_LLM_MODEL_ID: str = _LOCAL_LLM_ALLOWLIST.default_id
+
+
+def get_whitelisted_llm_model(model_id: str) -> Optional[LocalLLMArtifact]:
+    return _LOCAL_LLM_ALLOWLIST.artifact_for(model_id)
+
+
+def is_whitelisted_llm_model_id(model_id: str) -> bool:
+    return _LOCAL_LLM_ALLOWLIST.has_id(model_id)
+
+
+def local_llm_allowlist() -> LocalLLMAllowList:
+    return _LOCAL_LLM_ALLOWLIST
+
 
 class LLMConfig(BaseModel):
-    """Configuration for LLM service.
+    """Local LLM (llama.cpp, CPU): built-in Qwen GGUF bundles only."""
 
-    Comprehensive configuration for llama.cpp-based LLM inference including model selection,
-    context/generation limits, threading/batching parameters, quantization settings,
-    sampling parameters, GPU offloading, and startup initialization mode. Tuned for
-    dictation formatting on CPU with optimal speed/quality balance.
-    """
+    model_config = ConfigDict(extra="ignore")
 
-    model_info: Dict[str, str] = Field(
-        default={"repo_id": "Qwen/Qwen2.5-1.5B-Instruct-GGUF", "filename": "qwen2.5-1.5b-instruct-q5_k_m.gguf"},
-        description="Internal model configuration",
+    selected_model_id: str = Field(
+        default=DEFAULT_LLM_MODEL_ID,
+        description="Id of a built-in GGUF bundle (see LocalLLMAllowList).",
     )
 
     context_length: int = Field(
         default=2048, description="Model context window - 2048 is optimal for dictation (faster than 4096)"
     )
 
-    max_tokens: int = Field(default=1024, description="Max output tokens - sufficient for most dictation, faster than 2600")
+    max_tokens: int = Field(default=1500, description="Max output tokens - sufficient for most dictation, faster than 2600")
 
     n_threads: Optional[int] = Field(default=None, description="Threads for token generation (None = auto: cpu_count - 1, max 6)")
 
@@ -225,8 +407,6 @@ class LLMConfig(BaseModel):
     mirostat_tau: float = Field(default=5.0, ge=0.0, le=10.0, description="Not used when mirostat_mode=0")
     mirostat_eta: float = Field(default=0.1, ge=0.0, le=1.0, description="Not used when mirostat_mode=0")
 
-    n_gpu_layers: int = Field(default=0, ge=0, description="Number of layers to offload to GPU (0 = CPU only, -1 = all layers)")
-
     verbose: bool = Field(default=False, description="Enable verbose llama.cpp logging for debugging")
 
     flash_attn: bool = Field(default=True, description="Enable flash attention for faster computation (recommended)")
@@ -243,25 +423,18 @@ class LLMConfig(BaseModel):
 
     generation_timeout_sec: float = Field(default=45.0, description="Max time for generation before timeout")
 
-    startup_mode: Literal["startup", "background", "lazy"] = Field(
-        default="startup", description="When to initialize LLM: 'startup', 'background', 'lazy'"
-    )
-
-    def get_model_filename(self) -> str:
-        """Get the GGUF model filename from model_info dictionary.
-
-        Returns:
-            Model filename string extracted from model_info.
-        """
-        return self.model_info["filename"]
+    @field_validator("selected_model_id")
+    @classmethod
+    def _validate_selected_model_id(cls, v: str) -> str:
+        if not _LOCAL_LLM_ALLOWLIST.has_id(v):
+            raise ValueError(f"selected_model_id must be a built-in LLM id, got {v!r}")
+        return v
 
 
 class VADConfig(BaseModel):
-    """Configuration for Voice Activity Detection (VAD) across multiple modes.
+    """Configuration for Voice Activity Detection (VAD) for command and sound modes.
 
-    Defines energy thresholds, recording durations, silence detection parameters, and
-    pre-roll buffering separately optimized for command mode (low latency), dictation mode
-    (longer speech), and training mode (sample collection).
+    Dictation uses continuous audio chunks fed to Moonshine streaming (no separate VAD segment pipeline).
 
     The VAD system uses continuous adaptive noise floor estimation with audio normalization
     to work robustly across different microphones. Key features:
@@ -287,7 +460,7 @@ class VADConfig(BaseModel):
     )
     sound_energy_threshold: float = Field(
         default=0.003,
-        description="Minimum energy threshold for sound recognition - higher than command/dictation to reduce false triggers.",
+        description="Minimum energy threshold for sound recognition - higher than command to reduce false triggers.",
     )
     command_silent_chunks_for_end: int = Field(
         default=5,
@@ -299,17 +472,6 @@ class VADConfig(BaseModel):
         description="Pre-roll buffers for command mode (210ms at 30ms chunks) - captures word attack.",
     )
 
-    dictation_energy_threshold: float = Field(
-        default=0.0035,
-        description="Minimum energy threshold for dictation mode (used as floor when noise is very low).",
-    )
-    dictation_silent_chunks_for_end: int = Field(
-        default=27,
-        description="Number of consecutive silent chunks to end recording in dictation mode (27 chunks = 810ms at 30ms/chunk).",
-    )
-    dictation_max_recording_duration: float = Field(default=30.0, description="Maximum recording duration for dictation mode.")
-    dictation_pre_roll_buffers: int = Field(default=7, description="Pre-roll buffers for dictation mode (210ms at 30ms/chunk).")
-
     silence_threshold_multiplier: float = Field(
         default=0.45, description="Multiplier for silence threshold relative to speech threshold"
     )
@@ -320,9 +482,6 @@ class VADConfig(BaseModel):
         default=5.0,
         description="Multiplier applied to noise floor for sound detection - higher than speech to reduce false triggers.",
     )
-    dictation_adaptive_margin_multiplier: float = Field(
-        default=2.5, description="Multiplier applied to noise floor for dictation speech threshold."
-    )
     adaptive_threshold_max_multiplier: float = Field(
         default=2.0, description="Maximum multiplier before applying adaptive threshold (legacy, kept for compatibility)"
     )
@@ -332,9 +491,6 @@ class VADConfig(BaseModel):
 
     command_min_recording_duration: float = Field(
         default=0.05, description="Minimum recording duration for command mode in seconds"
-    )
-    dictation_min_recording_duration: float = Field(
-        default=0.1, description="Minimum recording duration for dictation mode in seconds"
     )
 
     max_noise_samples: int = Field(
@@ -694,6 +850,10 @@ class GlobalAppConfig(BaseModel):
         storage.click_tracker_dir = click_tracker_dir
         storage.llm_models_dir = llm_models_dir
         storage.command_history_dir = command_history_dir
+
+    @property
+    def local_llm_allowlist(self) -> LocalLLMAllowList:
+        return _LOCAL_LLM_ALLOWLIST
 
 
 CONFIG_FILE_NAME = "settings.yaml"

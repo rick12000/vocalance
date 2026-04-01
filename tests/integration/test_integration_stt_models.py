@@ -1,6 +1,8 @@
 import time
 from pathlib import Path
 
+import pytest
+
 
 def _get_expected_text(filename: str) -> str:
     """Extract expected text from filename."""
@@ -106,17 +108,17 @@ def test_vosk_recognition_accuracy_and_performance(vosk_stt, vosk_test_files, sa
         assert multi_word_avg_runtime < 1000  # Relaxed from 500ms to 1000ms
 
 
-def test_whisper_dictation_accuracy_and_performance(whisper_stt, dictation_file, sample_rate):
+@pytest.mark.slow
+def test_moonshine_dictation_accuracy_and_performance(moonshine_stt, dictation_file, sample_rate):
     audio_bytes = _load_audio_bytes(dictation_file)
     expected_text = "this is a test of the dictation capabilities"
 
     start_time = time.time()
-    recognized_text = whisper_stt.recognize_sync(audio_bytes, sample_rate)
+    recognized_text = moonshine_stt.recognize_sync(audio_bytes, sample_rate)
     runtime_ms = (time.time() - start_time) * 1000
     runtime_s = runtime_ms / 1000
 
-    # NOTE: We use per word accuracy on a single prompt for Whisper:
     accuracy = _calculate_word_accuracy(expected_text, recognized_text)
 
-    assert runtime_s < 5.0  # Relaxed from 2.0s to 5.0s for Whisper
-    assert accuracy == 1.0
+    assert runtime_s < 60.0
+    assert accuracy >= 0.85

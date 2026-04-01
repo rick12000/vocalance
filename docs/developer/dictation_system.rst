@@ -1,7 +1,7 @@
 Dictation System
 ##################
 
-This page explains how Vocalance handles dictation through five distinct modes—standard, visual, smart, type, and hidden—each optimized for different use cases, all orchestrated by the DictationCoordinator.
+This page explains how Vocalance handles dictation through six modes—standard, visual, smart, amend, type, and hidden—each optimized for different use cases, all orchestrated by the ``DictationCoordinator``. Voice phrases that start or stop dictation are configured in ``DictationConfig`` (see :doc:`command_parsing`).
 
 System Overview
 ================
@@ -12,16 +12,18 @@ The dictation system operates independently from command execution. Once activat
 
    flowchart TD
        A[DictationCommandParsedEvent] --> B{Command Type}
-       B -->|start dictation| C[Standard Mode]
-       B -->|dictate visual| D[Visual Mode]
-       B -->|dictate smart| E[Smart Mode]
-       B -->|dictate type| F[Type Mode]
-       B -->|hidden| G[Hidden Mode]
-       B -->|stop dictation| H[Stop & Finalize]
+       B -->|standard start| C[Standard Mode]
+       B -->|visual start| D[Visual Mode]
+       B -->|smart start| E[Smart Mode]
+       B -->|amend start| AM[Amend Mode]
+       B -->|type start| F[Type Mode]
+       B -->|hidden start| G[Hidden Mode]
+       B -->|stop| H[Stop & Finalize]
 
        C --> I[DictationTextRecognizedEvent]
        D --> I
        E --> I
+       AM --> I
        F --> I
        G --> I
 
@@ -29,6 +31,7 @@ The dictation system operates independently from command execution. Once activat
        J -->|Standard| K[Direct Type]
        J -->|Visual| L[Popup Accumulate]
        J -->|Smart| M[LLM Queue]
+       J -->|Amend| M
        J -->|Type| N[Raw Type]
        J -->|Hidden| O[Silent Accumulate]
 
@@ -42,10 +45,37 @@ The dictation system operates independently from command execution. Once activat
        style C fill:#e8f5e9
        style D fill:#fff4e1
        style E fill:#e1f5ff
+       style AM fill:#d4e8fc
        style F fill:#fce4ec
        style G fill:#e8e8e8
 
-Dictation flows from parse event → mode selection → text recognition → mode-specific processing → output. Each mode has distinct behavior: standard types immediately, visual accumulates for review, smart uses LLM for formatting, type provides raw unformatted insertion, and hidden silently accumulates for pasting.
+Dictation flows from parse event → mode selection → text recognition → mode-specific processing → output. Standard types immediately; visual accumulates for review; **smart** and **amend** share streaming STT and a dual-pane LLM phase (smart formats dictated text; amend applies spoken instructions to a captured selection); type inserts raw text; hidden accumulates silently for paste on stop.
+
+Post-processing and modifiers
+-----------------------------
+
+After Moonshine (or VAD) emits text, the coordinator runs a **base** pass on every segment: spoken cardinals and digit-by-digit sequences are replaced with decimal numerals via ``vocalance.app.utils.number_parser.replace_spoken_numbers_in_text``. Optional **modifiers** (at most one active) add transforms: title case (**upper**), ALL CAPS (**capitals**), UpperCamelCase (**camel**; punctuation stripped), snake_case (**snake**; punctuation stripped), and a **spelling** mode that strips punctuation then maps spoken punctuation words to symbols and reapplies sentence casing. Modifier phrases are configured on ``DictationConfig`` (defaults: ``upper``, ``capitals``, ``camel``, ``snake``, ``spelling``).
+
+While dictation is active, **Vosk** still runs on command audio segments. Besides the shared stop phrase (default ``amber``; see ``DictationConfig.stop_trigger``), it detects modifier phrases and publishes ``DictationModifierPhraseEvent`` (no ``CommandTextRecognizedEvent``). The coordinator toggles the same phrase off or switches to another modifier, updates session state, publishes ``DictationModifierStateChangedEvent`` (the **smart**, **amend**, and **visual** popup layouts show a small faded modifier chip; standard, type, and hidden wave-only UIs do not), and starts a short **Moonshine suppress window** (monotonic clock) so partials/finals from the same utterance are dropped. **Type** mode’s silence timeout only advances on segments that yield non-empty text after trigger stripping and post-processing; Vosk-only modifier phrases do not touch that timer.
+
+.. _modifier-pipeline-reference:
+
+Modifier pipeline (reference)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The following ties together the pieces added for voice modifiers; all phrase strings live on ``DictationConfig``.
+
+1. **Detection** — ``SpeechToTextService`` runs Vosk on each command segment while dictation is active. If the transcript contains a configured modifier phrase (longest match first), it publishes ``DictationModifierPhraseEvent``. Stop phrase handling is unchanged.
+
+2. **Session state** — ``DictationCoordinator._handle_dictation_modifier_phrase`` updates ``DictationSession.active_modifier`` (same phrase toggles off; a different phrase replaces the active modifier). It publishes ``DictationModifierStateChangedEvent`` and sets ``_moonshine_suppress_until`` to ``time.monotonic() + MOONSHINE_MODIFIER_SUPPRESS_SEC`` (~0.55s) so ``_moonshine_on_partial`` / ``_moonshine_on_final`` return early during that window.
+
+3. **Segment text** — ``_clean_text`` removes each configured trigger and modifier phrase only as a **whole phrase** (case-insensitive word-boundary match via ``re.escape``). Phrases are applied **longest first** (multi-word before single-word) so a start trigger like ``green`` does not strip the second word of ``smart green`` before that phrase is removed. ``_prepare_dictation_segment_final`` / ``_prepare_dictation_segment_partial`` apply aliases, drop isolated punctuation fragments, then call ``dictation_postprocess.apply_dictation_postprocess`` or ``apply_dictation_postprocess_partial`` (partials skip the **spelling** transform).
+
+4. **Typing** — For standard/type modes, ``_dictation_segment_input_options`` passes ``add_trailing_space=False`` and ``skip_prose_segment_join_rules=True`` when the active modifier is **camel**, **snake**, or **spelling**, so ``TextInputService.input_text`` does not append a trailing space or apply mid-sentence lowercasing that would break identifiers.
+
+5. **UI** — ``QtDictationPopupController`` forwards ``DictationModifierStateChangedEvent`` to ``QtDictationPopupView.set_modifier_banner``; reserved labels beside the dictation column titles (dual-pane and visual) show the faded chip. Wave-only popups ignore active modifier display.
+
+6. **Types** — ``DictationModifierId`` is defined once in ``vocalance.app.events.dictation_events`` and reused by post-processing, the coordinator, and STT.
 
 The DictationCoordinator: Central Orchestration
 ================================================
@@ -63,8 +93,8 @@ The coordinator uses three core states with validated transitions:
        [*] --> IDLE
        IDLE --> RECORDING: Start dictation command
        RECORDING --> RECORDING: Accumulate text segments
-       RECORDING --> PROCESSING_LLM: Stop smart dictation
-       RECORDING --> IDLE: Stop standard/visual/type
+       RECORDING --> PROCESSING_LLM: Stop smart or amend
+       RECORDING --> IDLE: Stop standard/visual/hidden/type
        PROCESSING_LLM --> IDLE: LLM complete
        IDLE --> [*]
 
@@ -74,8 +104,8 @@ The coordinator uses three core states with validated transitions:
        end note
 
        note right of PROCESSING_LLM
-           Only for smart mode
-           LLM processing accumulated text
+           Smart & amend dual-pane modes
+           LLM on accumulated text
        end note
 
 **State validation**: The coordinator enforces valid transitions. Invalid transitions are logged as errors and rejected:
@@ -102,13 +132,7 @@ This prevents race conditions where text arrives after stop is called, or multip
 Mode Selection and Activation
 ------------------------------
 
-Dictation modes are triggered by voice commands parsed by the centralized parser:
-
-- **"start dictation"** → Standard mode (immediate typing)
-- **"dictate visual"** → Visual mode (popup accumulation)
-- **"dictate smart"** → Smart mode (LLM formatting)
-- **"dictate type"** → Type mode (raw insertion)
-- **"stop dictation"** → Stop active mode and finalize
+Dictation modes are triggered when recognized text matches the configured triggers (defaults: ``green``, ``visual green``, ``smart green``, ``amend``, ``type``, ``hidden green``, ``amber`` for stop—see ``DictationConfig``).
 
 The coordinator subscribes to ``DictationCommandParsedEvent`` and routes commands:
 
@@ -123,6 +147,10 @@ The coordinator subscribes to ``DictationCommandParsedEvent`` and routes command
            await self._start_session(DictationMode.VISUAL)
        elif isinstance(command, DictationSmartStartCommand):
            await self._start_session(DictationMode.SMART)
+       elif isinstance(command, DictationHiddenStartCommand):
+           await self._start_session(DictationMode.HIDDEN)
+       elif isinstance(command, DictationAmendStartCommand):
+           await self._start_session(DictationMode.AMEND)
        elif isinstance(command, DictationTypeCommand):
            await self._start_session(DictationMode.TYPE)
        elif isinstance(command, DictationStopCommand):
@@ -135,7 +163,7 @@ When dictation starts, the coordinator broadcasts ``DictationModeDisableOthersEv
 
 - **Disables Markov predictions** (prevents false command predictions)
 - **Disables sound recognition** (prevents sound-mapped commands)
-- **Filters speech recognition** to only recognize stop trigger words
+- **Narrows command-path recognition** to the stop phrase and configured modifier phrases (see ``SpeechToTextService``)
 
 When dictation stops, ``DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")`` re-enables all systems.
 
@@ -155,7 +183,7 @@ How It Works
        participant STT as SpeechToText
        participant Input as TextInputService
 
-       U->>Coord: "start dictation"
+       U->>Coord: Standard start (e.g. "green")
        Coord->>Coord: Enter RECORDING state
 
        U->>STT: Speak: "Hello world"
@@ -166,7 +194,7 @@ How It Works
        STT->>Coord: DictationTextRecognizedEvent("This is a test")
        Coord->>Input: Type " This is a test"
 
-       U->>Coord: "stop dictation"
+       U->>Coord: Stop phrase (e.g. "amber")
        Coord->>Coord: Enter IDLE state
 
 **Processing pipeline**:
@@ -197,12 +225,14 @@ Before output, text is cleaned and concatenated:
 
        return cleaned
 
-**Segment joining rules**:
+**Segment joining rules** (when ``skip_prose_segment_join_rules`` is false — default prose dictation):
 
 - **First segment**: No leading space (e.g., "Hello world")
 - **Subsequent segments**: Leading space added (e.g., " this is a test")
 - **Period removal**: If previous segment ends with "." and current starts lowercase, remove period
 - **Capitalization**: If no sentence boundary (no period), lowercase first letter of current segment
+
+**Modifier modes** (camel, snake, spelling): the coordinator passes ``skip_prose_segment_join_rules=True`` and usually ``add_trailing_space=False`` so segments are not merged as running prose; see :ref:`modifier-pipeline-reference`.
 
 Example:
 
@@ -223,12 +253,12 @@ Popup Lifecycle
 .. mermaid::
 
    flowchart TD
-       A["dictate visual"] --> B[Create Popup Window]
+       A["visual start phrase"] --> B[Create Popup Window]
        B --> C[Enter RECORDING State]
        C --> D[Accumulate Text Segments]
        D --> E{User Action}
 
-       E -->|Stop dictation| F[Insert Accumulated Text]
+       E -->|Stop phrase| F[Insert Accumulated Text]
        E -->|Close popup| G[Cancel - No Insert]
        E -->|More speech| D
 
@@ -240,7 +270,7 @@ Popup Lifecycle
        style F fill:#e8f5e9
        style G fill:#ffebee
 
-**Real-time updates**: Each ``DictationTextRecognizedEvent`` updates the popup, showing accumulated text as you speak.
+**Real-time updates**: The streaming pipeline publishes partial/final dictation events so the popup reflects text as you speak.
 
 **Review before insert**: Unlike standard mode, visual mode doesn't type immediately. Text is accumulated in the popup, and you can review before deciding to insert or cancel.
 
@@ -314,161 +344,48 @@ Architecture
        style D fill:#e1f5ff
        style I fill:#fff4e1
 
-Streaming Transcription Architecture
--------------------------------------
+Streaming transcription (Moonshine)
+------------------------------------
 
-Smart, Visual, and Hidden modes use streaming transcription to provide incremental text during speech. The core challenge: Whisper processes max 30 seconds of audio, but users speak longer. The solution: two offsets track which audio is finalized (text extracted) and which is trimmed (discarded), ensuring no text is lost during the trim cycle.
+Smart, amend, visual, hidden, standard, and type dictation share the Moonshine streaming path: ``AudioService`` calls a dictation chunk callback from the recorder thread; ``DictationCoordinator`` enqueues PCM on an ingress thread and feeds ``MoonshineDictationStreamSession.add_audio_pcm16``. Native Moonshine callbacks deliver line text changes and completed lines; the coordinator publishes ``PartialDictationTextEvent``, ``FinalDictationTextEvent``, and (for standard/type) ``DictationTextRecognizedEvent`` with ``engine="moonshine"`` where appropriate.
 
-What Whisper Returns
-~~~~~~~~~~~~~~~~~~~~
+**Partials vs finals**: Partials update live UI; completed lines append to the session accumulator and emit finals for streaming modes. Duplicate-line and hallucination checks run before publishing.
 
-Each time the transcription loop calls Whisper, it returns a list of segments. Each segment contains:
+**Rotation**: When ``stt.moonshine_max_stream_line_duration_seconds`` is set, ``add_audio_pcm16`` signals the coordinator to close the current native stream and open a new one after enough audio on one line, bounding work on long sessions.
 
-- **text**: The recognized speech for this time interval
-- **start/end**: Timestamp boundaries (seconds from audio chunk start)
-- **no_speech_prob**: Confidence it's actual speech (0.0-1.0; <0.45 means speech detected)
+**Cadence**: ``stt.moonshine_streaming.stream_update_interval`` controls partial refresh frequency (trade-off: responsiveness vs CPU). Native decode gating uses ``stt.moonshine_streaming.transcription_interval`` and VAD via ``stt.moonshine_streaming.vad_threshold`` (see ``MoonshineStreamingConfig``).
 
-Multiple segments (2+) means Whisper detected clear boundaries between phrases—it identified where one thought ends and another begins.
+**Batch API**: ``MoonshineSTT.recognize`` remains for short offline segments; continuous dictation does not use a rolling in-process buffer like the old streaming STT loop.
 
-The Two-Offset System
-~~~~~~~~~~~~~~~~~~~~~
+Two-phase workflow (smart / amend)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Problem: Buffer grows to 45 seconds then trims 30 seconds (to stay under Whisper's 30-second limit). If trimmed audio contained unfinalized text (detected speech not yet transcribed), that text is lost.
+**Phase 1 — Recording**: Moonshine partial/final events update the UI and ``accumulated_text`` (and the amend instructions column).
 
-Solution: Two offsets track different aspects of the audio lifecycle:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 50 20
-
-   * - Offset
-     - Meaning
-     - Advances When
-   * - ``frames_offset``
-     - Audio trimmed away (discarded)
-     - Buffer exceeds 45 seconds
-   * - ``timestamp_offset``
-     - Audio finalized (text extracted)
-     - Segment is finalized
-
-The rule: never trim audio before ``timestamp_offset``. This guarantees unfinalized audio is never lost.
-
-How Segments Are Finalized
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Segments finalize under three conditions:
-
-**1. Multi-segment output** (Whisper returns 2+ segments):
-   - If 2+ segments: all but the last are high-confidence (Whisper found clear boundaries)
-   - Finalize all except the last (which is still being refined as more audio arrives)
-   - Example: Whisper returns [segment 0-8s, segment 8-15s, partial 15-22s] → finalize first two
-
-**2. Same-output stability** (identical prediction 10+ times):
-   - Whisper returns the exact same text repeatedly → indicates no new information
-   - Text is stable; finalize it
-
-**3. Buffer trim approaching** (forced finalization):
-   - If buffer trim would discard unfinalized audio, force finalize it first
-   - Check: will trim discard audio before ``timestamp_offset``? If yes, finalize incomplete text and advance ``timestamp_offset``
-   - This prevents information loss at buffer boundaries
-
-Example Timeline
-~~~~~~~~~~~~~~~~
-
-.. code-block:: text
-
-   Initial state: Buffer [0s-------45s], no offsets set
-
-   Loop iteration 1 (t=0ms):
-   - Call Whisper on audio[0:45]
-   - Returns 3 segments: [0-8s "hello", 8-15s "world", 15-22s partial "how"]
-   - Finalize 0-8s and 8-15s (multi-segment detected)
-   - Advance timestamp_offset to 15s
-   - Publish partial: "how" (incomplete, for Visual mode)
-
-   Loop iteration 2 (t=100ms):
-   - New audio arrived; buffer now [0s-------50s]
-   - Call Whisper on audio[15:50] (only unfinalized portion)
-   - Returns 2 segments: [15-18s refined "how are", 18-25s partial "you"]
-   - Finalize 15-18s (multi-segment)
-   - Advance timestamp_offset to 18s
-   - Publish partial: "how are you" (accumulated)
-
-   Loop iteration 3 (t=200ms):
-   - Buffer still growing [0s-------52s]
-   - Trim triggered (buffer > 45s): remove [0s:30s], set frames_offset = 30s
-   - Check: is timestamp_offset (18s) < frames_offset (30s)? YES—unfinalized audio will be lost!
-   - Force finalize partial "you" at end of its segment (25s)
-   - Advance timestamp_offset to 25s
-   - Continue with audio[25:52] for next call
-
-Natural Overlap Mechanism
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Each loop iteration reprocesses unfinalized audio with fresh context:
-
-- Finalized segments: never reprocessed (locked in place)
-- Unfinalized segments: reprocessed each loop (refined with new audio context)
-
-This creates natural overlap without manual duplication. Whisper automatically improves incomplete segments as more audio arrives.
-
-Transcription Loop Timing
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-- **Minimum audio threshold**: Wait for 1+ second of audio before calling Whisper (ensures adequate context)
-- **Processing frequency**: Call Whisper every ~50-100ms (adaptive: faster when audio available, slower when silent)
-- **Unfinalized audio maximum**: If unfinalized audio exceeds 25 seconds with no valid finalization, clip to last 5 seconds (prevents unbounded growth)
-
-Two-Phase Workflow for Smart Mode
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-**Phase 1 - Streaming Accumulation** (RECORDING state):
-   Loop continuously calls Whisper → finalizes detected segments → accumulates text in `accumulated_text` → publishes partial events for Visual mode UI
-
-**Phase 2 - LLM Post-Processing** (PROCESSING_LLM state, smart mode only):
-   Send complete `accumulated_text` to LLM → stream tokens real-time → execute formatting commands (REMOVE:N for backspace, NEWLINE for line break, END to finish)
+**Phase 2 — LLM** (``PROCESSING_LLM``): Smart sends accumulated dictation to ``process_dictation_streaming``; amend sends the selection snapshot plus spoken instructions to ``process_amend_streaming``. Both stream tokens and formatting commands (REMOVE:N, NEWLINE, END).
 
 LLM Service
 -----------
 
-The LLM service wraps llama.cpp for local model inference:
+The LLM service uses llama.cpp with **CPU-only** inference. Weights come from the
+built-in allow list (``LocalLLMAllowList`` in ``app_config``) of official `Qwen …-Instruct-GGUF` repositories (Q5_K_M). The active model
+is selected in Settings (``llm.selected_model_id``). The setting updates when the
+chosen model is already on disk, or after a successful download from Settings.
+Additional models use a cancellable download dialog; the previous active model stays
+in effect until a new one is fully installed.
 
-.. code-block:: python
+On first launch, if the configured model bundle is missing, startup **blocks** with
+the splash progress UI until that bundle is fetched.
 
-   class LLMService:
-       def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
-           self.llm: Optional[Llama] = None
-           self._model_loaded = False
-           self._warmed_up = False
+For each request, the service loads the GGUF from disk (first shard path for split
+files), runs chat completion, then unloads to avoid keeping large models resident
+between sessions.
 
-           # Auto-calculate threads: 75% of CPU cores, capped at 12
-           cpu_count = multiprocessing.cpu_count()
-           self.n_threads = config.llm.n_threads or max(4, min(int(cpu_count * 0.75), 12))
+**Model loading options** (CPU):
 
-       async def initialize(self) -> bool:
-           # Download model if missing
-           if not self.model_downloader.model_exists(self.model_filename):
-               await self.model_downloader.download_model(...)
-
-           # Load with performance optimizations
-           self.llm = await self._load_model_async()
-
-           # Warm up with quick inference
-           await self._warmup_model()
-           return True
-
-**Model loading options**:
-
-- **GPU layers**: Configurable number of GPU-accelerated layers (0 = CPU only)
-- **Flash attention**: Optional fast attention computation
-- **Memory mapping**: Maps model file to memory for efficient loading
-- **Thread configuration**: Configurable CPU threads for parallel token generation
-
-**Model startup modes**:
-
-- **Startup**: Load during application initialization (slow startup, fast first use)
-- **Background**: Load in background after startup completes
-- **On-demand**: Load when first smart dictation command is issued
+- **Flash attention**: Optional faster attention where supported by the build
+- **Memory mapping**: Maps model files for efficient loading
+- **Thread configuration**: Configurable CPU threads for prompt batching and generation
 
 Agentic Prompt System
 ---------------------
@@ -532,7 +449,7 @@ Smart mode shows LLM output in real-time as tokens are generated:
        participant LLM as LLMService
        participant Input as TextInputService
 
-       U->>C: "stop dictation" (smart mode)
+       U->>C: Stop phrase (smart mode)
        C->>LLM: Process "hello world new line goodbye"
 
        LLM->>C: Token: "Hello"
@@ -557,6 +474,11 @@ Smart mode shows LLM output in real-time as tokens are generated:
        C->>C: Finalize text
 
 This streaming provides visual feedback during ~2-5 second LLM processing.
+
+Amend mode (selection + instructions)
+======================================
+
+Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Moonshine streaming fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``SmartDictationStartedEvent`` / ``SmartDictationStoppedEvent`` use ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. Streaming modes rely on partial/final dictation events rather than immediate typing from every ``DictationTextRecognizedEvent``.
 
 Type Mode: Raw Insertion
 ==========================
@@ -629,7 +551,7 @@ How It Works
 
 **Processing**: Like visual mode, hidden mode uses streaming transcription. Text is accumulated but never displayed.
 
-**Output**: When you say "stop dictation", all accumulated text is pasted at once via clipboard.
+**Output**: When you say the configured stop phrase, all accumulated text is pasted at once via clipboard.
 
 **Use cases**:
 
@@ -651,7 +573,7 @@ While dictating, the system monitors for stop triggers. The command listener con
        D --> E[SpeechToTextService]
        E --> F{Recognition}
 
-       F -->|stop dictation| G[CommandTextRecognizedEvent]
+       F -->|stop phrase| G[CommandTextRecognizedEvent]
        F -->|other text| H[Discard - Not stop trigger]
 
        G --> I[CentralizedCommandParser]
@@ -663,9 +585,9 @@ While dictating, the system monitors for stop triggers. The command listener con
        style H fill:#ffebee
        style L fill:#e1f5ff
 
-**Why keep listening?** The command listener doesn't disable—it filters. This allows you to say "stop dictation" at any time without the listener interfering with dictation text.
+**Why keep listening?** The command listener doesn't disable—it filters. This allows you to say the stop phrase at any time without the listener interfering with dictation text.
 
-**Mode awareness**: When dictation starts, the coordinator publishes ``DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=...)`` with the specific mode (standard, visual, smart, or type). Other systems use this to:
+**Mode awareness**: When dictation starts, the coordinator publishes ``DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=...)`` with the specific mode (including ``amend``). Other systems use this to:
 
 - Filter STT output to only recognize stop trigger words
 - Disable sound recognition
@@ -752,19 +674,16 @@ Each dictation session maintains state that must be properly cleaned up:
                if session.mode == DictationMode.TYPE:
                    self._cancel_type_silence_task()
 
-               # For SMART/VISUAL: use streaming path
-               if session.mode in (DictationMode.SMART, DictationMode.VISUAL):
+               # Streaming STT modes (smart, amend, visual, hidden)
+               if session.mode in _STREAMING_STT_MODES:
                    await self._stop_streaming_mode(session)
                    return
 
-               # For STANDARD: finalize immediately
                self._current_session = None
                self._set_state(DictationState.IDLE)
 
-           # Notify other systems
-           await self.event_bus.publish(
-               DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")
-           )
+           if session:
+               await self._finalize_session(session)
        except Exception as e:
            logger.error(f"Session stop error: {e}", exc_info=True)
 

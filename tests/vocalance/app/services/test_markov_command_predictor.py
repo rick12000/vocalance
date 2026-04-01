@@ -5,7 +5,7 @@ import pytest
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.core_events import AudioDetectedEvent, MarkovPredictionFeedbackEvent
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
-from vocalance.app.services.markov_command_predictor import MarkovCommandService
+from vocalance.app.services.commands.markov import MarkovCommandService
 from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
 
 

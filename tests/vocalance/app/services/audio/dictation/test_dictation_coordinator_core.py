@@ -124,42 +124,6 @@ async def test_invalid_state_transition_raises_error(coordinator):
 
 
 @pytest.mark.asyncio
-async def test_should_apply_formatting_standard_mode(coordinator):
-    """Test formatting decision for STANDARD mode."""
-    # Should respect config setting
-    result = coordinator._should_apply_formatting(DictationMode.STANDARD)
-    assert result == coordinator.config.dictation.enable_dictation_formatting
-
-
-@pytest.mark.asyncio
-async def test_should_apply_formatting_type_mode_disables(coordinator):
-    """Test that TYPE mode always disables formatting."""
-    result = coordinator._should_apply_formatting(DictationMode.TYPE)
-    assert result is False
-
-
-@pytest.mark.asyncio
-async def test_should_apply_formatting_smart_mode(coordinator):
-    """Test formatting decision for SMART mode."""
-    result = coordinator._should_apply_formatting(DictationMode.SMART)
-    assert result == coordinator.config.dictation.enable_dictation_formatting
-
-
-@pytest.mark.asyncio
-async def test_should_apply_formatting_visual_mode(coordinator):
-    """Test formatting decision for VISUAL mode."""
-    result = coordinator._should_apply_formatting(DictationMode.VISUAL)
-    assert result == coordinator.config.dictation.enable_dictation_formatting
-
-
-@pytest.mark.asyncio
-async def test_should_apply_formatting_hidden_mode(coordinator):
-    """Test formatting decision for HIDDEN mode."""
-    result = coordinator._should_apply_formatting(DictationMode.HIDDEN)
-    assert result == coordinator.config.dictation.enable_dictation_formatting
-
-
-@pytest.mark.asyncio
 async def test_set_direct_token_callback(coordinator):
     """Test setting direct token callback."""
 

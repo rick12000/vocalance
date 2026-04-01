@@ -14,6 +14,7 @@ from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
+from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.ui.qt_main_window import VocalanceMainWindow
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
 from vocalance.app.ui.qt_theme import theme
@@ -168,7 +169,7 @@ class FastServiceInitializer:
         Args:
             progress_tracker: Optional tracker for reporting progress to the startup UI.
         """
-        from vocalance.app.services.command_management_service import CommandManagementService
+        from vocalance.app.services.commands.management import CommandManagementService
         from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
         from vocalance.app.services.mark_service import MarkService
         from vocalance.app.services.storage.settings_service import SettingsService
@@ -204,15 +205,15 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Setting up command storage")
 
-            from vocalance.app.services.command_action_map_provider import CommandActionMapProvider
+            from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
             from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 
             protected_terms_validator = ProtectedTermsValidator(config=self.config, storage=storage)
+            protected_terms_validator.setup_invalidation_subscriptions(self.event_bus)
             action_map_provider = CommandActionMapProvider(storage=storage)
 
             command_management = CommandManagementService(
                 event_bus=self.event_bus,
-                app_config=self.config,
                 storage=storage,
                 protected_terms_validator=protected_terms_validator,
                 action_map_provider=action_map_provider,
@@ -266,9 +267,9 @@ class FastServiceInitializer:
         """
         from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
         from vocalance.app.services.audio.simple_audio_service import AudioService
-        from vocalance.app.services.centralized_command_parser import CentralizedCommandParser
+        from vocalance.app.services.commands.markov import MarkovCommandService
+        from vocalance.app.services.commands.parser import CentralizedCommandParser
         from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
-        from vocalance.app.services.markov_command_predictor import MarkovCommandService
 
         with self._services_lock:
             storage = self.services["storage"]
@@ -319,16 +320,16 @@ class FastServiceInitializer:
         async def init_stt() -> None:
             """Initialize STT service with non-blocking imports."""
             if progress_tracker:
-                whisper_models_dir = os.path.join(self.config.storage.user_data_root, "whisper_models")
-                whisper_model_name = self.config.stt.whisper_model
-                model_exists = (
-                    os.path.exists(whisper_models_dir) and any(whisper_model_name in f for f in os.listdir(whisper_models_dir))
-                    if os.path.exists(whisper_models_dir)
-                    else False
-                )
+                try:
+                    from moonshine_voice.download_file import get_cache_dir
+
+                    _ms_cache = get_cache_dir()
+                    model_exists = _ms_cache.is_dir() and any(_ms_cache.iterdir())
+                except Exception:
+                    model_exists = False
 
                 status_message = (
-                    "Fetching STT model. This should take 1-5 minutes on first use."
+                    "Fetching Moonshine STT model. This may take several minutes on first use."
                     if not model_exists
                     else "Initializing speech-to-text"
                 )
@@ -349,20 +350,25 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Setting up command processing")
 
-            from vocalance.app.services.command_history_manager import CommandHistoryManager
+            from vocalance.app.services.commands.history import CommandHistoryManager
+            from vocalance.app.services.pause_state_manager import PauseStateManager
+
+            # Create pause state manager
+            pause_state_manager = PauseStateManager(event_bus=self.event_bus)
 
             history_manager = CommandHistoryManager(storage=storage, protected_terms_validator=protected_terms_validator)
             centralized_parser = CentralizedCommandParser(
                 event_bus=self.event_bus,
                 app_config=self.config,
-                storage=storage,
                 action_map_provider=action_map_provider,
                 history_manager=history_manager,
                 deduplicator=deduplicator,
+                pause_state_manager=pause_state_manager,
             )
             await centralized_parser.initialize()
 
             with self._services_lock:
+                self.services["pause_state_manager"] = pause_state_manager
                 self.services["history_manager"] = history_manager
                 self.services["centralized_parser"] = centralized_parser
 
@@ -370,32 +376,34 @@ class FastServiceInitializer:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Preparing dictation system")
 
+            allow = self.config.local_llm_allowlist
+            spec = allow.artifact_for(self.config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
+            llm_downloader = LLMModelDownloader(self.config)
+            if spec and not llm_downloader.model_bundle_complete(spec.gguf_filenames):
+                if progress_tracker:
+                    progress_tracker.update_sub_step(
+                        sub_step_name="Fetching default local LLM (~2–4 GB). First launch may take several minutes.",
+                        progress=0.35,
+                    )
+                primary = await llm_downloader.download_model_bundle(
+                    repo_id=spec.repo_id,
+                    filenames=list(spec.gguf_filenames),
+                )
+                if not primary:
+                    logger.error("Startup LLM bundle download failed")
+                    raise RuntimeError("Critical asset download failed: LLM model")
+
             dictation = DictationCoordinator(
                 event_bus=self.event_bus, config=self.config, storage=storage, gui_event_loop=self.gui_loop
             )
 
-            llm_mode = getattr(self.config.llm, "startup_mode", "startup")
-            if llm_mode == "startup":
-                llm_filename = self.config.llm.get_model_filename()
-                llm_models_dir = os.path.join(self.config.storage.user_data_root, "llm_models")
-                llm_model_path = os.path.join(llm_models_dir, llm_filename)
-                llm_exists = os.path.exists(llm_model_path) and os.path.getsize(llm_model_path) > 0
+            if progress_tracker:
+                progress_tracker.update_sub_step(sub_step_name="Initializing dictation", progress=0.55)
 
-                if progress_tracker:
-                    sub_message = (
-                        "Fetching LLM model. This should take 5-15 minutes on first use."
-                        if not llm_exists
-                        else "Setting up LLM resources"
-                    )
-                    progress_tracker.update_sub_step(sub_step_name=sub_message)
-
-                initialization_success = await dictation.initialize()
-                if not initialization_success:
-                    logger.error("Failed to initialize dictation service")
-                    raise RuntimeError("Critical asset download failed: LLM model")
-            elif llm_mode == "background":
-                llm_task = asyncio.create_task(self._background_llm_init(dictation=dictation))
-                self._background_tasks.append(llm_task)
+            initialization_success = await dictation.initialize()
+            if not initialization_success:
+                logger.error("Failed to initialize dictation service")
+                raise RuntimeError("Critical dictation initialization failed")
 
             with self._services_lock:
                 self.services["dictation"] = dictation
@@ -447,9 +455,13 @@ class FastServiceInitializer:
         with self._services_lock:
             stt_service = self.services.get("stt")
             dictation = self.services.get("dictation")
+            audio = self.services.get("audio")
             if stt_service and dictation:
                 dictation.set_stt_service(stt_service)
                 logger.debug("STT service reference injected into dictation coordinator")
+            if audio and dictation:
+                audio.set_dictation_chunk_callback(dictation.feed_moonshine_audio_chunk)
+                logger.debug("Moonshine dictation fed from recorder thread (bypasses event bus for PCM)")
 
         await init_markov_predictor()
 
@@ -479,19 +491,6 @@ class FastServiceInitializer:
 
         logger.debug("Services registered with settings coordinator")
 
-    async def _background_llm_init(self, dictation: Any) -> None:
-        """Initialize LLM model in background after application startup completes.
-
-        Delays initialization by 2 seconds to avoid blocking startup, then initializes
-        the LLM model asynchronously. Used when startup_mode is set to 'background'.
-
-        Args:
-            dictation: DictationCoordinator instance requiring LLM initialization.
-        """
-        await asyncio.sleep(2.0)
-        await dictation.initialize()
-        logger.debug("LLM initialized in background")
-
     async def activate_all_services(self) -> None:
         """Activate all services by setting up event subscriptions and starting audio processing.
 
@@ -510,6 +509,7 @@ class FastServiceInitializer:
                 "mark",
                 "sound_service",
                 "stt",
+                "pause_state_manager",
                 "centralized_parser",
                 "dictation",
                 "markov_predictor",
@@ -551,7 +551,6 @@ class FastServiceInitializer:
         with self._services_lock:
             storage = self.services.get("storage")
             settings = self.services.get("settings")
-            mark = self.services.get("mark")
 
         control_room_logger = logging.getLogger("AppControlRoom")
         control_room = AppControlRoom(
@@ -568,9 +567,6 @@ class FastServiceInitializer:
 
         with self._services_lock:
             self.services["control_room"] = control_room
-
-        if mark:
-            self.gui_loop.create_task(mark.start_service_tasks())
 
 
 def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
@@ -787,8 +783,7 @@ def _cleanup_memory() -> None:
 
     Runs multiple garbage collection cycles and attempts to call malloc_trim on
     Linux systems to return freed memory to the operating system immediately rather
-    than keeping it in the process heap. Also cleans up TensorFlow/PyTorch/llama.cpp
-    resources on Windows.
+    than keeping it in the process heap. Also cleans up TensorFlow/PyTorch resources where applicable.
     """
     # Clean up TensorFlow sessions and models
     try:
@@ -1320,6 +1315,8 @@ async def main() -> None:
         # Set all services for controller initialization
         if "settings" in services:
             main_window.set_settings_service(services["settings"])
+        if "audio" in services:
+            main_window.set_audio_service(services["audio"])
         if "mark" in services:
             main_window.set_mark_service(services["mark"])
         if "grid" in services:

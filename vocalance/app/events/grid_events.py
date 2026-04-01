@@ -1,5 +1,4 @@
-import uuid
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import Field
 
@@ -11,7 +10,7 @@ class ShowGridRequestEventData(BaseEvent):
 
     rows: Optional[int] = None
     cols: Optional[int] = None
-    click_mode: str = "click"  # "click" or "hover"
+    click_mode: str = "click"  # "click", "hover", or "drag"
     priority: EventPriority = EventPriority.NORMAL
 
 
@@ -25,7 +24,7 @@ class ClickGridCellRequestEventData(BaseEvent):
     """Request to click a specific grid cell."""
 
     cell_label: str = Field(description="The label of the grid cell to click (e.g., 'A1', 'C5').")
-    click_mode: str = "click"  # "click" or "hover"
+    click_mode: str = "click"  # "click", "hover", or "drag"
     priority: EventPriority = EventPriority.NORMAL
 
 
@@ -87,19 +86,3 @@ class GridInteractionFailedEventData(BaseEvent):
     cell_label: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
-
-
-class RequestClickCountsForGridEventData(BaseEvent):
-    """Request to calculate click counts for grid rectangles."""
-
-    rect_definitions: List[Dict[str, Any]]
-    request_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class ClickCountsForGridEventData(BaseEvent):
-    """Response event providing click counts for grid rectangles."""
-
-    request_id: str
-    processed_rects_with_clicks: List[Dict[str, Any]]
-    priority: EventPriority = EventPriority.NORMAL

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from vocalance.app.services.command_history_manager import CommandHistoryManager
+from vocalance.app.services.commands.history import CommandHistoryManager
 from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
 
 
@@ -17,9 +17,16 @@ def mock_storage():
 
 
 @pytest.fixture
-def history_manager(mock_storage):
+def mock_protected_terms_validator():
+    validator = Mock()
+    validator.is_term_protected = AsyncMock(return_value=True)
+    return validator
+
+
+@pytest.fixture
+def history_manager(mock_storage, mock_protected_terms_validator):
     """Create CommandHistoryManager instance."""
-    return CommandHistoryManager(storage=mock_storage)
+    return CommandHistoryManager(storage=mock_storage, protected_terms_validator=mock_protected_terms_validator)
 
 
 @pytest.mark.asyncio
@@ -56,12 +63,12 @@ async def test_initialize_with_existing_history(history_manager, mock_storage):
 
 @pytest.mark.asyncio
 async def test_initialize_handles_storage_error(history_manager, mock_storage):
-    """Test initialization handles storage errors gracefully."""
+    """Test initialization starts with empty history when storage read fails."""
     mock_storage.read.side_effect = Exception("Storage error")
 
     success = await history_manager.initialize()
 
-    assert success is False
+    assert success is True
     history = await history_manager.get_full_history()
     assert len(history) == 0
 

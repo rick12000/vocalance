@@ -1,10 +1,11 @@
 import logging
 import threading
 from collections import deque
+from typing import Callable, Optional, cast
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QTextCharFormat
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPaintEvent, QPalette, QTextCharFormat
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
 from vocalance.app.ui.components.sound_wave_widget import SoundWaveWidget
@@ -14,14 +15,10 @@ from vocalance.app.ui.qt_theme import theme
 
 
 class QtDictationPopupView(QMainWindow):
-    """Dictation popup window for streaming transcription display.
+    """Dictation popup for streaming transcription and dual-pane LLM output.
 
-    Features:
-    - Three display modes: simple, smart, visual
-    - Real-time text streaming
-    - Non-intrusive (always-on-top, no focus stealing)
-    - Thread-safe token buffering
-    - Sound wave animation in simple mode
+    Modes include simple listening, smart dictation + LLM, amend (prompt + LLM),
+    and visual single-pane dictation. Updates are marshalled to the Qt main thread.
     """
 
     # Signals for thread-safe text updates
@@ -30,6 +27,7 @@ class QtDictationPopupView(QMainWindow):
     _signal_llm_token = Signal(str)  # token
     _signal_audio_level = Signal(float)  # audio level
     _signal_show_llm_processing = Signal()  # Signal to show LLM processing on main thread
+    _signal_modifier_banner = Signal(str, bool)  # display_label, active
 
     # Window sizes (determined by the sound wave widget)
     SIMPLE_WIDTH = 60  # Exact fit for sound wave widget
@@ -40,6 +38,7 @@ class QtDictationPopupView(QMainWindow):
     VISUAL_HEIGHT = 550
     WINDOW_MARGIN_X = 80
     WINDOW_MARGIN_Y = 80
+    DUAL_PANE_MODES: frozenset[str] = frozenset({"smart", "amend"})
 
     def __init__(self):
         """Initialize dictation popup view."""
@@ -56,8 +55,7 @@ class QtDictationPopupView(QMainWindow):
         self._flush_interval_ms = 16  # ~60 FPS
         self._pending_flush = False
 
-        # Current display mode
-        self.current_mode = None
+        self.current_mode: Optional[str] = None
 
         # Border color state (for stop word indication)
         self._border_is_orange = False
@@ -82,6 +80,9 @@ class QtDictationPopupView(QMainWindow):
         self._signal_llm_token.connect(self._do_append_llm_token)
         self._signal_audio_level.connect(self._do_update_audio_level)
         self._signal_show_llm_processing.connect(self._do_show_llm_processing, Qt.ConnectionType.QueuedConnection)
+        self._signal_modifier_banner.connect(self._do_set_modifier_banner, Qt.ConnectionType.QueuedConnection)
+
+        self._modifier_fade_anim: Optional[QPropertyAnimation] = None
 
         self.logger.info("QtDictationPopupView initialized")
 
@@ -94,7 +95,7 @@ class QtDictationPopupView(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         """Draw rounded background with 3px gradient or orange border."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -124,6 +125,24 @@ class QtDictationPopupView(QMainWindow):
         inner_rect = rect.adjusted(border_width, border_width, -border_width, -border_width)
         painter.setBrush(QColor(theme.config.shapes.darkest))
         painter.drawRoundedRect(inner_rect, 12, 12)
+
+    def _modifier_status_accent_color(self) -> str:
+        gc = theme.config.text.gradient_colors
+        return gc[1] if len(gc) > 1 else gc[0]
+
+    def _configure_reserved_modifier_status_label(self, label: QLabel) -> None:
+        """Fixed-width slot to the right of dictation titles; opacity fades text without layout shift."""
+        label.setFont(theme.get_font(size="medium", weight="semibold", display=False))
+        pal = label.palette()
+        pal.setColor(QPalette.ColorRole.WindowText, QColor(self._modifier_status_accent_color()))
+        label.setPalette(pal)
+        label.setMinimumWidth(200)
+        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        label.setText("")
+        label.setVisible(True)
+        eff = QGraphicsOpacityEffect(label)
+        eff.setOpacity(0.0)
+        label.setGraphicsEffect(eff)
 
     def _create_ui(self) -> None:
         """Create UI elements."""
@@ -172,11 +191,17 @@ class QtDictationPopupView(QMainWindow):
         dictation_layout.setContentsMargins(0, 0, 0, 0)
         dictation_layout.setSpacing(5)
 
-        # Create title label with xlarge font and gradient
-        dictation_label = BoxTitleLabel("Dictation")
-        # Ensure enough horizontal space for gradient calculation
-        dictation_label.setMinimumWidth(200)
-        dictation_layout.addWidget(dictation_label)
+        self.dictation_title_row = QWidget()
+        dtr_layout = QHBoxLayout(self.dictation_title_row)
+        dtr_layout.setContentsMargins(0, 0, 14, 0)
+        dtr_layout.setSpacing(theme.config.spacing.small)
+        self.dictation_column_label = BoxTitleLabel("Dictation")
+        self.dictation_column_label.setMinimumWidth(120)
+        dtr_layout.addWidget(self.dictation_column_label, 0, Qt.AlignmentFlag.AlignLeft)
+        self.dictation_modifier_status = QLabel("")
+        self._configure_reserved_modifier_status_label(self.dictation_modifier_status)
+        dtr_layout.addWidget(self.dictation_modifier_status, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        dictation_layout.addWidget(self.dictation_title_row)
 
         # Text box for dictation - inside a dark rounded container
         dictation_container_widget = TextDisplayContainer()
@@ -239,11 +264,17 @@ class QtDictationPopupView(QMainWindow):
         visual_layout.setContentsMargins(0, 0, 0, 0)
         visual_layout.setSpacing(10)
 
-        # Create title label with xlarge font and gradient
-        visual_label = BoxTitleLabel("Dictation")
-        # Ensure enough horizontal space for gradient calculation
-        visual_label.setMinimumWidth(200)
-        visual_layout.addWidget(visual_label)
+        self.visual_title_row = QWidget()
+        vtr_layout = QHBoxLayout(self.visual_title_row)
+        vtr_layout.setContentsMargins(0, 0, 14, 0)
+        vtr_layout.setSpacing(theme.config.spacing.small)
+        self.visual_column_label = BoxTitleLabel("Dictation")
+        self.visual_column_label.setMinimumWidth(120)
+        vtr_layout.addWidget(self.visual_column_label, 0, Qt.AlignmentFlag.AlignLeft)
+        self.visual_modifier_status = QLabel("")
+        self._configure_reserved_modifier_status_label(self.visual_modifier_status)
+        vtr_layout.addWidget(self.visual_modifier_status, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        visual_layout.addWidget(self.visual_title_row)
 
         # Text box for visual dictation - inside a dark rounded container
         visual_container_widget = TextDisplayContainer()
@@ -313,17 +344,32 @@ class QtDictationPopupView(QMainWindow):
         QMetaObject.invokeMethod(self, "_do_show_smart", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
-    def _do_show_smart(self) -> None:
-        """Internal show smart - MUST run on main Qt thread."""
+    def show_amend_dictation(self) -> None:
+        """Show amend mode: left = spoken instructions, right = LLM output (same layout as smart)."""
+        QMetaObject.invokeMethod(self, "_do_show_amend", Qt.ConnectionType.QueuedConnection)
+
+    def _apply_dual_pane_layout(self, mode: str, left_column_title: str) -> None:
+        """Apply the dual-pane window layout on the Qt main thread (via calling slots)."""
         with self._ui_lock:
             self._hide_all_modes()
-            self._border_is_orange = False  # Reset border color for new session
-            self.current_mode = "smart"
+            self._border_is_orange = False
+            self.current_mode = mode
+            self.dictation_column_label.setText(left_column_title)
             self.smart_widget.setVisible(True)
             self._clear_smart_content()
             self._position_window(self.SMART_WIDTH, self.SMART_HEIGHT, "center_left")
             self._show_window_with_animation()
-            self.logger.info(f"Smart dictation window shown, mode={self.current_mode}")
+            self.logger.info(f"Dual-pane dictation shown, mode={self.current_mode}")
+
+    @Slot()
+    def _do_show_smart(self) -> None:
+        """Internal show smart - MUST run on main Qt thread."""
+        self._apply_dual_pane_layout("smart", "Dictation")
+
+    @Slot()
+    def _do_show_amend(self) -> None:
+        """Internal show amend mode; must run on the Qt main thread."""
+        self._apply_dual_pane_layout("amend", "Prompt")
 
     @Slot()
     def show_visual_dictation(self) -> None:
@@ -354,7 +400,7 @@ class QtDictationPopupView(QMainWindow):
         """Internal show LLM processing - MUST run on main Qt thread."""
         # Keep smart widget visible, just update the status
         # This is called after dictation stops and before LLM processing starts
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             self.llm_label.setText("Processing...")
             # Start spinner when LLM processing begins
             if hasattr(self, "llm_spinner"):
@@ -373,6 +419,8 @@ class QtDictationPopupView(QMainWindow):
             # Stop spinner when hiding popup
             if hasattr(self, "llm_spinner"):
                 self.llm_spinner.stop()
+            self._reset_reserved_modifier_slot(self.dictation_modifier_status)
+            self._reset_reserved_modifier_slot(self.visual_modifier_status)
             self._hide_window_with_animation()
             self.current_mode = None
 
@@ -395,7 +443,7 @@ class QtDictationPopupView(QMainWindow):
     def _do_append_dictation_text(self, text: str) -> None:
         """Internal append dictation text - MUST run on main Qt thread."""
         self.logger.debug(f"_do_append_dictation_text executing: mode={self.current_mode}, text='{text[:50]}...'")
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             cursor = self.dictation_box.textCursor()
             cursor.movePosition(cursor.MoveOperation.End)
             cursor.insertText(text)
@@ -435,19 +483,18 @@ class QtDictationPopupView(QMainWindow):
 
         # Determine which text box to use based on mode
         text_box = None
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             text_box = self.dictation_box
-            self.logger.info("Selected dictation_box for smart mode")
+            self.logger.info("Selected dictation_box for dual-pane mode")
         elif self.current_mode == "visual":
             text_box = self.visual_dictation_box
             self.logger.info("Selected visual_dictation_box for visual mode")
 
         if not text_box:
-            self.logger.error(f"NO TEXT BOX SELECTED! mode='{self.current_mode}'")
+            self.logger.error("No text box for current mode; partial text ignored (mode=%s)", self.current_mode)
             return
 
-        # CRITICAL: Remove ALL existing partial text before inserting new partial
-        # Legacy behavior (lines 258-264): only ONE partial text exists at a time
+        # Replace any previous partial segment so only one tentative block is shown.
         if not hasattr(self, "_partial_segments"):
             self._partial_segments = {}
 
@@ -483,8 +530,6 @@ class QtDictationPopupView(QMainWindow):
         partial_format.setForeground(QColor(theme.config.text.medium))
         partial_format.setBackground(QBrush(Qt.BrushStyle.NoBrush))
 
-        # CRITICAL: Reset cursor format to partial format (not inheriting from previous text)
-        # This is at source - we explicitly set what format should be used
         cursor.setCharFormat(partial_format)
 
         # Store position before insertion
@@ -526,19 +571,18 @@ class QtDictationPopupView(QMainWindow):
 
         # Determine which text box to use based on mode
         text_box = None
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             text_box = self.dictation_box
-            self.logger.info("Selected dictation_box for smart mode")
+            self.logger.info("Selected dictation_box for dual-pane mode")
         elif self.current_mode == "visual":
             text_box = self.visual_dictation_box
             self.logger.info("Selected visual_dictation_box for visual mode")
 
         if not text_box:
-            self.logger.error(f"NO TEXT BOX SELECTED! mode='{self.current_mode}'")
+            self.logger.error("No text box for current mode; final text ignored (mode=%s)", self.current_mode)
             return
 
-        # Remove partial text with same segment_id if it exists
-        # Legacy behavior (lines 298-311): replace partial with final
+        # Remove partial text for this segment before inserting the final text.
         if hasattr(self, "_partial_segments") and segment_id in self._partial_segments:
             start_pos, end_pos = self._partial_segments[segment_id]
             doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
@@ -601,7 +645,7 @@ class QtDictationPopupView(QMainWindow):
         """
         self.logger.debug(f"_do_append_llm_token EXECUTING on main thread: token='{token}', mode={self.current_mode}")
 
-        if self.current_mode != "smart":
+        if self.current_mode not in self.DUAL_PANE_MODES:
             self.logger.warning(f"_do_append_llm_token called but mode is '{self.current_mode}'")
             return
 
@@ -625,7 +669,7 @@ class QtDictationPopupView(QMainWindow):
         """
         self.logger.debug(f"_flush_token_buffer CALLED: mode={self.current_mode}, buffer_size={len(self._token_buffer)}")
 
-        if self.current_mode != "smart":
+        if self.current_mode not in self.DUAL_PANE_MODES:
             with self._ui_lock:
                 self._token_buffer.clear()
                 self._pending_flush = False
@@ -697,7 +741,7 @@ class QtDictationPopupView(QMainWindow):
         Args:
             status: Status text to display. If "Complete!" or similar, stops spinner.
         """
-        if self.current_mode == "smart":
+        if self.current_mode in self.DUAL_PANE_MODES:
             self.llm_label.setText(status)
             # Stop spinner when LLM completes
             if hasattr(self, "llm_spinner"):
@@ -708,11 +752,75 @@ class QtDictationPopupView(QMainWindow):
 
     # Internal methods
 
+    def set_modifier_banner(self, display_label: str, active: bool) -> None:
+        """Show or hide modifier status with fade (thread-safe)."""
+        self._signal_modifier_banner.emit(display_label, active)
+
+    def _fade_modifier_label_opacity(
+        self,
+        label: QLabel,
+        end: float,
+        on_finished: Optional[Callable[[], None]] = None,
+    ) -> None:
+        eff = label.graphicsEffect()
+        if not isinstance(eff, QGraphicsOpacityEffect):
+            return
+        anim = QPropertyAnimation(eff, b"opacity", label)
+        anim.setDuration(self._animation_duration_ms if end > 0.5 else max(150, self._animation_duration_ms // 2))
+        anim.setStartValue(eff.opacity())
+        anim.setEndValue(end)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic if end > eff.opacity() else QEasingCurve.Type.InCubic)
+        if on_finished is not None:
+            anim.finished.connect(on_finished)
+        anim.start()
+        self._modifier_fade_anim = anim
+
+    def _reset_reserved_modifier_slot(self, label: QLabel) -> None:
+        label.setText("")
+        eff = label.graphicsEffect()
+        if isinstance(eff, QGraphicsOpacityEffect):
+            eff.setOpacity(0.0)
+
+    @Slot(str, bool)
+    def _do_set_modifier_banner(self, display_label: str, active: bool) -> None:
+        """Show or clear the modifier label on smart/amend/visual layouts; no-op for wave-only modes."""
+        if self._modifier_fade_anim and self._modifier_fade_anim.state() == QPropertyAnimation.State.Running:
+            self._modifier_fade_anim.stop()
+
+        reserved_slots = (self.dictation_modifier_status, self.visual_modifier_status)
+
+        if not active:
+            for lbl in reserved_slots:
+                self._reset_reserved_modifier_slot(lbl)
+            return
+
+        for lbl in reserved_slots:
+            self._reset_reserved_modifier_slot(lbl)
+
+        if not display_label.strip():
+            return
+
+        mode = self.current_mode
+        if mode in self.DUAL_PANE_MODES:
+            chip = self.dictation_modifier_status
+            chip.setText(display_label)
+        elif mode == "visual":
+            chip = self.visual_modifier_status
+            chip.setText(display_label)
+        else:
+            return
+
+        eff = cast(QGraphicsOpacityEffect, chip.graphicsEffect())
+        eff.setOpacity(0.0)
+        self._fade_modifier_label_opacity(chip, 1.0)
+
     def _hide_all_modes(self) -> None:
         """Hide all mode widgets."""
         self.simple_widget.setVisible(False)
         self.smart_widget.setVisible(False)
         self.visual_widget.setVisible(False)
+        self._reset_reserved_modifier_slot(self.dictation_modifier_status)
+        self._reset_reserved_modifier_slot(self.visual_modifier_status)
 
     def _clear_smart_content(self) -> None:
         """Clear smart mode content."""

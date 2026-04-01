@@ -3,7 +3,8 @@ import logging
 import threading
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -81,8 +82,6 @@ class VocalanceMainWindow(QMainWindow):
 
         # Set window background color programmatically
         palette = self.palette()
-        from PySide6.QtGui import QColor, QPalette
-
         palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
         self.setPalette(palette)
         self.setAutoFillBackground(True)
@@ -95,8 +94,6 @@ class VocalanceMainWindow(QMainWindow):
             # Fallback: load icon directly if manager not available
             icon_path = self.asset_cache.get_icon_path()
             if icon_path and icon_path.exists():
-                from PySide6.QtGui import QIcon
-
                 self.setWindowIcon(QIcon(str(icon_path)))
                 self.logger.debug("Icon applied to main window directly")
 
@@ -258,7 +255,7 @@ class VocalanceMainWindow(QMainWindow):
         """Create sidebar logo with transparent background.
 
         Uses fixed-width container matching collapsed sidebar to keep logo
-        positioned consistently during animation. Logo is aligned with button icons.
+        positioned consistently during animation. Logo is centered in the rail like the nav icons.
         """
         from PySide6.QtWidgets import QHBoxLayout
 
@@ -289,29 +286,26 @@ class VocalanceMainWindow(QMainWindow):
         self.sidebar_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sidebar_logo.setAutoFillBackground(False)
 
-        # Position logo to align with button icons
-        # Button icons are offset by container padding, so shift logo right to match
         logo_area_layout.addStretch()
         logo_area_layout.addWidget(self.sidebar_logo, alignment=Qt.AlignmentFlag.AlignCenter)
         logo_area_layout.addStretch()
 
-        # Shift logo positioning to match button icon alignment
-        # Button icon center is at 50px from left edge of sidebar
-        # Logo currently centers at 40px, so shift right by 10px
-        # Left margin needed: solve M + (80-M)/2 = 50 → M = 20px
-        logo_area_layout.setContentsMargins(20, 0, 0, 0)
-
         logo_layout.addWidget(logo_area)
-        logo_layout.addStretch()  # Push logo area to left
+        logo_layout.addStretch()
 
         self.sidebar_logo_frame = logo_frame
 
     def _create_sidebar_separator(self) -> None:
-        """Create separator line between sidebar and content - transparent."""
+        """Create hairline between sidebar and main content."""
         self.sidebar_separator = QFrame()
         self.sidebar_separator.setFrameShape(QFrame.Shape.NoFrame)
         self.sidebar_separator.setFixedWidth(theme.config.sidebar.border_width)
-        self.sidebar_separator.setAutoFillBackground(False)
+        self.sidebar_separator.setAutoFillBackground(True)
+        sep_palette = self.sidebar_separator.palette()
+        line = QColor(255, 255, 255)
+        line.setAlpha(8)
+        sep_palette.setColor(QPalette.ColorRole.Window, line)
+        self.sidebar_separator.setPalette(sep_palette)
 
     def _create_header(self) -> None:
         """Create the header section."""
@@ -391,9 +385,6 @@ class VocalanceMainWindow(QMainWindow):
 
     def _on_documentation_clicked(self) -> None:
         """Handle documentation button click - open user guide URL."""
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
-
         documentation_url = "https://www.vocalance.com/instructions.html"
         self.logger.info(f"Opening documentation: {documentation_url}")
         QDesktopServices.openUrl(QUrl(documentation_url))
@@ -521,8 +512,9 @@ class VocalanceMainWindow(QMainWindow):
 
     def set_settings_service(self, settings_service) -> None:
         self._settings_service = settings_service
-        if self.settings_controller:
-            self.settings_controller.set_settings_service(settings_service)
+
+    def set_audio_service(self, audio_service) -> None:
+        self._audio_service = audio_service
 
     def closeEvent(self, event) -> None:
         """Handle window close event and trigger graceful shutdown."""
@@ -575,11 +567,6 @@ class VocalanceMainWindow(QMainWindow):
             self.logger.error(f"Error cleaning up controllers: {e}", exc_info=True)
 
     # Controller callbacks
-    def on_grid_visibility_changed(
-        self, visible: bool, rows: Optional[int], cols: Optional[int], show_numbers: Optional[bool]
-    ) -> None:
-        self.logger.debug(f"Grid display updated. Visible: {visible}")
-
     def on_prompts_updated(self, prompts) -> None:
         pass
 
@@ -633,12 +620,16 @@ class VocalanceMainWindow(QMainWindow):
             from vocalance.app.ui.controls.qt_marks_controller import QtMarksController
             from vocalance.app.ui.controls.qt_settings_controller import QtSettingsController
             from vocalance.app.ui.controls.qt_sound_controller import QtSoundController
+            from vocalance.app.ui.controls.qt_system_controller import QtSystemController
+
+            # Initialize system controller for system-level events (always needed)
+            self.system_controller = QtSystemController(self.event_bus, self.event_loop, self)
 
             if hasattr(self, "_mark_service") and self._mark_service:
                 self.marks_controller = QtMarksController(self.event_bus, self.event_loop, self._mark_service, self.config, self)
 
             if hasattr(self, "_grid_service") and self._grid_service:
-                self.grid_controller = QtGridController(self.event_bus, self.event_loop, self._grid_service, self.config, self)
+                self.grid_controller = QtGridController(self.event_bus, self.event_loop, self._grid_service, self.config)
 
             if hasattr(self, "_sound_service") and self._sound_service:
                 self.sound_controller = QtSoundController(
@@ -672,6 +663,11 @@ class VocalanceMainWindow(QMainWindow):
                 self.dictation_popup_controller = QtDictationPopupController(self.event_bus, self.event_loop)
             except Exception as e:
                 self.logger.warning(f"Could not initialize dictation popup controller: {e}")
+
+            audio = getattr(self, "_audio_service", None)
+            popup = getattr(self, "dictation_popup_controller", None)
+            if audio is not None and popup is not None:
+                audio.set_level_meter_callback(popup.feed_audio_chunk_for_level_meter)
 
             self._initialize_overlay_views()
             self._connect_controllers_to_views()

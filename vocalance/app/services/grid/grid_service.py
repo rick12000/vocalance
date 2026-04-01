@@ -100,11 +100,17 @@ class GridService:
             async with self._state_lock:
                 self._current_click_mode = click_mode
 
+            # CRITICAL PATH OPTIMIZATION: Publish show event immediately
+            # The controller will handle showing the grid synchronously
             show_event = ShowGridRequestEventData(rows=rows, cols=cols, click_mode=click_mode)
             self.event_publisher.publish(show_event)
+
+            # Publish visibility event for state tracking (non-blocking)
+            # This does NOT trigger another show operation (fixed in controller)
             await self._publish_visibility_event(True, rows, cols)
 
-            mode_desc = "hover mode" if click_mode == "hover" else "click mode"
+            # Publish status asynchronously (non-blocking, low priority)
+            mode_desc = {"hover": "hover mode", "drag": "drag mode"}.get(click_mode, "click mode")
             self._publish_command_status(
                 command_type,
                 True,
@@ -127,7 +133,7 @@ class GridService:
             click_event = ClickGridCellRequestEventData(cell_label=str(command.selected_number), click_mode=click_mode)
             self.event_publisher.publish(click_event)
 
-            action_desc = "hovered" if click_mode == "hover" else "selected"
+            action_desc = {"hover": "hovered", "drag": "dragged to"}.get(click_mode, "selected")
             self._publish_command_status(
                 command_type,
                 True,

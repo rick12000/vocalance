@@ -100,9 +100,9 @@ Events are ordered in the queue by priority, so a CRITICAL event published after
 Event Type Hierarchy
 ---------------------
 
-Events are organized by functional area. The core events related to audio and recognition include `AudioChunkEvent` (50ms audio segments from the recorder), `CommandTextRecognizedEvent` (recognized command text from Vosk), `DictationTextRecognizedEvent` (recognized dictation from Whisper), `CustomSoundRecognizedEvent` (custom sound detection), and `CommandExecutedStatusEvent` (feedback on command execution results).
+Events are organized by functional area. Core audio and recognition events include `CommandAudioSegmentReadyEvent` (command/sound VAD segments), `CommandTextRecognizedEvent` (Vosk), dictation streaming events (`PartialDictationTextEvent`, `FinalDictationTextEvent`, and `DictationTextRecognizedEvent` from Moonshine via the coordinator), `CustomSoundRecognizedEvent`, and `CommandExecutedStatusEvent`.
 
-Command events (`AutomationCommandParsedEvent`, `MarkCommandParsedEvent`, etc.) represent parsed commands ready for execution. Dictation events coordinate the dictation workflow: `DictationStatusChangedEvent` indicates active/inactive state, `PartialDictationTextEvent` and `FinalDictationTextEvent` provide accumulated text, and `LLMTokenGeneratedEvent` delivers streaming LLM output for smart dictation modes.
+Command events (`AutomationCommandParsedEvent`, `MarkCommandParsedEvent`, etc.) represent parsed commands ready for execution. Dictation events coordinate the dictation workflow: `DictationStatusChangedEvent` indicates active/inactive state, `PartialDictationTextEvent` and `FinalDictationTextEvent` drive streaming UI, and `LLMTokenGeneratedEvent` delivers streaming LLM output for smart and amend (dual-pane) modes. `SmartDictationStartedEvent` / `SmartDictationStoppedEvent` carry ``mode="smart"`` or ``"amend"`` so the UI can branch.
 
 Management events (`CommandMappingsUpdatedEvent`, `SettingsUpdatedEvent`, etc.) communicate configuration changes and operational state to services that need to adapt their behavior.
 
@@ -115,7 +115,7 @@ Vocalance must remain responsive to user input while handling real-time audio ca
 
 **GUI Event Loop Thread**: A dedicated daemon thread running an asyncio event loop. This is where the event bus worker task runs, where async service operations execute, and where event handlers run. This thread is separate from the main thread because Qt and asyncio both need to run event loops, and they can't share one.
 
-**Audio Thread**: Created by the audio service, this thread continuously captures audio in 50ms chunks and publishes them as events. It runs a tight loop and must not be preempted—any delay causes audio data to be dropped from the input buffer.
+**Audio capture thread**: The recorder thread continuously reads ~30 ms PCM frames. Raw dictation PCM may be forwarded synchronously to a coordinator callback; command/sound VAD runs on a separate worker thread. Both paths must stay lightweight so the input device buffer does not overrun.
 
 Together, these threads enable Vocalance to capture audio continuously (audio thread), process events asynchronously (GUI event loop thread), and remain responsive to user input (main thread).
 
@@ -124,7 +124,7 @@ Cross-Thread Communication
 
 With multiple threads, special care is needed when one thread needs to communicate with another:
 
-**Publishing Events**: The audio thread publishes `AudioChunkEvent` events via `await event_bus.publish(event)`. Because the event bus uses asyncio queues and thread-safe locks, this works safely from any thread.
+**Publishing events from native threads**: Segment-ready events are published with `asyncio.run_coroutine_threadsafe` onto the GUI asyncio loop so heavy per-chunk work stays off the bus. Handlers still run on the bus worker; the publish call itself is marshalled safely from the VAD thread.
 
 **UI Updates from Event Handlers**: Event handlers run in the GUI event loop thread but must update the UI (which runs on the main thread). Controllers marshal callbacks to run on the main thread via Qt's signal/slot mechanism or event loop scheduling. This ensures thread safety without explicit locks.
 
@@ -139,17 +139,14 @@ Shared state accessed from multiple threads must be protected by synchronization
 
 .. code-block:: python
 
-   class AudioListener:
+   class ExampleAsyncHandler:
        def __init__(self):
            self._state_lock = asyncio.Lock()
-           self._audio_buffer = []
+           self._items: list[bytes] = []
 
-       async def _handle_audio_chunk(self, event):
-           energy = calculate_energy(event.audio_chunk)
+       async def _handle_item(self, payload: bytes) -> None:
            async with self._state_lock:
-               if not self._recording and energy > threshold:
-                   self._recording = True
-                   self._audio_buffer.append(event.audio_chunk)
+               self._items.append(payload)
 
 **threading.RLock**: Used in sync code or when both sync and async code access the same state. RLock allows the same thread to acquire the lock multiple times:
 
@@ -282,7 +279,7 @@ The event bus provides statistics and diagnostic information for monitoring perf
    #   "events_dropped": 0,
    #   "subscribers": {
    #     "MarkCreateRequestEventData": 1,
-   #     "AudioChunkEvent": 3,
+   #     "CommandAudioSegmentReadyEvent": 1,
    #     ...
    #   },
    #   "worker_status": "running",

@@ -12,15 +12,17 @@ After the audio listeners detect speech and sound segments (see :doc:`audio_capt
 
    flowchart TD
        A[CommandAudioSegmentReadyEvent] --> B[SpeechToTextService]
-       C[DictationAudioSegmentReadyEvent] --> B
        D[ProcessAudioChunkForSoundRecognitionEvent] --> E[SoundService]
+       R[Raw PCM callback] --> C[DictationCoordinator]
+       C --> H[Moonshine stream / batch]
 
-       B --> F{Mode?}
-       F -->|Command| G[Vosk Engine<br/>Fast offline]
-       F -->|Dictation| H[Whisper Engine<br/>Accurate model-based]
-
+       B --> F{Dictation active?}
+       F -->|No| G[Vosk full command]
+       F -->|Yes| G2[Vosk stop-word only]
        G --> I[CommandTextRecognizedEvent]
-       H --> J[DictationTextRecognizedEvent]
+       G2 --> I
+
+       H --> J[Partial / final dictation events]
 
        E --> K{Training?}
        K -->|Yes| L[Collect Samples]
@@ -37,38 +39,33 @@ Understanding the Two Recognition Pipelines
 
 The diagram above illustrates how Vocalance processes audio through two independent, parallel recognition pipelines:
 
-- **Speech-to-Text Pipeline**: Processes both command and dictation audio through the SpeechToTextService, which routes segments to either Vosk (fast command recognition) or Whisper (accurate dictation) depending on the current mode and segment type.
+- **Speech-to-Text Pipeline**: ``SpeechToTextService`` runs Vosk on ``CommandAudioSegmentReadyEvent`` only (full commands, or stop-word checks during dictation). Dictation transcription is Moonshine inside ``DictationCoordinator``, fed by ``AudioService`` raw PCM, not by a separate segment event through STT.
 
 - **Sound Recognition Pipeline**: Processes sound audio (clicks, pops, whistles, etc.) through the SoundService, which either collects training samples (when training a custom sound) or performs k-NN based recognition using YAMNet embeddings (during normal operation).
 
 Pipeline 1: Speech-to-Text Pipeline
 ====================================
 
-Dual-Engine Strategy
---------------------
+Engines
+-------
 
-+----------+-------------------+----------------------+
-|          | Vosk              | Whisper              |
-+==========+===================+======================+
-| Accuracy | Good for short    | Good for full        |
-|          | phrases           | sentences            |
-+----------+-------------------+----------------------+
-| Speed    | Fast              | Medium               |
-|          |                   |                      |
-+----------+-------------------+----------------------+
-| Memory   | 50MB              | 1GB                  |
-|          |                   |                      |
-+----------+-------------------+----------------------+
++----------+---------------------------+---------------------------+
+|          | Vosk                      | Moonshine                 |
++==========+===========================+===========================+
+| Role     | Command + stop-word       | Dictation (streaming +   |
+|          | segments                  | batch in coordinator)     |
++----------+---------------------------+---------------------------+
+| Input    | ``CommandAudioSegment     | PCM from audio callback,  |
+|          | ReadyEvent``              | ingress queue → stream    |
++----------+---------------------------+---------------------------+
 
-The ``SpeechToTextService`` manages two STT engines:
-
-- Vosk: Fast command recognition for single or dual-word commands
-- Whisper: Accurate dictation transcription for full sentences
+- **Vosk**: Loaded and used by ``SpeechToTextService`` for command segments.
+- **Moonshine**: Loaded alongside Vosk; streaming sessions are opened by ``DictationCoordinator``. Optional ``moonshine_max_stream_line_duration_seconds`` rotates native streams during long dictation to cap decoder work.
 
 Dictation Mode
 ---------------------------
 
-**Command audio is processed differently depending on whether dictation mode is active**. When you enter dictation mode, Vocalance must allow dictation to proceed without command recognition interfering. However, stop triggers (like "stop dictation") must still be detected to exit dictation mode.
+**Command audio is processed differently depending on whether dictation mode is active**. When you enter dictation mode, Vocalance must allow dictation to proceed without command recognition interfering. However, your configured **stop** phrase (``DictationConfig.stop_trigger``, default ``amber``) must still be detected to exit dictation mode.
 
 An outline of how Vocalance handles switching in and out of dictation mode is provided below:
 
@@ -80,7 +77,7 @@ An outline of how Vocalance handles switching in and out of dictation mode is pr
        participant STT as SpeechToTextService
        participant Coord as DictationCoordinator
 
-       U->>Parser: Say "start dictation"
+       U->>Parser: Say standard start phrase (e.g. "green")
        Parser->>Coord: DictationCommandParsedEvent
        Coord->>STT: DictationModeDisableOthersEvent(active=true)
        Note over STT: Switch to stop-detection-only mode
@@ -89,12 +86,12 @@ An outline of how Vocalance handles switching in and out of dictation mode is pr
        STT->>STT: Check for stop trigger only
        Note over STT: No stop word found, discard
 
-       U->>STT: Say "and this is great" (dictation segment)
-       STT->>Coord: DictationTextRecognizedEvent(text="...")
+       U->>Coord: Spoken dictation (PCM → Moonshine)
+       Coord->>Coord: PartialDictationTextEvent / FinalDictationTextEvent
 
-       U->>STT: Say "stop dictation" (command segment)
+       U->>STT: Say stop phrase (e.g. "amber")
        STT->>STT: Detect stop trigger!
-       STT->>Parser: CommandTextRecognizedEvent(text="stop dictation")
+       STT->>Parser: CommandTextRecognizedEvent(text="amber")
        Parser->>Coord: DictationStopCommand
        Coord->>STT: DictationModeDisableOthersEvent(active=false)
        Note over STT: Resume full command recognition
@@ -195,12 +192,12 @@ Produced by Vosk when a command is recognized. Emitted every time a command segm
 
    DictationTextRecognizedEvent(
        text="Hello world and welcome to the demo.",
-       engine="whisper",
+       engine="moonshine",
        mode="dictation",
        processing_time_ms=850.2
    )
 
-Produced by Whisper when dictation text is recognized. Emitted only when dictation mode is active; Whisper processing is skipped otherwise to save computational resources. The ``DictationCoordinator`` subscribes and routes to the appropriate dictation handler (standard text insertion, visual preview, or smart context-aware mode).
+Emitted for modes that insert per finalized line from Moonshine (e.g. standard/type). Streaming LLM modes primarily use ``PartialDictationTextEvent`` / ``FinalDictationTextEvent``; the coordinator avoids double-typing raw ``DictationTextRecognizedEvent`` in those paths.
 
 .. code-block:: python
 
@@ -227,9 +224,9 @@ Event Routing Summary
      - CentralizedCommandParser
      - Parse voice commands
    * - ``DictationTextRecognizedEvent``
-     - Whisper
-     - DictationCoordinator
-     - Insert dictated text
+     - Moonshine (via coordinator)
+     - DictationCoordinator / subscribers
+     - Per-line insert where applicable; streaming modes use partial/final events
    * - ``CustomSoundRecognizedEvent``
      - SoundService
      - CentralizedCommandParser

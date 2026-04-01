@@ -51,8 +51,7 @@ class AlignedSampleRecorder:
             )
         else:
             self.logger.info(
-                f"energy_threshold={self.config.vad.dictation_energy_threshold}, "
-                f"silent_chunks_for_end={self.config.vad.dictation_silent_chunks_for_end} (~{self.config.vad.dictation_silent_chunks_for_end * 50}ms)"
+                "dictation label: continuous raw chunks only (in-app dictation uses Moonshine streaming, not VAD segments)"
             )
 
         self.recorder = AudioRecorder(app_config=self.config, on_audio_chunk=self._on_audio_segment)

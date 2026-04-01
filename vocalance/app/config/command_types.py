@@ -101,6 +101,30 @@ class DictationHiddenStartCommand(DictationCommand):
     """
 
 
+class DictationAmendStartCommand(DictationCommand):
+    """Command to start amend mode: copy selection, dictate instructions, LLM applies them."""
+
+
+class SystemControlCommand(BaseCommand):
+    """Base class for system control commands (pause, resume, etc.)."""
+
+
+class PauseCommand(SystemControlCommand):
+    """Command to pause all audio processing and command execution.
+
+    When paused, the application stops processing audio input and executing
+    commands, except for the resume command which can lift the pause state.
+    """
+
+
+class ResumeCommand(SystemControlCommand):
+    """Command to resume audio processing and command execution.
+
+    Lifts the pause state and allows normal audio processing and command
+    execution to continue.
+    """
+
+
 ActionType = Literal["hotkey", "key", "key_sequence", "click", "scroll"]
 
 
@@ -273,24 +297,27 @@ class GridShowCommand(GridCommand):
 
     Attributes:
         num_rects: Optional number of grid cells to display (uses default if None).
-        click_mode: Whether to click ("click") or just hover ("hover") on cell selection.
+        click_mode: Whether to click ("click"), hover ("hover"), or drag ("drag") on cell selection.
     """
 
     num_rects: Optional[int] = Field(default=None, description="Number of rectangles to show")
-    click_mode: str = Field(default="click", description="Mode: 'click' to click cell, 'hover' to move mouse only")
+    click_mode: str = Field(
+        default="click",
+        description="'click', 'hover', or 'drag' (see GridConfig show phrases).",
+    )
 
 
 class GridSelectCommand(GridCommand):
-    """Command to select and click a specific grid cell by its number.
+    """Command to select a grid cell by spoken number.
 
-    Identifies the grid cell by spoken number and performs a click at its center,
-    then hides the grid overlay.
+    Effect depends on the active grid mode from the preceding ``GridShowCommand``
+    (pointer click, move only, or drag from the recorded start point).
 
     Attributes:
-        selected_number: Numeric identifier of the grid cell to click.
+        selected_number: Numeric label of the cell in the current grid layout.
     """
 
-    selected_number: int = Field(..., description="The number selected from the grid")
+    selected_number: int = Field(..., description="Spoken cell label for the active grid.")
 
 
 class SoundCommand(BaseCommand):
@@ -362,6 +389,7 @@ DictationCommandType = Union[
     DictationSmartStartCommand,
     DictationVisualStartCommand,
     DictationHiddenStartCommand,
+    DictationAmendStartCommand,
 ]
 
 AutomationCommandType = Union[ExactMatchCommand, ParameterizedCommand]
@@ -374,6 +402,10 @@ GridCommandType = Union[GridShowCommand, GridSelectCommand]
 
 SoundCommandType = Union[SoundTrainCommand, SoundDeleteCommand, SoundResetAllCommand, SoundListAllCommand, SoundMapCommand]
 
-AnyCommand = Union[DictationCommandType, AutomationCommandType, MarkCommandType, GridCommandType, SoundCommandType]
+SystemControlCommandType = Union[PauseCommand, ResumeCommand]
+
+AnyCommand = Union[
+    DictationCommandType, AutomationCommandType, MarkCommandType, GridCommandType, SoundCommandType, SystemControlCommandType
+]
 
 ParseResultType = Union[AnyCommand, NoMatchResult, ErrorResult]

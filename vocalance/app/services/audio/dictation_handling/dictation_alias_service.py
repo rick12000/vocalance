@@ -42,7 +42,6 @@ class DictationAliasService:
         self._storage = storage
         self._event_loop = event_loop
 
-        # Thread-safe in-memory cache of aliases
         self._lock = threading.RLock()
         self._aliases: Dict[str, str] = {}
         self._loaded = False
@@ -103,8 +102,6 @@ class DictationAliasService:
         event = DictationAliasListUpdatedEvent(aliases=aliases_copy)
         self._event_publisher.publish(event)
 
-    # --- CRUD Operations ---
-
     def get_aliases(self) -> Dict[str, str]:
         """Get all aliases (thread-safe copy).
 
@@ -142,7 +139,6 @@ class DictationAliasService:
             self._publish_update()
             logger.info(f"Added alias: '{key}' -> '{value}'")
         else:
-            # Rollback on save failure
             with self._lock:
                 del self._aliases[key]
         return success
@@ -176,7 +172,6 @@ class DictationAliasService:
             self._publish_update()
             logger.info(f"Updated alias: '{key}' -> '{value}'")
         else:
-            # Rollback on save failure
             with self._lock:
                 self._aliases[key] = old_value
         return success
@@ -203,26 +198,11 @@ class DictationAliasService:
             self._publish_update()
             logger.info(f"Deleted alias: '{key}'")
         else:
-            # Rollback on save failure
             with self._lock:
                 self._aliases[key] = old_value
         return success
 
-    # --- Substitution Logic ---
-
     def apply_substitutions(self, text: str) -> str:
-        """Apply alias substitutions to recognized text.
-
-        Scans for "insert {activation_phrase}" patterns (case-insensitive)
-        and replaces them with the corresponding substitution value.
-        Preserves original capitalization in the surrounding text.
-
-        Args:
-            text: Recognized dictation text.
-
-        Returns:
-            Text with substitutions applied.
-        """
         if not text:
             return text
 
@@ -231,21 +211,14 @@ class DictationAliasService:
                 return text
             aliases_copy = dict(self._aliases)
 
-        # Build regex pattern for "insert {key}" where key is any alias
-        # Sort keys by length (longest first) to match longest phrases first
         sorted_keys = sorted(aliases_copy.keys(), key=len, reverse=True)
-
-        # Escape keys for regex and join with OR
         escaped_keys = [re.escape(k) for k in sorted_keys]
         if not escaped_keys:
             return text
 
-        # Pattern: "insert" followed by whitespace and one of the keys
-        # Case-insensitive matching
         pattern = rf"\b{ALIAS_FLAG_WORD}\s+({'|'.join(escaped_keys)})\b"
 
         def replace_match(match: re.Match) -> str:
-            """Replace matched pattern with substitution value."""
             matched_key = match.group(1).lower()
             return aliases_copy.get(matched_key, match.group(0))
 

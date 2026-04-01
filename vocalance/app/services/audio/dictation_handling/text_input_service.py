@@ -136,25 +136,18 @@ def remove_formatting(text: str, is_first_word_of_session: bool = False) -> str:
     if not text:
         return ""
 
-    # Remove all punctuation except hyphens, apostrophes, and spaces
     cleaned = re.sub(r"[^\w\s\-']", "", text)
-
-    # Convert to lowercase
     cleaned = cleaned.lower()
 
-    # Process words: capitalize first word if needed, and keep 'I' capitalized as pronoun
     words = cleaned.split()
     if words:
-        # Capitalize first word if this is the first word of the session
         if is_first_word_of_session:
             words[0] = words[0].capitalize()
 
-        # Keep 'I' capitalized when used as pronoun (standalone or in contractions)
         words = [word if not (word == "i" or word.startswith("i'")) else word.replace("i", "I", 1) for word in words]
 
         cleaned = " ".join(words)
 
-    # Strip all leading and trailing whitespace
     return cleaned.strip()
 
 
@@ -164,7 +157,7 @@ class TextInputService:
     def __init__(self, config: DictationConfig) -> None:
         self.config = config
         self._lock = threading.RLock()
-        self._clipboard_lock = threading.Lock()  # Prevent concurrent clipboard operations
+        self._clipboard_lock = threading.Lock()
         self.last_text: Optional[str] = None
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = config.pyautogui_pause
@@ -185,7 +178,55 @@ class TextInputService:
             self.last_text = None
         logger.debug("TextInputService session reset")
 
-    async def input_text(self, text: str, add_trailing_space: bool = True) -> bool:
+    def capture_selection_via_copy(self) -> str:
+        """Copy the current foreground selection via Ctrl+C and return captured text.
+
+        Restores the previous clipboard contents after reading. Used by amend mode
+        when the target application still holds the selection.
+        """
+        with self._clipboard_lock:
+            original = None
+            original_read_ok = False
+            try:
+                try:
+                    original = pyperclip.paste()
+                    original_read_ok = True
+                except (pyperclip.PyperclipException, OSError) as e:
+                    logger.warning(f"Could not read clipboard before copy: {e}")
+
+                time.sleep(self.config.clipboard_paste_delay_pre)
+                pyautogui.hotkey("ctrl", "c")
+                time.sleep(max(0.05, self.config.clipboard_paste_delay_post))
+
+                captured = ""
+                try:
+                    captured = pyperclip.paste() or ""
+                except (pyperclip.PyperclipException, OSError) as e:
+                    logger.warning(f"Could not read clipboard after copy: {e}")
+
+                if original_read_ok and original is not None:
+                    try:
+                        pyperclip.copy(original)
+                    except (pyperclip.PyperclipException, OSError) as e:
+                        logger.warning(f"Could not restore clipboard after capture: {e}")
+
+                return captured.strip()
+            except Exception as e:
+                logger.error(f"capture_selection_via_copy error: {e}", exc_info=True)
+                return ""
+
+    async def input_text(
+        self,
+        text: str,
+        add_trailing_space: bool = True,
+        skip_prose_segment_join_rules: bool = False,
+    ) -> bool:
+        """Paste or type ``text`` after :func:`clean_dictation_text`.
+
+        When ``skip_prose_segment_join_rules`` is False (default), applies period removal and mid-sentence
+        lowercasing against ``last_text`` so consecutive dictation segments read as one sentence. Identifier
+        and spelling modifiers pass ``True`` to preserve casing and avoid a trailing space.
+        """
         if not text:
             return False
 
@@ -194,19 +235,15 @@ class TextInputService:
             if not cleaned_text:
                 return False
 
-            # NOTE: If last segment ended with a period and current segment starts with a lowercase letter, remove the period from the previous paste
-            # Below methods also count trailing spaces and add back leading space to current segment to maintain proper concatenation
-            if self.last_text and should_remove_previous_period(self.last_text, cleaned_text):
-                trailing_whitespace_count = get_trailing_whitespace_count(self.last_text)
-                await self.backspace(1 + trailing_whitespace_count)
-                cleaned_text = " " + cleaned_text
+            if not skip_prose_segment_join_rules:
+                if self.last_text and should_remove_previous_period(self.last_text, cleaned_text):
+                    trailing_whitespace_count = get_trailing_whitespace_count(self.last_text)
+                    await self.backspace(1 + trailing_whitespace_count)
+                    cleaned_text = " " + cleaned_text
 
-            # Apply capitalization rule: lowercase first letter if no sentence boundary
-            # This handles mid-sentence concatenation when current text starts with capital
-            if self.last_text and should_lowercase_current_start(self.last_text, cleaned_text):
-                cleaned_text = lowercase_first_letter(cleaned_text)
+                if self.last_text and should_lowercase_current_start(self.last_text, cleaned_text):
+                    cleaned_text = lowercase_first_letter(cleaned_text)
 
-            # Use clipboard or typing based on config
             if self.config.use_clipboard:
                 success = await asyncio.get_event_loop().run_in_executor(None, self._paste_clipboard, cleaned_text)
             else:

@@ -2,6 +2,24 @@ import asyncio
 import logging
 
 from vocalance.app.event_bus import EventBus
+from vocalance.app.events.dictation_events import (
+    DictationModifierStateChangedEvent,
+    DictationStatusChangedEvent,
+    DictationStopWordDetectedEvent,
+    FinalDictationTextEvent,
+    HiddenDictationStartedEvent,
+    HiddenDictationStoppedEvent,
+    LLMProcessingCompletedEvent,
+    LLMProcessingReadyEvent,
+    LLMProcessingStartedEvent,
+    LLMTokenGeneratedEvent,
+    PartialDictationTextEvent,
+    SmartDictationStartedEvent,
+    SmartDictationStoppedEvent,
+    SmartDictationTextDisplayEvent,
+    VisualDictationStartedEvent,
+    VisualDictationStoppedEvent,
+)
 from vocalance.app.ui.views.qt_dictation_popup_view import QtDictationPopupView
 
 
@@ -41,29 +59,7 @@ class QtDictationPopupController:
     def _subscribe_to_events(self) -> None:
         """Subscribe to dictation-related events."""
         try:
-            from vocalance.app.events.core_events import AudioChunkEvent
-            from vocalance.app.events.dictation_events import (
-                DictationStatusChangedEvent,
-                DictationStopWordDetectedEvent,
-                FinalDictationTextEvent,
-                HiddenDictationStartedEvent,
-                HiddenDictationStoppedEvent,
-                LLMProcessingCompletedEvent,
-                LLMProcessingStartedEvent,
-                LLMTokenGeneratedEvent,
-                PartialDictationTextEvent,
-                SmartDictationStartedEvent,
-                SmartDictationStoppedEvent,
-                SmartDictationTextDisplayEvent,
-                VisualDictationStartedEvent,
-                VisualDictationStoppedEvent,
-            )
-
-            # Standard/Type dictation modes (critical for showing simple listening popup)
             self.event_bus.subscribe(DictationStatusChangedEvent, self._on_dictation_status_changed)
-
-            # Audio visualization
-            self.event_bus.subscribe(AudioChunkEvent, self._on_audio_chunk)
 
             # Smart/Visual/Hidden dictation mode lifecycle
             self.event_bus.subscribe(SmartDictationStartedEvent, self._on_smart_started)
@@ -87,6 +83,7 @@ class QtDictationPopupController:
 
             # Stop word detection event
             self.event_bus.subscribe(DictationStopWordDetectedEvent, self._on_stop_word_detected)
+            self.event_bus.subscribe(DictationModifierStateChangedEvent, self._on_modifier_state_changed)
 
             self.logger.debug("Dictation popup event subscriptions configured")
         except Exception as e:
@@ -163,49 +160,45 @@ class QtDictationPopupController:
 
     # Event handlers
 
-    async def _on_dictation_status_changed(self, event) -> None:
-        """Handle dictation status changes for standard/type modes.
-
-        This is the critical event that was missing - without it, standard and type
-        dictation modes don't show the popup at all.
-        """
+    async def _on_dictation_status_changed(self, event: DictationStatusChangedEvent) -> None:
+        """Show or hide the simple listening popup for standard and type dictation."""
         try:
-            is_active = getattr(event, "is_active", False)
-            mode = getattr(event, "mode", "inactive")
-            show_ui = getattr(event, "show_ui", False)
+            is_active = event.is_active
+            mode = event.mode
+            show_ui = event.show_ui
 
             self.logger.debug(f"DictationStatusChanged: is_active={is_active}, mode={mode}, show_ui={show_ui}")
 
             if is_active and show_ui:
-                # Show popup for standard/type modes (not smart/visual/hidden - they have their own events)
-                if mode not in ("smart", "visual", "hidden"):
+                if mode not in ("smart", "visual", "hidden", "amend"):
                     self.show_simple_listening()
-            else:
-                # Hide popup when dictation becomes inactive
-                if not is_active:
-                    self.hide_popup()
+            elif not is_active:
+                self.hide_popup()
         except Exception as e:
             self.logger.error(f"Error handling dictation status change: {e}", exc_info=True)
 
-    async def _on_smart_started(self, event) -> None:
-        """Handle smart dictation started event."""
-        self.show_smart_dictation()
+    async def _on_smart_started(self, event: SmartDictationStartedEvent) -> None:
+        """Dual-pane LLM dictation started (smart or amend)."""
+        mode = event.mode
+        if mode == "amend":
+            self.popup_view.show_amend_dictation()
+        else:
+            self.show_smart_dictation()
 
-    async def _on_smart_stopped(self, event) -> None:
-        """Handle smart dictation stopped event - switch to LLM processing mode."""
-        # Switch to LLM processing mode (keeps window open, shows "AI Output" label)
+    async def _on_smart_stopped(self, _event: SmartDictationStoppedEvent) -> None:
+        """Switch dual-pane UI to LLM processing before tokens stream."""
         self.popup_view.show_llm_processing()
-        self.logger.debug("Smart dictation stopped - switched to LLM processing mode")
+        self.logger.debug("Dual-pane dictation stopped — LLM processing UI")
 
-    async def _on_visual_started(self, event) -> None:
-        """Handle visual dictation started event."""
+    async def _on_visual_started(self, _event: VisualDictationStartedEvent) -> None:
+        """Show the visual dictation popup."""
         self.show_visual_dictation()
 
-    async def _on_visual_stopped(self, event) -> None:
-        """Handle visual dictation stopped event."""
+    async def _on_visual_stopped(self, _event: VisualDictationStoppedEvent) -> None:
+        """Hide the popup after visual dictation ends."""
         self.hide_popup()
 
-    async def _on_hidden_started(self, event) -> None:
+    async def _on_hidden_started(self, _event: HiddenDictationStartedEvent) -> None:
         """Handle hidden dictation started event.
 
         Shows simple listening popup (sound wave only) for hidden mode,
@@ -214,16 +207,16 @@ class QtDictationPopupController:
         self.show_simple_listening()
         self.logger.debug("Hidden dictation started - showing simple listening popup")
 
-    async def _on_hidden_stopped(self, event) -> None:
-        """Handle hidden dictation stopped event."""
+    async def _on_hidden_stopped(self, _event: HiddenDictationStoppedEvent) -> None:
+        """Hide the popup after hidden dictation ends."""
         self.hide_popup()
         self.logger.debug("Hidden dictation stopped - hiding popup")
 
-    async def _on_partial_text(self, event) -> None:
+    async def _on_partial_text(self, event: PartialDictationTextEvent) -> None:
         """Handle partial dictation text event (gray/tentative text)."""
         try:
-            text = getattr(event, "text", "")
-            segment_id = getattr(event, "segment_id", "")
+            text = event.text
+            segment_id = event.segment_id
             self.logger.info(f"PARTIAL TEXT EVENT: text='{text}', segment_id={segment_id}")
             if text:
                 # Call display_partial_text, not append_dictation_text!
@@ -232,11 +225,11 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling partial text event: {e}", exc_info=True)
 
-    async def _on_final_text(self, event) -> None:
+    async def _on_final_text(self, event: FinalDictationTextEvent) -> None:
         """Handle final dictation text event (white/stable text)."""
         try:
-            text = getattr(event, "text", "")
-            segment_id = getattr(event, "segment_id", "")
+            text = event.text
+            segment_id = event.segment_id
             self.logger.info(f"FINAL TEXT EVENT: text='{text}', segment_id={segment_id}")
             if text:
                 # Call display_final_text, not append_dictation_text!
@@ -245,10 +238,10 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling final text event: {e}", exc_info=True)
 
-    async def _on_smart_dictation_text(self, event) -> None:
-        """Handle smart dictation text display event."""
+    async def _on_smart_dictation_text(self, event: SmartDictationTextDisplayEvent) -> None:
+        """Append non-streaming dictation text to the popup."""
         try:
-            text = getattr(event, "text", "")
+            text = event.text
             self.logger.info(f"SMART DICTATION TEXT EVENT: text='{text}'")
             if text:
                 self.on_dictation_text_recognized(text)
@@ -256,30 +249,26 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling smart dictation text: {e}", exc_info=True)
 
-    async def _on_llm_started(self, event) -> None:
-        """Handle LLM processing started event and signal UI ready."""
+    async def _on_llm_started(self, event: LLMProcessingStartedEvent) -> None:
+        """Publish LLMProcessingReadyEvent once the popup can accept tokens."""
         self.on_llm_status_changed("Processing...")
 
-        # Critical: Signal that UI is ready to receive LLM tokens
-        # This tells the service to start streaming tokens
-        from vocalance.app.events.dictation_events import LLMProcessingReadyEvent
-
-        session_id = getattr(event, "session_id", None) or "default"
+        session_id = event.session_id or "default"
         ready_event = LLMProcessingReadyEvent(session_id=session_id)
         await self.event_bus.publish(ready_event)
         self.logger.debug(f"Published LLMProcessingReadyEvent for session {session_id}")
 
-    async def _on_llm_token(self, event) -> None:
-        """Handle LLM token generated event."""
+    async def _on_llm_token(self, event: LLMTokenGeneratedEvent) -> None:
+        """Append one token to the LLM output pane."""
         try:
-            token = getattr(event, "token", "")
+            token = event.token
             if token:
                 self.on_llm_token(token)
         except Exception as e:
             self.logger.error(f"Error handling LLM token: {e}", exc_info=True)
 
-    async def _on_llm_completed(self, event) -> None:
-        """Handle LLM processing completed event."""
+    async def _on_llm_completed(self, _event: LLMProcessingCompletedEvent) -> None:
+        """Show completion briefly, then hide the popup."""
         self.on_llm_status_changed("Complete!")
         # Hide popup after brief delay to show completion
         # Use QTimer instead of asyncio.sleep to avoid blocking event loop
@@ -288,55 +277,51 @@ class QtDictationPopupController:
         QTimer.singleShot(1500, self.hide_popup)  # 1500ms = 1.5s
         self.logger.debug("Scheduled popup hide after 1.5s delay")
 
-    async def _on_stop_word_detected(self, event) -> None:
-        """Handle stop word detection event.
-
-        Changes the border color to orange instantly when stop word is detected.
-        Only applies to hidden and visual dictation modes.
-        """
+    async def _on_modifier_state_changed(self, event: DictationModifierStateChangedEvent) -> None:
+        """Forward modifier state to the popup view (chip appears only in smart, amend, and visual layouts)."""
         try:
-            mode = getattr(event, "mode", None)
+            if event.active and event.display_label:
+                self.popup_view.set_modifier_banner(event.display_label, True)
+            else:
+                self.popup_view.set_modifier_banner("", False)
+        except Exception as e:
+            self.logger.error("Error handling modifier state: %s", e, exc_info=True)
+
+    async def _on_stop_word_detected(self, event: DictationStopWordDetectedEvent) -> None:
+        """Set an orange border when the stop phrase is detected in supported modes."""
+        try:
+            mode = event.mode
             self.logger.info(f"Stop word detected in {mode} mode - changing border to orange")
 
-            # Only change border for hidden and visual modes
-            if mode in ("hidden", "visual"):
+            # Only change border for modes that use the streaming popup (not simple listening)
+            if mode in ("hidden", "visual", "smart", "amend"):
                 self.popup_view.set_border_orange()
                 self.logger.debug(f"Border color changed to orange for {mode} mode")
             else:
-                self.logger.debug(f"Stop word detected in {mode} mode - not changing border (not hidden/visual)")
+                self.logger.debug("Stop word in mode %s — border unchanged", mode)
         except Exception as e:
             self.logger.error(f"Error handling stop word detection: {e}", exc_info=True)
 
-    async def _on_audio_chunk(self, event) -> None:
-        """Handle audio chunk for visualization."""
-        # Optimization: Only process if popup is visible and in simple mode
+    def feed_audio_chunk_for_level_meter(self, audio_chunk: bytes) -> None:
+        """Drive the simple-mode level meter from raw PCM (called from the audio VAD worker thread)."""
         if not self.popup_view.isVisible() or self.popup_view.current_mode != "simple":
             return
 
         try:
             import numpy as np
 
-            # Convert bytes to numpy array (assuming int16)
-            audio_data = np.frombuffer(event.audio_chunk, dtype=np.int16)
+            audio_data = np.frombuffer(audio_chunk, dtype=np.int16)
 
             if len(audio_data) == 0:
                 return
 
-            # Calculate RMS
-            # Convert to float for calculation to avoid overflow
             rms = np.sqrt(np.mean(audio_data.astype(float) ** 2))
-
-            # Normalize
-            # 16-bit audio max amplitude is 32768
-            # Normal speech might be around 1000-5000 RMS
-            # Use 5000 as reference max for visualization to make it sensitive
             max_ref = 5000.0
             normalized_level = min(1.0, rms / max_ref)
 
             self.popup_view.update_audio_level(normalized_level)
 
         except Exception:
-            # Fail silently for performance in high-frequency callback
             pass
 
     def cleanup(self) -> None:

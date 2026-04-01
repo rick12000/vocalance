@@ -16,6 +16,13 @@ from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects
 from vocalance.app.ui.qt_theme import theme
 
+# Drag mode: PyAutoGUI only interpolates pointer motion when duration > 0.1s. A short settle after the
+# final move helps many Windows targets register the drop at the cell center before button-up.
+_GRID_DRAG_MOVE_MIN_S = 0.22
+_GRID_DRAG_MOVE_MAX_S = 0.85
+_GRID_DRAG_MOVE_DIST_DIVISOR = 2200.0
+_GRID_DRAG_SETTLE_S = 0.05
+
 
 class QtGridView(QWidget):
     """Thread-safe grid overlay for PySide6.
@@ -64,6 +71,16 @@ class QtGridView(QWidget):
         self.current_num_rects_displayed: Optional[int] = None
         self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
         self._current_click_mode: str = "click"
+        self._drag_origin: Optional[Tuple[int, int]] = None
+
+        # Cached layout data for fast painting
+        self._cached_num_cols: int = 0
+        self._cached_num_rows: int = 0
+        self._cached_cell_w: float = 0
+        self._cached_cell_h: float = 0
+
+        self._is_preparing = False
+        self._layout_device_pixel_ratio: float = 1.0
 
         # Focus management - track pending focus timers
         self._focus_timers: List[QTimer] = []
@@ -118,7 +135,8 @@ class QtGridView(QWidget):
     def _calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Calculate click counts from click tracker service synchronously.
 
-        Gets all clicks from the in-memory cache in ClickTrackerService - no I/O overhead.
+        OPTIMIZATION: Uses spatial bucketing to reduce O(N*M) to O(N+M) complexity.
+        For 2025 cells and 1000 clicks: reduces from 2,025,000 to 3,025 operations!
         """
         # Get all clicks from click tracker service (fast, in-memory)
         if not self._click_tracker:
@@ -126,14 +144,56 @@ class QtGridView(QWidget):
             return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
 
         all_clicks = self._click_tracker.get_all_clicks_sync()
-        processed_rects = []
 
+        # OPTIMIZATION: Build spatial index of clicks using grid bucketing
+        # This reduces complexity from O(N*M) to O(N+M)
+        if not all_clicks:
+            return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+
+        # Build spatial buckets: group clicks by cell they fall into
+        # Use first rect to determine bucket size (all rects have same dimensions)
+        if not rect_definitions:
+            return []
+
+        first_rect = rect_definitions[0]
+        bucket_w = int(first_rect["w"])
+        bucket_h = int(first_rect["h"])
+
+        # Create spatial hash map: (bucket_x, bucket_y) -> [clicks]
+        click_buckets = {}
+        for click in all_clicks:
+            try:
+                click_x = click.get("x", 0)
+                click_y = click.get("y", 0)
+                bucket_x = int(click_x // bucket_w)
+                bucket_y = int(click_y // bucket_h)
+                key = (bucket_x, bucket_y)
+                if key not in click_buckets:
+                    click_buckets[key] = []
+                click_buckets[key].append(click)
+            except (TypeError, ValueError):
+                continue
+
+        # Now count clicks per rect by checking only relevant buckets
+        processed_rects = []
         for rect_def in rect_definitions:
             try:
                 rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
                 rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
 
-                count = sum(1 for click in all_clicks if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h))
+                # Determine which bucket(s) this rect overlaps
+                bucket_x = int(rect_x // bucket_w)
+                bucket_y = int(rect_y // bucket_h)
+
+                # Check clicks in this bucket and adjacent buckets (for edge cases)
+                count = 0
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        key = (bucket_x + dx, bucket_y + dy)
+                        if key in click_buckets:
+                            for click in click_buckets[key]:
+                                if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h):
+                                    count += 1
 
                 processed_rects.append({"data": rect_def, "clicks": count})
 
@@ -247,46 +307,34 @@ class QtGridView(QWidget):
         return rect_definitions, rect_w, rect_h
 
     def paintEvent(self, event) -> None:
-        """Paint grid overlay with three distinct layers:
+        """Paint grid overlay with four distinct layers:
 
         LAYER 1 (Bottom): Full-screen semi-transparent background
+        LAYER 1.5 (Below grid): Colored cell fills for top 50 cells (vibrant, less transparent)
         LAYER 2 (Middle): Opaque grid lines (vertical + horizontal)
         LAYER 3 (Top): Opaque text labels centered in each cell
         """
+        if self._is_preparing:
+            return
+
         if not self._is_active:
             return
 
         with self._state_lock:
             rect_map = dict(self.ui_to_rect_data_map)
+            num_cols = self._cached_num_cols
+            num_rows = self._cached_num_rows
+            cell_w = self._cached_cell_w
+            cell_h = self._cached_cell_h
 
-        if not rect_map:
+        if not rect_map or num_cols == 0 or num_rows == 0 or cell_w == 0 or cell_h == 0:
             return
 
-        # Get device pixel ratio for coordinate conversion
-        primary = QApplication.primaryScreen()
-        dpr = primary.devicePixelRatio() if primary else 1.0
+        dpr = self._layout_device_pixel_ratio
 
         # Get the window size in logical pixels (this is the actual drawable area)
         window_width = self.width()
         window_height = self.height()
-
-        # Calculate grid structure: determine how many cells fit perfectly
-        # Extract first cell to get approximate dimensions
-        first_cell = next(iter(rect_map.values()))
-        approx_cell_w = first_cell["w"] / dpr
-        approx_cell_h = first_cell["h"] / dpr
-
-        # Calculate exact number of columns and rows that fit in the window
-        num_cols = round(window_width / approx_cell_w)
-        num_rows = round(window_height / approx_cell_h)
-
-        # Ensure at least 1 row and 1 column
-        num_cols = max(1, num_cols)
-        num_rows = max(1, num_rows)
-
-        # Calculate EXACT cell dimensions that perfectly divide the window
-        cell_w = window_width / num_cols
-        cell_h = window_height / num_rows
 
         # Grid starts at (0, 0) and fills the entire window
         min_x = 0
@@ -301,6 +349,48 @@ class QtGridView(QWidget):
         # LAYER 1: Full-screen semi-transparent background (BOTTOM LAYER)
         # ═══════════════════════════════════════════════════════════════════
         painter.fillRect(self.rect(), self.background_color)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # LAYER 1.5: Colored cell fills for top 50 cells (vibrant gradient)
+        # ═══════════════════════════════════════════════════════════════════
+        top_n_cells = min(50, len(rect_map))
+        for ui_number in range(1, top_n_cells + 1):
+            if ui_number not in rect_map:
+                continue
+
+            rect_data = rect_map[ui_number]
+
+            # Calculate cell position
+            raw_x = rect_data["x"] / dpr
+            raw_y = rect_data["y"] / dpr
+            col = round((raw_x - min_x) / cell_w)
+            row = round((raw_y - min_y) / cell_h)
+            cell_x = min_x + col * cell_w
+            cell_y = min_y + row * cell_h
+
+            # Calculate color based on priority (1 = highest priority, 50 = lowest of top 50)
+            # Lower numbers get more vibrant and less transparent colors
+            # Use blue color as base (matching the theme)
+            base_color = QColor(theme.config.blue.blue_2)  # #8a8ac8
+
+            # Calculate alpha: cell 1 gets highest alpha (220), cell 50 gets lowest (60)
+            # Linear interpolation from 220 to 60
+            alpha = int(220 - ((ui_number - 1) / (top_n_cells - 1) * 160)) if top_n_cells > 1 else 220
+
+            # Calculate color intensity: cell 1 gets full intensity, cell 50 gets reduced
+            # This makes lower numbers more vibrant
+            intensity_factor = 1.0 - ((ui_number - 1) / (top_n_cells - 1) * 0.4) if top_n_cells > 1 else 1.0
+
+            # Apply intensity to RGB values
+            r = int(base_color.red() * intensity_factor)
+            g = int(base_color.green() * intensity_factor)
+            b = int(base_color.blue() * intensity_factor)
+
+            fill_color = QColor(r, g, b, alpha)
+
+            # Fill the cell with the calculated color
+            cell_rect = QRect(cell_x, cell_y, cell_w, cell_h)
+            painter.fillRect(cell_rect, fill_color)
 
         # ═══════════════════════════════════════════════════════════════════
         # LAYER 2: Grid lines - opaque vertical and horizontal lines
@@ -375,11 +465,20 @@ class QtGridView(QWidget):
     @Slot()
     def show(self, num_rects: Optional[int] = None, click_mode: str = "click") -> None:
         """Show the grid overlay - thread-safe via QMetaObject.invokeMethod."""
-        # Ensure this runs on the main Qt thread
+        # Use BlockingQueuedConnection for immediate execution when called from main thread
+        # This eliminates the event loop delay while maintaining thread safety
+        from PySide6.QtCore import QThread
+
+        connection_type = (
+            Qt.ConnectionType.DirectConnection
+            if QThread.currentThread() == self.thread()
+            else Qt.ConnectionType.BlockingQueuedConnection
+        )
+
         QMetaObject.invokeMethod(
             self,
             "_do_show",
-            Qt.ConnectionType.QueuedConnection,
+            connection_type,
             Q_ARG(int, num_rects if num_rects is not None else self.default_num_rects),
             Q_ARG(str, click_mode),
         )
@@ -387,20 +486,30 @@ class QtGridView(QWidget):
     @Slot(int, str)
     def _do_show(self, num_rects: int, click_mode: str) -> None:
         """Internal show implementation - MUST run on main Qt thread."""
-        if self._is_active:
-            self.logger.warning("Grid already active")
-            return
+        with self._state_lock:
+            if self._is_active or self._is_preparing:
+                self.logger.warning("Grid already active or preparing - ignoring show request")
+                return
+            self._is_preparing = True
 
         try:
+            start_time = time.perf_counter()
             self.logger.info(f"Showing grid: num_rects={num_rects}, mode={click_mode}")
 
-            self._current_click_mode = click_mode
+            with self._state_lock:
+                self._current_click_mode = click_mode
+                if click_mode == "drag":
+                    pos = pyautogui.position()
+                    self._drag_origin = (round(pos[0]), round(pos[1]))
+                else:
+                    self._drag_origin = None
 
             # Get PRIMARY screen for physical pixel calculations
             primary = QApplication.primaryScreen()
             if primary:
                 geometry = primary.geometry()
                 device_pixel_ratio = primary.devicePixelRatio()
+                self._layout_device_pixel_ratio = float(device_pixel_ratio)
 
                 # Calculate PHYSICAL pixels (what pyautogui uses)
                 # Qt geometry() returns logical pixels, multiply by DPR for physical
@@ -413,72 +522,100 @@ class QtGridView(QWidget):
                     f"Physical: {self.screen_width}x{self.screen_height}"
                 )
 
-                # Set window geometry using logical pixels (Qt expects logical)
+                # OPTIMIZATION: Set window geometry IMMEDIATELY for instant display
                 self.setGeometry(geometry)
+
+                logical_width = geometry.width()
+                logical_height = geometry.height()
             else:
-                # Fallback geometry
                 self.logger.warning("No primary screen found, using fallback geometry")
+                self._layout_device_pixel_ratio = 1.0
                 self.screen_width = 1920
                 self.screen_height = 1080
+                device_pixel_ratio = 1.0
                 self.setGeometry(0, 0, 1920, 1080)
 
+                logical_width = 1920
+                logical_height = 1080
+
             # Calculate grid layout using PHYSICAL pixels
+            t1 = time.perf_counter()
             rect_definitions, cell_w, cell_h = self._calculate_grid_layout(num_rects)
+            t2 = time.perf_counter()
+            self.logger.debug(f"Grid layout calculation: {(t2 - t1) * 1000:.1f}ms")
 
             if not rect_definitions:
                 self.logger.error("No rectangles generated")
+                with self._state_lock:
+                    self._drag_origin = None
+                self._is_preparing = False
                 return
 
-            # Calculate click counts
+            self.logger.debug(f"Calculating click counts for {len(rect_definitions)} cells")
             rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
+            t3 = time.perf_counter()
+            self.logger.debug(f"Click counting: {(t3 - t2) * 1000:.1f}ms")
 
-            # Prioritize rectangles
             weighted_rects = prioritize_grid_rects(rects_with_clicks)
+            t4 = time.perf_counter()
+            self.logger.debug(f"Prioritization: {(t4 - t3) * 1000:.1f}ms")
 
-            # Update map and recalculate font size based on actual number of cells
+            logical_cell_w = cell_w / device_pixel_ratio
+            logical_cell_h = cell_h / device_pixel_ratio
+            num_cols = max(1, round(logical_width / logical_cell_w))
+            num_rows = max(1, round(logical_height / logical_cell_h))
+
+            logical_cell_w = logical_width / num_cols
+            logical_cell_h = logical_height / num_rows
+
+            self.current_font_size = self._calculate_adaptive_font_size(len(weighted_rects))
+            self.font.setPointSize(self.current_font_size)
+
+            self.setUpdatesEnabled(False)
+
             with self._state_lock:
                 self.ui_to_rect_data_map.clear()
                 for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
                     self.ui_to_rect_data_map[ui_number] = weighted_rect_info["data"]
                 self.current_num_rects_displayed = len(weighted_rects)
 
-            # Calculate and set adaptive font size based on number of cells displayed
-            self.current_font_size = self._calculate_adaptive_font_size(len(weighted_rects))
-            self.font.setPointSize(self.current_font_size)
+                self._cached_num_cols = num_cols
+                self._cached_num_rows = num_rows
+                self._cached_cell_w = logical_cell_w
+                self._cached_cell_h = logical_cell_h
 
-            # Show window with robust focus management
+                self._is_active = True
+
             super().show()
             self.raise_()
-            self.activateWindow()  # Activate window to bring to foreground
-            self.setFocus()  # Set focus immediately to capture keyboard input
+            self.activateWindow()
+            self.setFocus(Qt.FocusReason.PopupFocusReason)
 
-            self._is_active = True
+            self._is_preparing = False
 
-            # Schedule multiple focus attempts with increasing delays to handle all edge cases
-            # This is necessary because:
-            # 1. Windows focus stealing prevention can delay focus grants
-            # 2. First-time window creation may need extra time to register
-            # 3. Other applications may be fighting for focus
+            self.setUpdatesEnabled(True)
+            self.update()
+
+            # Schedule deferred focus attempts to overcome Windows focus stealing
             self._schedule_robust_focus()
 
-            self.logger.info(f"Grid displayed with {len(weighted_rects)} cells and focus scheduled")
+            end_time = time.perf_counter()
+            total_ms = (end_time - start_time) * 1000
+            self.logger.info(f"Grid displayed with {len(weighted_rects)} cells in {total_ms:.1f}ms")
 
         except Exception as e:
+            with self._state_lock:
+                self._is_preparing = False
+                self._is_active = False
+                self._drag_origin = None
             self.logger.error(f"Error showing grid: {e}", exc_info=True)
 
     def _schedule_robust_focus(self) -> None:
-        """Schedule multiple focus attempts at strategic intervals.
-
-        This ensures focus is captured even on first show or when Windows
-        focus stealing prevention is active. Multiple attempts increase
-        reliability without significant overhead.
-        """
-        # Clear any existing focus timers
+        """Schedule deferred focus attempts to overcome Windows focus stealing."""
         self._cancel_focus_timers()
 
-        # Schedule focus attempts at 10ms, 50ms, 100ms, and 200ms
-        # This covers immediate capture, post-render, and delayed OS focus grants
-        delays = [10, 50, 100, 200]
+        # Critical delays to overcome taskbar interference
+        delays = [50, 200]
 
         for delay in delays:
             timer = QTimer(self)
@@ -486,8 +623,6 @@ class QtGridView(QWidget):
             timer.timeout.connect(self._ensure_focus)
             timer.start(delay)
             self._focus_timers.append(timer)
-
-        self.logger.debug(f"Scheduled {len(delays)} focus attempts at intervals: {delays}ms")
 
     def _cancel_focus_timers(self) -> None:
         """Cancel all pending focus timers."""
@@ -498,16 +633,11 @@ class QtGridView(QWidget):
         self._focus_timers.clear()
 
     def _ensure_focus(self) -> None:
-        """Ensure focus is maintained after show."""
+        """Reinforce focus and window stacking."""
         if self._is_active and not self.isHidden():
-            # Check if we already have focus
-            if not self.hasFocus():
-                self.raise_()
-                self.activateWindow()
-                self.setFocus()
-                self.logger.debug("Focus asserted on grid")
-            else:
-                self.logger.debug("Grid already has focus")
+            self.raise_()
+            self.activateWindow()
+            self.setFocus(Qt.FocusReason.PopupFocusReason)
 
     @Slot()
     def hide(self) -> None:
@@ -524,8 +654,8 @@ class QtGridView(QWidget):
         try:
             self.logger.info("Hiding grid")
 
-            # Cancel any pending focus timers before hiding
             self._cancel_focus_timers()
+            self._is_preparing = False
 
             self.clearFocus()
             super().hide()
@@ -534,16 +664,56 @@ class QtGridView(QWidget):
             with self._state_lock:
                 self.ui_to_rect_data_map.clear()
                 self.current_num_rects_displayed = None
+                self._cached_num_cols = 0
+                self._cached_num_rows = 0
+                self._cached_cell_w = 0
+                self._cached_cell_h = 0
+                self._drag_origin = None
 
             self.logger.info("Grid hidden")
 
         except Exception as e:
             self.logger.error(f"Error hiding grid: {e}", exc_info=True)
 
-    def refresh_display(self) -> None:
-        """Refresh the grid display."""
-        if self._is_active and self.current_num_rects_displayed:
-            self.update()
+    def _publish_grid_mouse_click(self, x: int, y: int) -> None:
+        """Log a grid-originated click at physical coordinates (click tracking)."""
+        ev = PerformMouseClickEventData(x=x, y=y, source="grid")
+        asyncio.run_coroutine_threadsafe(self.event_bus.publish(ev), self.event_loop)
+
+    def _execute_grid_pointer_action(
+        self,
+        click_mode: str,
+        center_x: float,
+        center_y: float,
+        drag_origin: Optional[Tuple[int, int]],
+    ) -> None:
+        """Perform pyautogui action for grid cell (physical pixel coordinates)."""
+        cx, cy = int(center_x), int(center_y)
+        if click_mode == "click":
+            pyautogui.click(cx, cy)
+            self._publish_grid_mouse_click(cx, cy)
+        elif click_mode == "hover":
+            pyautogui.moveTo(cx, cy)
+        elif click_mode == "drag":
+            if drag_origin is None:
+                raise RuntimeError("Drag mode requires a recorded start position")
+            ox, oy = drag_origin
+            tx, ty = round(center_x), round(center_y)
+            dist = math.hypot(float(tx - ox), float(ty - oy))
+            duration = min(
+                _GRID_DRAG_MOVE_MAX_S,
+                max(_GRID_DRAG_MOVE_MIN_S, dist / _GRID_DRAG_MOVE_DIST_DIVISOR),
+            )
+            pyautogui.moveTo(ox, oy, duration=0.0, _pause=False)
+            pyautogui.mouseDown(ox, oy, button="left", _pause=False)
+            try:
+                pyautogui.moveTo(tx, ty, duration=duration, _pause=False)
+                time.sleep(_GRID_DRAG_SETTLE_S)
+            finally:
+                pyautogui.mouseUp(tx, ty, button="left", _pause=False)
+            self._publish_grid_mouse_click(tx, ty)
+        else:
+            raise ValueError(f"Unsupported grid click_mode: {click_mode!r}")
 
     def handle_selection(self, selection_key: str, click_mode: str = "click") -> bool:
         """Handle grid cell selection.
@@ -563,6 +733,11 @@ class QtGridView(QWidget):
                 return False
 
             rect_data = self.ui_to_rect_data_map[selected_number]
+            drag_origin = self._drag_origin if click_mode == "drag" else None
+
+        if click_mode == "drag" and drag_origin is None:
+            self.logger.error("Drag mode selection failed: no recorded start position")
+            return False
 
         # Coordinates are already in physical pixels (matching pyautogui)
         center_x = rect_data["center_x"]
@@ -581,13 +756,7 @@ class QtGridView(QWidget):
                 # Small delay to ensure overlay is fully hidden
                 time.sleep(0.05)  # 50ms delay
 
-                if click_mode == "click":
-                    pyautogui.click(center_x, center_y)
-                    # Publish click event so it gets tracked in the cache
-                    click_event = PerformMouseClickEventData(x=int(center_x), y=int(center_y), source="grid")
-                    asyncio.run_coroutine_threadsafe(self.event_bus.publish(click_event), self.event_loop)
-                elif click_mode == "hover":
-                    pyautogui.moveTo(center_x, center_y)
+                self._execute_grid_pointer_action(click_mode, center_x, center_y, drag_origin)
 
                 self.logger.info(f"Action '{click_mode}' performed at ({center_x}, {center_y})")
 

@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, Optional
 
-from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.config.app_config import GlobalAppConfig, is_whitelisted_llm_model_id
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import DynamicSettingsUpdatedEvent, SettingsResponseEvent
 from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
@@ -31,13 +31,12 @@ class SettingsService:
     OVERRIDEABLE_SETTINGS = {
         "llm.context_length",
         "llm.max_tokens",
+        "llm.selected_model_id",
         "grid.default_rect_count",
         "sound_recognizer.confidence_threshold",
         "sound_recognizer.vote_threshold",
         "vad.energy_threshold",
-        "vad.dictation_silent_chunks_for_end",
         "vad.command_silent_chunks_for_end",
-        "audio.device",
         "markov_predictor.enabled",
         "markov_predictor.confidence_threshold",
     }
@@ -49,8 +48,10 @@ class SettingsService:
         "sound_recognizer.confidence_threshold",
         "sound_recognizer.vote_threshold",
         "grid.default_rect_count",
-        "vad.dictation_silent_chunks_for_end",
         "vad.command_silent_chunks_for_end",
+        "llm.selected_model_id",
+        "llm.context_length",
+        "llm.max_tokens",
     }
 
     def __init__(
@@ -96,11 +97,23 @@ class SettingsService:
             logger.error(f"Settings initialization error: {e}", exc_info=True)
             return False
 
+    def _strip_legacy_audio_device_override(self) -> None:
+        """Remove deprecated audio.device from loaded overrides (no longer used)."""
+        audio = self._user_overrides.get("audio")
+        if not isinstance(audio, dict):
+            return
+        if "device" in audio:
+            del audio["device"]
+            logger.debug("Removed legacy audio.device from user overrides")
+        if not audio:
+            del self._user_overrides["audio"]
+
     async def _load_user_overrides(self) -> None:
         """Load user setting overrides from storage"""
         try:
             settings_data = await self._storage.read(model_type=SettingsData)
             self._user_overrides = settings_data.user_overrides
+            self._strip_legacy_audio_device_override()
             logger.debug(f"Loaded {len(self._user_overrides)} user setting categories")
         except Exception as e:
             logger.error(f"Failed to load user overrides: {e}")
@@ -114,6 +127,7 @@ class SettingsService:
                 "llm": {
                     "context_length": self._get_default_value("llm.context_length"),
                     "max_tokens": self._get_default_value("llm.max_tokens"),
+                    "selected_model_id": self._get_default_value("llm.selected_model_id"),
                 },
                 "grid": {"default_rect_count": self._get_default_value("grid.default_rect_count")},
                 "sound_recognizer": {
@@ -122,11 +136,9 @@ class SettingsService:
                 },
                 "vad": {
                     "energy_threshold": self._get_default_value("vad.energy_threshold"),
-                    "dictation_silent_chunks_for_end": self._get_default_value("vad.dictation_silent_chunks_for_end"),
                     "command_silent_chunks_for_end": self._get_default_value("vad.command_silent_chunks_for_end"),
                 },
                 "audio": {
-                    "device": self._get_default_value("audio.device"),
                     "sample_rate": self._get_default_value("audio.sample_rate"),
                 },
                 "markov_predictor": {
@@ -142,13 +154,20 @@ class SettingsService:
             self._effective_settings = {}
 
     def _apply_overrides_to_effective_settings(self) -> None:
-        """Apply user overrides to effective settings"""
+        """Merge user overrides into effective settings; invalid values are skipped (defaults kept)."""
         for category, category_overrides in self._user_overrides.items():
-            if category in self._effective_settings:
-                for key, value in category_overrides.items():
-                    setting_path = f"{category}.{key}"
-                    if setting_path in self.OVERRIDEABLE_SETTINGS:
-                        self._effective_settings[category][key] = value
+            if category not in self._effective_settings:
+                continue
+            if not isinstance(category_overrides, dict):
+                continue
+            for key, value in category_overrides.items():
+                setting_path = f"{category}.{key}"
+                if setting_path not in self.OVERRIDEABLE_SETTINGS:
+                    continue
+                if not self._validate_setting_value(setting_path, value):
+                    logger.warning("Skipping invalid persisted override %s=%r", setting_path, value)
+                    continue
+                self._effective_settings[category][key] = value
 
     async def get_effective_settings(self) -> Dict[str, Any]:
         """Get current effective settings (defaults + overrides)"""
@@ -306,16 +325,22 @@ class SettingsService:
     def _validate_setting_value(self, setting_path: str, value: Any) -> bool:
         """Validate setting value based on setting type and constraints"""
         validation_rules = {
-            "llm.context_length": lambda v: isinstance(v, int) and 128 <= v <= 32768,
-            "llm.max_tokens": lambda v: isinstance(v, int) and 1 <= v <= 4096,
-            "grid.default_rect_count": lambda v: isinstance(v, int) and v > 0,
-            "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
-            "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
+            "llm.context_length": lambda v: type(v) is int and 128 <= v <= 32768,
+            "llm.max_tokens": lambda v: type(v) is int and 1 <= v <= 4096,
+            "llm.selected_model_id": lambda v: isinstance(v, str) and is_whitelisted_llm_model_id(v),
+            "grid.default_rect_count": lambda v: type(v) is int and v > 0,
+            "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and 0.0 <= float(v) <= 1.0,
+            "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and 0.0 <= float(v) <= 1.0,
             "markov_predictor.enabled": lambda v: isinstance(v, bool),
-            "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float)) and 0.0 <= v <= 1.0,
-            "vad.dictation_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
-            "vad.command_silent_chunks_for_end": lambda v: isinstance(v, int) and 1 <= v <= 1000,
-            "audio.device": lambda v: v is None or isinstance(v, int),
+            "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and 0.0 <= float(v) <= 1.0,
+            "vad.energy_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 < float(v) <= 1.0,
+            "vad.command_silent_chunks_for_end": lambda v: type(v) is int and 1 <= v <= 1000,
         }
 
         try:

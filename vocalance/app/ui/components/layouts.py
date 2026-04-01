@@ -305,21 +305,21 @@ class ScrollableContainer(QFrame):
             }
             QScrollBar:vertical {
                 background-color: transparent;
-                width: 12px;
+                width: 8px;
                 margin: 0px;
                 border: none;
             }
             QScrollBar::handle:vertical {
-                background-color: rgba(100, 100, 100, 0.5);
-                border-radius: 6px;
-                min-height: 20px;
-                margin: 3px 2px 3px 2px;
+                background-color: rgba(148, 163, 184, 0.28);
+                border-radius: 4px;
+                min-height: 24px;
+                margin: 4px 2px 4px 2px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: rgba(120, 120, 120, 0.7);
+                background-color: rgba(148, 163, 184, 0.45);
             }
             QScrollBar::handle:vertical:pressed {
-                background-color: rgba(140, 140, 140, 0.9);
+                background-color: rgba(148, 163, 184, 0.6);
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 height: 0px;
@@ -329,21 +329,21 @@ class ScrollableContainer(QFrame):
             }
             QScrollBar:horizontal {
                 background-color: transparent;
-                height: 12px;
+                height: 8px;
                 margin: 0px;
                 border: none;
             }
             QScrollBar::handle:horizontal {
-                background-color: rgba(100, 100, 100, 0.5);
-                border-radius: 6px;
-                min-width: 20px;
-                margin: 2px 3px 2px 3px;
+                background-color: rgba(148, 163, 184, 0.28);
+                border-radius: 4px;
+                min-width: 24px;
+                margin: 2px 4px 2px 4px;
             }
             QScrollBar::handle:horizontal:hover {
-                background-color: rgba(120, 120, 120, 0.7);
+                background-color: rgba(148, 163, 184, 0.45);
             }
             QScrollBar::handle:horizontal:pressed {
-                background-color: rgba(140, 140, 140, 0.9);
+                background-color: rgba(148, 163, 184, 0.6);
             }
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
                 width: 0px;

@@ -3,46 +3,38 @@ import gc
 import logging
 import threading
 import time
-from collections import deque
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import (
     CommandAudioSegmentReadyEvent,
     CommandTextRecognizedEvent,
-    DictationAudioSegmentReadyEvent,
-    DictationTextRecognizedEvent,
     STTProcessingCompletedEvent,
     STTProcessingStartedEvent,
 )
-from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent, DictationStopWordDetectedEvent
+from vocalance.app.events.dictation_events import (
+    DictationModeDisableOthersEvent,
+    DictationModifierId,
+    DictationModifierPhraseEvent,
+    DictationStopWordDetectedEvent,
+)
+from vocalance.app.services.audio.stt.moonshine_stt import MoonshineSTT
 from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
-from vocalance.app.services.audio.stt.whisper_stt import WhisperSTT
 
 logger = logging.getLogger(__name__)
 
 
 class STTMode(Enum):
     COMMAND = "command"
-    DICTATION = "dictation"
 
 
 class SpeechToTextService:
     """Dual-engine speech-to-text service with mode-specific processing.
 
-    Orchestrates two STT engines: Vosk (fast, offline) for command mode and Whisper
-    (accurate, model-based) for dictation mode. Manages mode transitions, stop trigger
-    detection during dictation, and publishes recognized text events. Processes audio
-    segments from CommandAudioListener and DictationAudioListener with proper
-    synchronization and resource optimization. Deduplication is handled downstream
-    by CentralizedCommandParser and DictationCoordinator.
-
-    Attributes:
-        vosk_engine: VoskSTT for fast command recognition.
-        whisper_engine: WhisperSTT for accurate dictation transcription.
-        _dictation_active: Flag indicating if dictation mode is currently active.
+    Vosk handles command segments (including stop-word checks during dictation).
+    Dictation text is produced by Moonshine streaming sessions owned by DictationCoordinator.
     """
 
     def __init__(
@@ -50,12 +42,7 @@ class SpeechToTextService:
         event_bus: EventBus,
         config: GlobalAppConfig,
     ) -> None:
-        """Initialize STT service with configuration and event bus.
-
-        Args:
-            event_bus: EventBus for subscribing to audio events and publishing text.
-            config: Global application configuration with STT and audio settings.
-        """
+        """Store config, bus, and placeholders for Vosk and Moonshine engines."""
         self.event_bus = event_bus
         self.config = config
         self.stt_config = config.stt
@@ -64,131 +51,87 @@ class SpeechToTextService:
         self._current_dictation_mode: str = "inactive"
         self._state_lock = asyncio.Lock()
         self.vosk_engine: Optional[VoskSTT] = None
-        self.whisper_engine: Optional[WhisperSTT] = None
+        self.moonshine_engine: Optional[MoonshineSTT] = None
         self._engines_initialized: bool = False
         self._stop_trigger = config.dictation.stop_trigger
+        d = config.dictation
+        mod_pairs: list[tuple[str, DictationModifierId]] = [
+            (d.modifier_upper_phrase.lower(), "upper"),
+            (d.modifier_capitals_phrase.lower(), "capitals"),
+            (d.modifier_camel_phrase.lower(), "camel"),
+            (d.modifier_snake_phrase.lower(), "snake"),
+            (d.modifier_spelling_phrase.lower(), "spelling"),
+        ]
+        self._modifier_phrases = sorted(mod_pairs, key=lambda x: -len(x[0]))
 
-        # Streaming context management for smart/visual modes
-        self._context_segments: deque = deque(maxlen=10)  # Keep last 10 segments for context
-        self._context_lock = asyncio.Lock()
-
-        logger.debug(f"SpeechToTextService initialized - initial dictation_active: {self._dictation_active}")
+        logger.debug("SpeechToTextService initialized - initial dictation_active: %s", self._dictation_active)
 
     async def initialize_engines(self, shutdown_coordinator=None) -> None:
-        """Initialize Vosk and Whisper STT engines with cancellation support.
-
-        Loads Vosk engine synchronously, then downloads and initializes Whisper model
-        in a background thread with periodic cancellation checks. Supports early
-        termination if shutdown is requested during model download.
-
-        Args:
-            shutdown_coordinator: Optional coordinator for checking shutdown requests during init.
-
-        Raises:
-            asyncio.CancelledError: If shutdown is requested during Whisper download.
-            Exception: If engine initialization fails.
-        """
         if self._engines_initialized:
             return
 
         logger.debug("Initializing STT engines...")
 
-        logger.debug("Loading Vosk STT engine...")
         self.vosk_engine = VoskSTT(
             model_path=self.config.asset_paths.get_vosk_model_path(),
             sample_rate=self.stt_config.sample_rate,
             config=self.config,
         )
 
-        logger.debug("Loading Whisper STT engine...")
+        logger.debug("Loading Moonshine STT engine...")
 
-        # Start whisper download in daemon thread
-        whisper_result = [None]  # Mutable container for thread result
-        whisper_error = [None]
+        moonshine_result = [None]
+        moonshine_error = [None]
 
-        def load_whisper():
+        def load_moonshine():
             try:
-                whisper_result[0] = WhisperSTT(
-                    model_name=self.stt_config.whisper_model,
-                    device=self.stt_config.whisper_device,
+                moonshine_result[0] = MoonshineSTT(
                     sample_rate=self.stt_config.sample_rate,
                     config=self.config,
                 )
             except Exception as e:
-                whisper_error[0] = e
+                moonshine_error[0] = e
 
-        load_thread = threading.Thread(target=load_whisper, daemon=True, name="WhisperDownload")
+        load_thread = threading.Thread(target=load_moonshine, daemon=True, name="MoonshineDownload")
         load_thread.start()
 
-        # Poll for completion or cancellation
         while load_thread.is_alive():
             if shutdown_coordinator and shutdown_coordinator.is_shutdown_requested():
-                logger.info("Whisper download cancelled - abandoning thread")
-                raise asyncio.CancelledError("Whisper download cancelled")
+                logger.info("Moonshine download cancelled - abandoning thread")
+                raise asyncio.CancelledError("Moonshine download cancelled")
 
-            await asyncio.sleep(0.1)  # Check every 100ms
+            await asyncio.sleep(0.1)
 
-        # Check result
-        if whisper_error[0]:
-            raise whisper_error[0]
+        if moonshine_error[0]:
+            raise moonshine_error[0]
 
-        if whisper_result[0] is None:
-            raise RuntimeError("Whisper initialization failed")
+        if moonshine_result[0] is None:
+            raise RuntimeError("Moonshine initialization failed")
 
-        self.whisper_engine = whisper_result[0]
+        self.moonshine_engine = moonshine_result[0]
         self._engines_initialized = True
         logger.info("All STT engines initialized successfully")
 
     def setup_subscriptions(self) -> None:
-        """Setup event subscriptions for STT service.
-
-        Subscribes to command audio, dictation audio, and dictation mode change events
-        for processing audio segments and switching engine behavior.
-        """
+        """Subscribe to command segments and dictation mode toggles."""
         self.event_bus.subscribe(event_type=CommandAudioSegmentReadyEvent, handler=self._handle_command_audio_segment)
-        self.event_bus.subscribe(event_type=DictationAudioSegmentReadyEvent, handler=self._handle_dictation_audio_segment)
         self.event_bus.subscribe(event_type=DictationModeDisableOthersEvent, handler=self._handle_dictation_mode_change)
 
         logger.info("STT service event subscriptions configured")
 
-    async def _publish_recognition_result(self, text: str, processing_time: float, engine: str, mode: STTMode) -> None:
-        """Publish recognized text event based on mode.
-
-        Args:
-            text: Recognized text from STT engine.
-            processing_time: Processing time in milliseconds.
-            engine: Engine name (vosk or whisper).
-            mode: STTMode enum indicating command or dictation.
-        """
-        if mode == STTMode.DICTATION:
-            event = DictationTextRecognizedEvent(text=text, processing_time_ms=processing_time, engine=engine, mode=mode.value)
-        else:
-            event = CommandTextRecognizedEvent(text=text, processing_time_ms=processing_time, engine=engine, mode=mode.value)
+    async def _publish_recognition_result(self, text: str, processing_time: float, engine: str) -> None:
+        event = CommandTextRecognizedEvent(
+            text=text, processing_time_ms=processing_time, engine=engine, mode=STTMode.COMMAND.value
+        )
         await self.event_bus.publish(event)
-        logger.info(f"Published {type(event).__name__}: '{text}' from {engine}")
+        logger.info("Published %s: '%s' from %s", type(event).__name__, text, engine)
 
     async def _handle_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent) -> None:
-        """Process command audio with mode-aware behavior.
-
-        CRITICAL: Creates background task to avoid blocking event bus.
-        STT processing takes 50-200ms and must not block other events.
-
-        In command mode: runs full Vosk recognition and publishes results or forwards
-        to sound recognition. In dictation mode: only checks for stop trigger words
-        and ignores other commands to avoid interrupting dictation flow.
-
-        Args:
-            event_data: Event containing command audio segment and sample rate.
-        """
-        # Create background task to avoid blocking event bus
+        """Spawn async processing so the bus handler returns quickly."""
         asyncio.create_task(self._process_command_audio_segment(event_data))
 
     async def _process_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent) -> None:
-        """Background task for command audio processing - does not block event bus.
-
-        Args:
-            event_data: Event containing command audio segment and sample rate.
-        """
+        """Run Vosk on the segment: full commands when idle, stop-word-only while dictation is active."""
         if not self._engines_initialized:
             logger.error("STT engines not initialized")
             return
@@ -196,23 +139,26 @@ class SpeechToTextService:
         async with self._state_lock:
             is_dictation_active = self._dictation_active
 
-        logger.debug(f"Processing command audio segment - dictation_active: {is_dictation_active}")
+        logger.debug("Processing command audio segment - dictation_active: %s", is_dictation_active)
 
         if is_dictation_active:
             logger.debug("In dictation mode - checking for stop trigger only")
             vosk_result = await self.vosk_engine.recognize(event_data.audio_bytes, event_data.sample_rate)
-            logger.debug(f"Vosk result during dictation: '{vosk_result}'")
+            logger.debug("Vosk result during dictation: '%s'", vosk_result)
 
             if self._is_stop_trigger(vosk_result):
-                logger.info(f"Stop word '{vosk_result}' detected during dictation")
-
-                # Publish stop word detected event for UI update
+                logger.info("Stop word '%s' detected during dictation", vosk_result)
                 await self._publish_stop_word_detected_event()
-
-                # Publish recognition result to trigger command parsing
-                await self._publish_recognition_result(vosk_result, 0, "vosk", STTMode.COMMAND)
+                await self._publish_recognition_result(vosk_result, 0, "vosk")
             else:
-                logger.debug(f"No stop trigger detected in: '{vosk_result}' - ignoring during dictation")
+                mod = self._match_modifier_phrase(vosk_result)
+                if mod:
+                    logger.info("Dictation modifier phrase detected: %s in '%s'", mod, vosk_result)
+                    await self.event_bus.publish(
+                        DictationModifierPhraseEvent(modifier_id=mod, raw_recognized_text=vosk_result or "")
+                    )
+                else:
+                    logger.debug("No stop trigger or modifier in: '%s' - ignoring during dictation", vosk_result)
             return
 
         logger.debug("Processing command audio in normal mode")
@@ -225,8 +171,7 @@ class SpeechToTextService:
         processing_time = (time.time() - processing_start) * 1000
 
         if recognized_text and recognized_text.strip():
-            # No deduplication in STT - let CentralizedCommandParser handle it
-            await self._publish_recognition_result(recognized_text, processing_time, "vosk", STTMode.COMMAND)
+            await self._publish_recognition_result(recognized_text, processing_time, "vosk")
 
         await self.event_bus.publish(
             STTProcessingCompletedEvent(
@@ -237,189 +182,53 @@ class SpeechToTextService:
             )
         )
 
-    async def _handle_dictation_audio_segment(self, event_data: DictationAudioSegmentReadyEvent) -> None:
-        """Process dictation audio using Whisper engine for accuracy.
-
-        CRITICAL: Creates background task to avoid blocking event bus.
-        Whisper processing takes 200-1000ms and must not block other events.
-
-        Uses Whisper STT for high-accuracy transcription of longer dictation segments.
-        Filters duplicates and publishes dictation text events with processing metrics.
-
-        **Optimization**: Skips Whisper processing if not in dictation mode to save resources.
-        DictationAudioListener emits events continuously, but Whisper (expensive) only runs
-        when dictation mode is active.
-
-        Args:
-            event_data: Event containing dictation audio segment and sample rate.
-        """
-        # Create background task to avoid blocking event bus
-        asyncio.create_task(self._process_dictation_audio_segment(event_data))
-
-    async def _process_dictation_audio_segment(self, event_data: DictationAudioSegmentReadyEvent) -> None:
-        """Background task for dictation audio processing - does not block event bus.
-
-        Args:
-            event_data: Event containing dictation audio segment and sample rate.
-        """
-        if not self._engines_initialized:
-            logger.error("STT engines not initialized")
-            return
-
-        # Check if dictation mode is active - skip expensive Whisper processing if not
-        async with self._state_lock:
-            is_dictation_active = self._dictation_active
-
-        if not is_dictation_active:
-            logger.debug(
-                f"Skipping Whisper processing for dictation segment ({len(event_data.audio_bytes)} bytes) "
-                "- not in dictation mode"
-            )
-            return
-
-        await self.event_bus.publish(
-            STTProcessingStartedEvent(engine="whisper", mode=STTMode.DICTATION.value, audio_size_bytes=len(event_data.audio_bytes))
-        )
-        processing_start = time.time()
-        recognized_text = await self.whisper_engine.recognize(event_data.audio_bytes, event_data.sample_rate)
-        processing_time = (time.time() - processing_start) * 1000
-
-        if recognized_text and recognized_text.strip():
-            # No deduplication in STT - let DictationCoordinator handle it
-            await self._publish_recognition_result(recognized_text, processing_time, "whisper", STTMode.DICTATION)
-
-        await self.event_bus.publish(
-            STTProcessingCompletedEvent(
-                engine="whisper",
-                mode=STTMode.DICTATION.value,
-                processing_time_ms=processing_time,
-                text_length=len(recognized_text) if recognized_text else 0,
-            )
-        )
-
     def _is_stop_trigger(self, text: Optional[str]) -> bool:
-        """Check if recognized text contains the configured stop trigger word.
-
-        Args:
-            text: Recognized text to check.
-
-        Returns:
-            True if stop trigger is detected (case-insensitive), False otherwise.
-        """
         if not text:
             return False
         return self._stop_trigger in text.lower().strip()
 
-    async def _publish_stop_word_detected_event(self) -> None:
-        """Publish stop word detected event for UI update.
+    def _match_modifier_phrase(self, text: Optional[str]) -> Optional[DictationModifierId]:
+        """Return the configured modifier id if ``text`` contains that phrase (substring match, longest first)."""
+        if not text:
+            return None
+        t = text.lower().strip()
+        for phrase, mid in self._modifier_phrases:
+            if phrase and phrase in t:
+                return mid
+        return None
 
-        This event triggers the UI to change the border color to orange instantly
-        when the stop word is detected during dictation.
-        """
+    async def _publish_stop_word_detected_event(self) -> None:
+        """Notify listeners that the stop word was heard (when a dictation mode is active)."""
         async with self._state_lock:
             current_mode = self._current_dictation_mode
 
         if current_mode and current_mode != "inactive":
             event = DictationStopWordDetectedEvent(mode=current_mode)
             await self.event_bus.publish(event)
-            logger.info(f"Published DictationStopWordDetectedEvent for mode: {current_mode}")
+            logger.info("Published DictationStopWordDetectedEvent for mode: %s", current_mode)
 
     async def _handle_dictation_mode_change(self, event_data: DictationModeDisableOthersEvent) -> None:
-        """Handle dictation mode state changes for mode-aware processing.
-
-        Updates internal dictation_active flag to control command audio processing
-        behavior: when active, only stop triggers are detected; when inactive, full
-        command recognition is performed.
-
-        Args:
-            event_data: Event containing dictation mode activation state.
-        """
         async with self._state_lock:
             old_state = self._dictation_active
             self._dictation_active = event_data.dictation_mode_active
             self._current_dictation_mode = event_data.dictation_mode
             logger.info(
-                f"STT service dictation mode changed: {old_state} -> {self._dictation_active} (mode: {self._current_dictation_mode})"
+                "STT service dictation mode changed: %s -> %s (mode: %s)",
+                old_state,
+                self._dictation_active,
+                self._current_dictation_mode,
             )
 
             if self._dictation_active:
                 logger.info(
-                    f"STT service now in DICTATION mode ({self._current_dictation_mode}) - command audio will only check for stop trigger"
+                    "STT service now in DICTATION mode (%s) - command audio will only check for stop trigger",
+                    self._current_dictation_mode,
                 )
             else:
                 logger.info("STT service now in COMMAND mode - normal command processing enabled")
 
-    async def recognize_streaming(
-        self, audio_bytes: bytes, sample_rate: int, return_segments: bool = False
-    ) -> Tuple[str, float, Optional[List[dict]]]:
-        """Perform streaming recognition with optional segment timestamps.
-
-        Used by streaming dictation modes (smart/visual) for continuous transcription
-        with overlapping audio chunks. Returns text and optionally segments with
-        timestamps for precise offset tracking.
-
-        Args:
-            audio_bytes: Raw audio data to transcribe.
-            sample_rate: Sample rate of the audio.
-            return_segments: If True, return detailed segment info with timestamps.
-
-        Returns:
-            Tuple of (text, confidence, segments) where:
-            - text: Combined transcribed text
-            - confidence: Average confidence score
-            - segments: List of segment dicts if return_segments=True, else None
-              [{"text": str, "start": float, "end": float, "no_speech_prob": float}, ...]
-        """
-        if not self._engines_initialized or not self.whisper_engine:
-            logger.error("STT engines not initialized")
-            return "", 0.0, None
-
-        # Get context segments for initial_prompt
-        async with self._context_lock:
-            context_list = list(self._context_segments)
-
-        # Call Whisper streaming method - returns text, confidence, and optionally segments
-        text, confidence, segments = await self.whisper_engine.recognize_streaming(
-            audio_bytes=audio_bytes,
-            context_segments=context_list,
-            sample_rate=sample_rate,
-            return_segments=return_segments,
-        )
-
-        # DON'T add to context here - let coordinator add only completed/finalized segments
-
-        return text, confidence, segments
-
-    async def add_finalized_segment(self, text: str) -> None:
-        """Add a finalized segment to the streaming context.
-
-        Should only be called with final (stable) text to prevent context pollution.
-
-        Args:
-            text: Finalized text segment to add to context.
-        """
-        if text and text.strip():
-            async with self._context_lock:
-                self._context_segments.append(text.strip())
-            logger.debug(f"Added finalized segment to context: '{text[:30]}...'")
-
-    async def clear_streaming_context(self) -> None:
-        """Clear streaming context segments.
-
-        Should be called when starting a new streaming dictation session
-        to avoid context pollution from previous sessions.
-        """
-        async with self._context_lock:
-            self._context_segments.clear()
-            logger.debug("Streaming context cleared")
-
     async def shutdown(self) -> None:
-        """Shutdown STT service and release all engine resources.
-
-        Shuts down both Vosk and Whisper engines, releases duplicate filter,
-        explicitly deletes references to enable garbage collection, and runs
-        gc.collect() to free memory immediately.
-        """
+        """Shut down Vosk and Moonshine engines."""
         logger.info("Shutting down STT service")
 
         if hasattr(self, "vosk_engine") and self.vosk_engine is not None:
@@ -427,10 +236,10 @@ class SpeechToTextService:
             del self.vosk_engine
             self.vosk_engine = None
 
-        if hasattr(self, "whisper_engine") and self.whisper_engine is not None:
-            await self.whisper_engine.shutdown()
-            del self.whisper_engine
-            self.whisper_engine = None
+        if hasattr(self, "moonshine_engine") and self.moonshine_engine is not None:
+            await self.moonshine_engine.shutdown()
+            del self.moonshine_engine
+            self.moonshine_engine = None
 
         gc.collect()
         logger.info("STT service shutdown complete")

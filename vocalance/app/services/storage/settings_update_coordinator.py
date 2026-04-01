@@ -10,24 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class SettingsUpdateCoordinator:
-    """
-    Coordinates real-time settings updates across services.
-
-    This coordinator handles settings that can be updated without restart:
-    - markov_predictor.confidence_threshold
-    - sound_recognizer.confidence_threshold
-    - sound_recognizer.vote_threshold
-    - grid.default_rect_count
-    - vad.dictation_silent_chunks_for_end
-    - vad.command_silent_chunks_for_end
-
-    Other settings (LLM, audio device) require app restart.
-
-    Flow:
-    1. The GlobalAppConfig is updated (single source of truth)
-    2. Real-time settings are propagated to registered services
-    3. Changes are logged for debugging
-    """
+    """Apply ``DynamicSettingsUpdatedEvent`` to ``GlobalAppConfig`` and notify registered services."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
         self._event_bus = event_bus
@@ -42,13 +25,7 @@ class SettingsUpdateCoordinator:
         logger.debug("SettingsUpdateCoordinator subscriptions configured")
 
     def register_service(self, service_name: str, service_instance: Any) -> None:
-        """
-        Register a service that needs real-time settings updates.
-
-        Services must implement specific update methods for their settings:
-        - MarkovCommandService: update_confidence_threshold(float)
-        - SoundRecognizer: update_confidence_threshold(float), update_vote_threshold(float)
-        """
+        """Register a service instance looked up by name in ``_propagate_to_services``."""
         self._service_registry[service_name] = service_instance
         logger.debug(f"Registered service for settings updates: {service_name}")
 
@@ -97,13 +74,22 @@ class SettingsUpdateCoordinator:
             "markov_predictor.confidence_threshold": ("markov_predictor", "on_confidence_threshold_updated"),
             "sound_recognizer.confidence_threshold": ("sound_recognizer", "on_confidence_threshold_updated"),
             "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),
-            "vad.dictation_silent_chunks_for_end": ("audio", "on_dictation_silent_chunks_updated"),
             "vad.command_silent_chunks_for_end": ("audio", "on_command_silent_chunks_updated"),
         }
+
+        config_only_paths = frozenset(
+            {
+                "llm.selected_model_id",
+                "llm.context_length",
+                "llm.max_tokens",
+            }
+        )
 
         for setting_path, value in updated_settings.items():
             # GridService reads directly from config - no callback needed
             if setting_path == "grid.default_rect_count":
+                continue
+            if setting_path in config_only_paths:
                 continue
 
             service_info = propagation_map.get(setting_path)
@@ -113,24 +99,28 @@ class SettingsUpdateCoordinator:
 
                 if service and hasattr(service, method_name):
                     method = getattr(service, method_name)
-                    if inspect.iscoroutinefunction(method):
-                        # Async method - await it
-                        if "threshold" in method_name:
-                            await method(threshold=value)
-                        elif "count" in method_name:
-                            await method(count=value)
-                        elif "chunks" in method_name:
-                            await method(chunks=value)
+
+                    # Determine argument name based on method name pattern
+                    kwargs = {}
+                    if "threshold" in method_name:
+                        kwargs["threshold"] = value
+                    elif "count" in method_name:
+                        kwargs["count"] = value
+                    elif "chunks" in method_name:
+                        kwargs["chunks"] = value
+
+                    # Call method (async or sync) with correct arguments
+                    is_async = inspect.iscoroutinefunction(method)
+
+                    if kwargs:
+                        if is_async:
+                            await method(**kwargs)
                         else:
-                            await method(value)
+                            method(**kwargs)
                     else:
-                        # Sync method - call directly
-                        if "threshold" in method_name:
-                            method(threshold=value)
-                        elif "count" in method_name:
-                            method(count=value)
-                        elif "chunks" in method_name:
-                            method(chunks=value)
+                        # Fallback for methods taking a single positional argument
+                        if is_async:
+                            await method(value)
                         else:
                             method(value)
                 else:

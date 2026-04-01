@@ -54,11 +54,17 @@ Specialized Overlay Windows
 
 Beyond the main tabbed interface, Vocalance uses three specialized overlay windows for specific interactions: the grid overlay, mark visualization overlay, and dictation popup. These are created on demand and controlled directly by their controllers.
 
-**Grid Overlay**: When the user requests the grid (by saying "go" or "hover", or clicking the grid button), the `GridController` shows the `GridView`, a full-screen transparent overlay. The overlay divides the screen into cells based on the grid configuration (columns and rows). Each cell is labeled with a number (1, 2, 3, etc.). The grid supports two modes: **click mode** (triggered by "go") where selecting a cell moves the cursor and clicks, and **hover mode** (triggered by "hover") where selecting a cell only moves the cursor without clicking. The grid listens for voice commands or mouse clicks. After a cell is selected, the grid hides automatically.
+**Grid Overlay**: When the user requests the grid (by voice or clicking the grid button), the `GridController` shows the `GridView`, a full-screen transparent overlay. The overlay divides the primary screen into cells based on the grid configuration. Each cell is labeled with a number (1, 2, 3, etc.). The grid supports three modes, chosen by the voice phrase used to open it (phrases are configurable in ``GridConfig``):
+
+- **Click mode** (default phrase ``go``): selecting a cell moves the cursor to that cell and performs a left click.
+- **Hover mode** (default phrase ``hover``): selecting a cell moves the cursor only; no click.
+- **Drag mode** (default phrase ``move``): when the overlay appears, the current pointer position is recorded. After the user picks a cell by number, the pointer returns to that recorded position, presses the left button, moves along an interpolated path to the cell center, pauses briefly so the target can register the drag, then releases at the cell center—equivalent to drag-and-drop from the original point to the chosen cell.
+
+The grid listens for voice or keyboard digit input. After a cell is selected, the grid hides automatically.
 
 **Mark Visualization**: Similarly, when the user requests mark visualization (by saying "show marks" or clicking a button), the `MarksController` shows the `MarkView`, another full-screen overlay. This overlay draws circles at the exact screen coordinates of each mark and labels each circle with the mark's name. The mark overlay is always visible unless explicitly hidden, allowing the user to see where marks are on screen. Hovering near a mark highlights it. Clicking on a mark's label clicks that mark's position.
 
-**Dictation Popup**: During dictation, a popup window appears in the center of the screen showing the text being dictated in real time. As the user speaks, the dictation service sends partial results and the popup updates incrementally. After dictation completes, the final text appears highlighted in the popup before being inserted into the target application.
+**Dictation Popup**: During dictation, a frameless overlay shows live feedback. Standard and type modes use a compact sound-wave “simple listening” state. Visual mode shows a single transcription pane. **Smart** and **amend** modes use the same dual-pane layout: streaming text on the left (column title “Dictation” vs “Prompt”), LLM output and a processing state on the right. Partial and final streaming segments update the left pane; tokens stream into the right pane after stop. The popup controller listens for ``SmartDictationStartedEvent`` / ``StoppedEvent`` and branches on ``event.mode`` (``"smart"`` or ``"amend"``).
 
 Event Flow: How User Actions Become Results
 =============================================

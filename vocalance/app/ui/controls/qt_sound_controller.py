@@ -271,7 +271,11 @@ class QtSoundController(QtBaseController):
     def get_grid_trigger_words(self) -> List[str]:
         """Get grid trigger words from config."""
         try:
-            return [self.config.grid.show_grid_phrase, self.config.grid.hover_grid_phrase]
+            return [
+                self.config.grid.show_grid_phrase,
+                self.config.grid.hover_grid_phrase,
+                self.config.grid.drag_grid_phrase,
+            ]
         except Exception as e:
             self.logger.error(f"Error getting grid trigger words: {e}")
             return []

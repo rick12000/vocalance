@@ -54,7 +54,7 @@ class TextInput(QLineEdit):
                 padding: 0px;
             }}
             TextInput:focus {{
-                border-color: {theme.config.shapes.lightest};
+                border-color: {theme.config.blue.blue_2};
             }}
         """
         )
@@ -86,7 +86,7 @@ class PasswordInput(TextInput):
                 padding: 0px;
             }}
             PasswordInput:focus {{
-                border-color: {theme.config.shapes.lightest};
+                border-color: {theme.config.blue.blue_2};
             }}
         """
         )
@@ -144,7 +144,7 @@ class ExpandableTextArea(QPlainTextEdit):
                 padding: 0px;
             }}
             ExpandableTextArea:focus {{
-                border-color: {theme.config.shapes.lightest};
+                border-color: {theme.config.blue.blue_2};
             }}
             ExpandableTextArea::-webkit-scrollbar {{
                 width: 8px;

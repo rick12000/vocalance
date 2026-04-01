@@ -1,4 +1,4 @@
-faster-whisper==1.2.1
+moonshine-voice>=0.0.51
 huggingface-hub==1.1.5
 librosa==0.11.0
 llama-cpp-python==0.3.16

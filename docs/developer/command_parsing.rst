@@ -67,29 +67,30 @@ Command Types
 Dictation Commands
 ------------------
 
-Dictation commands enter text-capture mode. Once activated, the system stops interpreting voice as commands and instead transcribes everything you say:
+Dictation commands enter text-capture mode. Once activated, the system stops interpreting voice as commands and instead transcribes everything you say (except the configured stop phrase, which ends the session).
+
+Phrases are **exact matches** on lowercased, trimmed text. They come from ``DictationConfig`` and are cached on the parser at startup—for example ``start_trigger`` (default ``green``), ``stop_trigger`` (``amber``), ``type_trigger``, ``smart_start_trigger`` (``smart green``), ``visual_start_trigger``, ``hidden_start_trigger``, and ``amend_start_trigger`` (``amend``).
 
 .. code-block:: python
 
    def _parse_dictation_commands(self, normalized_text: str) -> ParseResultType:
-       if normalized_text == "start dictation":
+       if normalized_text == self._dictation_start_trigger:
            return DictationStartCommand()
-
-       if normalized_text == "stop dictation":
+       if normalized_text == self._dictation_stop_trigger:
            return DictationStopCommand()
-
-       if normalized_text == "dictate type":
+       if normalized_text == self._dictation_type_trigger:
            return DictationTypeCommand()
-
-       if normalized_text == "dictate smart":
+       if normalized_text == self._dictation_smart_trigger:
            return DictationSmartStartCommand()
-
-       if normalized_text == "dictate visual":
+       if normalized_text == self._dictation_visual_trigger:
            return DictationVisualStartCommand()
-
+       if normalized_text == self._dictation_hidden_trigger:
+           return DictationHiddenStartCommand()
+       if normalized_text == self._dictation_amend_trigger:
+           return DictationAmendStartCommand()
        return NoMatchResult()
 
-Each trigger is a simple text match. Saying one of these phrases switches your input mode entirely.
+Defaults match ``vocalance.app.config.app_config.DictationConfig``; the parser stores lowercased trigger strings when it initializes (or when its config cache is rebuilt).
 
 Mark Commands
 -------------
@@ -127,31 +128,32 @@ The mark parser recognizes four operations: creating a mark at your current posi
 Grid Commands
 -------------
 
-The grid system displays a clickable overlay divided into numbered cells. Saying a number selects that cell:
+The grid system shows a full-screen overlay of numbered cells. Configured phrases (from ``GridConfig``) open the grid in **click**, **hover**, or **drag** mode; a bare number then selects a cell. The parser tries each show phrase in order via a shared helper:
 
 .. code-block:: python
 
-   async def _parse_grid_commands(self, normalized_text: str) -> ParseResultType:
-       # "show grid" → display the grid
-       if normalized_text == "show grid":
-           return GridShowCommand(num_rects=None)
+   from typing import Union
 
-       # "show grid 20" → display grid with 20 cells
-       if normalized_text.startswith("show grid "):
-           after_trigger = normalized_text[len("show grid "):].strip()
-           parsed_num = parse_number(text=after_trigger)
-           if parsed_num is not None and parsed_num > 0:
-               return GridShowCommand(num_rects=parsed_num)
+   def _parse_grid_show_for_phrase(
+       self, normalized_text: str, phrase: str, click_mode: str
+   ) -> Union[GridShowCommand, ErrorResult, None]:
+       if not normalized_text.startswith(phrase):
+           return None
+       if normalized_text == phrase:
+           return GridShowCommand(num_rects=None, click_mode=click_mode)
+       after_trigger = normalized_text[len(phrase) :].strip()
+       if not after_trigger:
+           return None
+       parsed_num = parse_number(text=after_trigger)
+       if parsed_num is not None and parsed_num > 0:
+           return GridShowCommand(num_rects=parsed_num, click_mode=click_mode)
+       return ErrorResult(error_message=f"Invalid number of rectangles: '{after_trigger}'")
 
-       # "5" → select cell 5 (if not part of an automation command)
-       if not is_automation_prefix(normalized_text):
-           parsed_num = parse_number(text=normalized_text)
-           if parsed_num is not None and parsed_num > 0:
-               return GridSelectCommand(selected_number=parsed_num)
+   # In _parse_grid_commands: for (phrase, mode) in ("go", "click"), ("hover", "hover"), ("move", "drag"): ...
 
-       return NoMatchResult()
+The default phrases are ``go``, ``hover``, and ``move`` (the latter opens **drag** mode), each optionally followed by a cell count (e.g. ``go 100``). Grid parsing runs **before** automation parsing, so an exact show phrase is always a grid command, not an automation match.
 
-The grid parser checks for display commands and cell selection. A bare number like "5" could be ambiguous—it might be the start of "5 press right" (press right 5 times), so the parser checks whether the full text is an automation command before treating it as a grid selection.
+For cell selection, a bare number becomes ``GridSelectCommand`` only when the full normalized text is **not** an automation prefix—otherwise ``5 press right`` would be parsed as automation rather than grid cell ``5``.
 
 Automation Commands
 -------------------
@@ -396,23 +398,9 @@ Critical Exception: Dictation Mode
 
 Prediction is automatically disabled when dictation mode is active. This requires special handling because of how Markov chains work.
 
-**The problem**: Dictation mode works by setting a flag that tells the parser to treat all input as text to transcribe, not as commands. However, to exit dictation, you must say "stop dictation"—the only command that works during dictation. This creates a deterministic transition in the Markov model.
+**The problem**: Dictation mode works by setting a flag that tells the parser to treat all input as text to transcribe, not as commands. To exit, you must say your configured **stop** phrase—the only command path that still applies—so the Markov model sees a near-deterministic start → stop pair.
 
-After enough sessions of activating and deactivating dictation, the model learns:
-
-.. code-block:: text
-
-   "start dictation" → "stop dictation": 100% probability
-
-Why? Because the only way to get back to command mode is to say "stop dictation". The model sees this pattern repeatedly and assigns it maximum confidence.
-
-**The consequence**: If predictions were enabled during dictation, this is what would happen:
-
-1. You say "start dictation" (activates text transcription mode)
-2. The Markov predictor, with 100% confidence, immediately predicts "stop dictation"
-3. The predictor executes "stop dictation" before you speak any text
-4. Dictation mode is instantly terminated
-5. You never get to dictate anything
+**The consequence**: If predictions stayed enabled during dictation, the model could immediately predict the stop phrase right after the start phrase, execute it, and end dictation before you speak any content.
 
 **The solution**: Prediction is disabled the moment dictation starts:
 
@@ -424,7 +412,7 @@ Why? Because the only way to get back to command mode is to say "stop dictation"
 
        # ... normal prediction logic
 
-This ensures that whatever you say during dictation is transcribed as text, not interpreted as the predictable "stop dictation" command. Once you exit dictation manually, predictions resume.
+This ensures that whatever you say during dictation is transcribed as text, not replaced by a predicted stop phrase. Once you exit dictation manually, predictions resume.
 
 What Happens Next
 ==================
