@@ -2,7 +2,6 @@
   <img src="vocalance/app/assets/repo/banner_github.png" alt="Vocalance Logo" style="width:100%; max-width:1000px; height:auto;"/>
 </div>
 
-<!-- TODO: update links: -->
 <div align="center">
   <a href="https://vocalance.com">Website</a> |
   <a href="https://vocalance.readthedocs.io/en/latest/developer/introduction.html">Documentation</a> |
@@ -48,14 +47,16 @@ Vocalance can be set up entirely from the source code in this repository (curren
 2. Paste and run:
 
     ```powershell
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/misc-optimizations/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/main/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
     ```
 
    What the script does:
    - Clones the repository
    - Creates or recreates the `vocalance_env` virtual environment
    - Installs dependencies from the locked manifest
-   - Creates a Start Menu shortcut to launch Vocalance (no console)
+  - Creates a Start Menu shortcut to launch Vocalance (no console)
+
+  If you'd like to inspect what the installer will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.
 
 3. Open Vocalance from the Start menu.
 

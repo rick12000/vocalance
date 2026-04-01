@@ -92,11 +92,11 @@ if (Test-Path -LiteralPath $cloneDir) {
     }
     Write-Host 'Removing existing folder...'
     Remove-Item -LiteralPath $cloneDir -Recurse -Force
-    Write-Host "Cloning misc-optimizations branch into $cloneDir ..."
-    git clone --branch misc-optimizations --single-branch $CloneUrl $cloneDir
+    Write-Host "Cloning into $cloneDir ..."
+    git clone $CloneUrl $cloneDir
 } else {
-    Write-Host "Cloning misc-optimizations branch into $cloneDir ..."
-    git clone --branch misc-optimizations --single-branch $CloneUrl $cloneDir
+    Write-Host "Cloning into $cloneDir ..."
+    git clone $CloneUrl $cloneDir
 }
 
 $repoRoot = $cloneDir
