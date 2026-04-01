@@ -26,21 +26,10 @@ To find out more about what Vocalance can do, including detailed instructions an
 
 Vocalance can be set up entirely from the source code in this repository (currently only supported on Windows).
 
-### Easy Setup
+### ✨ **Easy Setup**
 
-
-<div style="background:#fff9e6;border-left:4px solid #f2c94c;border-radius:8px;padding:12px 14px;max-width:720px;margin-bottom:12px;">
-  <div style="display:flex;gap:12px;align-items:flex-start;">
-    <div style="font-size:18px;line-height:1;color:#b06f00;margin-top:2px;">⚠️</div>
-    <div style="min-width:0">
-      <div style="font-weight:600;color:#2c2c2c;margin-bottom:6px;">Requirement</div>
-      <div style="color:#333;line-height:1.4;">
-        Ensure Git is installed. If not, download the latest Git for Windows:
-        <a href="https://git-scm.com/download/win">https://git-scm.com/download/win</a>.
-      </div>
-    </div>
-  </div>
-</div>
+> [!IMPORTANT]
+> **Requirement:** Ensure Git is installed. If not, download the latest Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
 
 1. Open PowerShell (from Windows Start Menu).
 
@@ -54,13 +43,13 @@ Vocalance can be set up entirely from the source code in this repository (curren
    - Clones the repository
    - Creates or recreates the `vocalance_env` virtual environment
    - Installs dependencies from the locked manifest
-  - Creates a Start Menu shortcut to launch Vocalance (no console)
+   - Creates a Start Menu shortcut to launch Vocalance (no console)
 
-  If you'd like to inspect what the installer will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.
+   If you'd like to inspect what the script will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.
 
 3. Open Vocalance from the Start menu.
 
-### Developer Setup
+### 🛠️ **Developer Setup**
 
 #### 1. Set Up UV
 
