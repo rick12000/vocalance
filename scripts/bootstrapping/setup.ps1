@@ -152,18 +152,20 @@ if (-not (Test-Path -LiteralPath $pyExe)) {
 }
 
 Write-Host 'Installing dependencies (uv sync)...'
-uv sync --python $pyExe
+$env:VIRTUAL_ENV = $venvPath
+$env:UV_PROJECT_ENVIRONMENT = $venvPath
+uv sync
 
 $mainScript = Join-Path $repoRoot 'vocalance.py'
 $iconPath = Join-Path $repoRoot 'vocalance\app\assets\logo\icon.ico'
-$pyExe = Join-Path $venvPath 'Scripts\python.exe'
+$pythonw = Join-Path $venvPath 'Scripts\pythonw.exe'
 
 $shell = New-Object -ComObject WScript.Shell
 $programs = [Environment]::GetFolderPath('Programs')
 $shortcutPath = Join-Path $programs 'Vocalance.lnk'
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = "cmd.exe"
-$shortcut.Arguments = "/k `"`"$pyExe`" `"$mainScript`"`""
+$shortcut.TargetPath = $pythonw
+$shortcut.Arguments = "`"$mainScript`""
 $shortcut.WorkingDirectory = $repoRoot
 if (Test-Path -LiteralPath $iconPath) {
     $shortcut.IconLocation = "$iconPath,0"
@@ -172,4 +174,3 @@ $shortcut.Save()
 
 Write-Host ''
 Write-Host "Setup finished. Open Vocalance from the Start Menu shortcut (Vocalance)."
-Write-Host "Note: The console window will remain open to display any errors. You can close it once Vocalance starts."
