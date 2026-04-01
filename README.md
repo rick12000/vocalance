@@ -26,21 +26,10 @@ To find out more about what Vocalance can do, including detailed instructions an
 
 Vocalance can be set up entirely from the source code in this repository (currently only supported on Windows).
 
-### Easy Setup
+### ✨ **Easy Setup**
 
-
-<div style="background:#fff9e6;border-left:4px solid #f2c94c;border-radius:8px;padding:12px 14px;max-width:720px;margin-bottom:12px;">
-  <div style="display:flex;gap:12px;align-items:flex-start;">
-    <div style="font-size:18px;line-height:1;color:#b06f00;margin-top:2px;">⚠️</div>
-    <div style="min-width:0">
-      <div style="font-weight:600;color:#2c2c2c;margin-bottom:6px;">Requirement</div>
-      <div style="color:#333;line-height:1.4;">
-        Ensure Git is installed. If not, download the latest Git for Windows:
-        <a href="https://git-scm.com/download/win">https://git-scm.com/download/win</a>.
-      </div>
-    </div>
-  </div>
-</div>
+> [!IMPORTANT]
+> Ensure Git is installed. If not, download the latest Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
 
 1. Open PowerShell (from Windows Start Menu).
 
@@ -50,17 +39,17 @@ Vocalance can be set up entirely from the source code in this repository (curren
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/main/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
     ```
 
-   What the script does:
-   - Clones the repository
-   - Creates or recreates the `vocalance_env` virtual environment
-   - Installs dependencies from the locked manifest
-  - Creates a Start Menu shortcut to launch Vocalance (no console)
+   *If you'd like to inspect what the script will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.*
 
-  If you'd like to inspect what the installer will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.
+3. Open Vocalance from the Start Menu (search "vocalance" if not featured):
 
-3. Open Vocalance from the Start menu.
+<p align="center">
+  <img src="vocalance/app/assets/repo/shortcut.png" alt="Vocalance shortcut in the Windows Start menu under Recently added" width="200" />
+</p>
 
-### Developer Setup
+Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
+
+### 🛠️ **Developer Setup**
 
 #### 1. Set Up UV
 
@@ -110,17 +99,6 @@ The application will start up and download any required models (like speech reco
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how to get started.
 
-#### 3. Reopen Vocalance
-
-If you want to reopen Vocalance after you closed it, you can repeat above steps, but skipping all installation steps.
-
-Specificaly, open a new Windows PowerShell window and enter the following chained commands (taken from set up section):
-
-```bash
-$env:Path = "$HOME\.local\bin;$env:Path"; vocalance_env\Scripts\activate; cd vocalance; python vocalance.py
-```
-
-This will start Vocalance.
 
 ### An Aside on Pip
 

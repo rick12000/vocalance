@@ -75,7 +75,7 @@ class LoggingConfigModel(BaseModel):
     Attributes:
         level: Log verbosity level - DEBUG, INFO, WARNING, ERROR, or CRITICAL.
         format: Log message format string following Python logging formatter spec.
-        enable_logs: Enable logging to console and cache directory (default True).
+        enable_logs: When true, log to stdout and cache/logs; when false, no logging output (default false).
     """
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -83,8 +83,8 @@ class LoggingConfigModel(BaseModel):
     )
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s", description="Log message format")
     enable_logs: bool = Field(
-        default=True,
-        description="Enable logging. When true: logs go to console AND cache directory. When false: completely silent (privacy-first). Default: False",
+        default=False,
+        description="Enable logging to stdout and disk under cache/logs. When false: no log output (privacy-first).",
     )
 
 
