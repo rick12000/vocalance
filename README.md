@@ -43,6 +43,10 @@ Vocalance can be set up entirely from the source code in this repository (curren
 
 3. Open Vocalance from the Start Menu (search "vocalance" if not featured).
 
+<p align="center">
+  <img src="vocalance/app/assets/repo/shortcut.png" alt="Vocalance shortcut in the Windows Start menu under Recently added" width="200" />
+</p>
+
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
 
 ### 🛠️ **Developer Setup**
