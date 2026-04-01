@@ -10,7 +10,7 @@ readme = "README.md"
 authors = [
     {name = "Riccardo Doyle", email = "r.doyle.edu@gmail.com"}
 ]
-requires-python = ">=3.13"
+requires-python = "==3.13.9"
 classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
