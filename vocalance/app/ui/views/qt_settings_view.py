@@ -362,13 +362,9 @@ class QtSettingsView(QWidget):
         lbl.setVisible(True)
         btn.setVisible(True)
         if not eff_ok:
-            lbl.setText(
-                "The saved model is not fully on this device. Download it, or choose another installed model."
-            )
+            lbl.setText("The saved model is not fully on this device. Download it, or choose another installed model.")
         else:
-            lbl.setText(
-                "This model is not on this device. Download to use it; until then the saved model stays active."
-            )
+            lbl.setText("This model is not on this device. Download to use it; until then the saved model stays active.")
 
     def _on_llm_model_combo_changed(self, _index: int) -> None:
         if getattr(self, "_suppress_llm_combo_events", False) or not self.controller:

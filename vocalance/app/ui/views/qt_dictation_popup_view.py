@@ -4,15 +4,7 @@ from collections import deque
 from typing import Callable, Optional, cast
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import (
-    QBrush,
-    QColor,
-    QLinearGradient,
-    QPaintEvent,
-    QPainter,
-    QPalette,
-    QTextCharFormat,
-)
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPaintEvent, QPalette, QTextCharFormat
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel

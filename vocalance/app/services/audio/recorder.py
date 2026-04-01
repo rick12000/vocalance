@@ -10,7 +10,6 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDeviceErrorEvent
 
-
 _MIC_LOST_MESSAGE = (
     "The default microphone that was in use when Vocalance started is no longer available "
     "or could not be opened.\n\n"

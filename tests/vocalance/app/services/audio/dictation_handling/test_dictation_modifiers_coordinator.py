@@ -7,10 +7,7 @@ import pytest
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.audio.dictation_handling.dictation_coordinator import (
-    DictationCoordinator,
-    DictationMode,
-)
+from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator, DictationMode
 
 
 @pytest.fixture
@@ -20,11 +17,11 @@ def coordinator_minimal() -> DictationCoordinator:
     bus.subscribe = Mock()
     bus.publish = AsyncMock()
     storage = Mock()
-    with patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.TextInputService"
-    ), patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.LLMService"), patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.AgenticPromptService"
-    ), patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationAliasService"):
+    with patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.TextInputService"), patch(
+        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.LLMService"
+    ), patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.AgenticPromptService"), patch(
+        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationAliasService"
+    ):
         coord = DictationCoordinator(
             event_bus=bus,
             config=GlobalAppConfig(),
@@ -66,9 +63,7 @@ def test_dictation_segment_input_options(
         ("no modifiers here", "no modifiers here"),
     ],
 )
-def test_clean_text_strips_default_modifier_phrases(
-    coordinator_minimal: DictationCoordinator, raw: str, expected: str
-) -> None:
+def test_clean_text_strips_default_modifier_phrases(coordinator_minimal: DictationCoordinator, raw: str, expected: str) -> None:
     assert coordinator_minimal._clean_text(raw) == expected
 
 

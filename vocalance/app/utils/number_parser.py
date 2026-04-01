@@ -112,9 +112,7 @@ def detect_digit_sequence(text: str) -> Optional[str]:
 
     words = text.lower().split()
 
-    if len(words) > 1 and all(word in SINGLE_DIGIT_WORDS for word in words) and not any(
-        word in SCALE_WORDS for word in words
-    ):
+    if len(words) > 1 and all(word in SINGLE_DIGIT_WORDS for word in words) and not any(word in SCALE_WORDS for word in words):
         digit_map = {word: str(NUMBER_WORDS[word]) for word in SINGLE_DIGIT_WORDS}
         return "".join(digit_map[word] for word in words)
 
@@ -230,9 +228,7 @@ def _try_spoken_number_from_words(core_words: List[str], *, apply_homophones: bo
     return parse_spoken_integer(" ".join(core_words), apply_homophones=apply_homophones)
 
 
-def replace_spoken_numbers_in_text(
-    text: str, max_words_per_number: int = 12, *, apply_homophones: bool = True
-) -> str:
+def replace_spoken_numbers_in_text(text: str, max_words_per_number: int = 12, *, apply_homophones: bool = True) -> str:
     """Replace maximal runs of spoken number words with digit strings; other tokens unchanged.
 
     Default ``True`` for command-style text. Dictation should pass ``apply_homophones=False``.

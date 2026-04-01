@@ -448,9 +448,7 @@ async def test_input_text_skip_prose_preserves_leading_capital(
     text_input_service.last_text = "some prior chunk "
     _setup_clipboard_mocks(mock_paste, mock_copy, "HelloWorld")
 
-    result = await text_input_service.input_text(
-        "HelloWorld", skip_prose_segment_join_rules=True, add_trailing_space=False
-    )
+    result = await text_input_service.input_text("HelloWorld", skip_prose_segment_join_rules=True, add_trailing_space=False)
 
     assert result is True
     assert text_input_service.last_text == "HelloWorld"

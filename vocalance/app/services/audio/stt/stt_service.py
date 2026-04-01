@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus

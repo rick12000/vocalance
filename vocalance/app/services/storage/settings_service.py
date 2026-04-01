@@ -329,10 +329,16 @@ class SettingsService:
             "llm.max_tokens": lambda v: type(v) is int and 1 <= v <= 4096,
             "llm.selected_model_id": lambda v: isinstance(v, str) and is_whitelisted_llm_model_id(v),
             "grid.default_rect_count": lambda v: type(v) is int and v > 0,
-            "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= float(v) <= 1.0,
-            "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= float(v) <= 1.0,
+            "sound_recognizer.confidence_threshold": lambda v: isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and 0.0 <= float(v) <= 1.0,
+            "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and 0.0 <= float(v) <= 1.0,
             "markov_predictor.enabled": lambda v: isinstance(v, bool),
-            "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= float(v) <= 1.0,
+            "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and 0.0 <= float(v) <= 1.0,
             "vad.energy_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 < float(v) <= 1.0,
             "vad.command_silent_chunks_for_end": lambda v: type(v) is int and 1 <= v <= 1000,
         }

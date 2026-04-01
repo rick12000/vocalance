@@ -6,12 +6,10 @@ from typing import Any, Dict, Optional, Tuple
 
 from PySide6.QtCore import Signal
 
-from vocalance.app.config.app_config import get_whitelisted_llm_model
-from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
-
-from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.config.app_config import GlobalAppConfig, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.settings_events import SettingChangedEvent, SettingsResetEvent, SettingsUpdatedEvent
+from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 

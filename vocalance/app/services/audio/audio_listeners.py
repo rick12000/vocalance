@@ -20,9 +20,7 @@ from vocalance.app.services.audio.audio_processor import AdaptiveVADThreshold, A
 logger = logging.getLogger(__name__)
 
 
-def _schedule_publish_on_loop(
-    loop: Optional[asyncio.AbstractEventLoop], coro: Coroutine[Any, Any, Any], label: str
-) -> None:
+def _schedule_publish_on_loop(loop: Optional[asyncio.AbstractEventLoop], coro: Coroutine[Any, Any, Any], label: str) -> None:
     if loop is None:
         logger.error("%s: main event loop not set; dropping publish", label)
         return

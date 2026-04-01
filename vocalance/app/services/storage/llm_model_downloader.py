@@ -220,18 +220,14 @@ class LLMModelDownloader:
             if cancel_event is not None:
 
                 def _run_stream() -> Optional[str]:
-                    return self._sync_stream_download_file(
-                        repo_id, filename, cancel_event, progress_message_cb
-                    )
+                    return self._sync_stream_download_file(repo_id, filename, cancel_event, progress_message_cb)
 
                 return await loop.run_in_executor(self._executor, _run_stream)
 
             for attempt in range(1, max_retries + 1):
                 try:
                     logger.info(f"Downloading model {filename} from {repo_id} (attempt {attempt}/{max_retries})...")
-                    downloaded_path = await loop.run_in_executor(
-                        self._executor, self._sync_download_atomic, repo_id, filename
-                    )
+                    downloaded_path = await loop.run_in_executor(self._executor, self._sync_download_atomic, repo_id, filename)
 
                     if downloaded_path:
                         logger.info(f"Model downloaded successfully: {filename}")

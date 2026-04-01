@@ -100,9 +100,7 @@ async def test_maximum_duration_enforced(sound_listener, sound_chunk, event_bus)
 
 
 @pytest.mark.asyncio
-async def test_dictation_mode_disables_and_reenables_sound_processing(
-    sound_listener, sound_chunk, silence_chunk, event_bus
-):
+async def test_dictation_mode_disables_and_reenables_sound_processing(sound_listener, sound_chunk, silence_chunk, event_bus):
     sound_listener.setup_subscriptions()
     await event_bus.start_worker()
 

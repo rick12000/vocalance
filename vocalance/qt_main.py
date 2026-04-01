@@ -11,10 +11,10 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load_app_config
-from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
+from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.ui.qt_main_window import VocalanceMainWindow
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
 from vocalance.app.ui.qt_theme import theme
@@ -567,6 +567,7 @@ class FastServiceInitializer:
 
         with self._services_lock:
             self.services["control_room"] = control_room
+
 
 def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
     """Validate that critical assets exist before starting application.

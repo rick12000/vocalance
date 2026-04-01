@@ -18,8 +18,8 @@ from typing import Callable, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
-    DictationHiddenStartCommand,
     DictationAmendStartCommand,
+    DictationHiddenStartCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -52,13 +52,13 @@ from vocalance.app.events.dictation_events import (
     VisualDictationStoppedEvent,
 )
 from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
-from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
-from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
 from vocalance.app.services.audio.dictation_handling.dictation_postprocess import (
     apply_dictation_postprocess,
     apply_dictation_postprocess_partial,
     modifier_display_label,
 )
+from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
+from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
 from vocalance.app.services.audio.dictation_handling.text_input_service import TextInputService, remove_formatting
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
@@ -88,9 +88,7 @@ MOONSHINE_CHUNK_DICTATION_MODES = frozenset(
         DictationMode.AMEND,
     }
 )
-_STREAMING_STT_MODES = frozenset(
-    {DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN, DictationMode.AMEND}
-)
+_STREAMING_STT_MODES = frozenset({DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN, DictationMode.AMEND})
 _STREAMING_LLM_MODES = frozenset({DictationMode.SMART, DictationMode.AMEND})
 
 MOONSHINE_MODIFIER_SUPPRESS_SEC: float = 0.55
@@ -270,11 +268,7 @@ class DictationCoordinator:
             session = self._current_session
             state = self._current_state
 
-        if (
-            session is None
-            or session.mode not in MOONSHINE_CHUNK_DICTATION_MODES
-            or state != DictationState.RECORDING
-        ):
+        if session is None or session.mode not in MOONSHINE_CHUNK_DICTATION_MODES or state != DictationState.RECORDING:
             return
 
         if not self._stt_service or not self._stt_service.moonshine_engine:
@@ -427,9 +421,7 @@ class DictationCoordinator:
                     active_modifier=new_mod,
                 )
 
-            await self._publish_event(
-                DictationModifierStateChangedEvent(active=active, modifier_id=new_mod, display_label=label)
-            )
+            await self._publish_event(DictationModifierStateChangedEvent(active=active, modifier_id=new_mod, display_label=label))
             logger.info("Dictation modifier: %s -> %s", current, new_mod)
             if session.mode in MOONSHINE_CHUNK_DICTATION_MODES:
                 self._moonshine_suppress_until = time.monotonic() + MOONSHINE_MODIFIER_SUPPRESS_SEC
@@ -470,14 +462,10 @@ class DictationCoordinator:
 
     async def _publish_modifier_cleared(self) -> None:
         """Emit inactive modifier state (session end and similar)."""
-        await self._publish_event(
-            DictationModifierStateChangedEvent(active=False, modifier_id=None, display_label="")
-        )
+        await self._publish_event(DictationModifierStateChangedEvent(active=False, modifier_id=None, display_label=""))
 
     @staticmethod
-    def _dictation_segment_input_options(
-        mode: DictationMode, modifier: Optional[DictationModifierId]
-    ) -> tuple[bool, bool]:
+    def _dictation_segment_input_options(mode: DictationMode, modifier: Optional[DictationModifierId]) -> tuple[bool, bool]:
         """Return ``(add_trailing_space, skip_prose_segment_join_rules)`` for :meth:`TextInputService.input_text`.
 
         Camel, snake, and spelling modifiers disable trailing spaces and prose join rules (period removal
@@ -526,9 +514,7 @@ class DictationCoordinator:
                 else:
                     return
 
-            add_trailing, skip_join = self._dictation_segment_input_options(
-                updated_session.mode, updated_session.active_modifier
-            )
+            add_trailing, skip_join = self._dictation_segment_input_options(updated_session.mode, updated_session.active_modifier)
             await self.text_service.input_text(
                 text=cleaned_text,
                 add_trailing_space=add_trailing,
@@ -720,9 +706,7 @@ class DictationCoordinator:
                 return
 
         if session.mode != DictationMode.HIDDEN:
-            await self._publish_event(
-                FinalDictationTextEvent(text=processed, segment_id=segment_id or str(uuid.uuid4()))
-            )
+            await self._publish_event(FinalDictationTextEvent(text=processed, segment_id=segment_id or str(uuid.uuid4())))
 
         self._streaming_finalized_segments.append(processed)
 

@@ -10,8 +10,8 @@ import pyautogui
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
     BaseCommand,
-    DictationHiddenStartCommand,
     DictationAmendStartCommand,
+    DictationHiddenStartCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -106,9 +106,7 @@ class CentralizedCommandParser:
         self._pending_markov_prediction: Optional[str] = None
         self._pause_state_manager = pause_state_manager
         self._load_trigger_strings()
-        self._deduplicator = deduplicator or EventDeduplicator(
-            window_ms=app_config.command_parser.duplicate_detection_window_ms
-        )
+        self._deduplicator = deduplicator or EventDeduplicator(window_ms=app_config.command_parser.duplicate_detection_window_ms)
 
     def _load_trigger_strings(self) -> None:
         g = self._app_config.grid
@@ -395,9 +393,7 @@ class CentralizedCommandParser:
         self._pending_markov_prediction = event.predicted_command
         await self._process_text_input(text=event.predicted_command, source="markov", record_history=False)
 
-    async def _send_markov_feedback(
-        self, predicted: Optional[str], actual: str, was_correct: bool, source: str
-    ) -> None:
+    async def _send_markov_feedback(self, predicted: Optional[str], actual: str, was_correct: bool, source: str) -> None:
         predicted_for_event = predicted if predicted is not None else actual
         await self._event_bus.publish(
             MarkovPredictionFeedbackEvent(

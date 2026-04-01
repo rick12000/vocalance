@@ -43,7 +43,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
   </div>
 </div>
 
-1. Open PowerShell (from Start).
+1. Open PowerShell (from Windows Start Menu).
 
 2. Paste and run:
 
@@ -59,7 +59,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
 
 3. Open Vocalance from the Start menu.
 
-### Manual Setup
+### Developer Setup
 
 #### 1. Set Up UV
 
@@ -116,7 +116,7 @@ If you want to reopen Vocalance after you closed it, you can repeat above steps,
 Specificaly, open a new Windows PowerShell window and enter the following chained commands (taken from set up section):
 
 ```bash
-$env:Path = "$HOME\.local\bin;$env:Path"; vocalance_env\Scripts\activate; cd vocalance; uv sync --active; python vocalance.py
+$env:Path = "$HOME\.local\bin;$env:Path"; vocalance_env\Scripts\activate; cd vocalance; python vocalance.py
 ```
 
 This will start Vocalance.
@@ -166,8 +166,6 @@ The following features are planned additions to Vocalance, with some in early de
     *   **Zoom Option:** Add a zoom option to better direct gaze on screen contents.
 
 *   **Context-Aware Commands:** Implement context bucketing for commands, allowing the same command phrase (e.g., "previous") to map to different hotkeys depending on the active application (e.g., VSCode vs. Chrome). This aims to avoid disambiguation phrases.
-
-*   **LLM-Powered Text Refactoring:** Ability to select any text and reformat it via an LLM by speaking a prompt.
 
 *   **Improved Text Editing & Navigation:** Further enhancements to text editing and text navigation tools.
 

@@ -78,6 +78,7 @@ class SoundService:
             event_type=MapSoundToCommandPhraseCommand,
             handler=self._handle_map_sound_command,
         )
+
     async def initialize(self) -> bool:
         try:
             logger.info("Initializing SoundService...")
@@ -104,7 +105,7 @@ class SoundService:
 
             with self._training_lock:
                 training_active = self._training_active
-                current_label = self._current_training_label
+                self._current_training_label
 
             if training_active:
                 await self._collect_training_sample(audio=audio_float32, sample_rate=sample_rate)

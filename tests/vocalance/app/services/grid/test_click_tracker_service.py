@@ -5,7 +5,7 @@ import pytest
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.services.grid.click_tracker_service import ClickTrackerService, prioritize_grid_rects
-from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
+from vocalance.app.services.storage.storage_models import GridClicksData
 
 
 @pytest.fixture

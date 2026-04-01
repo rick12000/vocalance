@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QPushButton, QWidget
 

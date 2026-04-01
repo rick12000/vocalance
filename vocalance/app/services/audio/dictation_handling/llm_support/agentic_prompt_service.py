@@ -154,9 +154,7 @@ class AgenticPromptService:
         current = self.get_current_prompt_data()
         if current:
             await self.event_bus.publish(AgenticPromptUpdatedEvent(prompt=current.text, prompt_id=current.id))
-        await self.event_bus.publish(
-            AgenticPromptListUpdatedEvent(prompts=[p.model_dump() for p in self.prompts.values()])
-        )
+        await self.event_bus.publish(AgenticPromptListUpdatedEvent(prompts=[p.model_dump() for p in self.prompts.values()]))
 
     async def shutdown(self) -> None:
         await self._save_prompts()

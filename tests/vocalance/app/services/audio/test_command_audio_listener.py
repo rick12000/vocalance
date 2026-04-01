@@ -225,8 +225,5 @@ async def test_concurrent_chunk_processing_safe(command_listener, speech_chunk):
     command_listener.setup_subscriptions()
 
     await asyncio.gather(
-        *[
-            asyncio.to_thread(command_listener.process_audio_chunk, speech_chunk.tobytes(), float(i))
-            for i in range(10)
-        ]
+        *[asyncio.to_thread(command_listener.process_audio_chunk, speech_chunk.tobytes(), float(i)) for i in range(10)]
     )

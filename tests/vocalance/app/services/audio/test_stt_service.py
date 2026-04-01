@@ -4,10 +4,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 import pytest_asyncio
 
-from vocalance.app.events.core_events import (
-    CommandAudioSegmentReadyEvent,
-    CommandTextRecognizedEvent,
-)
+from vocalance.app.events.core_events import CommandAudioSegmentReadyEvent, CommandTextRecognizedEvent
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 
