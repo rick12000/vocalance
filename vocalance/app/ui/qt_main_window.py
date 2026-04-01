@@ -576,11 +576,6 @@ class VocalanceMainWindow(QMainWindow):
             self.logger.error(f"Error cleaning up controllers: {e}", exc_info=True)
 
     # Controller callbacks
-    def on_grid_visibility_changed(
-        self, visible: bool, rows: Optional[int], cols: Optional[int], show_numbers: Optional[bool]
-    ) -> None:
-        self.logger.debug(f"Grid display updated. Visible: {visible}")
-
     def on_prompts_updated(self, prompts) -> None:
         pass
 
@@ -643,7 +638,7 @@ class VocalanceMainWindow(QMainWindow):
                 self.marks_controller = QtMarksController(self.event_bus, self.event_loop, self._mark_service, self.config, self)
 
             if hasattr(self, "_grid_service") and self._grid_service:
-                self.grid_controller = QtGridController(self.event_bus, self.event_loop, self._grid_service, self.config, self)
+                self.grid_controller = QtGridController(self.event_bus, self.event_loop, self._grid_service, self.config)
 
             if hasattr(self, "_sound_service") and self._sound_service:
                 self.sound_controller = QtSoundController(

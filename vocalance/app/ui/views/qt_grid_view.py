@@ -79,13 +79,8 @@ class QtGridView(QWidget):
         self._cached_cell_w: float = 0
         self._cached_cell_h: float = 0
 
-        # Click count cache for instant display (lag-by-one strategy)
-        self._click_count_cache: Dict[tuple, List[Dict[str, Any]]] = {}
-        self._cache_lock = threading.Lock()
-        self._background_update_task: Optional[threading.Thread] = None
-
-        # Prevent concurrent show() calls from causing flicker
         self._is_preparing = False
+        self._layout_device_pixel_ratio: float = 1.0
 
         # Focus management - track pending focus timers
         self._focus_timers: List[QTimer] = []
@@ -136,48 +131,6 @@ class QtGridView(QWidget):
     def set_controller_callback(self, callback) -> None:
         """Set the controller callback."""
         self.controller_callback = callback
-
-    def _get_cache_key(self, num_rects: int) -> tuple:
-        """Generate cache key based on grid configuration."""
-        return (num_rects, self.screen_width, self.screen_height)
-
-    def _schedule_background_click_count_update(self, cache_key: tuple, rect_definitions: List[Dict[str, Any]]) -> None:
-        """Schedule background update of click counts for next display.
-
-        This runs in a background thread to update the cache without blocking the UI.
-        The next time the grid is shown, it will use the updated cached values.
-        """
-        # Cancel any existing background update
-        if self._background_update_task and self._background_update_task.is_alive():
-            # Let it finish - we'll just start a new one
-            pass
-
-        def update_cache():
-            try:
-                # Recalculate click counts in background
-                updated_counts = self._calculate_click_counts_sync(rect_definitions)
-
-                # Update cache atomically
-                with self._cache_lock:
-                    self._click_count_cache[cache_key] = updated_counts
-
-                self.logger.debug(f"Background cache update completed for {len(rect_definitions)} cells")
-            except Exception as e:
-                self.logger.error(f"Error in background cache update: {e}", exc_info=True)
-
-        # Start background thread
-        self._background_update_task = threading.Thread(target=update_cache, daemon=True)
-        self._background_update_task.start()
-
-    def invalidate_click_count_cache(self) -> None:
-        """Invalidate the click count cache when new clicks are added.
-
-        This should be called whenever a click is logged to ensure the cache
-        gets refreshed on the next grid display.
-        """
-        with self._cache_lock:
-            self._click_count_cache.clear()
-            self.logger.debug("Click count cache invalidated")
 
     def _calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Calculate click counts from click tracker service synchronously.
@@ -377,9 +330,7 @@ class QtGridView(QWidget):
         if not rect_map or num_cols == 0 or num_rows == 0 or cell_w == 0 or cell_h == 0:
             return
 
-        # Get device pixel ratio for coordinate conversion
-        primary = QApplication.primaryScreen()
-        dpr = primary.devicePixelRatio() if primary else 1.0
+        dpr = self._layout_device_pixel_ratio
 
         # Get the window size in logical pixels (this is the actual drawable area)
         window_width = self.width()
@@ -558,6 +509,7 @@ class QtGridView(QWidget):
             if primary:
                 geometry = primary.geometry()
                 device_pixel_ratio = primary.devicePixelRatio()
+                self._layout_device_pixel_ratio = float(device_pixel_ratio)
 
                 # Calculate PHYSICAL pixels (what pyautogui uses)
                 # Qt geometry() returns logical pixels, multiply by DPR for physical
@@ -576,8 +528,8 @@ class QtGridView(QWidget):
                 logical_width = geometry.width()
                 logical_height = geometry.height()
             else:
-                # Fallback geometry
                 self.logger.warning("No primary screen found, using fallback geometry")
+                self._layout_device_pixel_ratio = 1.0
                 self.screen_width = 1920
                 self.screen_height = 1080
                 device_pixel_ratio = 1.0
@@ -599,30 +551,14 @@ class QtGridView(QWidget):
                 self._is_preparing = False
                 return
 
-            cache_key = self._get_cache_key(num_rects)
-            cache_hit = False
-
-            with self._cache_lock:
-                if cache_key in self._click_count_cache:
-                    rects_with_clicks = self._click_count_cache[cache_key]
-                    cache_hit = True
-                    self.logger.info(f"Using cached click counts for {len(rect_definitions)} cells")
-                else:
-                    self.logger.info(f"Calculating click counts for {len(rect_definitions)} cells")
-                    rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
-                    self._click_count_cache[cache_key] = rects_with_clicks
-
+            self.logger.debug(f"Calculating click counts for {len(rect_definitions)} cells")
+            rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
             t3 = time.perf_counter()
-            if cache_hit:
-                self.logger.debug(f"Click counting (cached): {(t3-t2)*1000:.1f}ms")
-            else:
-                self.logger.debug(f"Click counting (computed): {(t3-t2)*1000:.1f}ms")
+            self.logger.debug(f"Click counting: {(t3-t2)*1000:.1f}ms")
 
             weighted_rects = prioritize_grid_rects(rects_with_clicks)
             t4 = time.perf_counter()
             self.logger.debug(f"Prioritization: {(t4-t3)*1000:.1f}ms")
-
-            self._schedule_background_click_count_update(cache_key, rect_definitions)
 
             logical_cell_w = cell_w / device_pixel_ratio
             logical_cell_h = cell_h / device_pixel_ratio
@@ -739,11 +675,6 @@ class QtGridView(QWidget):
         except Exception as e:
             self.logger.error(f"Error hiding grid: {e}", exc_info=True)
 
-    def refresh_display(self) -> None:
-        """Refresh the grid display."""
-        if self._is_active and self.current_num_rects_displayed:
-            self.update()
-
     def _publish_grid_mouse_click(self, x: int, y: int) -> None:
         """Log a grid-originated click at physical coordinates (click tracking)."""
         ev = PerformMouseClickEventData(x=x, y=y, source="grid")
@@ -852,13 +783,5 @@ class QtGridView(QWidget):
         with self._state_lock:
             self.ui_to_rect_data_map.clear()
             self._is_active = False
-
-        # Clean up cache
-        with self._cache_lock:
-            self._click_count_cache.clear()
-
-        # Wait for background task to complete if running
-        if self._background_update_task and self._background_update_task.is_alive():
-            self._background_update_task.join(timeout=0.1)
 
         self.logger.debug("QtGridView cleanup completed")

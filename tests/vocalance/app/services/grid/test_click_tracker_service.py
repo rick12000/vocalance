@@ -4,7 +4,6 @@ import pytest
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.core_events import PerformMouseClickEventData
-from vocalance.app.events.grid_events import RequestClickCountsForGridEventData
 from vocalance.app.services.grid.click_tracker_service import ClickTrackerService, prioritize_grid_rects
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 
@@ -77,6 +76,21 @@ def test_prioritize_grid_rects_handles_invalid_clicks():
     assert result[0]["id"] == 3
 
 
+def test_prioritize_grid_rects_stable_ties_by_position():
+    """Equal click counts sort deterministically by screen position (not random)."""
+
+    def make_rects():
+        return [
+            {"data": {"x": 100, "y": 200}, "clicks": 1},
+            {"data": {"x": 0, "y": 0}, "clicks": 1},
+        ]
+
+    r1 = prioritize_grid_rects(make_rects())
+    r2 = prioritize_grid_rects(make_rects())
+    assert [(r["data"]["x"], r["data"]["y"]) for r in r1] == [(r["data"]["x"], r["data"]["y"]) for r in r2]
+    assert r1[0]["data"]["y"] == 0
+
+
 @pytest.mark.asyncio
 async def test_handle_mouse_click_stores_click(click_tracker, mock_storage, mock_event_bus):
     """Test mouse click event stores click data in memory cache."""
@@ -101,30 +115,6 @@ async def test_handle_mouse_click_publishes_event(click_tracker, mock_storage, m
 
     # Should publish event through event publisher
     # Event publisher uses thread-safe publish, not event_bus.publish directly
-
-
-@pytest.mark.asyncio
-async def test_handle_click_counts_request(click_tracker, mock_storage):
-    """Test calculating click counts for grid rectangles."""
-    # Setup existing clicks
-    existing_clicks = [
-        GridClickEvent(x=50, y=50, timestamp=1000.0, cell_id=None),
-        GridClickEvent(x=150, y=150, timestamp=2000.0, cell_id=None),
-        GridClickEvent(x=250, y=250, timestamp=3000.0, cell_id=None),
-    ]
-    mock_storage.read.return_value = GridClicksData(clicks=existing_clicks)
-
-    # Define rectangles
-    rect_defs = [
-        {"id": 1, "x": 0, "y": 0, "w": 100, "h": 100},
-        {"id": 2, "x": 100, "y": 100, "w": 100, "h": 100},
-        {"id": 3, "x": 200, "y": 200, "w": 100, "h": 100},
-    ]
-
-    event = RequestClickCountsForGridEventData(request_id="123", rect_definitions=rect_defs)
-    await click_tracker._handle_click_counts_request(event)
-
-    # Event publisher should be called with response
 
 
 @pytest.mark.asyncio
