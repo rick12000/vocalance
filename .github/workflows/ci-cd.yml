@@ -36,3 +36,13 @@ jobs:
     - name: Run pre-commit
       run: |
         pre-commit run --all-files
+
+  verify-logging-default-off:
+    name: Verify enable_logs defaults to false
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert LoggingConfigModel.enable_logs is default False
+        run: python3 scripts/ci/assert_logging_disabled_by_default.py
