@@ -156,12 +156,13 @@ uv sync --python $pyExe
 
 $mainScript = Join-Path $repoRoot 'vocalance.py'
 $iconPath = Join-Path $repoRoot 'vocalance\app\assets\logo\icon.ico'
+$pyExe = Join-Path $venvPath 'Scripts\python.exe'
 
 $shell = New-Object -ComObject WScript.Shell
 $programs = [Environment]::GetFolderPath('Programs')
 $shortcutPath = Join-Path $programs 'Vocalance.lnk'
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $pythonw
+$shortcut.TargetPath = $pyExe
 $shortcut.Arguments = "`"$mainScript`""
 $shortcut.WorkingDirectory = $repoRoot
 if (Test-Path -LiteralPath $iconPath) {
@@ -171,3 +172,4 @@ $shortcut.Save()
 
 Write-Host ''
 Write-Host "Setup finished. Open Vocalance from the Start Menu shortcut (Vocalance)."
+Write-Host "Note: The console window will remain open to display any errors. You can close it once Vocalance starts."
