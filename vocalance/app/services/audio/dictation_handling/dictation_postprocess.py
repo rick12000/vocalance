@@ -1,4 +1,4 @@
-"""Dictation transcription post-processing: base number normalization and optional modifiers."""
+"""Post-process dictation text: numbers, then optional casing/spelling modifiers."""
 
 from __future__ import annotations
 
@@ -18,12 +18,10 @@ _MODIFIER_DISPLAY: dict[str, str] = {
 
 
 def modifier_display_label(modifier_id: DictationModifierId) -> str:
-    """Short UI label for a modifier id (e.g. ``upper`` → ``Upper``)."""
     return _MODIFIER_DISPLAY.get(modifier_id, modifier_id)
 
 
 def strip_trailing_period_after_numbers(text: str) -> str:
-    """Remove a sentence-like period immediately after an integer token; preserve decimals such as ``3.14``."""
     if not text:
         return text
     s = re.sub(r"(\d)\s+\.(?=\s|$)", r"\1 ", text)
@@ -32,7 +30,6 @@ def strip_trailing_period_after_numbers(text: str) -> str:
 
 
 def apply_base_postprocess(text: str) -> str:
-    """Lightweight base layer: spoken cardinals/digit sequences to numerals, then digit/punct cleanup."""
     if not text:
         return text
     s = re.sub(r"\s+", " ", text.strip())
@@ -52,7 +49,6 @@ def _title_each_word(text: str) -> str:
 
 
 def _words_for_camel_snake(text: str) -> list[str]:
-    """Split identifier tokens: drop punctuation, treat underscores as separators."""
     s = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     s = re.sub(r"[_]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -62,7 +58,6 @@ def _words_for_camel_snake(text: str) -> list[str]:
 
 
 def _to_camel_case(text: str) -> str:
-    """UpperCamelCase (PascalCase): each word capitalized, concatenated, no punctuation."""
     words = _words_for_camel_snake(text)
     if not words:
         return ""
@@ -79,7 +74,6 @@ def _to_camel_case(text: str) -> str:
 
 
 def _to_snake_case(text: str) -> str:
-    """Lowercase words from :func:`_words_for_camel_snake`, joined with underscores."""
     words = _words_for_camel_snake(text)
     return "_".join(w.lower() for w in words if w)
 
@@ -165,7 +159,6 @@ _SPELLING_PUNCT_PHRASES: list[tuple[str, str]] = sorted(
 
 
 def _apply_spelling_modifier(text: str) -> str:
-    """Strip punct/case from spoken words, map spoken punctuation phrases, then sentence casing."""
     if not text:
         return text
 
@@ -197,7 +190,6 @@ def _apply_spelling_modifier(text: str) -> str:
 
 
 def _join_spelling_tokens(parts: list[str]) -> str:
-    """Join word tokens and punctuation: glue symbols; no space after a just-inserted punctuation symbol."""
     if not parts:
         return ""
     result = ""
@@ -221,7 +213,6 @@ def _join_spelling_tokens(parts: list[str]) -> str:
 
 
 def _apply_sentence_casing_after_punct(text: str) -> str:
-    """Capitalize first alpha after . ? ! and start of string."""
     if not text:
         return text
     chars = list(text)
@@ -241,7 +232,6 @@ def _apply_sentence_casing_after_punct(text: str) -> str:
 
 
 def apply_modifier_transform(text: str, modifier_id: DictationModifierId) -> str:
-    """Apply the active modifier transform after the base number pass."""
     if modifier_id == "upper":
         return _title_each_word(text)
     if modifier_id == "capitals":
@@ -256,7 +246,6 @@ def apply_modifier_transform(text: str, modifier_id: DictationModifierId) -> str
 
 
 def apply_dictation_postprocess(text: str, modifier_id: Optional[DictationModifierId]) -> str:
-    """Run :func:`apply_base_postprocess` then :func:`apply_modifier_transform` when a modifier is active."""
     if not text:
         return text
     result = apply_base_postprocess(text)
@@ -266,7 +255,6 @@ def apply_dictation_postprocess(text: str, modifier_id: Optional[DictationModifi
 
 
 def apply_dictation_postprocess_partial(text: str, modifier_id: Optional[DictationModifierId]) -> str:
-    """Like :func:`apply_dictation_postprocess`, but leaves the **spelling** modifier unapplied (stable partials)."""
     if not text:
         return text
     result = apply_base_postprocess(text)

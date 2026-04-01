@@ -25,69 +25,35 @@ import tensorflow as tf
 
 logger = logging.getLogger(__name__)
 
+_EMBEDDING_DIM = 5120
+
 
 class SimpleStandardScaler:
     def __init__(self) -> None:
-        """Initialize scaler with no fit data."""
         self.mean: Optional[np.ndarray] = None
         self.std: Optional[np.ndarray] = None
         self._is_fitted = False
 
     def fit(self, X: np.ndarray) -> "SimpleStandardScaler":
-        """Fit scaler with mean and std of training data.
-
-        Args:
-            X: Training data array of shape (n_samples, n_features).
-
-        Returns:
-            Self for method chaining.
-        """
         self.mean = np.mean(X, axis=0)
         self.std = np.std(X, axis=0)
-        # Avoid division by zero and numerical instability
-        # Use 0.01 as minimum std (prevents huge scaled values)
         self.std = np.maximum(self.std, 0.01)
         self._is_fitted = True
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
-        """Transform data using fitted mean and std.
-
-        Args:
-            X: Data to transform.
-
-        Returns:
-            Normalized data.
-        """
         if not self._is_fitted or self.mean is None or self.std is None:
             raise ValueError("Scaler must be fit before transform")
         return (X - self.mean) / self.std
 
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
-        """Fit scaler and transform data in one step.
-
-        Args:
-            X: Data to fit and transform.
-
-        Returns:
-            Normalized data.
-        """
         return self.fit(X).transform(X)
 
 
 class AudioPreprocessor:
-    """Essential audio preprocessing for consistent embeddings.
-
-    Performs resampling, silence trimming, duration normalization, and amplitude
-    normalization to ensure consistent audio features for embedding generation.
-    """
+    """Resample, optional silence trim, pad/crop duration, peak-normalize for YAMNet."""
 
     def __init__(self, config: "SoundRecognizerConfig") -> None:
-        """Initialize preprocessor from configuration.
-
-        Args:
-            config: Sound recognizer configuration with preprocessing parameters.
-        """
         self.target_sr = config.target_sample_rate
         self.silence_threshold = config.silence_threshold
         self.min_sound_duration = config.min_sound_duration
@@ -95,23 +61,9 @@ class AudioPreprocessor:
         self.frame_length = config.frame_length
         self.hop_length = config.hop_length
         self.normalization_level = config.normalization_level
-        # Flag to indicate if audio is already VAD-segmented (skip silence trimming)
-        self.skip_silence_trimming = True  # VAD already segments properly
+        self.skip_silence_trimming = True
 
     def preprocess_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
-        """Essential preprocessing pipeline: resample, trim silence, normalize.
-
-        Args:
-            audio: Input audio numpy array.
-            sr: Sample rate of input audio.
-
-        Returns:
-            Preprocessed audio array ready for embedding extraction.
-
-        Raises:
-            TypeError: If audio is not a numpy array.
-            ValueError: If audio is empty or sample rate is invalid.
-        """
         if not isinstance(audio, np.ndarray):
             raise TypeError("Audio must be a numpy array")
 
@@ -134,28 +86,20 @@ class AudioPreprocessor:
                 logger.error(f"Resample failed: sr={sr}, target={self.target_sr}, audio_shape={audio.shape}, error={e}")
                 raise ValueError(f"Failed to resample audio: {e}")
 
-        # OPTIMIZATION: Skip silence trimming for VAD-segmented audio
-        # The SoundAudioListener already performs energy-based onset/offset detection,
-        # so additional trimming creates a double-filtering effect and may remove
-        # important transient characteristics. Pre-roll buffer also captures onset.
         if not self.skip_silence_trimming:
             audio = self._trim_silence(audio=audio)
 
         duration = len(audio) / self.target_sr
 
-        # IMPROVED DURATION NORMALIZATION: Use symmetric padding and center cropping
-        # This preserves sound characteristics better than left-aligned operations
         if duration < self.min_sound_duration:
             target_samples = int(self.min_sound_duration * self.target_sr)
             pad_total = target_samples - len(audio)
-            # Symmetric padding: add silence equally on both sides
             pad_left = pad_total // 2
             pad_right = pad_total - pad_left
             audio = np.pad(audio, (pad_left, pad_right), mode="constant")
             logger.debug(f"Padded audio symmetrically: {pad_left} left, {pad_right} right")
         elif duration > self.max_sound_duration:
             target_samples = int(self.max_sound_duration * self.target_sr)
-            # Center crop: extract middle portion to preserve main sound content
             start_idx = (len(audio) - target_samples) // 2
             audio = audio[start_idx : start_idx + target_samples]
             logger.debug(f"Center-cropped audio from sample {start_idx} to {start_idx + target_samples}")
@@ -167,14 +111,6 @@ class AudioPreprocessor:
         return audio
 
     def _trim_silence(self, audio: np.ndarray) -> np.ndarray:
-        """Trim silence using RMS energy analysis with adaptive noise floor.
-
-        Args:
-            audio: Audio array to trim.
-
-        Returns:
-            Trimmed audio with silence removed from start and end.
-        """
         rms = librosa.feature.rms(y=audio, frame_length=self.frame_length, hop_length=self.hop_length)[0]
 
         sorted_rms = np.sort(rms)
@@ -197,28 +133,9 @@ class AudioPreprocessor:
 
 
 class SoundRecognizer:
-    """Streamlined sound recognizer focused on core functionality.
-
-    Uses YAMNet embeddings and cosine similarity for real-time sound recognition.
-    Supports training from user-recorded sounds, voting-based classification for
-    robustness, and persistent storage of trained models. Thread-safe for concurrent
-    recognition and training operations.
-
-    Attributes:
-        yamnet_model: Loaded YAMNet TensorFlow model for embedding extraction.
-        scaler: StandardScaler for normalizing embeddings.
-        embeddings: Stored sound embeddings for recognition.
-        labels: Corresponding labels for each embedding.
-        sound_mapping: Dict mapping sound IDs to automation command phrases.
-    """
+    """YAMNet temporal embeddings, k-NN + voting, persisted model and mappings (thread-safe)."""
 
     def __init__(self, config: GlobalAppConfig, storage: StorageService) -> None:
-        """Initialize recognizer with thread-safe state management.
-
-        Args:
-            config: Global application configuration.
-            storage: Storage service for persistent model data.
-        """
         self.asset_path_config = config.asset_paths
         self.config = config.sound_recognizer
         self._storage = storage
@@ -229,14 +146,13 @@ class SoundRecognizer:
 
         self.yamnet_model = None
         self.scaler = SimpleStandardScaler()
-        self.embeddings: np.ndarray = np.empty((0, 5120))
+        self.embeddings: np.ndarray = np.empty((0, _EMBEDDING_DIM))
         self.labels: List[str] = []
         self.mappings: Dict[str, str] = {}
 
         self._model_lock = RLock()
         self._shutdown_event = asyncio.Event()
 
-        # Thread pool for blocking I/O (single worker ensures sequential, non-concurrent saves)
         self._file_io_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sound-file-io")
 
         self.target_sr = self.config.target_sample_rate
@@ -256,15 +172,6 @@ class SoundRecognizer:
         logger.info("SoundRecognizer initialized")
 
     async def initialize(self) -> bool:
-        """Initialize YAMNet model and load existing data.
-
-        Loads YAMNet TensorFlow model, loads persisted embeddings/labels/scaler.
-        ESC-50 samples are now copied at app startup via warm_start_esc50_samples()
-        to avoid blocking first training.
-
-        Returns:
-            True if initialization successful, False otherwise.
-        """
         try:
             logger.info("Initializing SoundRecognizer...")
 
@@ -288,25 +195,14 @@ class SoundRecognizer:
             return False
 
     async def warm_start_esc50_samples(self) -> None:
-        """Warm-start ESC-50 sample copying at application startup.
-
-        Called during app initialization to pre-cache ESC-50 samples without blocking
-        the first sound training operation. This ensures training is fast even on first
-        use of the application.
-
-        This method is non-critical - if ESC-50 samples haven't been copied when
-        training starts, the training will work (just without negative examples).
-        """
         try:
             logger.info("Warm-starting ESC-50 sample cache...")
             await self._copy_esc50_samples()
             logger.info("ESC-50 warm-start completed")
         except Exception as e:
             logger.error(f"Failed to warm-start ESC-50 samples (non-critical): {e}")
-            # Don't raise - this is a nice-to-have optimization, not critical
 
     async def _load_model_data_async(self) -> None:
-        """Load saved model data asynchronously."""
         try:
             embeddings_path = os.path.join(self.model_path, "embeddings.npy")
             labels_path = os.path.join(self.model_path, "labels.joblib")
@@ -336,13 +232,12 @@ class SoundRecognizer:
         except Exception as e:
             logger.error(f"Failed to load model data: {e}", exc_info=True)
             with self._model_lock:
-                self.embeddings = np.empty((0, 5120))
+                self.embeddings = np.empty((0, _EMBEDDING_DIM))
                 self.labels = []
                 self.mappings = {}
                 self.scaler = SimpleStandardScaler()
 
     async def _load_mappings_from_storage(self) -> None:
-        """Load sound mappings from storage service."""
         try:
             mappings_data = await self._storage.read(model_type=SoundMappingsData)
             if mappings_data:
@@ -357,19 +252,6 @@ class SoundRecognizer:
                 self.mappings = {}
 
     def _save_model_files_sync(self, embeddings: np.ndarray, labels: List[str], scaler_obj: "SimpleStandardScaler") -> bool:
-        """Synchronously save model files (runs in thread pool executor).
-
-        This method performs blocking I/O and should only be called via run_in_executor
-        to avoid blocking the event loop during sound training.
-
-        Args:
-            embeddings: Embeddings array to save.
-            labels: Labels list to save.
-            scaler_obj: SimpleStandardScaler object to save.
-
-        Returns:
-            True if all files saved successfully, False otherwise.
-        """
         try:
             np.save(os.path.join(self.model_path, "embeddings.npy"), embeddings)
             with open(os.path.join(self.model_path, "labels.joblib"), "wb") as f:
@@ -383,14 +265,6 @@ class SoundRecognizer:
             return False
 
     async def _save_model_data_async(self) -> bool:
-        """Save model data asynchronously without blocking the event loop.
-
-        Offloads blocking I/O to thread pool executor. Returns control to event loop
-        immediately, allowing UI to remain responsive during training completion.
-
-        Returns:
-            True if all data saved successfully, False otherwise.
-        """
         try:
             with self._model_lock:
                 embeddings = self.embeddings.copy()
@@ -398,7 +272,6 @@ class SoundRecognizer:
                 scaler_obj = self.scaler
                 mappings = self.mappings.copy()
 
-            # Offload blocking file I/O to thread pool (non-blocking to event loop)
             loop = asyncio.get_event_loop()
             success = await loop.run_in_executor(
                 self._file_io_executor, self._save_model_files_sync, embeddings, labels, scaler_obj
@@ -407,7 +280,6 @@ class SoundRecognizer:
             if not success:
                 return False
 
-            # Save mappings through storage service (already async)
             mappings_data = SoundMappingsData(mappings=mappings)
             return await self._storage.write(data=mappings_data)
 
@@ -416,14 +288,11 @@ class SoundRecognizer:
             return False
 
     async def _initialize_yamnet_model(self) -> bool:
-        """Initialize YAMNet model by copying from assets."""
         try:
-            # Get YAMNet path from config
             assets_yamnet_path = self.asset_path_config.yamnet_model_path
             app_yamnet_path = os.path.join(self.model_path, "yamnet")
 
             if await self._copy_yamnet_from_assets(assets_path=assets_yamnet_path, app_path=app_yamnet_path):
-                # Load from app directory
                 self.yamnet_model = tf.saved_model.load(app_yamnet_path)
                 logger.info("YAMNet model copied from assets and loaded successfully")
                 return True
@@ -437,25 +306,21 @@ class SoundRecognizer:
             return False
 
     async def _copy_yamnet_from_assets(self, assets_path: str, app_path: str) -> bool:
-        """Copy YAMNet model from assets to app directory."""
         try:
             if not os.path.exists(assets_path):
                 logger.info(f"YAMNet model not found in assets at {assets_path}")
                 return False
 
-            # Check if already copied and valid
             if os.path.exists(app_path) and self._validate_yamnet_model(app_path):
                 logger.info("YAMNet model already exists in app directory")
                 return True
 
-            # Copy the entire model directory
             if os.path.exists(app_path):
                 shutil.rmtree(app_path)
 
             shutil.copytree(src=assets_path, dst=app_path)
             logger.info(f"YAMNet model copied from {assets_path} to {app_path}")
 
-            # Validate the copied model
             if self._validate_yamnet_model(app_path):
                 return True
 
@@ -470,19 +335,15 @@ class SoundRecognizer:
             return False
 
     def _validate_yamnet_model(self, model_path: str) -> bool:
-        """Validate that the YAMNet model directory contains required files."""
         try:
             variables_dir = os.path.join(model_path, "variables")
 
-            # Check for saved_model.pb
             if not os.path.exists(os.path.join(model_path, "saved_model.pb")):
                 return False
 
-            # Check for variables directory and files
             if not os.path.exists(variables_dir):
                 return False
 
-            # Check for variables files
             variables_files = os.listdir(variables_dir)
             if not any(f.startswith("variables.data") for f in variables_files):
                 return False
@@ -496,18 +357,11 @@ class SoundRecognizer:
             return False
 
     async def _copy_esc50_samples(self) -> None:
-        """Copy ESC-50 samples from assets to app directory if needed.
-
-        Thread-safe and idempotent - can be called concurrently without issues.
-        """
         try:
-            # Get ESC-50 path from config
             assets_esc50_path = self.asset_path_config.esc50_samples_path
 
-            # Check what categories we need
             needed_categories = []
             for category in self.esc50_categories.keys():
-                # Check if any files exist for this category in app directory
                 try:
                     category_files = [
                         f
@@ -517,7 +371,6 @@ class SoundRecognizer:
                     if len(category_files) < self.max_esc50_per_cat:
                         needed_categories.append(category)
                 except FileNotFoundError:
-                    # external_sounds_path might not exist yet on first run
                     needed_categories.append(category)
 
             if not needed_categories:
@@ -532,7 +385,6 @@ class SoundRecognizer:
             logger.debug(f"Failed to copy ESC-50 samples (non-critical): {e}")
 
     async def _copy_categories_from_assets(self, assets_path: str, categories: list) -> int:
-        """Copy specific ESC-50 categories from assets to app directory."""
         if not os.path.exists(assets_path):
             raise ValueError(f"ESC-50 assets not found at {assets_path}")
 
@@ -544,11 +396,9 @@ class SoundRecognizer:
                 logger.warning(f"Category {category} not found in assets, skipping")
                 continue
 
-            # Get wav files from assets
             wav_files = [f for f in os.listdir(category_path) if f.endswith(".wav")]
             files_to_copy = wav_files[: self.max_esc50_per_cat]
 
-            # Copy files to app directory
             for wav_file in files_to_copy:
                 src = os.path.join(category_path, wav_file)
                 dst = os.path.join(self.external_sounds_path, f"esc50_{category}_{wav_file}")
@@ -560,19 +410,6 @@ class SoundRecognizer:
         return copied_count
 
     def recognize_sound(self, audio: np.ndarray, sr: int) -> Optional[Tuple[str, float]]:
-        """Core recognition method using YAMNet embeddings and k-NN voting.
-
-        Extracts embedding from audio, calculates cosine similarities to all trained
-        embeddings, applies k-NN voting with custom sound prioritization, and returns
-        result if confidence and vote thresholds are met. Thread-safe.
-
-        Args:
-            audio: Audio numpy array to recognize.
-            sr: Sample rate of audio.
-
-        Returns:
-            Tuple of (sound_label, confidence) if recognized, None otherwise.
-        """
         if not isinstance(audio, np.ndarray) or sr <= 0:
             logger.warning("Invalid audio input")
             return None
@@ -586,59 +423,46 @@ class SoundRecognizer:
             labels_copy = self.labels.copy()
             scaler_obj = self.scaler
 
-        # Extract embedding with preprocessing
         embedding = self._extract_embedding(audio=audio, sr=sr)
         if embedding is None:
             return None
 
-        # Scale embedding
         try:
             scaled_embedding = scaler_obj.transform(embedding.reshape(1, -1))[0]
         except Exception as e:
             logger.error(f"Failed to scale embedding: {e}")
             return None
 
-        # Calculate similarities using scipy.spatial.distance.cosine
-        # Result is 1 - cosine_distance for similarity (higher is more similar)
         similarities = np.array([1 - cosine(scaled_embedding, emb) for emb in embeddings_copy])
 
-        # Get top-k neighbors
         top_indices = np.argsort(similarities)[-self.k_neighbors :][::-1]
         top_similarities = similarities[top_indices]
         top_labels = [labels_copy[i] for i in top_indices]
 
-        # Confidence check
         best_similarity = top_similarities[0]
         if best_similarity < self.confidence_threshold:
             logger.debug(f"Recognition failed: similarity {best_similarity:.3f} < threshold {self.confidence_threshold}")
             return None
 
-        # FIXED VOTING LOGIC: Count votes against ALL neighbors, not just custom sounds
-        # This prevents misleadingly high vote ratios when ESC-50 sounds dominate the k-NN
         all_votes = Counter(top_labels)
         total_votes = len(top_labels)
 
-        # Get best custom sound
         custom_votes = {k: v for k, v in all_votes.items() if not k.startswith("esc50_")}
 
         if not custom_votes:
             logger.debug("Only background sounds detected")
             return None
 
-        # Get the custom sound with most votes
         best_custom_label, custom_vote_count = max(custom_votes.items(), key=lambda x: x[1])
 
-        # Calculate vote ratio against ALL neighbors (not just custom ones)
         vote_ratio = custom_vote_count / total_votes
 
-        # Debug logging
         logger.debug(f"Recognition debug: top_labels={top_labels}")
         logger.debug(
             f"All votes: {all_votes}, best custom: {best_custom_label}, votes: {custom_vote_count}/{total_votes}, ratio: {vote_ratio:.3f}"
         )
 
         if vote_ratio >= self.vote_threshold:
-            # Calculate confidence as average similarity of majority votes
             majority_indices = [i for i, label in enumerate(top_labels) if label == best_custom_label]
             confidence = np.mean([top_similarities[i] for i in majority_indices])
 
@@ -651,43 +475,23 @@ class SoundRecognizer:
         return None
 
     def _extract_embedding(self, audio: np.ndarray, sr: int) -> Optional[np.ndarray]:
-        """Extract temporally-aware YAMNet embedding with preprocessing.
-
-        Preprocesses audio, converts to TensorFlow tensor, extracts embeddings using
-        YAMNet model, and applies hybrid temporal aggregation (global statistics +
-        temporal bins) to preserve temporal structure.
-
-        Args:
-            audio: Audio numpy array.
-            sr: Sample rate.
-
-        Returns:
-            5120-dim temporal embedding vector if successful, None otherwise.
-            Structure: [global_mean(1024), global_std(1024), early_max(1024),
-                       middle_max(1024), late_max(1024)]
-        """
+        """YAMNet frame embeddings aggregated to shape (_EMBEDDING_DIM,)."""
         try:
-            # Preprocess audio
             processed_audio = self.preprocessor.preprocess_audio(audio=audio, sr=sr)
 
-            # Convert to tensor
             if tf is None:
                 logger.error("TensorFlow not available for embedding extraction")
                 return None
 
             audio_tensor = tf.convert_to_tensor(processed_audio, dtype=tf.float32)
 
-            # Get YAMNet embeddings (shape: num_frames x 1024)
             _, embeddings, _ = self.yamnet_model(audio_tensor)
-            
-            # Convert to numpy based on what the model returns
+
             if hasattr(embeddings, "numpy"):
                 embeddings_np = embeddings.numpy()
             else:
-                # If it's already a numpy array or list
                 embeddings_np = np.array(embeddings)
 
-            # Apply hybrid temporal aggregation
             temporal_embedding = self._aggregate_temporal_embeddings(embeddings_np)
 
             return temporal_embedding
@@ -700,60 +504,27 @@ class SoundRecognizer:
             return None
 
     def _aggregate_temporal_embeddings(self, embeddings: np.ndarray) -> np.ndarray:
-        """Aggregate temporal embeddings using hybrid approach.
-
-        Combines global statistics with temporal bin pooling to preserve both
-        overall characteristics and temporal structure (attack/sustain/release).
-
-        Args:
-            embeddings: YAMNet embeddings of shape (num_frames, 1024)
-
-        Returns:
-            Aggregated embedding of shape (5120,) containing:
-            - Global mean (1024): Overall sound characteristics
-            - Global std (1024): Temporal variability
-            - Early max (1024): Onset/attack characteristics
-            - Middle max (1024): Sustain characteristics
-            - Late max (1024): Release/decay characteristics
-        """
+        """Mean/std over frames plus per-third max-pool (5×1024 = _EMBEDDING_DIM)."""
         num_frames = embeddings.shape[0]
 
-        # Global statistics (capture overall characteristics)
-        global_mean = np.mean(embeddings, axis=0)  # (1024,)
-        global_std = np.std(embeddings, axis=0)  # (1024,)
+        global_mean = np.mean(embeddings, axis=0)
+        global_std = np.std(embeddings, axis=0)
 
-        # Temporal bins (capture attack/sustain/release structure)
-        # Divide into thirds: early, middle, late
         third = max(1, num_frames // 3)
 
         early = embeddings[:third]
         middle = embeddings[third : 2 * third]
         late = embeddings[2 * third :]
 
-        # Max pool each temporal bin (captures salient events in each phase)
         early_max = np.max(early, axis=0) if len(early) > 0 else np.zeros(1024, dtype=np.float32)
         middle_max = np.max(middle, axis=0) if len(middle) > 0 else np.zeros(1024, dtype=np.float32)
         late_max = np.max(late, axis=0) if len(late) > 0 else np.zeros(1024, dtype=np.float32)
 
-        # Concatenate all components
         temporal_embedding = np.concatenate([global_mean, global_std, early_max, middle_max, late_max])
 
         return temporal_embedding
 
     async def train_sound(self, label: str, samples: List[Tuple[np.ndarray, int]]) -> bool:
-        """Train the recognizer with sound samples.
-
-        Extracts embeddings from all provided samples, adds them to the model with
-        the given label, retrains the scaler, adds ESC-50 negative examples, and
-        persists the updated model. Thread-safe.
-
-        Args:
-            label: Sound label identifier.
-            samples: List of (audio, sample_rate) tuples.
-
-        Returns:
-            True if training successful and model saved, False otherwise.
-        """
         try:
             if not label or not isinstance(label, str):
                 raise ValueError("Sound label must be a non-empty string")
@@ -784,7 +555,6 @@ class SoundRecognizer:
                 logger.error(f"No valid embeddings extracted for '{label}'")
                 return False
 
-            # Add to existing data - thread-safe
             with self._model_lock:
                 if len(self.embeddings) == 0:
                     self.embeddings = np.array(new_embeddings)
@@ -793,15 +563,12 @@ class SoundRecognizer:
 
                 self.labels.extend(new_labels)
 
-                # Retrain scaler with all data
                 self.scaler.fit(self.embeddings)
 
             logger.info(f"Training completed: {len(self.embeddings)} total embeddings")
 
-            # Load and add ESC-50 samples as negative examples
             await self._add_esc50_samples()
 
-            # Save updated model
             return await self._save_model_data_async()
 
         except ValueError as e:
@@ -812,14 +579,6 @@ class SoundRecognizer:
             return False
 
     def _extract_esc50_embeddings_sync(self) -> Tuple[List[np.ndarray], List[str]]:
-        """Synchronously extract ESC-50 embeddings (runs in thread pool executor).
-
-        Performs blocking I/O and YAMNet inference. Should only be called via
-        run_in_executor to avoid blocking the event loop.
-
-        Returns:
-            Tuple of (embeddings list, labels list) for ESC-50 files.
-        """
         try:
             esc50_files = [f for f in os.listdir(self.external_sounds_path) if f.startswith("esc50_") and f.endswith(".wav")]
             if not esc50_files:
@@ -854,10 +613,6 @@ class SoundRecognizer:
             return [], []
 
     async def _add_esc50_samples(self) -> None:
-        """Add ESC-50 samples as negative examples without blocking event loop.
-
-        Offloads I/O and inference to thread pool executor.
-        """
         if not os.path.exists(self.external_sounds_path):
             return
 
@@ -880,11 +635,6 @@ class SoundRecognizer:
             logger.warning(f"Failed to add ESC-50 samples: {e}")
 
     async def set_mapping(self, sound_label: str, command: str) -> bool:
-        """Set command mapping for a sound and persist to storage - thread-safe.
-
-        Returns:
-            True if mapping was set and saved successfully, False otherwise.
-        """
         if not sound_label or not isinstance(sound_label, str):
             raise ValueError("Sound label must be a non-empty string")
         if not command or not isinstance(command, str):
@@ -893,7 +643,6 @@ class SoundRecognizer:
         with self._model_lock:
             self.mappings[sound_label] = command
 
-        # Persist mappings to storage
         success = await self._save_model_data_async()
         if success:
             logger.info(f"Successfully saved mapping '{sound_label}' -> '{command}' to storage")
@@ -903,7 +652,6 @@ class SoundRecognizer:
         return success
 
     def get_mapping(self, sound_label: str) -> Optional[str]:
-        """Get command mapping for a sound - thread-safe."""
         if not sound_label or not isinstance(sound_label, str):
             return None
 
@@ -911,16 +659,13 @@ class SoundRecognizer:
             return self.mappings.get(sound_label)
 
     async def reset_all_sounds(self) -> bool:
-        """Reset all trained sounds and mappings."""
         try:
-            # Clear in-memory data - thread-safe
             with self._model_lock:
-                self.embeddings = np.empty((0, 1024))
+                self.embeddings = np.empty((0, _EMBEDDING_DIM))
                 self.labels = []
                 self.mappings = {}
                 self.scaler = SimpleStandardScaler()
 
-            # Remove saved model files
             model_files = ["embeddings.npy", "labels.joblib", "scaler.joblib"]
             for filename in model_files:
                 filepath = os.path.join(self.model_path, filename)
@@ -928,7 +673,6 @@ class SoundRecognizer:
                     os.remove(filepath)
                     logger.debug(f"Removed model file: {filepath}")
 
-            # Clear mappings through storage
             try:
                 empty_mappings = SoundMappingsData(mappings={})
                 success = await self._storage.write(data=empty_mappings)
@@ -953,7 +697,6 @@ class SoundRecognizer:
             return False
 
     async def delete_sound(self, sound_label: str) -> bool:
-        """Delete a specific trained sound - thread-safe."""
         try:
             if not sound_label or not isinstance(sound_label, str):
                 raise ValueError("Sound label must be a non-empty string")
@@ -963,31 +706,26 @@ class SoundRecognizer:
                     logger.warning(f"Sound '{sound_label}' not found in trained sounds")
                     return False
 
-                # Find indices of embeddings for this sound
                 indices_to_remove = [i for i, label in enumerate(self.labels) if label == sound_label]
 
                 if not indices_to_remove:
                     logger.warning(f"No embeddings found for sound '{sound_label}'")
                     return False
 
-                # Remove embeddings and labels
                 mask = np.ones(len(self.embeddings), dtype=bool)
                 mask[indices_to_remove] = False
 
                 self.embeddings = self.embeddings[mask]
                 self.labels = [label for i, label in enumerate(self.labels) if i not in indices_to_remove]
 
-                # Remove mapping if it exists
                 if sound_label in self.mappings:
                     del self.mappings[sound_label]
 
-                # Retrain scaler if we still have data
                 if len(self.embeddings) > 0:
                     self.scaler.fit(self.embeddings)
                 else:
                     self.scaler = SimpleStandardScaler()
 
-            # Save updated model
             success = await self._save_model_data_async()
 
             if success:
@@ -1005,7 +743,6 @@ class SoundRecognizer:
             return False
 
     def get_stats(self) -> Dict:
-        """Get recognizer statistics - thread-safe."""
         with self._model_lock:
             custom_sounds = [label for label in self.labels if not label.startswith("esc50_")]
             esc50_sounds = [label for label in self.labels if label.startswith("esc50_")]
@@ -1022,10 +759,7 @@ class SoundRecognizer:
             }
 
     def on_confidence_threshold_updated(self, threshold: float) -> None:
-        """
-        Called by SettingsUpdateCoordinator when confidence threshold is updated.
-        Config is already updated - this updates the recognizer's instance variable.
-        """
+        """Sync instance threshold after settings coordinator updates config."""
         if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
             logger.warning(f"Invalid confidence threshold: {threshold}")
             return
@@ -1035,10 +769,7 @@ class SoundRecognizer:
         logger.info(f"Sound recognizer confidence threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
 
     def on_vote_threshold_updated(self, threshold: float) -> None:
-        """
-        Called by SettingsUpdateCoordinator when vote threshold is updated.
-        Config is already updated - this updates the recognizer's instance variable.
-        """
+        """Sync instance vote threshold after settings coordinator updates config."""
         if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
             logger.warning(f"Invalid vote threshold: {threshold}")
             return
@@ -1048,17 +779,13 @@ class SoundRecognizer:
         logger.info(f"Sound recognizer vote threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
 
     async def shutdown(self) -> None:
-        """Shutdown sound recognizer and cleanup TensorFlow resources."""
         try:
             logger.info("Shutting down SoundRecognizer")
 
-            # Signal shutdown
             self._shutdown_event.set()
 
-            # Shutdown thread pool executor for file I/O
             if self._file_io_executor is not None:
                 try:
-                    # Wait for any pending file I/O operations to complete (max 5 seconds)
                     loop = asyncio.get_event_loop()
                     await asyncio.wait_for(loop.run_in_executor(None, self._file_io_executor.shutdown, True), timeout=5.0)
                     logger.debug("File I/O executor shutdown complete")
@@ -1067,13 +794,11 @@ class SoundRecognizer:
                 except Exception as e:
                     logger.warning(f"Error during executor shutdown: {e}")
 
-            # Clear TensorFlow model and free GPU/CPU memory
             if self.yamnet_model is not None:
                 del self.yamnet_model
                 self.yamnet_model = None
                 logger.info("YAMNet model deleted")
 
-            # Clear TensorFlow session using modern TensorFlow 2.x API
             if tf is not None:
                 try:
                     tf.keras.backend.clear_session()
@@ -1081,7 +806,6 @@ class SoundRecognizer:
                 except Exception as e:
                     logger.warning(f"Error clearing TensorFlow session: {e}")
 
-            # Clear numpy arrays and other resources
             with self._model_lock:
                 if self.embeddings is not None:
                     del self.embeddings
@@ -1099,7 +823,6 @@ class SoundRecognizer:
                     self.mappings.clear()
                     self.mappings = None
 
-            # Force garbage collection
             gc.collect()
 
             logger.info("SoundRecognizer shutdown complete")

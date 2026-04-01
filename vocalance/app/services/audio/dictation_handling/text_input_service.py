@@ -136,25 +136,18 @@ def remove_formatting(text: str, is_first_word_of_session: bool = False) -> str:
     if not text:
         return ""
 
-    # Remove all punctuation except hyphens, apostrophes, and spaces
     cleaned = re.sub(r"[^\w\s\-']", "", text)
-
-    # Convert to lowercase
     cleaned = cleaned.lower()
 
-    # Process words: capitalize first word if needed, and keep 'I' capitalized as pronoun
     words = cleaned.split()
     if words:
-        # Capitalize first word if this is the first word of the session
         if is_first_word_of_session:
             words[0] = words[0].capitalize()
 
-        # Keep 'I' capitalized when used as pronoun (standalone or in contractions)
         words = [word if not (word == "i" or word.startswith("i'")) else word.replace("i", "I", 1) for word in words]
 
         cleaned = " ".join(words)
 
-    # Strip all leading and trailing whitespace
     return cleaned.strip()
 
 
@@ -164,7 +157,7 @@ class TextInputService:
     def __init__(self, config: DictationConfig) -> None:
         self.config = config
         self._lock = threading.RLock()
-        self._clipboard_lock = threading.Lock()  # Prevent concurrent clipboard operations
+        self._clipboard_lock = threading.Lock()
         self.last_text: Optional[str] = None
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = config.pyautogui_pause

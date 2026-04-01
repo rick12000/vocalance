@@ -1,4 +1,8 @@
-"""Coordinates dictation sessions, Moonshine streaming, modifiers, LLM handoff, and text output."""
+"""Dictation sessions: Moonshine ingress thread, modifiers, LLM handoff, text output.
+
+``MOONSHINE_CHUNK_DICTATION_MODES`` stream PCM off the event bus. ``_STREAMING_STT_MODES`` use
+partial/final events. ``_STREAMING_LLM_MODES`` continue to the LLM after stop.
+"""
 
 import asyncio
 import gc
@@ -10,7 +14,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
@@ -63,16 +67,7 @@ logger = logging.getLogger(__name__)
 
 
 class DictationMode(Enum):
-    """Dictation modes for different recognition and processing behavior.
-
-    INACTIVE: No dictation active.
-    STANDARD: Direct transcription without LLM processing.
-    SMART: LLM-enhanced dictation with formatting and editing.
-    TYPE: Direct typing of recognized text without formatting.
-    VISUAL: Accumulated dictation with UI display but no LLM processing.
-    HIDDEN: Silent accumulation without UI display, pastes on stop.
-    AMEND: Copy selection to clipboard, dictate instructions, LLM applies them to the selection.
-    """
+    """Standard / smart / type / visual / hidden / amend dictation kinds."""
 
     INACTIVE = "inactive"
     STANDARD = "standard"
@@ -83,7 +78,6 @@ class DictationMode(Enum):
     AMEND = "amend"
 
 
-# Modes that stream PCM into Moonshine via the dedicated ingress thread (not the event bus).
 MOONSHINE_CHUNK_DICTATION_MODES = frozenset(
     {
         DictationMode.STANDARD,
@@ -94,24 +88,16 @@ MOONSHINE_CHUNK_DICTATION_MODES = frozenset(
         DictationMode.AMEND,
     }
 )
-# Modes that use partial/final dictation events (skip duplicate DictationTextRecognized from segment path).
 _STREAMING_STT_MODES = frozenset(
     {DictationMode.SMART, DictationMode.VISUAL, DictationMode.HIDDEN, DictationMode.AMEND}
 )
-# Subset that hands off to the LLM after stop.
 _STREAMING_LLM_MODES = frozenset({DictationMode.SMART, DictationMode.AMEND})
 
 MOONSHINE_MODIFIER_SUPPRESS_SEC: float = 0.55
 
 
 class DictationState(Enum):
-    """Explicit state machine for dictation coordinator.
-
-    IDLE: No active session.
-    RECORDING: Recording and accumulating dictation text.
-    PROCESSING_LLM: Processing accumulated text through LLM.
-    SHUTTING_DOWN: Service shutdown in progress.
-    """
+    """Coordinator FSM: idle, recording, LLM work, or shutdown."""
 
     IDLE = "idle"
     RECORDING = "recording"
@@ -119,7 +105,6 @@ class DictationState(Enum):
     SHUTTING_DOWN = "shutting_down"
 
 
-# Valid state transitions for state machine validation
 _VALID_TRANSITIONS = {
     DictationState.IDLE: {DictationState.RECORDING, DictationState.SHUTTING_DOWN},
     DictationState.RECORDING: {DictationState.PROCESSING_LLM, DictationState.IDLE, DictationState.SHUTTING_DOWN},
@@ -130,17 +115,7 @@ _VALID_TRANSITIONS = {
 
 @dataclass
 class DictationSession:
-    """Immutable session snapshot capturing dictation state.
-
-    Attributes:
-        session_id: Unique session identifier.
-        mode: Active dictation mode.
-        start_time: Session start timestamp.
-        accumulated_text: Accumulated dictation text from STT.
-        last_text_time: Timestamp of last text segment.
-        is_first_segment: Flag indicating if next segment is first.
-        active_modifier: Optional voice post-process modifier (at most one).
-    """
+    """One dictation run: mode, timing, accumulated text, optional modifier."""
 
     session_id: str
     mode: DictationMode
@@ -153,14 +128,7 @@ class DictationSession:
 
 @dataclass
 class LLMSession:
-    """Immutable LLM processing session for state isolation.
-
-    Attributes:
-        session_id: Unique LLM session identifier.
-        raw_text: Raw dictation text, or spoken instructions when ``clipboard_text`` is set.
-        agentic_prompt: Generated agentic prompt for LLM.
-        clipboard_text: If set, amend path: text captured from selection before dictation.
-    """
+    """LLM request payload; ``clipboard_text`` set for amend flow."""
 
     session_id: str
     raw_text: str
@@ -169,21 +137,7 @@ class LLMSession:
 
 
 class DictationCoordinator:
-    """Production-ready dictation coordinator with thread-safe state management.
-
-    Orchestrates all dictation workflows including standard/smart/type modes,
-    integrates STT text recognition events, manages LLM processing for smart mode,
-    coordinates with text input service for typing, and maintains strict state
-    machine transitions. Thread-safe with RLock protecting all mutable state.
-
-    Attributes:
-        _current_state: Current dictation state (IDLE/RECORDING/PROCESSING_LLM/SHUTTING_DOWN).
-        _current_session: Active dictation session or None.
-        _pending_llm_session: LLM session awaiting processing.
-        text_input: TextInputService for typing operations.
-        llm_service: LLMService for smart dictation processing.
-        agentic_prompt_service: AgenticPromptService for prompt generation.
-    """
+    """Owns dictation modes, Moonshine streaming, modifiers, LLM and paste/typing paths (``RLock`` on state)."""
 
     def __init__(
         self,
@@ -192,14 +146,6 @@ class DictationCoordinator:
         storage: StorageService,
         gui_event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
-        """Initialize dictation coordinator with services and state management.
-
-        Args:
-            event_bus: EventBus for pub/sub messaging.
-            config: Global application configuration.
-            storage: Storage service for persistent data.
-            gui_event_loop: Optional GUI event loop for cross-thread operations.
-        """
         self.event_bus = event_bus
         self.config = config
         self.gui_event_loop = gui_event_loop
@@ -216,7 +162,7 @@ class DictationCoordinator:
         self._streaming_active = False
         self._streaming_stop_event = threading.Event()
         self._streaming_thread: Optional[threading.Thread] = None
-        self._direct_token_callback: Optional[callable] = None
+        self._direct_token_callback: Optional[Callable[[str], None]] = None
 
         self.text_service = TextInputService(config=config.dictation)
         self.llm_service = LLMService(event_bus=event_bus, config=config)
@@ -232,16 +178,10 @@ class DictationCoordinator:
 
         self._stt_service = None
 
-        # Moonshine audio is fed from the recorder thread via an unbounded queue and a dedicated
-        # worker thread. Feeding through the asyncio event bus caused 100–500ms stalls per chunk.
-        # We do not drop PCM when the ingress thread is briefly behind (accuracy over bounded memory).
         self._moonshine_ingress_queue: queue.Queue = queue.Queue()
         self._moonshine_ingress_stop = threading.Event()
         self._moonshine_ingress_thread: Optional[threading.Thread] = None
-        # Serializes ingress drain/stop vs add_audio; never acquire _state_lock before this lock.
         self._moonshine_feed_lock = threading.Lock()
-        # Bumped whenever the Moonshine stream is opened or torn down so stale chunks still
-        # in the ingress queue cannot be fed into a new session (stop/start race).
         self._moonshine_ingress_epoch: int = 0
         self._moonshine_suppress_until: float = 0.0
         self._start_moonshine_ingress_thread()
@@ -407,7 +347,7 @@ class DictationCoordinator:
         self._current_state = new_state
         logger.debug(f"State transition: {old_state.value} -> {new_state.value}")
 
-    def set_direct_token_callback(self, callback: Optional[callable]) -> None:
+    def set_direct_token_callback(self, callback: Optional[Callable[[str], None]]) -> None:
         """Set a direct callback for token streaming that bypasses the event bus for minimal latency"""
         self._direct_token_callback = callback
         logger.info(f"Direct token callback {'registered' if callback else 'cleared'}")
@@ -618,7 +558,6 @@ class DictationCoordinator:
 
             processed_text = event.processed_text
 
-            # Apply formatting filter if enabled is False
             if not self.config.dictation.enable_dictation_formatting:
                 processed_text = remove_formatting(text=processed_text, is_first_word_of_session=True)
 
@@ -1214,7 +1153,6 @@ class DictationCoordinator:
         try:
             await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation completed"))
 
-            # Notify STT service about dictation mode deactivation
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive"))
 
             await self._publish_status(False, DictationMode.INACTIVE)
@@ -1228,7 +1166,6 @@ class DictationCoordinator:
             await self._publish_modifier_cleared()
             await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Dictation stopped"))
 
-            # Notify STT service about dictation mode deactivation
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive"))
 
             await self._publish_status(False, DictationMode.INACTIVE)

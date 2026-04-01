@@ -16,17 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class AudioService:
-    """Continuous capture: recorder → VAD worker thread → command/sound listeners.
-
-    Per-chunk PCM stays off the asyncio event bus. Dictation uses
-    ``set_dictation_chunk_callback`` (Moonshine ingress); simple-listening UI uses
-    ``set_level_meter_callback``.
-    """
+    """Recorder → VAD worker → command/sound listeners; dictation PCM via ``set_dictation_chunk_callback``."""
 
     def __init__(
         self, event_bus: EventBus, config: GlobalAppConfig, main_event_loop: Optional[asyncio.AbstractEventLoop] = None
     ) -> None:
-        """Wire recorder, shared ``AudioProcessor``, VAD queue/worker, and command/sound listeners."""
         self._event_bus = event_bus
         self._config = config
 
@@ -60,22 +54,15 @@ class AudioService:
         self._vad_worker_thread: Optional[threading.Thread] = None
         self._level_meter_callback: Optional[Callable[[bytes], None]] = None
 
-        logger.debug("AudioService initialized with shared AudioProcessor and 2 listeners")
-
     def set_dictation_chunk_callback(self, callback: Optional[Callable[[bytes, int], None]]) -> None:
-        """Register a non-blocking hook for raw PCM while dictation is active (Moonshine ingress).
-
-        Invoked synchronously from the recorder thread for every chunk. Must not block the recorder
-        for long; the coordinator queues PCM on a dedicated ingress thread.
-        """
+        """Raw PCM hook from the recorder thread (dictation / Moonshine); keep it non-blocking."""
         self._dictation_chunk_callback = callback
 
     def set_level_meter_callback(self, callback: Optional[Callable[[bytes], None]]) -> None:
-        """Optional hook for UI level meter (e.g. simple dictation listening)."""
+        """Optional UI level meter hook (raw bytes per chunk)."""
         self._level_meter_callback = callback
 
     def _on_audio_chunk_callback(self, audio_bytes: bytes, timestamp: float) -> None:
-        """Callback from recorder for each audio chunk."""
         sample_rate = self._config.audio.sample_rate
         cb = self._dictation_chunk_callback
         if cb is not None:
@@ -89,7 +76,6 @@ class AudioService:
             logger.error("VAD queue put failed: %s", e, exc_info=True)
 
     def _vad_worker_loop(self) -> None:
-        """Drain VAD queue: optional level meter, then command/sound ``process_audio_chunk``."""
         while True:
             try:
                 item = self._vad_queue.get(timeout=0.25)
@@ -114,7 +100,6 @@ class AudioService:
         logger.debug("Audio VAD worker thread exiting")
 
     def _start_vad_worker(self) -> None:
-        """Start the daemon VAD worker thread if not already running."""
         if self._vad_worker_thread is not None and self._vad_worker_thread.is_alive():
             return
         self._vad_stop.clear()
@@ -123,7 +108,6 @@ class AudioService:
         logger.debug("Audio VAD worker thread started")
 
     def _stop_vad_worker(self) -> None:
-        """Signal the VAD worker to stop, join it, and drain the queue."""
         self._vad_stop.set()
         if self._vad_worker_thread is not None:
             self._vad_worker_thread.join(timeout=5.0)
@@ -137,7 +121,6 @@ class AudioService:
                 break
 
     def init_listeners(self) -> None:
-        """Subscribe listeners, set the main loop for thread-safe publishes, and wire control events."""
         self._command_listener.setup_subscriptions()
         self._sound_listener.setup_subscriptions()
         self._command_listener.set_main_event_loop(self._main_event_loop)
@@ -149,11 +132,6 @@ class AudioService:
         logger.info("Audio service event subscriptions configured (2 listeners)")
 
     async def _handle_recording_trigger(self, event: RecordingTriggerEvent) -> None:
-        """Handle recording trigger event (recorder runs continuously; triggers are informational).
-
-        Args:
-            event: Recording trigger event with start/stop command.
-        """
         if event.trigger == "start":
             logger.info("Start recording command received - recorder already active")
         elif event.trigger == "stop":
@@ -162,23 +140,9 @@ class AudioService:
             logger.warning(f"Unknown recording trigger: {event.trigger}")
 
     async def _handle_audio_mode_change_request(self, event: AudioModeChangeRequestEvent) -> None:
-        """Handle audio mode change requests between command and dictation modes.
-
-        Mode switching is passive: command and sound listeners stay subscribed; dictation
-        uses the raw chunk stream via DictationCoordinator.
-
-        Args:
-            event: Audio mode change request event with target mode and reason.
-        """
-        try:
-            logger.info(f"Audio mode change request received: mode={event.mode}, reason={event.reason}")
-            logger.debug("Mode change acknowledged (listeners unchanged; downstream handles mode)")
-
-        except Exception as e:
-            logger.error(f"Error handling audio mode change request: {e}", exc_info=True)
+        logger.info("Audio mode change request: mode=%s reason=%s", event.mode, event.reason)
 
     def start_processing(self) -> None:
-        """Start the VAD worker and continuous recorder (~30 ms PCM chunks enqueued for VAD)."""
         try:
             logger.info("Starting audio processing with continuous streaming")
             self._start_vad_worker()
@@ -190,7 +154,6 @@ class AudioService:
             raise
 
     def stop_processing(self) -> None:
-        """Stop the recorder and the VAD worker thread."""
         try:
             logger.info("Stopping audio processing")
             self._recorder.stop()
@@ -200,11 +163,6 @@ class AudioService:
             logger.error(f"Error stopping audio processing: {e}", exc_info=True)
 
     async def shutdown(self) -> None:
-        """Shutdown audio service with complete resource cleanup.
-
-        Stops recorder, waits for thread termination, and releases references
-        to enable garbage collection. Safe to call multiple times.
-        """
         try:
             logger.info("Shutting down audio service")
             self.stop_processing()
@@ -219,20 +177,9 @@ class AudioService:
             logger.error(f"Error during audio service shutdown: {e}", exc_info=True)
 
     def setup_subscriptions(self) -> None:
-        """Alias for ``init_listeners`` (startup wiring)."""
         self.init_listeners()
 
     async def on_command_silent_chunks_updated(self, chunks: int) -> None:
-        """Update command silent chunks threshold dynamically during runtime.
-
-        Allows real-time adjustment of silence detection sensitivity in command mode,
-        forwarding the update to the command listener instance.
-
-        Thread-safe: Delegates to listener's async method with lock protection.
-
-        Args:
-            chunks: New number of consecutive silent chunks required to end recording.
-        """
         if self._command_listener:
             await self._command_listener.update_silent_chunks_threshold(chunks)
             logger.info(f"Updated command silent chunks to {chunks}")
@@ -240,9 +187,4 @@ class AudioService:
             logger.warning("Command listener not initialized, cannot update silent chunks")
 
     def get_recorder(self) -> AudioRecorder:
-        """Get the underlying audio recorder instance.
-
-        Returns:
-            AudioRecorder instance used by this service.
-        """
         return self._recorder

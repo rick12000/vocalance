@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 import time
@@ -51,8 +52,6 @@ class AudioRecorder:
         self.sample_rate = app_config.audio.sample_rate
         self.chunk_size = int(self.sample_rate * 0.03)
         self._device_error_shown = False
-
-        # Filled after the first successful stream open (default input at launch)
         self._launch_input_device_name: Optional[str] = None
 
         self._is_recording: bool = False
@@ -116,8 +115,6 @@ class AudioRecorder:
         self._device_error_shown = True
 
         try:
-            import asyncio
-
             event = AudioDeviceErrorEvent(error_message=error_message)
 
             try:

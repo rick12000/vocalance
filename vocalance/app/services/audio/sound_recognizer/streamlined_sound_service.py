@@ -32,53 +32,24 @@ logger = logging.getLogger(__name__)
 
 
 class SoundService:
-    """Streamlined sound recognition service focused on core functionality.
-
-    Manages sound recognition and training workflows via event bus integration.
-    Handles audio chunk processing, training state management (collecting samples
-    for training), sound-to-command mapping, and persistent storage. Thread-safe
-    for concurrent operations.
-
-    Attributes:
-        recognizer: SoundRecognizer instance for core recognition logic.
-        _training_active: Flag indicating if training mode is active.
-        _training_samples: List collecting audio samples during training.
-    """
+    """Sound recognition, training, and sound→command mappings (event-driven, thread-safe training state)."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
-        """Initialize service with thread-safe state management.
-
-        Args:
-            event_bus: EventBus for pub/sub messaging.
-            config: Global application configuration.
-            storage: Storage service for persistent data.
-        """
         self.event_bus = event_bus
         self.config = config
         self.recognizer = SoundRecognizer(config=config, storage=storage)
 
-        # State management
         self.is_initialized = False
 
-        # Training state - protected by lock
         self._training_lock = RLock()
         self._training_active = False
         self._current_training_label: Optional[str] = None
         self._training_samples = []
         self._target_samples = 0
 
-        # Shutdown coordination
         self._shutdown_event = asyncio.Event()
 
-        logger.debug("SoundService created")
-
     def setup_subscriptions(self) -> None:
-        """Set up all event subscriptions for sound service.
-
-        Subscribes to audio chunks, training requests, sound list/mapping queries,
-        delete/reset commands, and sound-to-command mapping updates.
-        """
-        logger.debug("SoundService subscribing to events...")
         self.event_bus.subscribe(
             event_type=ProcessAudioChunkForSoundRecognitionEvent,
             handler=self._handle_audio_chunk,
@@ -107,17 +78,7 @@ class SoundService:
             event_type=MapSoundToCommandPhraseCommand,
             handler=self._handle_map_sound_command,
         )
-        logger.debug("SoundService event subscriptions complete")
-
     async def initialize(self) -> bool:
-        """Initialize the sound recognition service.
-
-        Delegates initialization to underlying recognizer, which loads YAMNet model
-        and persisted training data.
-
-        Returns:
-            True if initialization successful, False otherwise.
-        """
         try:
             logger.info("Initializing SoundService...")
             self.is_initialized = await self.recognizer.initialize()
@@ -131,48 +92,29 @@ class SoundService:
             return False
 
     async def _handle_audio_chunk(self, event_data: ProcessAudioChunkForSoundRecognitionEvent) -> None:
-        """Handle incoming audio chunks for recognition or training (non-blocking).
-
-        Immediately creates a task to process the audio chunk, allowing the event bus
-        worker to continue processing other events without blocking.
-        """
         if not self.is_initialized:
-            logger.debug("Service not initialized, ignoring audio chunk")
             return
 
-        # Create task immediately to avoid blocking event bus worker
         asyncio.create_task(self._process_audio_chunk(event_data))
 
     async def _process_audio_chunk(self, event_data: ProcessAudioChunkForSoundRecognitionEvent) -> None:
-        """Process audio chunk for recognition or training (CPU-intensive, runs in background).
-
-        This method runs as a background task to prevent blocking the event bus.
-        Uses thread pool executor for TensorFlow inference and librosa preprocessing.
-        """
         try:
-            # Convert audio chunk to float32
             audio_float32 = self._preprocess_audio_chunk(audio_bytes=event_data.audio_chunk)
             sample_rate = event_data.sample_rate
 
-            # Check if training is active
             with self._training_lock:
                 training_active = self._training_active
                 current_label = self._current_training_label
 
             if training_active:
-                logger.debug(f"Training mode active for '{current_label}', collecting sample")
                 await self._collect_training_sample(audio=audio_float32, sample_rate=sample_rate)
                 return
 
-            # Recognize sound - run in thread pool to avoid blocking event loop
-            # This prevents "Slow handler" warnings since TensorFlow inference and
-            # preprocessing (librosa resampling, RMS analysis) are CPU-intensive
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, self.recognizer.recognize_sound, audio_float32, sample_rate)
 
             if result:
                 sound_label, confidence = result
-                # Only publish custom sounds (not ESC-50 background sounds)
                 if not sound_label.startswith("esc50_"):
                     command = self.recognizer.get_mapping(sound_label=sound_label)
 
@@ -191,20 +133,14 @@ class SoundService:
             logger.error(f"Error processing audio chunk: {e}", exc_info=True)
 
     def _preprocess_audio_chunk(self, audio_bytes: bytes) -> np.ndarray:
-        """Convert audio bytes to float32 numpy array."""
         if not isinstance(audio_bytes, bytes):
             raise ValueError("Audio must be bytes")
 
         if len(audio_bytes) == 0:
             raise ValueError("Audio bytes are empty")
 
-        # Convert bytes to int16 array
         audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
-
-        # Convert to float32 in range [-1, 1]
-        audio_float32 = audio_int16.astype(np.float32) / 32768.0
-
-        return audio_float32
+        return audio_int16.astype(np.float32) / 32768.0
 
     async def start_training(self, sound_label: str) -> bool:
         """Start training mode for a specific sound."""
@@ -229,31 +165,19 @@ class SoundService:
         return True
 
     async def _collect_training_sample(self, audio: np.ndarray, sample_rate: int) -> None:
-        """Collect a training sample with identical preprocessing as recognition - thread-safe.
-
-        Stops accepting samples once the target number is reached to prevent
-        over-collection. Auto-finalizes training when target is hit.
-        """
         with self._training_lock:
             if not self._training_active:
-                logger.debug("Training not active, ignoring sample")
                 return
 
-            # CRITICAL: Prevent collecting more samples than requested
-            # Check before collecting to stop immediately at target
             sample_count = len(self._training_samples)
             target = self._target_samples
 
             if sample_count >= target:
-                logger.debug(f"Target samples reached ({sample_count}/{target}), ignoring additional sample")
                 return
 
-            # NOTE: Apply same preprocessing as recognition to ensure feature alignment
             try:
                 preprocessed = self.recognizer.preprocessor.preprocess_audio(audio=audio.copy(), sr=sample_rate)
-                # Store preprocessed audio at target sample rate
                 self._training_samples.append((preprocessed, self.recognizer.target_sr))
-                logger.debug(f"Training sample preprocessed: {len(preprocessed)} samples at {self.recognizer.target_sr}Hz")
             except Exception as e:
                 logger.error(f"Failed to preprocess training sample: {e}")
                 return
@@ -263,7 +187,6 @@ class SoundService:
 
         logger.info(f"Collected training sample {sample_count}/{target} for '{label}'")
 
-        # Publish progress event - only mark as last if we've EXACTLY reached the target
         is_last = sample_count >= target
         await self.event_bus.publish(
             SoundTrainingProgressEvent(
@@ -274,14 +197,11 @@ class SoundService:
             )
         )
 
-        # Auto-finish training after collecting enough samples
         if is_last:
             logger.info(f"Target samples reached ({sample_count}/{target}), auto-finalizing training")
             await self.finish_training()
 
     async def finish_training(self) -> bool:
-        """Finish training and train the recognizer."""
-        # Get training state
         with self._training_lock:
             if not self._training_active:
                 logger.warning("No training session active")
@@ -292,12 +212,10 @@ class SoundService:
                 self._reset_training_state()
                 return False
 
-            # Copy data before releasing lock
             label = self._current_training_label
             samples = self._training_samples.copy()
 
         try:
-            # Train the recognizer
             success = await self.recognizer.train_sound(label=label, samples=samples)
 
             if success:
@@ -327,17 +245,11 @@ class SoundService:
                 logger.info(f"Cancelled training for '{label}'")
 
     def _reset_training_state(self) -> None:
-        """Reset training state - must be called with lock held."""
         self._training_active = False
         self._current_training_label = None
         self._training_samples = []
 
     async def set_sound_mapping(self, sound_label: str, command: str) -> bool:
-        """Set command mapping for a sound and persist to storage.
-
-        Returns:
-            True if mapping was set and saved successfully, False otherwise.
-        """
         if not sound_label or not isinstance(sound_label, str):
             logger.error("Invalid sound label")
             return False
@@ -389,13 +301,10 @@ class SoundService:
         with self._training_lock:
             return self._current_training_label
 
-    # Event handlers
     async def _handle_training_request(self, event_data: SoundTrainingRequestEvent) -> None:
-        """Handle sound training request."""
         try:
             logger.info(f"Starting training for sound: {event_data.sound_label}")
 
-            # Publish training initiated event
             await self.event_bus.publish(
                 SoundTrainingInitiatedEvent(
                     sound_name=event_data.sound_label,
@@ -403,7 +312,6 @@ class SoundService:
                 )
             )
 
-            # Start training mode - use lock
             with self._training_lock:
                 self._training_active = True
                 self._current_training_label = event_data.sound_label
@@ -488,31 +396,19 @@ class SoundService:
             )
 
     def on_confidence_threshold_updated(self, threshold: float) -> None:
-        """
-        Called by SettingsUpdateCoordinator when confidence threshold is updated.
-        Forwards the update to the recognizer.
-        """
         self.recognizer.on_confidence_threshold_updated(threshold=threshold)
 
     def on_vote_threshold_updated(self, threshold: float) -> None:
-        """
-        Called by SettingsUpdateCoordinator when vote threshold is updated.
-        Forwards the update to the recognizer.
-        """
         self.recognizer.on_vote_threshold_updated(threshold=threshold)
 
     async def shutdown(self) -> None:
-        """Shutdown sound service and cleanup resources."""
         try:
             logger.info("Shutting down SoundService")
 
-            # Signal shutdown
             self._shutdown_event.set()
 
-            # Cancel any active training
             self.cancel_training()
 
-            # Shutdown the recognizer (which will cleanup TensorFlow resources)
             if self.recognizer:
                 await self.recognizer.shutdown()
 

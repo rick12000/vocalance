@@ -5,21 +5,9 @@ from typing import Optional
 
 
 class DuplicateTextFilter:
-    """Duplicate text filter for STT engines using time-based and similarity detection.
-
-    Prevents duplicate recognition events using exact matching within time window and
-    high-similarity detection for longer texts to handle STT variations.
-
-    Thread-safe using asyncio.Lock for use in async event handlers.
-    """
+    """Drop near-duplicate STT strings within a short time window (asyncio lock)."""
 
     def __init__(self, cache_size: int = 5, duplicate_threshold_ms: float = 300) -> None:
-        """Initialize duplicate filter with cache and time window configuration.
-
-        Args:
-            cache_size: Maximum number of recent texts to cache.
-            duplicate_threshold_ms: Time window in milliseconds for duplicate detection.
-        """
         self._text_cache: deque = deque(maxlen=cache_size)
         self._duplicate_threshold_ms: float = duplicate_threshold_ms
         self._last_recognized_text: str = ""
@@ -27,15 +15,6 @@ class DuplicateTextFilter:
         self._lock = asyncio.Lock()
 
     async def is_duplicate(self, text: str, current_time_ms: Optional[float] = None) -> bool:
-        """Check if text is duplicate using time-based and similarity detection.
-
-        Args:
-            text: Text to check for duplication
-            current_time_ms: Current time in milliseconds (auto-generated if None)
-
-        Returns:
-            True if text is considered a duplicate
-        """
         async with self._lock:
             if not text or not text.strip():
                 return True

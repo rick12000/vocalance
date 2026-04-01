@@ -8,9 +8,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from llama_cpp import Llama
 
-from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.app_config import (
     DEFAULT_LLM_MODEL_ID,
+    GlobalAppConfig,
     LocalLLMArtifact,
     get_whitelisted_llm_model,
 )
