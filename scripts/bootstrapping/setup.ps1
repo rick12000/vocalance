@@ -4,7 +4,7 @@
     Clone Vocalance (if needed), install UV/venv/deps, create Start Menu shortcut.
 
 .NOTES
-    Run from the directory that should contain the vocalance folder (its parent). After setup, launch from Start Menu.
+    Run from the directory that should contain the vocalance-prod folder (its parent). After setup, launch from Start Menu.
 
     Git must already be installed (PATH). Official Windows download: https://git-scm.com/download/win
 
@@ -79,11 +79,11 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 
 $cwd = (Get-Location).Path
-$cloneDir = Join-Path $cwd 'vocalance'
+$cloneDir = Join-Path $cwd 'vocalance-prod'
 
 if (Test-Path -LiteralPath $cloneDir) {
     Write-Host ''
-    Write-Host "A folder named vocalance already exists at:"
+    Write-Host "A folder named vocalance-prod already exists at:"
     Write-Host "  $cloneDir"
     $answer = Read-Host 'Replace it with a fresh git clone? Type yes or no'
     if (-not (Test-YesAnswer $answer)) {
@@ -92,11 +92,11 @@ if (Test-Path -LiteralPath $cloneDir) {
     }
     Write-Host 'Removing existing folder...'
     Remove-Item -LiteralPath $cloneDir -Recurse -Force
-    Write-Host "Cloning into $cloneDir ..."
-    git clone $CloneUrl $cloneDir
+    Write-Host "Cloning misc-optimizations branch into $cloneDir ..."
+    git clone --branch misc-optimizations --single-branch $CloneUrl $cloneDir
 } else {
-    Write-Host "Cloning into $cloneDir ..."
-    git clone $CloneUrl $cloneDir
+    Write-Host "Cloning misc-optimizations branch into $cloneDir ..."
+    git clone --branch misc-optimizations --single-branch $CloneUrl $cloneDir
 }
 
 $repoRoot = $cloneDir

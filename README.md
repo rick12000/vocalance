@@ -48,7 +48,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
 2. Paste and run:
 
     ```powershell
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/main/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/misc-optimizations/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
     ```
 
    What the script does:
@@ -87,7 +87,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
 
 3. Clone the repository:
    ```bash
-   git clone https://github.com/rick12000/vocalance.git
+   git clone --branch misc-optimizations --single-branch https://github.com/rick12000/vocalance.git
    ```
 
 4. Go to the repository directory:
