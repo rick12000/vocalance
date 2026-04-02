@@ -31,6 +31,9 @@ Vocalance can be set up entirely from the source code in this repository (curren
 > [!IMPORTANT]
 > Ensure Git is installed. If not, download the latest Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
 
+> [!IMPORTANT]
+> Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
+
 1. Open PowerShell (from Windows Start Menu).
 
 2. Paste and run:
@@ -50,6 +53,9 @@ Vocalance can be set up entirely from the source code in this repository (curren
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
 
 ### 🛠️ **Developer Setup**
+
+> [!IMPORTANT]
+> Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
 
 #### 1. Set Up UV
 
