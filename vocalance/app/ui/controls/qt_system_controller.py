@@ -19,15 +19,14 @@ class QtSystemController(QtBaseController):
     # Signals for system events
     audio_device_error = Signal(str)
 
-    def __init__(self, event_bus, event_loop, main_window):
+    def __init__(self, event_bus, main_window):
         """Initialize system controller.
 
         Args:
             event_bus: Event bus for pub/sub.
-            event_loop: Asyncio event loop.
-            main_window: Reference to main window for dialogs.
+            main_window: Reference to main window used as parent for dialogs.
         """
-        super().__init__(event_bus=event_bus, event_loop=event_loop, logger=logging.getLogger(self.__class__.__name__))
+        super().__init__(event_bus=event_bus, logger=logging.getLogger(self.__class__.__name__))
 
         self.main_window = main_window
         self._setup_subscriptions()

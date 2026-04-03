@@ -39,7 +39,6 @@ class QtGridView(QWidget):
     def __init__(
         self,
         event_bus: EventBus,
-        event_loop: asyncio.AbstractEventLoop,
         click_tracker_service,
         config: GlobalAppConfig,
         default_num_rects: Optional[int] = None,
@@ -47,17 +46,15 @@ class QtGridView(QWidget):
         """Initialize grid view.
 
         Args:
-            event_bus: Event bus for publishing events
-            event_loop: Async event loop
-            click_tracker_service: ClickTrackerService for getting click data
-            config: Global app configuration
-            default_num_rects: Default number of rectangles to display
+            event_bus: Event bus for publishing events.
+            click_tracker_service: ClickTrackerService for getting click data.
+            config: Global app configuration.
+            default_num_rects: Default number of rectangles to display.
         """
         super().__init__()
 
         self.logger = logging.getLogger(self.__class__.__name__)
         self.event_bus = event_bus
-        self.event_loop = event_loop
         self._click_tracker = click_tracker_service
         self.config = config
 
@@ -678,7 +675,7 @@ class QtGridView(QWidget):
     def _publish_grid_mouse_click(self, x: int, y: int) -> None:
         """Log a grid-originated click at physical coordinates (click tracking)."""
         ev = PerformMouseClickEventData(x=x, y=y, source="grid")
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(ev), self.event_loop)
+        asyncio.ensure_future(self.event_bus.publish(ev))
 
     def _execute_grid_pointer_action(
         self,

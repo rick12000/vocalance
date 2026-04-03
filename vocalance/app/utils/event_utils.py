@@ -75,8 +75,11 @@ class ThreadSafeEventPublisher:
             logger.error(f"Failed to subscribe {safe_handler_name} to {event_type.__name__}: {e}")
 
     def unsubscribe_all(self) -> None:
-        """Unsubscribe from all events (cleanup method)."""
+        """Unsubscribe all tracked handlers from the event bus and clear tracking state."""
         logger.debug(f"Clearing {len(self.subscriptions)} subscriptions")
+        for event_type, handlers in list(self.subscriptions.items()):
+            for handler in handlers:
+                self.event_bus.unsubscribe(event_type, handler)
         self.subscriptions.clear()
 
 
@@ -133,6 +136,8 @@ class EventSubscriptionManager:
         logger.debug(f"{self.component_name}: Subscribed to {event_type.__name__} with handler {handler_name}")
 
     def unsubscribe_all(self) -> None:
-        """Unsubscribe from all events (cleanup method)."""
+        """Unsubscribe all tracked handlers from the event bus and clear tracking state."""
         logger.debug(f"{self.component_name}: Clearing {len(self.subscriptions)} tracked subscriptions")
+        for event_type, handler in list(self.subscriptions.items()):
+            self.event_bus.unsubscribe(event_type, handler)
         self.subscriptions.clear()

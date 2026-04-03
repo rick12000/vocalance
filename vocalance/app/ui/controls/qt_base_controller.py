@@ -5,31 +5,25 @@ from PySide6.QtCore import QObject, Signal
 
 
 class QtBaseController(QObject):
-    """Base class for Qt controllers with signal support.
+    """Base class for Qt controllers providing shared event bus access, signals, and logging.
 
-    Provides:
-    - Signal definitions for common events
-    - Thread-safe event emission
-    - Logging
-    - View reference management
+    All controllers run on the Qt main thread (via PySide6.QtAsyncio). Async handlers
+    are scheduled directly on the running asyncio loop; no cross-thread scheduling is needed.
     """
 
-    # Common signals all controllers can emit
-    status_updated = Signal(str, bool)  # message, is_error
-    error_occurred = Signal(str)  # error_message
+    status_updated = Signal(str, bool)
+    error_occurred = Signal(str)
 
-    def __init__(self, event_bus, event_loop, logger: logging.Logger):
-        """Initialize Qt base controller.
+    def __init__(self, event_bus, logger: logging.Logger):
+        """Initialize the base controller.
 
         Args:
-            event_bus: Event bus for pub/sub.
-            event_loop: Asyncio event loop.
-            logger: Logger instance.
+            event_bus: Application event bus for pub/sub.
+            logger: Logger instance for this controller.
         """
         super().__init__()
 
         self.event_bus = event_bus
-        self.event_loop = event_loop
         self.logger = logger
         self._view = None
 
@@ -37,36 +31,32 @@ class QtBaseController(QObject):
         """Set the associated view.
 
         Args:
-            view: View instance.
+            view: View instance to associate with this controller.
         """
         self._view = view
 
     def get_view(self) -> Optional[Any]:
-        """Get the associated view.
-
-        Returns:
-            View instance or None.
-        """
+        """Return the associated view, or None if not set."""
         return self._view
 
     def emit_status(self, message: str, is_error: bool = False) -> None:
-        """Emit status update signal.
+        """Emit a status update signal.
 
         Args:
-            message: Status message.
-            is_error: Whether this is an error.
+            message: Status message text.
+            is_error: True if this represents an error condition.
         """
         self.status_updated.emit(message, is_error)
 
     def emit_error(self, error_message: str) -> None:
-        """Emit error signal.
+        """Emit an error signal.
 
         Args:
-            error_message: Error message.
+            error_message: Error description.
         """
         self.error_occurred.emit(error_message)
 
     def cleanup(self) -> None:
-        """Clean up controller resources."""
+        """Release view reference and log cleanup completion."""
         self._view = None
         self.logger.debug(f"{self.__class__.__name__} cleanup completed")

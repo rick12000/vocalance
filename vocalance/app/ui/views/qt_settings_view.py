@@ -434,7 +434,7 @@ class QtSettingsView(QWidget):
             async def _persist() -> Tuple[bool, str]:
                 return await self.controller.update_setting_async("llm.selected_model_id", mid)
 
-            fut = asyncio.run_coroutine_threadsafe(_persist(), self.controller.event_loop)
+            fut = asyncio.ensure_future(_persist())
             fut.add_done_callback(self._on_llm_persist_future_done)
         else:
             dlg.apply_outcome(False, msg)

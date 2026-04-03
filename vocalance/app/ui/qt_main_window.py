@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import threading
 from typing import Optional
@@ -29,7 +28,6 @@ class VocalanceMainWindow(QMainWindow):
     def __init__(
         self,
         event_bus: EventBus,
-        event_loop: asyncio.AbstractEventLoop,
         logger: logging.Logger,
         config: GlobalAppConfig,
         storage_service=None,
@@ -39,7 +37,6 @@ class VocalanceMainWindow(QMainWindow):
         super().__init__()
 
         self.event_bus = event_bus
-        self.event_loop = event_loop
         self.logger = logger
         self.config = config
         self._storage_service = storage_service
@@ -622,45 +619,35 @@ class VocalanceMainWindow(QMainWindow):
             from vocalance.app.ui.controls.qt_sound_controller import QtSoundController
             from vocalance.app.ui.controls.qt_system_controller import QtSystemController
 
-            # Initialize system controller for system-level events (always needed)
-            self.system_controller = QtSystemController(self.event_bus, self.event_loop, self)
+            self.system_controller = QtSystemController(self.event_bus, self)
 
             if hasattr(self, "_mark_service") and self._mark_service:
-                self.marks_controller = QtMarksController(self.event_bus, self.event_loop, self._mark_service, self.config, self)
+                self.marks_controller = QtMarksController(self.event_bus, self._mark_service, self.config)
 
             if hasattr(self, "_grid_service") and self._grid_service:
-                self.grid_controller = QtGridController(self.event_bus, self.event_loop, self._grid_service, self.config)
+                self.grid_controller = QtGridController(self.event_bus, self._grid_service, self.config)
 
             if hasattr(self, "_sound_service") and self._sound_service:
-                self.sound_controller = QtSoundController(
-                    self.event_bus, self.event_loop, self._sound_service, self._storage_service, self.config, self
-                )
+                self.sound_controller = QtSoundController(self.event_bus, self._sound_service, self._storage_service, self.config)
 
             if hasattr(self, "_command_service") and self._command_service:
-                self.commands_controller = QtCommandsController(
-                    self.event_bus, self.event_loop, self._command_service, self.config, self
-                )
+                self.commands_controller = QtCommandsController(self.event_bus, self._command_service, self.config)
 
             if hasattr(self, "_dictation_service") and self._dictation_service:
-                self.dictation_controller = QtDictationController(
-                    self.event_bus, self.event_loop, self._dictation_service, self.config, self
-                )
+                self.dictation_controller = QtDictationController(self.event_bus, self.config)
 
-                # Initialize alias controller using the alias service from dictation coordinator
                 if hasattr(self._dictation_service, "alias_service"):
                     self.dictation_alias_controller = QtDictationAliasController(
-                        self.event_bus, self.event_loop, self._dictation_service.alias_service, self
+                        self.event_bus, self._dictation_service.alias_service
                     )
 
             if hasattr(self, "_settings_service") and self._settings_service:
-                self.settings_controller = QtSettingsController(
-                    self.event_bus, self.event_loop, self._settings_service, self.config, self
-                )
+                self.settings_controller = QtSettingsController(self.event_bus, self._settings_service, self.config, self)
 
             try:
                 from vocalance.app.ui.controls.qt_dictation_popup_controller import QtDictationPopupController
 
-                self.dictation_popup_controller = QtDictationPopupController(self.event_bus, self.event_loop)
+                self.dictation_popup_controller = QtDictationPopupController(self.event_bus)
             except Exception as e:
                 self.logger.warning(f"Could not initialize dictation popup controller: {e}")
 
@@ -689,7 +676,7 @@ class VocalanceMainWindow(QMainWindow):
 
             if self.grid_controller and hasattr(self, "_grid_service") and self._grid_service:
                 click_tracker = getattr(self, "_click_tracker_service", None)
-                self.grid_view = QtGridView(self.event_bus, self.event_loop, click_tracker, self.config)
+                self.grid_view = QtGridView(self.event_bus, click_tracker, self.config)
                 self.grid_view.set_controller_callback(self.grid_controller)
                 self.grid_controller.set_grid_view(self.grid_view)
 

@@ -13,69 +13,51 @@ class QtDictationAliasController(QtBaseController):
     """Business logic controller for dictation alias functionality.
 
     Manages alias CRUD operations and emits Qt signals for UI updates.
-    Thread-safe event handling with signal-based communication.
     """
 
-    # Signals for alias operations
-    aliases_loaded = Signal(dict)  # Dict[str, str] - aliases mapping
-    alias_added = Signal(str, str)  # key, value
-    alias_updated = Signal(str, str)  # key, value
-    alias_deleted = Signal(str)  # key
-    operation_error = Signal(str)  # error message
-    status_updated = Signal(str, bool)  # message, is_error
+    aliases_loaded = Signal(dict)
+    alias_added = Signal(str, str)
+    alias_updated = Signal(str, str)
+    alias_deleted = Signal(str)
+    operation_error = Signal(str)
+    status_updated = Signal(str, bool)
 
     def __init__(
         self,
         event_bus: EventBus,
-        event_loop: asyncio.AbstractEventLoop,
         alias_service,
-        main_window,
     ):
         """Initialize dictation alias controller.
 
         Args:
             event_bus: Event bus for pub/sub.
-            event_loop: Asyncio event loop.
             alias_service: DictationAliasService instance.
-            main_window: Main window reference.
         """
         super().__init__(
             event_bus=event_bus,
-            event_loop=event_loop,
             logger=logging.getLogger("QtDictationAliasController"),
         )
 
         self.alias_service = alias_service
-        self.main_window = main_window
-
-        # State
         self._aliases: Dict[str, str] = {}
 
-        # Subscribe to events
         self._subscribe_to_events()
-
         self.logger.debug("QtDictationAliasController initialized")
 
     def _subscribe_to_events(self) -> None:
-        """Subscribe to alias-related events."""
+        """Subscribe to alias list update events."""
         try:
             self.event_bus.subscribe(DictationAliasListUpdatedEvent, self._on_aliases_updated)
-            self.logger.debug("Subscribed to alias events")
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
-
-    # --- Event Handlers ---
 
     async def _on_aliases_updated(self, event: DictationAliasListUpdatedEvent) -> None:
         """Handle alias list updated event."""
         self._aliases = event.aliases
         self.aliases_loaded.emit(self._aliases)
-        self.logger.debug(f"Aliases updated: {len(self._aliases)} aliases")
-
-    # --- Public Methods ---
 
     def refresh_aliases(self) -> None:
-        """Refresh the aliases list from service."""
+        """Load aliases directly from the service and emit them to the view."""
         try:
             self._aliases = self.alias_service.get_aliases()
             self.aliases_loaded.emit(self._aliases)
@@ -92,7 +74,7 @@ class QtDictationAliasController(QtBaseController):
             value: Substitution text.
 
         Returns:
-            True if request was submitted successfully.
+            False if validation fails, True if the request was submitted.
         """
         key = key.strip()
         value = value.strip()
@@ -100,18 +82,14 @@ class QtDictationAliasController(QtBaseController):
         if not key:
             self.notify_status("Please enter an activation phrase.", is_error=True)
             return False
-
         if not value:
             self.notify_status("Please enter a substitution phrase.", is_error=True)
             return False
-
-        # Check if key already exists
-        if key.lower() in {k.lower() for k in self._aliases.keys()}:
+        if key.lower() in {k.lower() for k in self._aliases}:
             self.notify_status(f"Alias '{key}' already exists.", is_error=True)
             return False
 
-        # Submit async operation
-        asyncio.run_coroutine_threadsafe(self._do_add_alias(key, value), self.event_loop)
+        asyncio.ensure_future(self._do_add_alias(key, value))
         return True
 
     async def _do_add_alias(self, key: str, value: str) -> None:
@@ -135,7 +113,7 @@ class QtDictationAliasController(QtBaseController):
             value: New substitution text.
 
         Returns:
-            True if request was submitted successfully.
+            False if validation fails, True if the request was submitted.
         """
         key = key.strip()
         value = value.strip()
@@ -143,13 +121,11 @@ class QtDictationAliasController(QtBaseController):
         if not key:
             self.notify_status("Please enter an activation phrase.", is_error=True)
             return False
-
         if not value:
             self.notify_status("Please enter a substitution phrase.", is_error=True)
             return False
 
-        # Submit async operation
-        asyncio.run_coroutine_threadsafe(self._do_update_alias(key, value), self.event_loop)
+        asyncio.ensure_future(self._do_update_alias(key, value))
         return True
 
     async def _do_update_alias(self, key: str, value: str) -> None:
@@ -172,16 +148,14 @@ class QtDictationAliasController(QtBaseController):
             key: Activation phrase to delete.
 
         Returns:
-            True if request was submitted successfully.
+            False if the key is empty, True if the request was submitted.
         """
         key = key.strip()
-
         if not key:
             self.notify_status("Invalid alias key.", is_error=True)
             return False
 
-        # Submit async operation
-        asyncio.run_coroutine_threadsafe(self._do_delete_alias(key), self.event_loop)
+        asyncio.ensure_future(self._do_delete_alias(key))
         return True
 
     async def _do_delete_alias(self, key: str) -> None:
@@ -197,20 +171,23 @@ class QtDictationAliasController(QtBaseController):
             self.logger.error(f"Error deleting alias: {e}", exc_info=True)
             self.notify_status(f"Error deleting alias: {e}", is_error=True)
 
-    # --- Getters ---
-
     def get_aliases(self) -> Dict[str, str]:
-        """Get current aliases."""
+        """Return a copy of the current aliases dict."""
         return dict(self._aliases)
 
     def notify_status(self, message: str, is_error: bool = False) -> None:
-        """Notify status message."""
+        """Emit a status update signal.
+
+        Args:
+            message: Status message text.
+            is_error: True if this represents an error condition.
+        """
         self.status_updated.emit(message, is_error)
         if is_error:
             self.operation_error.emit(message)
 
     def cleanup(self) -> None:
-        """Clean up controller resources."""
+        """Unsubscribe from all events and release resources."""
         try:
             self.event_bus.unsubscribe(DictationAliasListUpdatedEvent, self._on_aliases_updated)
         except Exception as e:

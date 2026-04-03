@@ -26,9 +26,9 @@ class ShutdownCoordinator:
 
         Args:
             event_bus: EventBus for publishing shutdown events.
-            root_window: Root Tkinter window for destruction.
+            root_window: Root application window; its ``quit()`` method is called on shutdown.
             logger: Optional logger instance (uses module logger if None).
-            gui_event_loop: Optional GUI event loop reference.
+            gui_event_loop: Event loop used to publish the shutdown event from non-async contexts.
         """
         self.event_bus: EventBus = event_bus
         self.root_window = root_window
@@ -39,14 +39,6 @@ class ShutdownCoordinator:
         self._shutdown_lock: threading.Lock = threading.Lock()
         self._shutdown_event: threading.Event = threading.Event()
         self._initialization_task: Optional[asyncio.Task] = None
-
-    def set_gui_event_loop(self, gui_event_loop: asyncio.AbstractEventLoop) -> None:
-        """Set the GUI event loop reference after initialization.
-
-        Args:
-            gui_event_loop: GUI event loop instance.
-        """
-        self.gui_event_loop = gui_event_loop
 
     def request_shutdown(self, reason: str, source: str) -> bool:
         """Request application shutdown.

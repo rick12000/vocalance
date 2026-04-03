@@ -23,56 +23,43 @@ from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 class QtCommandsController(QtBaseController):
     """Handles event management and business logic for the commands tab."""
 
-    # Signals for command operations
-    commands_loaded = Signal(list)  # List of AutomationCommand objects
-    command_created = Signal(str)  # command_phrase
-    command_updated = Signal(str, str)  # old_phrase, new_phrase
-    command_deleted = Signal(str)  # command_phrase
-    validation_error = Signal(str, str)  # error_message, command_phrase
+    commands_loaded = Signal(list)
+    command_created = Signal(str)
+    command_updated = Signal(str, str)
+    command_deleted = Signal(str)
+    validation_error = Signal(str, str)
     operation_error = Signal(str)
 
     def __init__(
         self,
         event_bus: EventBus,
-        event_loop: asyncio.AbstractEventLoop,
         command_management_service,
         config: GlobalAppConfig,
-        main_window,
     ):
         """Initialize commands controller.
 
         Args:
             event_bus: Event bus for pub/sub.
-            event_loop: Asyncio event loop.
             command_management_service: Command management service instance.
             config: Global app configuration.
-            main_window: Main window reference.
         """
         super().__init__(
             event_bus=event_bus,
-            event_loop=event_loop,
             logger=logging.getLogger("QtCommandsController"),
         )
 
-        self.command_service = command_management_service
         self.config = config
-        self.main_window = main_window
-
-        # Cache of available commands for display
         self.available_commands = []
 
-        # Subscribe to command management events
         self._subscribe_to_events()
-
         self.logger.debug("QtCommandsController initialized")
 
     def _subscribe_to_events(self) -> None:
-        """Subscribe to command-related events using exact legacy event types."""
+        """Subscribe to command management events."""
         try:
             self.event_bus.subscribe(CommandMappingsUpdatedEvent, self._on_command_mappings_updated)
             self.event_bus.subscribe(CommandMappingsResponseEvent, self._on_command_mappings_response)
             self.event_bus.subscribe(CommandValidationErrorEvent, self._on_command_validation_error)
-            self.logger.debug("Subscribed to command events (legacy types)")
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
@@ -80,14 +67,9 @@ class QtCommandsController(QtBaseController):
         """Request initial command mappings when view is ready."""
         self._request_command_mappings()
 
-    # --- Private Methods ---
-
     def _request_command_mappings(self):
-        """Request current command mappings from the service."""
-        event = RequestCommandMappingsEvent()
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
-
-    # --- Event Handlers ---
+        """Publish a request for current command mappings."""
+        asyncio.ensure_future(self.event_bus.publish(RequestCommandMappingsEvent()))
 
     async def _on_command_mappings_updated(self, event):
         """Handle command mappings updated event."""
@@ -107,15 +89,17 @@ class QtCommandsController(QtBaseController):
         """Handle command validation error event."""
         error_message = event.error_message
         command_phrase = getattr(event, "command_phrase", "Unknown")
-
         self.logger.error(f"Command validation error for phrase '{command_phrase}': {error_message}")
         self.validation_error.emit(error_message, command_phrase)
         self.operation_error.emit(error_message)
 
-    # --- Public Methods (Publish Events) ---
-
     def handle_add_command(self, command_phrase: str, hotkey_value: str):
-        """Handle add command request from the view."""
+        """Publish an add-command event from the view.
+
+        Args:
+            command_phrase: Voice phrase to trigger the command.
+            hotkey_value: Hotkey action value for the command.
+        """
         if not command_phrase:
             self.operation_error.emit("Command phrase cannot be empty")
             return
@@ -133,37 +117,41 @@ class QtCommandsController(QtBaseController):
             long_description=f"Custom hotkey command: {hotkey_value}",
             functional_group="Custom",
         )
-
-        event = AddCustomCommandEvent(command=command)
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        asyncio.ensure_future(self.event_bus.publish(AddCustomCommandEvent(command=command)))
         self.command_created.emit(command_phrase)
 
     def handle_change_command_phrase(self, command: AutomationCommand, new_phrase: str):
-        """Handle change command phrase request from the view."""
+        """Publish an update-phrase event from the view.
+
+        Args:
+            command: Existing command to update.
+            new_phrase: New voice phrase for the command.
+        """
         old_phrase = command.command_key
-        event = UpdateCommandPhraseEvent(old_command_phrase=old_phrase, new_command_phrase=new_phrase)
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        asyncio.ensure_future(
+            self.event_bus.publish(UpdateCommandPhraseEvent(old_command_phrase=old_phrase, new_command_phrase=new_phrase))
+        )
         self.command_updated.emit(old_phrase, new_phrase)
 
     def handle_delete_command(self, command: AutomationCommand):
-        """Handle delete command request from the view."""
-        event = DeleteCustomCommandEvent(command=command)
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        """Publish a delete-command event from the view.
+
+        Args:
+            command: Command to delete.
+        """
+        asyncio.ensure_future(self.event_bus.publish(DeleteCustomCommandEvent(command=command)))
         self.command_deleted.emit(command.command_key)
 
     def handle_reset_to_defaults(self):
-        """Handle reset to defaults request from view."""
-        event = ResetCommandsToDefaultsEvent()
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
-
-    # --- Getters for View ---
+        """Publish a reset-to-defaults event from the view."""
+        asyncio.ensure_future(self.event_bus.publish(ResetCommandsToDefaultsEvent()))
 
     def get_available_commands(self) -> List[AutomationCommand]:
-        """Get the list of available commands."""
+        """Return the cached list of available commands."""
         return self.available_commands
 
     def cleanup(self) -> None:
-        """Clean up controller resources."""
+        """Unsubscribe from all events and release resources."""
         try:
             self.event_bus.unsubscribe(CommandMappingsUpdatedEvent, self._on_command_mappings_updated)
             self.event_bus.unsubscribe(CommandMappingsResponseEvent, self._on_command_mappings_response)

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from vocalance.app.event_bus import EventBus
@@ -33,19 +32,13 @@ class QtDictationPopupController:
     - Event subscriptions for dictation lifecycle
     """
 
-    def __init__(
-        self,
-        event_bus: EventBus,
-        event_loop: asyncio.AbstractEventLoop,
-    ):
+    def __init__(self, event_bus: EventBus):
         """Initialize dictation popup controller.
 
         Args:
-            event_bus: Event bus for pub/sub
-            event_loop: Asyncio event loop
+            event_bus: Event bus for pub/sub.
         """
         self.event_bus = event_bus
-        self.event_loop = event_loop
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Create popup view

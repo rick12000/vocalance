@@ -32,60 +32,50 @@ from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 class QtSoundController(QtBaseController):
     """Business logic controller for sound functionality."""
 
-    # Signals for sound operations
-    sounds_loaded = Signal(list)  # List of sound names
-    training_started = Signal(str, int)  # sound_name, total_samples
-    training_progress = Signal(str, int, int)  # sound_name, current, total
-    training_completed = Signal(str)  # sound_name
-    training_error = Signal(str, str)  # sound_name, error_msg
-    training_status = Signal(str, str)  # message, status_type
-    sound_deleted = Signal(str)  # sound_name
+    sounds_loaded = Signal(list)
+    training_started = Signal(str, int)
+    training_progress = Signal(str, int, int)
+    training_completed = Signal(str)
+    training_error = Signal(str, str)
+    training_status = Signal(str, str)
+    sound_deleted = Signal(str)
     all_sounds_deleted = Signal()
-    sound_mapping_updated = Signal(str, str)  # sound_label, command_phrase
+    sound_mapping_updated = Signal(str, str)
     operation_error = Signal(str)
 
     def __init__(
         self,
         event_bus: EventBus,
-        event_loop: asyncio.AbstractEventLoop,
         sound_service,
         storage_service,
         config: GlobalAppConfig,
-        main_window,
     ):
         """Initialize sound controller.
 
         Args:
             event_bus: Event bus for pub/sub.
-            event_loop: Asyncio event loop.
             sound_service: Sound service instance.
             storage_service: Storage service instance.
             config: Global app configuration.
-            main_window: Main window reference.
         """
         super().__init__(
             event_bus=event_bus,
-            event_loop=event_loop,
             logger=logging.getLogger("QtSoundController"),
         )
 
         self.sound_service = sound_service
         self.storage_service = storage_service
         self.config = config
-        self.main_window = main_window
 
-        # Caches matching legacy
-        self.available_sounds = []  # Cache of available sounds for dropdown
-        self._sound_mappings_cache = {}  # Cache for sound mappings
-        self._marks_cache = []  # Cache for available marks
+        self.available_sounds = []
+        self._sound_mappings_cache = {}
+        self._marks_cache = []
 
-        # Subscribe to sound service events
         self._subscribe_to_events()
-
         self.logger.debug("QtSoundController initialized")
 
     def _subscribe_to_events(self) -> None:
-        """Subscribe to sound-related events using exact legacy event types."""
+        """Subscribe to sound service events."""
         try:
             self.event_bus.subscribe(SoundListUpdatedEvent, self._on_sound_list_updated)
             self.event_bus.subscribe(SoundDeletedEvent, self._on_sound_deleted)
@@ -98,16 +88,13 @@ class QtSoundController(QtBaseController):
             self.event_bus.subscribe(SoundTrainingFailedEvent, self._on_training_failed)
             self.event_bus.subscribe(SoundTrainingStatusEvent, self._on_training_status)
             self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
-            self.logger.debug("Subscribed to sound events (legacy types)")
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
     def on_view_ready(self):
-        """Request initial data when view is ready."""
+        """Request initial data when the view is ready."""
         self.refresh_sound_mappings()
         self._request_marks_for_cache()
-
-    # --- Event Handlers ---
 
     async def _on_sound_list_updated(self, event):
         """Handle sound list updated event."""
@@ -127,7 +114,7 @@ class QtSoundController(QtBaseController):
             self.all_sounds_deleted.emit()
 
     async def _on_sound_mapping_updated(self, event):
-        """Handle sound-to-command mapping update events."""
+        """Handle sound-to-command mapping update event."""
         if event.success:
             self._sound_mappings_cache[event.sound_label] = event.command_phrase
             self.sound_mapping_updated.emit(event.sound_label, event.command_phrase)
@@ -141,135 +128,136 @@ class QtSoundController(QtBaseController):
 
     async def _on_training_initiated(self, event):
         """Handle training initiated event."""
-        sound_name = getattr(event, "sound_name", "Unknown")
-        total_samples = getattr(event, "total_samples", 0)
-        self.training_started.emit(sound_name, total_samples)
+        self.training_started.emit(getattr(event, "sound_name", "Unknown"), getattr(event, "total_samples", 0))
 
     async def _on_training_progress(self, event):
         """Handle training progress event."""
-        label = getattr(event, "label", "Unknown")
-        current_sample = getattr(event, "current_sample", 0)
-        total_samples = getattr(event, "total_samples", 0)
-        self.training_progress.emit(label, current_sample, total_samples)
+        self.training_progress.emit(
+            getattr(event, "label", "Unknown"),
+            getattr(event, "current_sample", 0),
+            getattr(event, "total_samples", 0),
+        )
 
     async def _on_training_complete(self, event):
         """Handle training complete event."""
-        sound_name = getattr(event, "sound_name", "Unknown")
         self.refresh_sound_list()
-        self.training_completed.emit(sound_name)
+        self.training_completed.emit(getattr(event, "sound_name", "Unknown"))
 
     async def _on_training_failed(self, event):
         """Handle training failed event."""
-        sound_name = getattr(event, "sound_name", "Unknown")
-        reason = getattr(event, "reason", "Unknown error")
-        self.training_error.emit(sound_name, reason)
+        self.training_error.emit(getattr(event, "sound_name", "Unknown"), getattr(event, "reason", "Unknown error"))
 
     async def _on_training_status(self, event):
         """Handle training status event."""
-        message = getattr(event, "message", "")
-        status_type = getattr(event, "status_type", "info")
-        self.training_status.emit(message, status_type)
+        self.training_status.emit(getattr(event, "message", ""), getattr(event, "status_type", "info"))
 
     async def _on_marks_changed(self, event):
-        """Handle marks changed event to update cache."""
+        """Handle marks changed event to update the local marks cache."""
         if hasattr(event, "marks") and event.marks:
             if isinstance(event.marks, dict):
                 self._marks_cache = list(event.marks.keys())
             else:
-                # Fallback for other formats
-                marks_list = []
-                for mark in event.marks:
-                    if isinstance(mark, str) and mark.strip():
-                        marks_list.append(mark.strip())
-                    elif hasattr(mark, "name") and mark.name:
-                        marks_list.append(mark.name)
-                    elif hasattr(mark, "get") and mark.get("name"):
-                        marks_list.append(mark.get("name"))
-                self._marks_cache = marks_list
+                self._marks_cache = [
+                    m if isinstance(m, str) else (m.name if hasattr(m, "name") else m.get("name", "")) for m in event.marks if m
+                ]
         else:
             self._marks_cache = []
 
-    # --- Public Methods (Publish Events) ---
-
     def delete_individual_sound(self, sound_label: str) -> None:
-        """Delete an individual sound."""
-        event = DeleteSoundCommand(label=sound_label)
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        """Publish a delete-sound event.
+
+        Args:
+            sound_label: Label of the sound to delete.
+        """
+        asyncio.ensure_future(self.event_bus.publish(DeleteSoundCommand(label=sound_label)))
 
     def delete_all_sounds(self) -> None:
-        """Delete all sounds."""
-        event = ResetAllSoundsCommand()
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        """Publish a reset-all-sounds event."""
+        asyncio.ensure_future(self.event_bus.publish(ResetAllSoundsCommand()))
 
     def train_sound(self, sound_name: str, num_samples: int) -> None:
-        """Train a new sound."""
-        event = SoundTrainingRequestEvent(sound_label=sound_name, num_samples=num_samples)
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        """Publish a sound training request.
+
+        Args:
+            sound_name: Name/label for the sound to train.
+            num_samples: Number of training samples to collect.
+        """
+        asyncio.ensure_future(self.event_bus.publish(SoundTrainingRequestEvent(sound_label=sound_name, num_samples=num_samples)))
 
     def start_training(self, sound_name: str, num_samples: int) -> None:
-        """Start training a sound (alias for train_sound for legacy compatibility)."""
+        """Alias for train_sound.
+
+        Args:
+            sound_name: Name/label for the sound to train.
+            num_samples: Number of training samples to collect.
+        """
         self.train_sound(sound_name, num_samples)
 
     def map_sound_to_command(self, sound_label: str, command_phrase: str) -> None:
-        """Map a sound to a command phrase."""
-        mapping_command = MapSoundToCommandPhraseCommand(sound_label=sound_label, command_phrase=command_phrase)
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(mapping_command), self.event_loop)
+        """Publish a sound-to-command mapping event and schedule a refresh.
 
-        # Refresh after a short delay
-        self.event_loop.call_later(0.5, self.refresh_sound_mappings)
+        Args:
+            sound_label: Sound label to map.
+            command_phrase: Command phrase to associate with the sound.
+        """
+        asyncio.ensure_future(
+            self.event_bus.publish(MapSoundToCommandPhraseCommand(sound_label=sound_label, command_phrase=command_phrase))
+        )
+        asyncio.get_running_loop().call_later(0.5, self.refresh_sound_mappings)
 
     def refresh_sound_list(self) -> None:
-        """Refresh the sound list by requesting it from the event bus."""
-        event = RequestSoundListEvent()
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        """Publish a request for the current sound list."""
+        asyncio.ensure_future(self.event_bus.publish(RequestSoundListEvent()))
 
     def refresh_sound_mappings(self) -> None:
-        """Request sound mappings from the service."""
-        event = RequestSoundMappingsEvent()
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
+        """Publish a request for sound mappings."""
+        asyncio.ensure_future(self.event_bus.publish(RequestSoundMappingsEvent()))
 
     def _request_marks_for_cache(self) -> None:
-        """Request marks from service to populate cache."""
-        event = MarkGetAllRequestEventData()
-        asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), self.event_loop)
-
-    # --- Getters for View ---
+        """Publish a request for marks to populate the local marks cache."""
+        asyncio.ensure_future(self.event_bus.publish(MarkGetAllRequestEventData()))
 
     def get_available_sounds(self) -> List[str]:
-        """Get the list of available sounds."""
+        """Return the cached list of available sounds."""
         return self.available_sounds
 
     def get_default_training_samples(self) -> int:
-        """Get default number of training samples."""
+        """Return the default number of training samples."""
         return 5
 
     def get_sound_command_mapping(self, sound: str) -> Optional[str]:
-        """Get command mapping for a sound if available."""
+        """Return the command phrase mapped to a sound, or None.
+
+        Args:
+            sound: Sound label to look up.
+        """
         return self._sound_mappings_cache.get(sound)
 
     def _update_sound_mappings_cache(self, mappings: Dict[str, str]):
-        """Update the local cache of sound mappings."""
+        """Merge new mappings into the local sound mappings cache.
+
+        Args:
+            mappings: Dict of sound label to command phrase.
+        """
         self._sound_mappings_cache.update(mappings)
 
     def get_available_exact_match_commands(self) -> List[str]:
-        """Get all available exact match commands."""
+        """Return all available exact-match command phrases."""
         try:
-            automation_phrases = AutomationCommandRegistry.get_command_phrases()
-            return sorted(list(set(automation_phrases)))
+            return sorted(list(set(AutomationCommandRegistry.get_command_phrases())))
         except Exception as e:
             self.logger.error(f"Error getting exact match commands: {e}")
             return []
 
     def get_available_mark_names(self) -> List[str]:
-        """Get list of available mark names for sound mapping."""
+        """Return cached mark names, requesting them from the service if the cache is empty."""
         if not self._marks_cache:
-            # Request marks from service if cache is empty
             self._request_marks_for_cache()
             return []
         return self._marks_cache.copy()
 
     def get_grid_trigger_words(self) -> List[str]:
-        """Get grid trigger words from config."""
+        """Return the configured grid trigger phrases."""
         try:
             return [
                 self.config.grid.show_grid_phrase,
@@ -281,11 +269,11 @@ class QtSoundController(QtBaseController):
             return []
 
     def get_mapping_command_types(self) -> List[str]:
-        """Get available command types for mapping."""
+        """Return the available command type categories for sound mapping."""
         return ["Commands", "Marks", "Grid"]
 
     def cleanup(self) -> None:
-        """Clean up controller resources."""
+        """Unsubscribe from all events and release resources."""
         try:
             self.event_bus.unsubscribe(SoundListUpdatedEvent, self._on_sound_list_updated)
             self.event_bus.unsubscribe(SoundDeletedEvent, self._on_sound_deleted)

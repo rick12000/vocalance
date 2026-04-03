@@ -7,6 +7,7 @@ import sys
 import threading
 from typing import Any, Dict, Optional
 
+import PySide6.QtAsyncio as QtAsyncio
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
@@ -37,7 +38,6 @@ class FastServiceInitializer:
         event_bus: EventBus,
         config: GlobalAppConfig,
         gui_loop: asyncio.AbstractEventLoop,
-        root: Optional[Any] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
     ) -> None:
         """Initialize the service initializer.
@@ -46,17 +46,15 @@ class FastServiceInitializer:
             event_bus: Central event bus for inter-service communication.
             config: Global application configuration containing all settings.
             gui_loop: Asyncio event loop dedicated to GUI operations.
-            root: Optional root window instance (Tkinter or Qt).
             shutdown_coordinator: Optional coordinator for handling shutdown requests during init.
         """
         self.event_bus: EventBus = event_bus
         self.config: GlobalAppConfig = config
         self.gui_loop: asyncio.AbstractEventLoop = gui_loop
-        self.root: Optional[Any] = root
         self.services: Dict[str, Any] = {}
         self.shutdown_coordinator: Optional[ShutdownCoordinator] = shutdown_coordinator
         self._services_lock: threading.RLock = threading.RLock()
-        self._background_tasks: list[asyncio.Task] = []  # Track background tasks for cancellation
+        self._background_tasks: list[asyncio.Task] = []
 
     async def initialize_all(self, progress_tracker: StartupProgressTracker) -> Dict[str, Any]:
         """Initialize all non-UI services in staged parallel batches with progress updates.
@@ -130,21 +128,6 @@ class FastServiceInitializer:
             logger.warning(f"Error during background task cancellation: {e}")
         finally:
             self._background_tasks.clear()
-
-    async def initialize_ui_components(self, progress_tracker: StartupProgressTracker) -> None:
-        """Initialize UI components including fonts, theme, and main control room window.
-
-        Loads custom fonts, configures the UI theme with the font service, and creates
-        the AppControlRoom instance that manages all UI controls and views. Must be called
-        in the main thread after services are initialized.
-
-        Args:
-            progress_tracker: Tracks and reports UI initialization progress.
-        """
-        progress_tracker.start_step(step_name="Creating interface...")
-        progress_tracker.update_status_animated(status="Building main window")
-        await self._init_ui_components()
-        progress_tracker.complete_step()
 
     async def _init_core_services(self) -> None:
         """Initialize lightweight core services that have no external dependencies.
@@ -535,39 +518,6 @@ class FastServiceInitializer:
 
         logger.info("All services activated successfully")
 
-    async def _init_ui_components(self) -> None:
-        """Initialize UI components including fonts, theme, and AppControlRoom.
-
-        Loads custom fonts through FontService, configures the UI theme, and creates
-        the main AppControlRoom window that hosts all UI controls and views. Links
-        the settings service and mark service to the control room.
-        """
-        # DEFERRED IMPORT: UI components
-        from vocalance.app.ui.main_window import AppControlRoom
-
-        # Load Qt fonts
-        theme.load_fonts()
-
-        with self._services_lock:
-            storage = self.services.get("storage")
-            settings = self.services.get("settings")
-
-        control_room_logger = logging.getLogger("AppControlRoom")
-        control_room = AppControlRoom(
-            root=self.root,
-            event_bus=self.event_bus,
-            event_loop=self.gui_loop,
-            logger=control_room_logger,
-            config=self.config,
-            storage_service=storage,
-        )
-
-        if settings:
-            control_room.set_settings_service(settings_service=settings)
-
-        with self._services_lock:
-            self.services["control_room"] = control_room
-
 
 def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
     """Validate that critical assets exist before starting application.
@@ -589,22 +539,15 @@ def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
     return True
 
 
-async def _stop_audio_and_event_bus(
-    services: Dict[str, Any], event_bus: EventBus, gui_event_loop: asyncio.AbstractEventLoop
-) -> list[str]:
-    """Stop audio service and event bus during shutdown sequence.
-
-    Stops the audio service's processing thread to halt audio capture, waits briefly
-    for pending audio processing to complete, then stops the event bus worker to
-    prevent new events from being processed.
+async def _stop_audio_and_event_bus(services: Dict[str, Any], event_bus: EventBus) -> list[str]:
+    """Stop audio processing and drain the event bus.
 
     Args:
-        services: Dictionary of active services potentially including 'audio'.
-        event_bus: Event bus instance to be stopped.
-        gui_event_loop: GUI event loop where event bus worker is running.
+        services: Active services dict, checked for an 'audio' entry.
+        event_bus: Event bus to stop.
 
     Returns:
-        List of error messages encountered during shutdown.
+        List of error messages encountered.
     """
     errors = []
 
@@ -613,127 +556,37 @@ async def _stop_audio_and_event_bus(
 
     await asyncio.sleep(0.3)
 
-    if not gui_event_loop.is_closed():
-        try:
-            stop_future = asyncio.run_coroutine_threadsafe(event_bus.stop_worker(), gui_event_loop)
-            stop_future.result(timeout=5.0)
-            logger.debug("Event bus stopped successfully")
-        except Exception as e:
-            error_msg = f"Error stopping event bus: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
+    try:
+        await event_bus.stop_worker()
+        logger.debug("Event bus stopped successfully")
+    except Exception as e:
+        error_msg = f"Error stopping event bus: {e}"
+        logger.error(error_msg)
+        errors.append(error_msg)
 
     return errors
 
 
-async def _stop_mark_service_tasks(services: Dict[str, Any], gui_event_loop: asyncio.AbstractEventLoop) -> list[str]:
+async def _stop_mark_service_tasks(services: Dict[str, Any]) -> list[str]:
     """Stop mark service background tasks during shutdown.
 
-    Calls the mark service's stop_service_tasks() method in the GUI event loop
-    to cleanly terminate any running background tasks with a timeout.
-
     Args:
-        services: Dictionary of active services potentially including 'mark'.
-        gui_event_loop: GUI event loop where mark service tasks are running.
+        services: Active services dict, checked for a 'mark' entry.
 
     Returns:
-        List of error messages encountered during task cancellation.
+        List of error messages encountered.
     """
     errors = []
 
     if "mark" in services and hasattr(services["mark"], "stop_service_tasks"):
         try:
-            if not gui_event_loop.is_closed():
-                stop_future = asyncio.run_coroutine_threadsafe(services["mark"].stop_service_tasks(), gui_event_loop)
-                stop_future.result(timeout=3)
+            await asyncio.wait_for(services["mark"].stop_service_tasks(), timeout=3.0)
+        except asyncio.TimeoutError:
+            logger.warning("Mark service tasks did not stop within timeout")
         except Exception as e:
             error_msg = f"Error stopping mark service: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
-
-    return errors
-
-
-async def _cancel_gui_event_loop_tasks(gui_event_loop: asyncio.AbstractEventLoop) -> None:
-    """Cancel all pending tasks in GUI event loop during shutdown.
-
-    Retrieves all pending tasks from the GUI event loop, cancels them, and waits
-    for cancellation to complete with a timeout to prevent hanging on stuck tasks.
-
-    Args:
-        gui_event_loop: GUI event loop potentially containing pending async tasks.
-    """
-    if gui_event_loop.is_closed():
-        return
-
-    pending_tasks = [task for task in asyncio.all_tasks(gui_event_loop) if not task.done()]
-
-    if not pending_tasks:
-        return
-
-    logger.debug(f"Cancelling {len(pending_tasks)} pending tasks")
-
-    for task in pending_tasks:
-        task.cancel()
-
-    try:
-        cancel_future = asyncio.run_coroutine_threadsafe(asyncio.gather(*pending_tasks, return_exceptions=True), gui_event_loop)
-        cancel_future.result(timeout=2.0)
-        logger.debug("All pending tasks cancelled successfully")
-    except asyncio.TimeoutError:
-        logger.warning("Timeout waiting for tasks to be cancelled")
-    except Exception as e:
-        logger.warning(f"Error cancelling pending tasks: {e}")
-
-
-async def _stop_gui_event_loop(gui_event_loop: asyncio.AbstractEventLoop, gui_thread: threading.Thread) -> list[str]:
-    """Stop GUI event loop and wait for GUI thread termination during shutdown.
-
-    Stops the GUI event loop using call_soon_threadsafe, waits for the GUI thread to
-    terminate with a timeout, and closes the event loop. Logs warnings if the thread
-    doesn't terminate cleanly within the timeout period.
-
-    Args:
-        gui_event_loop: GUI event loop to be stopped and closed.
-        gui_thread: GUI thread running the event loop.
-
-    Returns:
-        List of error messages encountered during shutdown.
-    """
-    errors = []
-
-    if gui_event_loop.is_closed():
-        return errors
-
-    # Stop the event loop
-    try:
-        gui_event_loop.call_soon_threadsafe(gui_event_loop.stop)
-    except Exception as e:
-        logger.warning(f"Error stopping GUI event loop: {e}")
-
-    # Give the loop time to stop processing
-    await asyncio.sleep(0.1)
-
-    try:
-        gui_thread.join(timeout=5.0)
-        if gui_thread.is_alive():
-            logger.warning("GUI thread did not terminate cleanly within timeout")
-        else:
-            logger.debug("GUI thread terminated successfully")
-    except Exception as e:
-        error_msg = f"Error joining GUI thread: {e}"
-        logger.error(error_msg)
-        errors.append(error_msg)
-
-    # Additional sleep to ensure thread cleanup
-    await asyncio.sleep(0.2)
-
-    if not gui_event_loop.is_closed():
-        try:
-            gui_event_loop.close()
-            logger.debug("GUI event loop closed")
-        except Exception as e:
-            logger.warning(f"Error closing GUI event loop: {e}")
 
     return errors
 
@@ -855,39 +708,29 @@ def _cleanup_memory() -> None:
 async def _cleanup_services(
     services: Dict[str, Any],
     event_bus: EventBus,
-    gui_event_loop: asyncio.AbstractEventLoop,
-    gui_thread: threading.Thread,
     service_initializer: Optional[FastServiceInitializer] = None,
 ) -> None:
-    """Clean up all services during shutdown with proper async task cleanup.
+    """Clean up all services during shutdown.
 
-    Orchestrates the complete shutdown sequence: stops audio and event bus, cancels
-    pending GUI tasks, stops the GUI event loop, shuts down services in order, clears
-    service references, performs memory cleanup, and exits the process. Collects all
-    errors encountered and logs them for debugging.
+    Stops audio, drains and stops the event bus, shuts down services in dependency
+    order, clears service references, and performs memory cleanup.
 
     Args:
-        services: Dictionary of active services to be shut down.
-        event_bus: Event bus instance to be stopped.
-        gui_event_loop: GUI event loop to be stopped and closed.
-        gui_thread: GUI thread to be joined and terminated.
-        service_initializer: Optional service initializer for cancelling background tasks.
+        services: Dictionary of active services to shut down.
+        event_bus: Event bus instance to stop.
+        service_initializer: Optional initializer for cancelling background tasks.
     """
     cleanup_errors: list[str] = []
 
     try:
-        # Cancel background initialization tasks if initializer provided
         if service_initializer:
             await service_initializer.cancel_background_tasks()
 
-        cleanup_errors.extend(await _stop_audio_and_event_bus(services, event_bus, gui_event_loop))
-        cleanup_errors.extend(await _stop_mark_service_tasks(services, gui_event_loop))
-        await _cancel_gui_event_loop_tasks(gui_event_loop)
-        cleanup_errors.extend(await _stop_gui_event_loop(gui_event_loop, gui_thread))
+        cleanup_errors.extend(await _stop_audio_and_event_bus(services, event_bus))
+        cleanup_errors.extend(await _stop_mark_service_tasks(services))
         cleanup_errors.extend(await _shutdown_services_in_order(services))
 
-        service_names_to_clear = [name for name in services.keys() if name != "gui_thread"]
-        for service_name in service_names_to_clear:
+        for service_name in list(services.keys()):
             try:
                 del services[service_name]
             except Exception as e:
@@ -913,42 +756,21 @@ async def _cleanup_services(
 async def initialize_services_with_ui_integration(
     initializer: FastServiceInitializer,
     progress_tracker: StartupProgressTracker,
-    qt_app: QApplication,
-    startup_window: Optional[StartupWindow] = None,
 ) -> Dict[str, Any]:
-    """Initialize services while maintaining UI responsiveness during startup.
+    """Initialize services asynchronously, yielding to the Qt event loop between steps.
 
-    Executes service initialization asynchronously while periodically processing
-    Qt GUI events to prevent the UI from freezing.
+    With PySide6.QtAsyncio, Qt event processing is integrated into the asyncio loop.
+    Each ``await asyncio.sleep(0)`` inside the initializer yields control back to Qt,
+    keeping the startup window responsive without manual processEvents() calls.
 
     Args:
-        initializer: FastServiceInitializer instance managing service creation sequence.
-        progress_tracker: Monitors initialization steps and publishes progress updates.
-        qt_app: QApplication instance requiring periodic event processing.
-        startup_window: Optional progress indicator window displaying initialization status.
+        initializer: FastServiceInitializer managing service creation.
+        progress_tracker: Reports initialization progress to the startup UI.
 
     Returns:
-        Dictionary mapping service names to initialized service instances.
+        Dictionary mapping service names to initialized instances.
     """
-    init_task = asyncio.create_task(initializer.initialize_all(progress_tracker=progress_tracker))
-    gui_update_interval = 0.01
-
-    while not init_task.done():
-        try:
-            # Process Qt events
-            qt_app.processEvents()
-
-            # Process startup window queue if available
-            if startup_window:
-                # Qt signals handle updates automatically, no manual queue processing needed
-                pass
-        except Exception as e:
-            logger.debug(f"GUI update failed (window may be closing): {e}")
-            break
-
-        await asyncio.sleep(gui_update_interval)
-
-    return await init_task
+    return await initializer.initialize_all(progress_tracker=progress_tracker)
 
 
 async def _handle_initialization(
@@ -957,25 +779,18 @@ async def _handle_initialization(
     startup_window: StartupWindow,
     shutdown_coordinator: Optional[ShutdownCoordinator],
     event_bus: EventBus,
-    gui_event_loop: asyncio.AbstractEventLoop,
-    gui_thread: threading.Thread,
 ) -> Optional[Dict[str, Any]]:
-    """Handle service initialization with proper error handling and cancellation support.
-
-    Awaits the initialization task and handles three outcomes: successful completion,
-    cancellation due to user request, or runtime error.
+    """Await the initialization task and handle cancellation or failure.
 
     Args:
-        init_task: Asyncio task executing the initialization sequence.
-        service_initializer: Service initializer containing partially initialized services.
-        startup_window: Progress window displaying initialization status to user.
-        shutdown_coordinator: Optional coordinator tracking initialization task for cancellation.
-        event_bus: Application event bus requiring cleanup on failure.
-        gui_event_loop: GUI event loop requiring cleanup on failure.
-        gui_thread: GUI thread requiring cleanup on failure.
+        init_task: Asyncio task executing service initialization.
+        service_initializer: Initializer holding partially initialized services on failure.
+        startup_window: Startup progress window for status updates.
+        shutdown_coordinator: Optional coordinator to unregister the task on success.
+        event_bus: Event bus requiring cleanup on failure.
 
     Returns:
-        Dictionary of initialized services if successful, None if cancelled or failed.
+        Dict of initialized services on success, None on cancellation or failure.
     """
     try:
         services = await init_task
@@ -987,26 +802,13 @@ async def _handle_initialization(
         logger.info("Initialization cancelled due to shutdown request")
         startup_window.update_progress(0.0, "Startup cancelled by user", animate=False)
         await asyncio.sleep(1)
-
-        # Cancel any background tasks that were spawned
         await service_initializer.cancel_background_tasks()
-
-        partial_services = service_initializer.services
-        partial_services["gui_thread"] = gui_thread
-
-        logger.debug(f"Cleaning up {len(partial_services)} partially initialized services")
         startup_window.close()
-        await _cleanup_services(
-            services=partial_services,
-            event_bus=event_bus,
-            gui_event_loop=gui_event_loop,
-            gui_thread=gui_thread,
-        )
+        await _cleanup_services(services=service_initializer.services, event_bus=event_bus)
         return None
 
     except RuntimeError as e:
         logger.critical(f"Critical initialization error: {e}")
-        logger.critical("Application will shut down")
         startup_window.update_progress(
             0.0,
             "Initialization failed. Please check your internet connection and try again.",
@@ -1014,40 +816,21 @@ async def _handle_initialization(
         )
         await asyncio.sleep(3)
         startup_window.close()
-        await _cleanup_services(
-            services={},
-            event_bus=event_bus,
-            gui_event_loop=gui_event_loop,
-            gui_thread=gui_thread,
-        )
+        await _cleanup_services(services={}, event_bus=event_bus)
         return None
 
 
-def _setup_infrastructure(app_config: GlobalAppConfig) -> tuple[EventBus, asyncio.AbstractEventLoop, threading.Thread]:
-    """Setup core infrastructure: event bus, GUI event loop, and GUI thread.
+def _setup_infrastructure() -> EventBus:
+    """Create the event bus and start its worker on the running asyncio loop.
 
-    Creates a dedicated asyncio event loop running in a separate daemon thread for
-    GUI-related async operations.
-
-    Args:
-        app_config: Application configuration.
+    Must be called from within a running asyncio context (i.e. inside a coroutine).
 
     Returns:
-        Tuple of (event_bus, gui_event_loop, gui_thread).
+        Initialized EventBus with its worker task scheduled.
     """
     event_bus = EventBus()
-    gui_event_loop = asyncio.new_event_loop()
-
-    gui_thread = threading.Thread(
-        target=lambda: (asyncio.set_event_loop(gui_event_loop), gui_event_loop.run_forever()),
-        daemon=False,
-        name="GUIEventLoop",
-    )
-    gui_thread.start()
-
-    gui_event_loop.call_soon_threadsafe(lambda: gui_event_loop.create_task(event_bus.start_worker()))
-
-    return event_bus, gui_event_loop, gui_thread
+    asyncio.ensure_future(event_bus.start_worker())
+    return event_bus
 
 
 def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownCoordinator) -> QTimer:
@@ -1094,46 +877,12 @@ def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownC
     return signal_timer
 
 
-class QtAsyncioIntegration:
-    """Integrates Qt event loop with asyncio event loop.
-
-    Uses QTimer to periodically process asyncio events while Qt runs.
-    """
-
-    def __init__(self, gui_event_loop: asyncio.AbstractEventLoop):
-        """Initialize integration.
-
-        Args:
-            gui_event_loop: Asyncio event loop to integrate with Qt.
-        """
-        self.gui_event_loop = gui_event_loop
-        self.timer = QTimer()
-        self.timer.timeout.connect(self._process_asyncio_events)
-        self.timer.start(10)  # Process every 10ms
-
-    def _process_asyncio_events(self):
-        """Process asyncio events in the GUI event loop."""
-        if not self.gui_event_loop.is_closed():
-            self.gui_event_loop.call_soon_threadsafe(lambda: None)
-
-    def stop(self):
-        """Stop the integration timer."""
-        self.timer.stop()
-
-
 async def main() -> None:
     """Main application entry point orchestrating startup, initialization, and cleanup.
 
-    Coordinates the complete application lifecycle using Qt:
-    - Configures logging
-    - Validates assets
-    - Sets up infrastructure (event bus, GUI thread)
-    - Creates Qt application with icon early for taskbar visibility
-    - Initializes all services with progress tracking
-    - Activates services
-    - Displays the main window
-    - Runs the Qt event loop
-    - Performs cleanup on shutdown
+    Runs under PySide6.QtAsyncio so the asyncio event loop IS the Qt event loop.
+    All async handlers run on the Qt main thread; no cross-thread scheduling is needed
+    from UI code.
     """
     logging.getLogger("numba").setLevel(logging.WARNING)
 
@@ -1149,12 +898,8 @@ async def main() -> None:
         setup_logging(config=app_config.logging)
         os.makedirs(app_config.storage.user_data_root, exist_ok=True)
 
-        # Create Qt Application EARLY - before any windows
-        qt_app = QApplication(sys.argv)
-        qt_app.setStyle("Fusion")  # Modern Qt style
+        qt_app = QApplication.instance()
 
-        # Initialize icon manager and apply to QApplication immediately
-        # This ensures taskbar icon is visible for all windows created afterwards
         icon_path = None
         if app_config.asset_paths.icon_path:
             from pathlib import Path
@@ -1168,28 +913,25 @@ async def main() -> None:
         else:
             logger.warning("Failed to load application icon; proceeding without icon")
 
-        # Load fonts and apply base styles
         theme.load_fonts(app_config.asset_paths.fonts_dir)
         theme._apply_app_palette(qt_app)
         logger.info("Theme palette applied to QApplication to override OS colors")
 
-        # Create infrastructure
-        event_bus, gui_event_loop, gui_thread = _setup_infrastructure(app_config=app_config)
+        event_bus = _setup_infrastructure()
+        gui_event_loop = asyncio.get_event_loop()
 
-        # Create Qt-compatible shutdown coordinator
         class QtShutdownCoordinator:
             """Lightweight shutdown coordinator for Qt applications."""
 
-            def __init__(self, event_bus: EventBus, qt_app: QApplication, gui_event_loop: asyncio.AbstractEventLoop):
+            def __init__(self, event_bus: EventBus, qt_app: QApplication):
                 self.event_bus = event_bus
                 self.qt_app = qt_app
-                self.gui_event_loop = gui_event_loop
                 self._shutdown_requested = False
                 self._shutdown_lock = threading.Lock()
                 self._initialization_task: Optional[asyncio.Task] = None
 
             def request_shutdown(self, reason: str, source: str) -> bool:
-                """Request application shutdown."""
+                """Request application shutdown, cancelling init if still in progress."""
                 with self._shutdown_lock:
                     if self._shutdown_requested:
                         logger.debug(f"Shutdown already in progress. Ignoring duplicate request from {source}")
@@ -1198,12 +940,9 @@ async def main() -> None:
 
                 logger.info(f"Shutdown requested: {reason} (source: {source})")
 
-                # Cancel initialization task if running
                 if self._initialization_task and not self._initialization_task.done():
-                    logger.debug("Cancelling initialization task due to shutdown request")
                     self._initialization_task.cancel()
 
-                # Quit Qt application
                 try:
                     self.qt_app.quit()
                 except Exception as e:
@@ -1212,26 +951,21 @@ async def main() -> None:
                 return True
 
             def is_shutdown_requested(self) -> bool:
-                """Check if shutdown has been requested (thread-safe)."""
+                """Return True if shutdown has been requested (thread-safe)."""
                 with self._shutdown_lock:
                     return self._shutdown_requested
 
             def register_initialization_task(self, task: asyncio.Task) -> None:
-                """Register the initialization task for cancellation on shutdown."""
+                """Register the initialization task so it can be cancelled on shutdown."""
                 self._initialization_task = task
-                logger.debug("Initialization task registered with shutdown coordinator")
 
             def unregister_initialization_task(self) -> None:
                 """Clear the initialization task reference after it completes."""
                 self._initialization_task = None
-                logger.debug("Initialization task unregistered from shutdown coordinator")
 
-        shutdown_coordinator = QtShutdownCoordinator(event_bus, qt_app, gui_event_loop)
-
-        # Setup signal handlers - store timer reference to prevent garbage collection
+        shutdown_coordinator = QtShutdownCoordinator(event_bus, qt_app)
         signal_timer = _setup_signal_handlers(qt_app=qt_app, shutdown_coordinator=shutdown_coordinator)  # noqa: F841
 
-        # Show startup window with icon manager for taskbar visibility
         startup_window = StartupWindow(
             logger=logging.getLogger("StartupWindow"),
             asset_paths_config=app_config.asset_paths,
@@ -1240,10 +974,6 @@ async def main() -> None:
         )
         startup_window.show()
 
-        # Process events to show window
-        qt_app.processEvents()
-
-        # Validate critical assets
         if not _validate_critical_assets(app_config=app_config):
             startup_window.update_progress(0.0, "Critical assets missing. Please check logs.", animate=False)
             await asyncio.sleep(3)
@@ -1255,56 +985,39 @@ async def main() -> None:
             event_bus=event_bus,
             config=app_config,
             gui_loop=gui_event_loop,
-            root=None,  # No Tkinter root in Qt
             shutdown_coordinator=shutdown_coordinator,
         )
 
-        # Adapt FastServiceInitializer to not use Tkinter root
-        # For now, initialize without UI components that depend on Tkinter
-
-        async def run_initialization() -> Dict[str, Any]:
-            services = await initialize_services_with_ui_integration(
+        init_task = asyncio.create_task(
+            initialize_services_with_ui_integration(
                 initializer=service_initializer,
                 progress_tracker=progress_tracker,
-                qt_app=qt_app,
-                startup_window=startup_window,
             )
-            # Skip UI components initialization for now - will need adaptation
-            # await service_initializer.initialize_ui_components(progress_tracker=progress_tracker)
-            return services
-
-        init_task = asyncio.create_task(run_initialization())
+        )
 
         services = await _handle_initialization(
             init_task=init_task,
             service_initializer=service_initializer,
             startup_window=startup_window,
-            shutdown_coordinator=shutdown_coordinator if shutdown_coordinator else None,
+            shutdown_coordinator=shutdown_coordinator,
             event_bus=event_bus,
-            gui_event_loop=gui_event_loop,
-            gui_thread=gui_thread,
         )
 
         if not services:
             return
-
-        services["gui_thread"] = gui_thread
 
         progress_tracker.update_status_static(status="Ready!")
         startup_window.update_progress(1.0, "Ready!", animate=False)
 
         await asyncio.sleep(0.5)
         startup_window.close_after_initialization()
-
         await asyncio.sleep(0.1)
 
         logger.info("Activating services now that initialization is complete")
         await service_initializer.activate_all_services()
 
-        # Create main window with icon manager for taskbar visibility
         main_window = VocalanceMainWindow(
             event_bus=event_bus,
-            event_loop=gui_event_loop,
             logger=logging.getLogger("MainWindow"),
             config=app_config,
             storage_service=services.get("storage"),
@@ -1312,7 +1025,6 @@ async def main() -> None:
             shutdown_coordinator=shutdown_coordinator,
         )
 
-        # Set all services for controller initialization
         if "settings" in services:
             main_window.set_settings_service(services["settings"])
         if "audio" in services:
@@ -1330,39 +1042,31 @@ async def main() -> None:
         if "click_tracker" in services:
             main_window.set_click_tracker_service(services["click_tracker"])
 
-        # Initialize controllers now that services are available
         main_window.initialize_controllers_with_services()
 
-        # Setup Qt-asyncio integration
-        asyncio_integration = QtAsyncioIntegration(gui_event_loop)
-
-        # Show main window
         main_window.show()
         main_window.raise_()
         main_window.activateWindow()
 
-        logger.info("Main window displayed, entering Qt event loop")
+        logger.info("Main window displayed, Qt/asyncio event loop running")
 
-        # Run Qt event loop
-        qt_app.exec()
+        shutdown_future: asyncio.Future = asyncio.get_event_loop().create_future()
 
-        # Cleanup Qt integration first
-        asyncio_integration.stop()
+        def _on_about_to_quit():
+            if not shutdown_future.done():
+                shutdown_future.set_result(None)
 
-        # Close main window to ensure Qt cleanup
+        qt_app.aboutToQuit.connect(_on_about_to_quit)
+        await shutdown_future
+
         if main_window:
             main_window.close()
             main_window.deleteLater()
 
-        # Process pending Qt events to ensure cleanup
-        qt_app.processEvents()
-
-        logger.info("Qt event loop exited, starting cleanup...")
+        logger.info("Qt application closing, starting cleanup...")
         await _cleanup_services(
             services=services,
             event_bus=event_bus,
-            gui_event_loop=gui_event_loop,
-            gui_thread=gui_thread,
             service_initializer=service_initializer,
         )
 
@@ -1373,5 +1077,6 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    # Run main coroutine
-    asyncio.run(main())
+    _qt_app = QApplication(sys.argv)
+    _qt_app.setStyle("Fusion")
+    QtAsyncio.run(main(), keep_running=False)

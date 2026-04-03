@@ -14,20 +14,11 @@ from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
 class QtSettingsController(QtBaseController):
-    """Controller for application settings management.
+    """Controller for application settings management."""
 
-    Handles:
-    - Loading settings
-    - Saving settings
-    - Resetting to defaults
-    - Settings change notifications
-    - Full backend event subscription and handling
-    """
-
-    # Signals for settings operations
-    settings_loaded = Signal(dict)  # Settings dict
-    setting_changed = Signal(str, object)  # key, value
-    all_settings_changed = Signal(dict)  # All settings
+    settings_loaded = Signal(dict)
+    setting_changed = Signal(str, object)
+    all_settings_changed = Signal(dict)
     settings_reset = Signal()
     operation_error = Signal(str)
     llm_download_progress = Signal(str)
@@ -36,7 +27,6 @@ class QtSettingsController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        event_loop: asyncio.AbstractEventLoop,
         settings_service,
         config: GlobalAppConfig,
         main_window,
@@ -45,14 +35,12 @@ class QtSettingsController(QtBaseController):
 
         Args:
             event_bus: Event bus for pub/sub.
-            event_loop: Asyncio event loop.
             settings_service: Settings service instance.
             config: Global app configuration.
-            main_window: Main window reference.
+            main_window: Main window reference (used to access the dictation service for LLM downloads).
         """
         super().__init__(
             event_bus=event_bus,
-            event_loop=event_loop,
             logger=logging.getLogger("QtSettingsController"),
         )
 
@@ -62,18 +50,15 @@ class QtSettingsController(QtBaseController):
         self._cached_settings: Dict[str, Any] = {}
         self._fallback_llm_downloader: Optional[LLMModelDownloader] = None
 
-        # Subscribe to settings events
         self._subscribe_to_events()
-
         self.logger.debug("QtSettingsController initialized")
 
     def _subscribe_to_events(self) -> None:
-        """Subscribe to settings-related events."""
+        """Subscribe to settings events."""
         try:
             self.event_bus.subscribe(SettingsUpdatedEvent, self._handle_settings_updated)
             self.event_bus.subscribe(SettingChangedEvent, self._handle_setting_changed)
             self.event_bus.subscribe(SettingsResetEvent, self._handle_settings_reset)
-            self.logger.debug("Subscribed to settings events")
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
@@ -82,7 +67,6 @@ class QtSettingsController(QtBaseController):
         try:
             settings = getattr(event, "settings", {})
             self._cached_settings = settings
-            self.logger.debug("Settings updated")
             self.all_settings_changed.emit(settings)
         except Exception as e:
             self.logger.error(f"Error handling settings updated: {e}", exc_info=True)
@@ -93,7 +77,6 @@ class QtSettingsController(QtBaseController):
             key = getattr(event, "key", "")
             value = getattr(event, "value", None)
             self._cached_settings[key] = value
-            self.logger.debug(f"Setting changed: {key} = {value}")
             self.setting_changed.emit(key, value)
         except Exception as e:
             self.logger.error(f"Error handling setting changed: {e}", exc_info=True)
@@ -101,15 +84,17 @@ class QtSettingsController(QtBaseController):
     def _handle_settings_reset(self, event) -> None:
         """Handle settings reset event."""
         try:
-            self.logger.info("Settings reset to defaults")
             self.settings_reset.emit()
-            # Reload settings
-            asyncio.run_coroutine_threadsafe(self.load_settings_async(), self.event_loop)
+            asyncio.ensure_future(self.load_settings_async())
         except Exception as e:
             self.logger.error(f"Error handling settings reset: {e}", exc_info=True)
 
     async def load_settings_async(self) -> Dict[str, Any]:
-        """Load all settings asynchronously."""
+        """Load all settings asynchronously and emit them to the view.
+
+        Returns:
+            Dict of current effective settings, or empty dict on failure.
+        """
         try:
             settings = await self.settings_service.get_effective_settings()
             self._cached_settings = settings
@@ -121,22 +106,26 @@ class QtSettingsController(QtBaseController):
             return {}
 
     def load_settings(self) -> None:
-        """Load all settings (creates async task)."""
-        asyncio.run_coroutine_threadsafe(self.load_settings_async(), self.event_loop)
+        """Schedule an async settings load."""
+        asyncio.ensure_future(self.load_settings_async())
 
     async def update_setting_async(self, key: str, value: Any) -> Tuple[bool, str]:
-        """Update a single setting asynchronously."""
+        """Update a single setting asynchronously.
+
+        Args:
+            key: Dot-separated setting path (e.g. 'audio.sample_rate').
+            value: New value for the setting.
+
+        Returns:
+            Tuple of (success, message).
+        """
         try:
             success = await self.settings_service.update_multiple_settings({key: value})
             if success:
-                # Update cache
                 parts = key.split(".")
                 if len(parts) == 2:
                     category, setting_key = parts
-                    if category not in self._cached_settings:
-                        self._cached_settings[category] = {}
-                    self._cached_settings[category][setting_key] = value
-                self.logger.info(f"Setting updated: {key} = {value}")
+                    self._cached_settings.setdefault(category, {})[setting_key] = value
                 return True, f"Setting updated: {key}"
             else:
                 message = f"Failed to update setting: {key}"
@@ -148,10 +137,16 @@ class QtSettingsController(QtBaseController):
             return False, str(e)
 
     def update_setting(self, key: str, value: Any) -> None:
-        """Update a single setting."""
-        asyncio.run_coroutine_threadsafe(self.update_setting_async(key, value), self.event_loop)
+        """Schedule an async update for a single setting.
+
+        Args:
+            key: Dot-separated setting path.
+            value: New value for the setting.
+        """
+        asyncio.ensure_future(self.update_setting_async(key, value))
 
     def _llm_downloader(self) -> LLMModelDownloader:
+        """Return the LLM downloader, preferring the one owned by the dictation service."""
         dictation = getattr(self.main_window, "_dictation_service", None)
         llm = getattr(dictation, "llm_service", None) if dictation else None
         if llm is not None:
@@ -161,12 +156,24 @@ class QtSettingsController(QtBaseController):
         return self._fallback_llm_downloader
 
     def llm_bundle_on_disk(self, model_id: str) -> bool:
+        """Return True if the model bundle for the given ID is fully downloaded.
+
+        Args:
+            model_id: Whitelisted LLM model identifier.
+        """
         spec = get_whitelisted_llm_model(model_id)
         if not spec:
             return False
         return self._llm_downloader().model_bundle_complete(spec.gguf_filenames)
 
     def schedule_llm_cancellable_download(self, model_id: str, cancel_event: threading.Event) -> None:
+        """Schedule a cancellable LLM model download and emit progress/completion signals.
+
+        Args:
+            model_id: Whitelisted LLM model identifier to download.
+            cancel_event: Threading event that signals cancellation when set.
+        """
+
         async def _run() -> Tuple[bool, str]:
             def _progress(msg: str) -> None:
                 self.llm_download_progress.emit(msg)
@@ -177,7 +184,7 @@ class QtSettingsController(QtBaseController):
                 return False, "Dictation service is not available yet."
             return await llm.download_whitelisted_model_cancellable(model_id, cancel_event, _progress)
 
-        fut = asyncio.run_coroutine_threadsafe(_run(), self.event_loop)
+        fut: Future = asyncio.ensure_future(_run())
 
         def _done(f: Future) -> None:
             try:
@@ -195,20 +202,22 @@ class QtSettingsController(QtBaseController):
         fut.add_done_callback(_done)
 
     async def update_settings_async(self, settings: Dict[str, Any]) -> Tuple[bool, str]:
-        """Update multiple settings asynchronously."""
+        """Update multiple settings asynchronously.
+
+        Args:
+            settings: Dict of dot-separated setting paths to new values.
+
+        Returns:
+            Tuple of (success, message).
+        """
         try:
             success = await self.settings_service.update_multiple_settings(settings)
             if success:
-                # Update cache with new values
                 for key, value in settings.items():
                     parts = key.split(".")
                     if len(parts) == 2:
                         category, setting_key = parts
-                        if category not in self._cached_settings:
-                            self._cached_settings[category] = {}
-                        self._cached_settings[category][setting_key] = value
-
-                self.logger.info(f"Multiple settings updated: {len(settings)} items")
+                        self._cached_settings.setdefault(category, {})[setting_key] = value
                 self.all_settings_changed.emit(self._cached_settings)
                 return True, "Settings updated successfully"
             else:
@@ -221,15 +230,22 @@ class QtSettingsController(QtBaseController):
             return False, str(e)
 
     def update_settings(self, settings: Dict[str, Any]) -> None:
-        """Update multiple settings."""
-        asyncio.run_coroutine_threadsafe(self.update_settings_async(settings), self.event_loop)
+        """Schedule an async update for multiple settings.
+
+        Args:
+            settings: Dict of dot-separated setting paths to new values.
+        """
+        asyncio.ensure_future(self.update_settings_async(settings))
 
     async def reset_to_defaults_async(self) -> Tuple[bool, str]:
-        """Reset all settings to defaults asynchronously."""
+        """Reset all settings to defaults asynchronously.
+
+        Returns:
+            Tuple of (success, message).
+        """
         try:
             success, message = await asyncio.to_thread(self.settings_service.reset_to_defaults)
             if success:
-                self.logger.info("Settings reset to defaults")
                 await self.load_settings_async()
             else:
                 self.operation_error.emit(message)
@@ -240,21 +256,24 @@ class QtSettingsController(QtBaseController):
             return False, str(e)
 
     def reset_to_defaults(self) -> None:
-        """Reset all settings to defaults."""
-        asyncio.run_coroutine_threadsafe(self.reset_to_defaults_async(), self.event_loop)
+        """Schedule an async reset to defaults."""
+        asyncio.ensure_future(self.reset_to_defaults_async())
 
     async def reset_section_settings_async(self, setting_keys: list) -> Tuple[bool, str]:
-        """Reset specific settings to defaults asynchronously."""
+        """Reset specific settings to defaults asynchronously.
+
+        Args:
+            setting_keys: List of dot-separated setting paths to reset.
+
+        Returns:
+            Tuple of (success, message).
+        """
         try:
-            # Reset each setting in the section
             for setting_key in setting_keys:
                 success = await self.settings_service.reset_setting(setting_key)
                 if not success:
                     self.logger.warning(f"Failed to reset setting: {setting_key}")
-
-            # Reload settings to get updated values
             await self.load_settings_async()
-            self.logger.info(f"Section settings reset: {len(setting_keys)} settings")
             return True, "Section reset successfully"
         except Exception as e:
             self.logger.error(f"Error resetting section settings: {e}", exc_info=True)
@@ -262,19 +281,28 @@ class QtSettingsController(QtBaseController):
             return False, str(e)
 
     def reset_section_settings(self, setting_keys: list) -> None:
-        """Reset specific settings to defaults."""
-        asyncio.run_coroutine_threadsafe(self.reset_section_settings_async(setting_keys), self.event_loop)
+        """Schedule an async reset for specific settings.
+
+        Args:
+            setting_keys: List of dot-separated setting paths to reset.
+        """
+        asyncio.ensure_future(self.reset_section_settings_async(setting_keys))
 
     def get_setting(self, key: str, default: Any = None) -> Any:
-        """Get a setting value from cache."""
+        """Return a cached setting value by key.
+
+        Args:
+            key: Setting key to look up.
+            default: Value to return if the key is not cached.
+        """
         return self._cached_settings.get(key, default)
 
     def get_all_settings(self) -> Dict[str, Any]:
-        """Get all cached settings."""
+        """Return a copy of all cached settings."""
         return dict(self._cached_settings)
 
     def cleanup(self) -> None:
-        """Clean up controller resources."""
+        """Unsubscribe from all events and release resources."""
         try:
             self.event_bus.unsubscribe(SettingsUpdatedEvent, self._handle_settings_updated)
             self.event_bus.unsubscribe(SettingChangedEvent, self._handle_setting_changed)
