@@ -315,8 +315,13 @@ class SettingsService:
                 return result
             else:
                 # Running loop exists, use run_coroutine_threadsafe
-                future = asyncio.run_coroutine_threadsafe(self.reset_to_defaults_async(), loop)
-                return future.result(timeout=5.0)
+                coro = self.reset_to_defaults_async()
+                try:
+                    future = asyncio.run_coroutine_threadsafe(coro, loop)
+                    return future.result(timeout=5.0)
+                except RuntimeError:
+                    coro.close()
+                    raise
         except Exception as e:
             error_msg = f"Failed to reset settings to defaults: {e}"
             logger.error(error_msg, exc_info=True)

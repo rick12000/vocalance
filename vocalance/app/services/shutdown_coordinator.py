@@ -68,12 +68,12 @@ class ShutdownCoordinator:
             self._initialization_task.cancel()
 
         if self.gui_event_loop and not self.gui_event_loop.is_closed():
+            coro = self.event_bus.publish(ApplicationShutdownRequestedEvent(reason=reason, source=source))
             try:
-                asyncio.run_coroutine_threadsafe(
-                    self.event_bus.publish(ApplicationShutdownRequestedEvent(reason=reason, source=source)), self.gui_event_loop
-                )
+                asyncio.run_coroutine_threadsafe(coro, self.gui_event_loop)
             except Exception as e:
                 self.logger.debug(f"Could not publish shutdown event: {e}")
+                coro.close()
         else:
             self.logger.warning("GUI event loop not available for shutdown event publication")
 

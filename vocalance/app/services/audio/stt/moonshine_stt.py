@@ -60,7 +60,11 @@ class MoonshineDictationStreamSession:
         if not text:
             return
         segment_id = str(event.line.line_id)
-        asyncio.run_coroutine_threadsafe(self._on_partial(text, segment_id), self._loop)
+        coro = self._on_partial(text, segment_id)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, self._loop)
+        except RuntimeError:
+            coro.close()
 
     def _dispatch_final(self, event: Any) -> None:
         """Normalize completed line text and schedule ``on_final`` on the asyncio loop."""
@@ -71,7 +75,11 @@ class MoonshineDictationStreamSession:
         if not text:
             return
         segment_id = str(event.line.line_id)
-        asyncio.run_coroutine_threadsafe(self._on_final(text, segment_id), self._loop)
+        coro = self._on_final(text, segment_id)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, self._loop)
+        except RuntimeError:
+            coro.close()
 
     def add_audio_pcm16(self, audio_bytes: bytes, sample_rate: int) -> bool:
         """Feed int16 mono PCM. Returns True when ``max_line_duration_sec`` was exceeded (rotate stream)."""

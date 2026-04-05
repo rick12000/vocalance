@@ -539,12 +539,11 @@ def _validate_critical_assets(app_config: GlobalAppConfig) -> bool:
     return True
 
 
-async def _stop_audio_and_event_bus(services: Dict[str, Any], event_bus: EventBus) -> list[str]:
-    """Stop audio processing and drain the event bus.
+async def _stop_audio(services: Dict[str, Any]) -> list[str]:
+    """Stop audio processing.
 
     Args:
         services: Active services dict, checked for an 'audio' entry.
-        event_bus: Event bus to stop.
 
     Returns:
         List of error messages encountered.
@@ -552,9 +551,27 @@ async def _stop_audio_and_event_bus(services: Dict[str, Any], event_bus: EventBu
     errors = []
 
     if "audio" in services and hasattr(services["audio"], "stop_processing"):
-        services["audio"].stop_processing()
+        try:
+            services["audio"].stop_processing()
+        except Exception as e:
+            error_msg = f"Error stopping audio processing: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
 
     await asyncio.sleep(0.3)
+    return errors
+
+
+async def _stop_event_bus(event_bus: EventBus) -> list[str]:
+    """Drain and stop the event bus.
+
+    Args:
+        event_bus: Event bus to stop.
+
+    Returns:
+        List of error messages encountered.
+    """
+    errors = []
 
     try:
         await event_bus.stop_worker()
@@ -726,9 +743,10 @@ async def _cleanup_services(
         if service_initializer:
             await service_initializer.cancel_background_tasks()
 
-        cleanup_errors.extend(await _stop_audio_and_event_bus(services, event_bus))
+        cleanup_errors.extend(await _stop_audio(services))
         cleanup_errors.extend(await _stop_mark_service_tasks(services))
         cleanup_errors.extend(await _shutdown_services_in_order(services))
+        cleanup_errors.extend(await _stop_event_bus(event_bus))
 
         for service_name in list(services.keys()):
             try:
@@ -745,12 +763,8 @@ async def _cleanup_services(
         else:
             logger.info("All services cleaned up successfully")
 
-        await asyncio.sleep(0.1)
-        os._exit(0)
-
     except Exception as e:
         logger.error(f"Critical error during cleanup: {e}", exc_info=True)
-        os._exit(1)
 
 
 async def initialize_services_with_ui_integration(
@@ -777,7 +791,7 @@ async def _handle_initialization(
     init_task: asyncio.Task,
     service_initializer: FastServiceInitializer,
     startup_window: StartupWindow,
-    shutdown_coordinator: Optional[ShutdownCoordinator],
+    shutdown_coordinator: Optional[Any],
     event_bus: EventBus,
 ) -> Optional[Dict[str, Any]]:
     """Await the initialization task and handle cancellation or failure.
@@ -833,41 +847,34 @@ def _setup_infrastructure() -> EventBus:
     return event_bus
 
 
-def _setup_signal_handlers(qt_app: QApplication, shutdown_coordinator: ShutdownCoordinator) -> QTimer:
+def _setup_signal_handlers(shutdown_coordinator: Any) -> QTimer:
     """Setup signal handlers for graceful shutdown on SIGINT and SIGTERM.
 
-    Qt applications need special handling for signals. We use a QTimer to periodically
-    check a threading.Event flag set by the signal handler, since signal handlers
-    can't directly call Qt methods.
+    Qt applications need special handling for signals. A QTimer polls a
+    threading.Event flag set by the OS signal handler, since signal handlers
+    cannot safely call Qt or asyncio methods directly.
 
     Args:
-        qt_app: QApplication instance.
-        shutdown_coordinator: ShutdownCoordinator for handling shutdown requests.
+        shutdown_coordinator: Object with a request_shutdown(reason, source) method.
 
     Returns:
         QTimer instance that must be kept alive for signal handling to work.
     """
-    # Create a threading event to signal shutdown from signal handler
     shutdown_event = threading.Event()
 
     def signal_handler(signum, frame):
-        """Signal handler for SIGINT and SIGTERM."""
         signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
         logger.info(f"Received {signal_name}, initiating graceful shutdown...")
         shutdown_event.set()
 
-    # Install signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Create a QTimer to check for shutdown signal
     def check_shutdown_signal():
         if shutdown_event.is_set():
             logger.info("Shutdown signal detected, requesting application shutdown...")
             shutdown_coordinator.request_shutdown(reason="System signal received", source="signal_handler")
-            qt_app.quit()
 
-    # Check every 100ms for shutdown signal
     signal_timer = QTimer()
     signal_timer.timeout.connect(check_shutdown_signal)
     signal_timer.start(100)
@@ -883,11 +890,18 @@ async def main() -> None:
     Runs under PySide6.QtAsyncio so the asyncio event loop IS the Qt event loop.
     All async handlers run on the Qt main thread; no cross-thread scheduling is needed
     from UI code.
+
+    Shutdown lifecycle:
+        1. Any source (window close, signal, error) calls shutdown_coordinator.request_shutdown()
+        2. The coordinator resolves shutdown_future without touching the Qt event loop
+        3. main() resumes, runs all async cleanup, then calls qt_app.quit() exactly once
     """
     logging.getLogger("numba").setLevel(logging.WARNING)
 
-    shutdown_coordinator: Optional[ShutdownCoordinator] = None
     icon_manager: Optional[WindowIconManager] = None
+    services: Dict[str, Any] = {}
+    event_bus: Optional[EventBus] = None
+    service_initializer: Optional[FastServiceInitializer] = None
 
     try:
         app_info = AppInfoConfig()
@@ -899,6 +913,7 @@ async def main() -> None:
         os.makedirs(app_config.storage.user_data_root, exist_ok=True)
 
         qt_app = QApplication.instance()
+        qt_app.setQuitOnLastWindowClosed(False)
 
         icon_path = None
         if app_config.asset_paths.icon_path:
@@ -920,18 +935,20 @@ async def main() -> None:
         event_bus = _setup_infrastructure()
         gui_event_loop = asyncio.get_event_loop()
 
-        class QtShutdownCoordinator:
-            """Lightweight shutdown coordinator for Qt applications."""
+        # Create the shutdown future before anything else so the coordinator can
+        # resolve it from any context without touching the Qt event loop directly.
+        shutdown_future: asyncio.Future = gui_event_loop.create_future()
 
-            def __init__(self, event_bus: EventBus, qt_app: QApplication):
-                self.event_bus = event_bus
-                self.qt_app = qt_app
+        class QtShutdownCoordinator:
+            """Resolves the shutdown future so main() can run async cleanup then quit."""
+
+            def __init__(self):
                 self._shutdown_requested = False
                 self._shutdown_lock = threading.Lock()
                 self._initialization_task: Optional[asyncio.Task] = None
 
             def request_shutdown(self, reason: str, source: str) -> bool:
-                """Request application shutdown, cancelling init if still in progress."""
+                """Signal shutdown. Safe to call from any thread."""
                 with self._shutdown_lock:
                     if self._shutdown_requested:
                         logger.debug(f"Shutdown already in progress. Ignoring duplicate request from {source}")
@@ -943,10 +960,8 @@ async def main() -> None:
                 if self._initialization_task and not self._initialization_task.done():
                     self._initialization_task.cancel()
 
-                try:
-                    self.qt_app.quit()
-                except Exception as e:
-                    logger.error(f"Error calling quit() on Qt app: {e}")
+                if not shutdown_future.done():
+                    gui_event_loop.call_soon_threadsafe(shutdown_future.set_result, None)
 
                 return True
 
@@ -963,8 +978,8 @@ async def main() -> None:
                 """Clear the initialization task reference after it completes."""
                 self._initialization_task = None
 
-        shutdown_coordinator = QtShutdownCoordinator(event_bus, qt_app)
-        signal_timer = _setup_signal_handlers(qt_app=qt_app, shutdown_coordinator=shutdown_coordinator)  # noqa: F841
+        shutdown_coordinator = QtShutdownCoordinator()
+        signal_timer = _setup_signal_handlers(shutdown_coordinator=shutdown_coordinator)  # noqa: F841
 
         startup_window = StartupWindow(
             logger=logging.getLogger("StartupWindow"),
@@ -978,6 +993,7 @@ async def main() -> None:
             startup_window.update_progress(0.0, "Critical assets missing. Please check logs.", animate=False)
             await asyncio.sleep(3)
             startup_window.close()
+            qt_app.quit()
             return
 
         progress_tracker = StartupProgressTracker(startup_window=startup_window, total_steps=4)
@@ -1004,14 +1020,13 @@ async def main() -> None:
         )
 
         if not services:
+            qt_app.quit()
             return
 
         progress_tracker.update_status_static(status="Ready!")
         startup_window.update_progress(1.0, "Ready!", animate=False)
 
         await asyncio.sleep(0.5)
-        startup_window.close_after_initialization()
-        await asyncio.sleep(0.1)
 
         logger.info("Activating services now that initialization is complete")
         await service_initializer.activate_all_services()
@@ -1048,22 +1063,16 @@ async def main() -> None:
         main_window.raise_()
         main_window.activateWindow()
 
+        startup_window.close_after_initialization()
+
         logger.info("Main window displayed, Qt/asyncio event loop running")
 
-        shutdown_future: asyncio.Future = asyncio.get_event_loop().create_future()
-
-        def _on_about_to_quit():
-            if not shutdown_future.done():
-                shutdown_future.set_result(None)
-
-        qt_app.aboutToQuit.connect(_on_about_to_quit)
+        # Block until any shutdown source resolves the future.
         await shutdown_future
 
-        if main_window:
-            main_window.close()
-            main_window.deleteLater()
+        logger.info("Shutdown signal received, starting cleanup...")
 
-        logger.info("Qt application closing, starting cleanup...")
+        # Cleanup runs while the event loop is still live.
         await _cleanup_services(
             services=services,
             event_bus=event_bus,
@@ -1074,6 +1083,12 @@ async def main() -> None:
 
     except Exception as e:
         logger.exception(f"Unexpected error during application execution: {e}")
+
+    # Quit Qt while the event loop is still running so QtAsyncio can tear down
+    # cleanly. With keep_running=False, returning from this coroutine stops the loop.
+    qt_app = QApplication.instance()
+    if qt_app is not None:
+        qt_app.quit()
 
 
 if __name__ == "__main__":

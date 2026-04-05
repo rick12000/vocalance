@@ -264,23 +264,28 @@ class LLMService:
                                 if token_count <= 5 or token_count % 10 == 0:
                                     logger.debug(f"LLM generated token #{token_count}: '{token}'")
                                 try:
-                                    asyncio.run_coroutine_threadsafe(token_queue.put(token), loop)
+                                    coro = token_queue.put(token)
+                                    asyncio.run_coroutine_threadsafe(coro, loop)
                                 except RuntimeError:
                                     logger.warning("Event loop closed during token streaming")
+                                    coro.close()
                                     break
                     logger.info(f"LLM generation completed: {token_count} tokens generated")
 
                     try:
-                        asyncio.run_coroutine_threadsafe(token_queue.put(None), loop)
+                        coro = token_queue.put(None)
+                        asyncio.run_coroutine_threadsafe(coro, loop)
                     except RuntimeError:
                         logger.warning("Event loop closed during streaming completion")
+                        coro.close()
 
                 except Exception as e:
                     logger.error(f"Generation error: {e}", exc_info=True)
                     try:
-                        asyncio.run_coroutine_threadsafe(token_queue.put(None), loop)
+                        coro = token_queue.put(None)
+                        asyncio.run_coroutine_threadsafe(coro, loop)
                     except RuntimeError:
-                        pass
+                        coro.close()
 
             executor_task = loop.run_in_executor(None, sync_generate)
 

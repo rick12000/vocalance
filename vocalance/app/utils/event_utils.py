@@ -54,10 +54,13 @@ class ThreadSafeEventPublisher:
         if not loop:
             logger.error(f"Cannot publish event {type(event).__name__}: no running event loop")
             return
+
+        coro = self.event_bus.publish(event)
         try:
-            asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), loop)
+            asyncio.run_coroutine_threadsafe(coro, loop)
         except Exception as e:
             logger.error(f"Failed to publish event {type(event).__name__}: {e}")
+            coro.close()
 
     def subscribe(self, event_type: Type[BaseEvent], handler: Callable) -> None:
         """Subscribe a handler to an event type.

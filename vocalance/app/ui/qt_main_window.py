@@ -514,16 +514,17 @@ class VocalanceMainWindow(QMainWindow):
         self._audio_service = audio_service
 
     def closeEvent(self, event) -> None:
-        """Handle window close event and trigger graceful shutdown."""
+        """Handle window close event.
+
+        Cleans up controllers synchronously then signals the shutdown coordinator.
+        Async service teardown is handled by main() once the shutdown future resolves.
+        """
         self.logger.info("Main window close event triggered")
-
-        # Request shutdown through coordinator if available
-        if self._shutdown_coordinator:
-            self.logger.info("Requesting graceful shutdown via shutdown coordinator")
-            self._shutdown_coordinator.request_shutdown(reason="User closed main window", source="main_window_close_event")
-
         self.cleanup_controllers()
         event.accept()
+
+        if self._shutdown_coordinator:
+            self._shutdown_coordinator.request_shutdown(reason="User closed main window", source="main_window_close_event")
 
     def cleanup_controllers(self) -> None:
         """Clean up all controllers when shutting down."""

@@ -115,12 +115,13 @@ class AudioRecorder:
 
         try:
             event = AudioDeviceErrorEvent(error_message=error_message)
+            coro = self.event_bus.publish(event)
 
             try:
                 loop = asyncio.get_running_loop()
-                asyncio.run_coroutine_threadsafe(self.event_bus.publish(event), loop)
+                asyncio.run_coroutine_threadsafe(coro, loop)
             except RuntimeError:
-                asyncio.run(self.event_bus.publish(event))
+                asyncio.run(coro)
 
         except Exception as e:
             self.logger.error(f"Failed to publish device error event: {e}")

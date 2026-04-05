@@ -35,6 +35,7 @@ def _schedule_publish_on_loop(loop: Optional[asyncio.AbstractEventLoop], coro: C
         asyncio.run_coroutine_threadsafe(coro, loop).add_done_callback(_log_done)
     except RuntimeError as e:
         logger.debug("%s: schedule publish failed: %s", label, e)
+        coro.close()
 
 
 class CommandAudioListener:

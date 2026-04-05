@@ -76,12 +76,10 @@ class AudioService:
             logger.error("VAD queue put failed: %s", e, exc_info=True)
 
     def _vad_worker_loop(self) -> None:
-        while True:
+        while not self._vad_stop.is_set():
             try:
                 item = self._vad_queue.get(timeout=0.25)
             except queue.Empty:
-                if self._vad_stop.is_set():
-                    break
                 continue
             audio_bytes, timestamp, _ = item
             lm = self._level_meter_callback
