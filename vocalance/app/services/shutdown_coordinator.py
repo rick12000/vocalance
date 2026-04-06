@@ -3,9 +3,6 @@ import logging
 import threading
 from typing import Optional
 
-from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import ApplicationShutdownRequestedEvent
-
 
 class ShutdownCoordinator:
     """Production-ready shutdown coordinator for graceful application shutdown.
@@ -15,29 +12,18 @@ class ShutdownCoordinator:
     async initialization. Thread-safe shutdown signaling with idempotent behavior.
     """
 
-    def __init__(
-        self,
-        event_bus: EventBus,
-        root_window,
-        logger: Optional[logging.Logger] = None,
-        gui_event_loop: Optional[asyncio.AbstractEventLoop] = None,
-    ) -> None:
+    def __init__(self, shutdown_future: asyncio.Future, logger: Optional[logging.Logger] = None) -> None:
         """Initialize shutdown coordinator with application dependencies.
 
         Args:
-            event_bus: EventBus for publishing shutdown events.
-            root_window: Root application window; its ``quit()`` method is called on shutdown.
+            shutdown_future: A future that will be resolved to trigger the main application shutdown.
             logger: Optional logger instance (uses module logger if None).
-            gui_event_loop: Event loop used to publish the shutdown event from non-async contexts.
         """
-        self.event_bus: EventBus = event_bus
-        self.root_window = root_window
+        self.shutdown_future = shutdown_future
         self.logger: logging.Logger = logger or logging.getLogger(__name__)
-        self.gui_event_loop: Optional[asyncio.AbstractEventLoop] = gui_event_loop
 
         self._shutdown_requested: bool = False
         self._shutdown_lock: threading.Lock = threading.Lock()
-        self._shutdown_event: threading.Event = threading.Event()
         self._initialization_task: Optional[asyncio.Task] = None
 
     def request_shutdown(self, reason: str, source: str) -> bool:
@@ -59,7 +45,6 @@ class ShutdownCoordinator:
                 return False
 
             self._shutdown_requested = True
-            self._shutdown_event.set()
 
         self.logger.info(f"Shutdown requested: {reason} (source: {source})")
 
@@ -67,20 +52,9 @@ class ShutdownCoordinator:
             self.logger.debug("Cancelling initialization task due to shutdown request")
             self._initialization_task.cancel()
 
-        if self.gui_event_loop and not self.gui_event_loop.is_closed():
-            coro = self.event_bus.publish(ApplicationShutdownRequestedEvent(reason=reason, source=source))
-            try:
-                self.gui_event_loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
-            except Exception as e:
-                self.logger.debug(f"Could not publish shutdown event: {e}")
-                coro.close()
-        else:
-            self.logger.warning("GUI event loop not available for shutdown event publication")
-
-        try:
-            self.root_window.quit()
-        except Exception as e:
-            self.logger.error(f"Error calling quit() on root window: {e}")
+        if not self.shutdown_future.done():
+            loop = self.shutdown_future.get_loop()
+            loop.call_soon_threadsafe(self.shutdown_future.set_result, None)
 
         return True
 
@@ -93,27 +67,10 @@ class ShutdownCoordinator:
         with self._shutdown_lock:
             return self._shutdown_requested
 
-    def wait_for_shutdown(self, timeout: Optional[float] = None) -> bool:
-        """Wait for shutdown to be requested.
-
-        Args:
-            timeout: Optional timeout in seconds.
-
-        Returns:
-            True if shutdown was requested, False if timeout occurred.
-        """
-        return self._shutdown_event.wait(timeout=timeout)
-
     def register_initialization_task(self, task: asyncio.Task) -> None:
-        """Register the initialization task for cancellation on shutdown.
-
-        Args:
-            task: Initialization task to register.
-        """
+        """Register the initialization task so it can be cancelled on shutdown."""
         self._initialization_task = task
-        self.logger.debug("Initialization task registered with shutdown coordinator")
 
     def unregister_initialization_task(self) -> None:
         """Clear the initialization task reference after it completes."""
         self._initialization_task = None
-        self.logger.debug("Initialization task unregistered from shutdown coordinator")

@@ -574,7 +574,7 @@ async def _stop_event_bus(event_bus: EventBus) -> list[str]:
     errors = []
 
     try:
-        await event_bus.stop_worker()
+        await event_bus.shutdown()
         logger.debug("Event bus stopped successfully")
     except Exception as e:
         error_msg = f"Error stopping event bus: {e}"
@@ -835,15 +835,12 @@ async def _handle_initialization(
 
 
 def _setup_infrastructure() -> EventBus:
-    """Create the event bus and start its worker on the running asyncio loop.
-
-    Must be called from within a running asyncio context (i.e. inside a coroutine).
+    """Create the event bus.
 
     Returns:
-        Initialized EventBus with its worker task scheduled.
+        Initialized EventBus.
     """
     event_bus = EventBus()
-    asyncio.ensure_future(event_bus.start_worker())
     return event_bus
 
 
@@ -939,46 +936,7 @@ async def main() -> None:
         # resolve it from any context without touching the Qt event loop directly.
         shutdown_future: asyncio.Future = gui_event_loop.create_future()
 
-        class QtShutdownCoordinator:
-            """Resolves the shutdown future so main() can run async cleanup then quit."""
-
-            def __init__(self):
-                self._shutdown_requested = False
-                self._shutdown_lock = threading.Lock()
-                self._initialization_task: Optional[asyncio.Task] = None
-
-            def request_shutdown(self, reason: str, source: str) -> bool:
-                """Signal shutdown. Safe to call from any thread."""
-                with self._shutdown_lock:
-                    if self._shutdown_requested:
-                        logger.debug(f"Shutdown already in progress. Ignoring duplicate request from {source}")
-                        return False
-                    self._shutdown_requested = True
-
-                logger.info(f"Shutdown requested: {reason} (source: {source})")
-
-                if self._initialization_task and not self._initialization_task.done():
-                    self._initialization_task.cancel()
-
-                if not shutdown_future.done():
-                    gui_event_loop.call_soon_threadsafe(shutdown_future.set_result, None)
-
-                return True
-
-            def is_shutdown_requested(self) -> bool:
-                """Return True if shutdown has been requested (thread-safe)."""
-                with self._shutdown_lock:
-                    return self._shutdown_requested
-
-            def register_initialization_task(self, task: asyncio.Task) -> None:
-                """Register the initialization task so it can be cancelled on shutdown."""
-                self._initialization_task = task
-
-            def unregister_initialization_task(self) -> None:
-                """Clear the initialization task reference after it completes."""
-                self._initialization_task = None
-
-        shutdown_coordinator = QtShutdownCoordinator()
+        shutdown_coordinator = ShutdownCoordinator(shutdown_future=shutdown_future)
         signal_timer = _setup_signal_handlers(shutdown_coordinator=shutdown_coordinator)  # noqa: F841
 
         startup_window = StartupWindow(

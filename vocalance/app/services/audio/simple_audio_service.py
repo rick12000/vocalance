@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class AudioService:
-    """Recorder → VAD worker → command/sound listeners; dictation PCM via ``set_dictation_chunk_callback``."""
+    """Recorder → command/sound listeners; dictation PCM via ``set_dictation_chunk_callback``."""
 
     def __init__(
         self, event_bus: EventBus, config: GlobalAppConfig, main_event_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -79,7 +79,7 @@ class AudioService:
             if self._sound_listener is not None:
                 self._sound_listener.process_audio_chunk(audio_bytes, timestamp)
         except Exception as e:
-            logger.error("VAD worker chunk error: %s", e, exc_info=True)
+            logger.error("Audio listener chunk error: %s", e, exc_info=True)
 
     def init_listeners(self) -> None:
         self._command_listener.setup_subscriptions()

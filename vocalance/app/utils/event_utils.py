@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ThreadSafeEventPublisher:
     """Utility class for thread-safe event publishing from any thread.
 
-    Uses asyncio.run_coroutine_threadsafe to safely publish events to the event
+    Uses loop.call_soon_threadsafe to safely publish events to the event
     bus from UI threads or background threads. Automatically detects event loop
     and handles errors gracefully.
 

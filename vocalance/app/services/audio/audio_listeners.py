@@ -161,12 +161,9 @@ class CommandAudioListener:
         self._consecutive_silent_chunks = 0
         self._first_speech_in_buffer = True
 
-    async def update_silent_chunks_threshold(self, chunks: int) -> None:
-        def _apply() -> None:
-            with self._vad_lock:
-                self.silent_chunks_for_end = chunks
-
-        await asyncio.to_thread(_apply)
+    def update_silent_chunks_threshold(self, chunks: int) -> None:
+        with self._vad_lock:
+            self.silent_chunks_for_end = chunks
 
     @property
     def energy_threshold(self) -> float:
@@ -319,14 +316,11 @@ class SoundAudioListener:
         self._consecutive_silent_chunks = 0
         self._segment_peak_energy = 0.0
 
-    async def _handle_dictation_mode_change(self, event: DictationModeDisableOthersEvent) -> None:
-        def _apply() -> None:
-            with self._vad_lock:
-                self._dictation_active = event.dictation_mode_active
-                if self._dictation_active:
-                    self._reset_state()
-
-        await asyncio.to_thread(_apply)
+    def _handle_dictation_mode_change(self, event: DictationModeDisableOthersEvent) -> None:
+        with self._vad_lock:
+            self._dictation_active = event.dictation_mode_active
+            if self._dictation_active:
+                self._reset_state()
 
     @property
     def energy_threshold(self) -> float:

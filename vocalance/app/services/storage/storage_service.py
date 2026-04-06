@@ -5,7 +5,6 @@ import os
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, Optional, Type
 
@@ -43,14 +42,13 @@ class StorageService:
 
     Provides persistent JSON storage for Pydantic models with in-memory caching,
     atomic file writes, and thread-safe operations for reliable data persistence.
-    Uses thread pool executor for async file I/O without blocking event loop.
+    Uses asyncio.to_thread for async file I/O without blocking event loop.
 
     Attributes:
         storage_config: Storage configuration from global config.
         _cache: In-memory cache of loaded data with TTL-based expiration.
         _path_map: Dict mapping model types to their file paths.
         _lock: Threading RLock for thread-safe cache access.
-        _executor: ThreadPoolExecutor for async file operations.
     """
 
     def __init__(self, config: GlobalAppConfig) -> None:
@@ -65,7 +63,6 @@ class StorageService:
 
         # Thread safety
         self._lock = threading.RLock()
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="Storage")
 
         # Cache
         self._cache: Dict[str, CacheEntry] = {}
@@ -131,8 +128,7 @@ class StorageService:
             return result
 
         try:
-            loop = asyncio.get_event_loop()
-            data_dict = await loop.run_in_executor(self._executor, self._read_json, path)
+            data_dict = await asyncio.to_thread(self._read_json, path)
 
             instance = model_type.model_validate(data_dict)
 
@@ -167,8 +163,7 @@ class StorageService:
         try:
             data_dict = data.model_dump()
 
-            loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(self._executor, self._write_json, path, data_dict)
+            success = await asyncio.to_thread(self._write_json, path, data_dict)
 
             if success:
                 with self._lock:
@@ -248,28 +243,9 @@ class StorageService:
             return {"entries": len(self._cache), "models": list(self._cache.keys()), "ttl_seconds": self._cache_ttl}
 
     async def shutdown(self) -> None:
-        """Shutdown storage service with timeout protection to prevent hangs.
-
-        Attempts to gracefully shutdown the executor within 5 seconds, then
-        forces cleanup to prevent blocking the application shutdown sequence.
-        """
+        """Shutdown storage service and clear cache."""
         try:
             logger.info("Shutting down StorageService...")
-
-            if self._executor is not None:
-                try:
-                    # Run executor shutdown with timeout to prevent hangs
-                    # Note: shutdown() must be wrapped in lambda to pass keyword args
-                    loop = asyncio.get_event_loop()
-                    await asyncio.wait_for(loop.run_in_executor(None, lambda: self._executor.shutdown(wait=True)), timeout=5.0)
-                    logger.info("StorageService executor shutdown complete")
-                except asyncio.TimeoutError:
-                    logger.warning("StorageService executor shutdown timed out after 5s, forcing cleanup")
-                    # Force cleanup by setting to None - pending operations abandoned
-                    self._executor = None
-                except Exception as e:
-                    logger.error(f"Error shutting down executor: {e}")
-                    self._executor = None
 
             # Clear cache
             with self._lock:

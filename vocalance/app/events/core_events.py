@@ -278,18 +278,3 @@ class AudioDeviceErrorEvent(BaseEvent):
 
     error_message: str = Field(description="User-facing message for the warning dialog")
     priority: EventPriority = EventPriority.HIGH
-
-
-class ApplicationShutdownRequestedEvent(BaseEvent):
-    """Event published when application shutdown is requested.
-
-    Can be triggered by user closing windows, system signals, or critical errors.
-
-    Attributes:
-        reason: Reason for shutdown request.
-        source: Source of shutdown request (startup_window, main_window, signal, etc.).
-    """
-
-    reason: str = Field(description="Reason for shutdown request")
-    source: str = Field(description="Source of shutdown request (e.g., 'startup_window', 'main_window', 'signal')")
-    priority: EventPriority = EventPriority.CRITICAL
