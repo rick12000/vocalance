@@ -57,7 +57,7 @@ class ThreadSafeEventPublisher:
 
         coro = self.event_bus.publish(event)
         try:
-            asyncio.run_coroutine_threadsafe(coro, loop)
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
         except Exception as e:
             logger.error(f"Failed to publish event {type(event).__name__}: {e}")
             coro.close()

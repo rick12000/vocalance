@@ -955,11 +955,7 @@ class QtDictationPopupView(QMainWindow):
         self._opacity_animation_out.setStartValue(self.windowOpacity())  # Use current opacity, not assuming 1.0
         self._opacity_animation_out.setEndValue(0.0)
 
-        # Connect finish signal to actually hide the window (disconnect first to avoid duplicates)
-        try:
-            self._animation_out.finished.disconnect()
-        except RuntimeError:
-            pass  # No connections to disconnect
+        # Connect finish signal to actually hide the window
         self._animation_out.finished.connect(self._on_animation_finished)
 
         # Start both animations

@@ -3,4 +3,4 @@ alwaysApply: true
 ---
 When executing code in the terminal During development ALWAYS use:
 conda activate vocalance_env_dev
-If you need to update the environment in any way always use uv pip install .
+If you need to update the environment For the first time in a session  in any way always use uv pip install -e .

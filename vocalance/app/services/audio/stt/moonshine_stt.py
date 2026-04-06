@@ -62,7 +62,7 @@ class MoonshineDictationStreamSession:
         segment_id = str(event.line.line_id)
         coro = self._on_partial(text, segment_id)
         try:
-            asyncio.run_coroutine_threadsafe(coro, self._loop)
+            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
         except RuntimeError:
             coro.close()
 
@@ -77,7 +77,7 @@ class MoonshineDictationStreamSession:
         segment_id = str(event.line.line_id)
         coro = self._on_final(text, segment_id)
         try:
-            asyncio.run_coroutine_threadsafe(coro, self._loop)
+            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
         except RuntimeError:
             coro.close()
 

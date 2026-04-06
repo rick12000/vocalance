@@ -25,14 +25,14 @@ def _schedule_publish_on_loop(loop: Optional[asyncio.AbstractEventLoop], coro: C
         logger.error("%s: main event loop not set; dropping publish", label)
         return
 
-    def _log_done(fut: asyncio.Future[Any]) -> None:
+    def _log_done(fut: asyncio.Task) -> None:
         try:
             fut.result()
         except Exception as e:
             logger.error("%s: publish failed: %s", label, e, exc_info=True)
 
     try:
-        asyncio.run_coroutine_threadsafe(coro, loop).add_done_callback(_log_done)
+        asyncio.create_task(coro).add_done_callback(_log_done)
     except RuntimeError as e:
         logger.debug("%s: schedule publish failed: %s", label, e)
         coro.close()

@@ -7,7 +7,6 @@ partial/final events. ``_STREAMING_LLM_MODES`` continue to the LLM after stop.
 import asyncio
 import gc
 import logging
-import queue
 import re
 import threading
 import time
@@ -156,10 +155,6 @@ class DictationCoordinator:
         self._type_silence_task: Optional[asyncio.Task] = None
         self._llm_processing_task: Optional[asyncio.Task] = None
 
-        self._token_queue: queue.Queue = queue.Queue(maxsize=1000)
-        self._streaming_active = False
-        self._streaming_stop_event = threading.Event()
-        self._streaming_thread: Optional[threading.Thread] = None
         self._direct_token_callback: Optional[Callable[[str], None]] = None
 
         self.text_service = TextInputService(config=config.dictation)
@@ -176,13 +171,9 @@ class DictationCoordinator:
 
         self._stt_service = None
 
-        self._moonshine_ingress_queue: queue.Queue = queue.Queue()
-        self._moonshine_ingress_stop = threading.Event()
-        self._moonshine_ingress_thread: Optional[threading.Thread] = None
         self._moonshine_feed_lock = threading.Lock()
         self._moonshine_ingress_epoch: int = 0
         self._moonshine_suppress_until: float = 0.0
-        self._start_moonshine_ingress_thread()
 
         self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
         self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
@@ -206,45 +197,8 @@ class DictationCoordinator:
         self._stt_service = stt_service
         logger.debug("STT service reference set for streaming dictation")
 
-    def _start_moonshine_ingress_thread(self) -> None:
-        if self._moonshine_ingress_thread is not None and self._moonshine_ingress_thread.is_alive():
-            return
-        self._moonshine_ingress_stop.clear()
-        self._moonshine_ingress_thread = threading.Thread(
-            target=self._moonshine_ingress_loop, name="MoonshineAudioIngress", daemon=True
-        )
-        self._moonshine_ingress_thread.start()
-        logger.debug("Moonshine audio ingress thread started")
-
-    def _moonshine_ingress_loop(self) -> None:
-        """Drain PCM chunks from the recorder thread and call Moonshine on a dedicated thread."""
-        logger.debug("Moonshine audio ingress thread running")
-        while not self._moonshine_ingress_stop.is_set():
-            try:
-                stamped = self._moonshine_ingress_queue.get(timeout=0.25)
-            except queue.Empty:
-                continue
-            try:
-                epoch, audio_bytes, sample_rate = stamped
-                rotate = False
-                with self._moonshine_feed_lock:
-                    with self._state_lock:
-                        if epoch != self._moonshine_ingress_epoch:
-                            continue
-                        ms = self._moonshine_session
-                    if ms is not None:
-                        rotate = ms.add_audio_pcm16(audio_bytes, sample_rate)
-                if rotate:
-                    self._moonshine_rotate_line(reason="max_line_duration")
-            except Exception as e:
-                logger.error("Moonshine ingress feed error: %s", e, exc_info=True)
-        logger.debug("Moonshine audio ingress thread exiting")
-
     def _moonshine_rotate_line(self, reason: str = "max_line_duration") -> None:
-        """Stop the current Moonshine stream and open a new one (bounded line length for latency).
-
-        Must run on the Moonshine audio ingress thread (same thread that calls ``add_audio_pcm16``).
-        """
+        """Stop the current Moonshine stream and open a new one (bounded line length for latency)."""
         loop = self.gui_event_loop
         if loop is None:
             logger.error("Moonshine stream rotation skipped: gui_event_loop is not set")
@@ -254,7 +208,6 @@ class DictationCoordinator:
 
         with self._moonshine_feed_lock:
             self._moonshine_ingress_epoch += 1
-            self._drain_moonshine_ingress_queue()
             old = self._moonshine_session
             self._moonshine_session = None
 
@@ -288,19 +241,8 @@ class DictationCoordinator:
             self._moonshine_session = new_sess
             self._moonshine_ingress_epoch += 1
 
-    def _drain_moonshine_ingress_queue(self) -> None:
-        while True:
-            try:
-                self._moonshine_ingress_queue.get_nowait()
-            except queue.Empty:
-                break
-
     def feed_moonshine_audio_chunk(self, audio_bytes: bytes, sample_rate: int) -> None:
-        """Hot path from the audio recorder thread: queue PCM for Moonshine.
-
-        Uses an unbounded queue so we never drop audio for accuracy; memory grows only if the
-        ingress thread falls behind for an extended time.
-        """
+        """Hot path from the audio recorder thread: feed PCM to Moonshine synchronously."""
         if not audio_bytes:
             return
         with self._state_lock:
@@ -312,7 +254,22 @@ class DictationCoordinator:
             if self._moonshine_session is None:
                 return
             epoch = self._moonshine_ingress_epoch
-        self._moonshine_ingress_queue.put((epoch, audio_bytes, sample_rate))
+
+        try:
+            rotate = False
+            with self._moonshine_feed_lock:
+                with self._state_lock:
+                    if epoch != self._moonshine_ingress_epoch:
+                        return
+                    ms = self._moonshine_session
+
+                if ms is not None:
+                    rotate = ms.add_audio_pcm16(audio_bytes, sample_rate)
+
+            if rotate:
+                self._moonshine_rotate_line(reason="max_line_duration")
+        except Exception as e:
+            logger.error("Moonshine ingress feed error: %s", e, exc_info=True)
 
     def _get_state(self) -> DictationState:
         """Thread-safe state getter"""
@@ -751,7 +708,6 @@ class DictationCoordinator:
         try:
             with self._moonshine_feed_lock:
                 self._moonshine_ingress_epoch += 1
-                self._drain_moonshine_ingress_queue()
                 if self._moonshine_session:
                     self._moonshine_session.stop()
                     self._moonshine_session = None
@@ -1008,22 +964,17 @@ class DictationCoordinator:
             if hasattr(self.llm_service, "process_dictation_streaming"):
                 logger.info("Starting LLM streaming processing...")
 
-                self._start_streaming()
-
-                try:
-                    if llm_session.clipboard_text is not None:
-                        await self.llm_service.process_amend_streaming(
-                            llm_session.clipboard_text,
-                            llm_session.raw_text,
-                            llm_session.agentic_prompt,
-                            token_callback=self._stream_token,
-                        )
-                    else:
-                        await self.llm_service.process_dictation_streaming(
-                            llm_session.raw_text, llm_session.agentic_prompt, token_callback=self._stream_token
-                        )
-                finally:
-                    self._stop_streaming()
+                if llm_session.clipboard_text is not None:
+                    await self.llm_service.process_amend_streaming(
+                        llm_session.clipboard_text,
+                        llm_session.raw_text,
+                        llm_session.agentic_prompt,
+                        token_callback=self._stream_token,
+                    )
+                else:
+                    await self.llm_service.process_dictation_streaming(
+                        llm_session.raw_text, llm_session.agentic_prompt, token_callback=self._stream_token
+                    )
 
                 logger.info("LLM streaming processing completed")
             else:
@@ -1041,96 +992,20 @@ class DictationCoordinator:
 
         except Exception as e:
             logger.error(f"LLM processing error: {e}", exc_info=True)
-            self._stop_streaming()
 
-    def _stream_token(self, token: str) -> None:
-        """Thread-safe callback to queue token for publishing.
+    async def _stream_token(self, token: str) -> None:
+        """Async callback to publish token.
 
         Args:
             token: Token string to publish asynchronously.
-
-        Logs warning if streaming inactive or queue full.
         """
-        if self._streaming_active:
+        if self._direct_token_callback:
             try:
-                self._token_queue.put_nowait(token)
-            except queue.Full:
-                logger.warning("Token queue full - dropping token to prevent blocking")
-        else:
-            logger.warning(f"_stream_token called but streaming not active! Token: '{token}'")
-
-    def _streaming_worker(self) -> None:
-        """Background thread that publishes tokens from queue.
-
-        Runs until stopped, dequeuing tokens and publishing via event bus or direct callback.
-        Tolerates queue underflows gracefully and logs exceptional errors.
-        """
-        logger.info("Streaming worker thread started")
-        published_count = 0
-        try:
-            while not self._streaming_stop_event.is_set():
-                try:
-                    token = self._token_queue.get(timeout=0.1)
-                    published_count += 1
-
-                    if self._direct_token_callback:
-                        try:
-                            self._direct_token_callback(token)
-                        except Exception as e:
-                            logger.error(f"Direct callback error: {e}", exc_info=True)
-
-                    self.event_publisher.publish(LLMTokenGeneratedEvent(token=token))
-
-                except queue.Empty:
-                    continue
-
-                except Exception as e:
-                    logger.error(f"Streaming worker error: {e}", exc_info=True)
-
-        except Exception as e:
-            logger.error(f"Critical error in streaming worker: {e}", exc_info=True)
-        finally:
-            logger.info(f"Streaming worker thread stopped (published {published_count} tokens)")
-
-    def _start_streaming(self) -> None:
-        """Start background streaming thread with proper synchronization"""
-        if not self._streaming_active:
-            self._streaming_active = True
-            self._streaming_stop_event.clear()
-            self._streaming_thread = threading.Thread(target=self._streaming_worker, daemon=False, name="LLMTokenStreamer")
-            self._streaming_thread.start()
-            logger.info("Streaming thread started")
-
-    def _stop_streaming(self) -> None:
-        """Stop streaming thread and flush remaining tokens"""
-        logger.info("Stopping streaming thread")
-        self._streaming_active = False
-        self._streaming_stop_event.set()
-
-        if self._streaming_thread:
-            try:
-                self._streaming_thread.join(timeout=2.0)
-                if self._streaming_thread.is_alive():
-                    logger.warning("Streaming thread did not terminate within timeout")
-                else:
-                    logger.info("Streaming thread terminated successfully")
+                self._direct_token_callback(token)
             except Exception as e:
-                logger.error(f"Error joining streaming thread: {e}")
-            finally:
-                self._streaming_thread = None
+                logger.error(f"Direct callback error: {e}", exc_info=True)
 
-        remaining = []
-        while True:
-            try:
-                token = self._token_queue.get_nowait()
-                remaining.append(token)
-            except queue.Empty:
-                break
-
-        if remaining:
-            batched_token = "".join(remaining)
-            self.event_publisher.publish(LLMTokenGeneratedEvent(token=batched_token))
-            logger.info(f"Flushed {len(remaining)} remaining tokens")
+        await self._publish_event(LLMTokenGeneratedEvent(token=token))
 
     async def _end_smart_session(self) -> None:
         """End smart dictation session"""
@@ -1246,16 +1121,8 @@ class DictationCoordinator:
 
             self._cancel_type_silence_task()
 
-            self._moonshine_ingress_stop.set()
-            if self._moonshine_ingress_thread is not None:
-                self._moonshine_ingress_thread.join(timeout=5.0)
-                if self._moonshine_ingress_thread.is_alive():
-                    logger.warning("Moonshine ingress thread did not stop within timeout")
-                self._moonshine_ingress_thread = None
-
             with self._moonshine_feed_lock:
                 self._moonshine_ingress_epoch += 1
-                self._drain_moonshine_ingress_queue()
                 if self._moonshine_session:
                     logger.info("Stopping active Moonshine dictation stream")
                     self._moonshine_session.stop()
@@ -1270,8 +1137,6 @@ class DictationCoordinator:
                     logger.info("LLM processing task cancelled")
                 except Exception as e:
                     logger.warning(f"Error cancelling LLM task: {e}")
-
-            self._stop_streaming()
 
             if has_active_session:
                 await self._stop_session()

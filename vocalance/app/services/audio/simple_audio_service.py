@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import queue
-import threading
 from typing import Callable, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -37,6 +35,7 @@ class AudioService:
             app_config=config,
             event_bus=event_bus,
             on_audio_chunk=self._on_audio_chunk_callback,
+            loop=self._main_event_loop,
         )
 
         self._shared_audio_processor = AudioProcessor(
@@ -49,9 +48,6 @@ class AudioService:
 
         self._dictation_chunk_callback: Optional[Callable[[bytes, int], None]] = None
 
-        self._vad_queue: queue.Queue[tuple[bytes, float, int]] = queue.Queue()
-        self._vad_stop = threading.Event()
-        self._vad_worker_thread: Optional[threading.Thread] = None
         self._level_meter_callback: Optional[Callable[[bytes], None]] = None
 
     def set_dictation_chunk_callback(self, callback: Optional[Callable[[bytes, int], None]]) -> None:
@@ -70,53 +66,20 @@ class AudioService:
                 cb(audio_bytes, sample_rate)
             except Exception as e:
                 logger.error("dictation chunk callback error: %s", e, exc_info=True)
-        try:
-            self._vad_queue.put((audio_bytes, timestamp, sample_rate))
-        except Exception as e:
-            logger.error("VAD queue put failed: %s", e, exc_info=True)
 
-    def _vad_worker_loop(self) -> None:
-        while not self._vad_stop.is_set():
+        lm = self._level_meter_callback
+        if lm is not None:
             try:
-                item = self._vad_queue.get(timeout=0.25)
-            except queue.Empty:
-                continue
-            audio_bytes, timestamp, _ = item
-            lm = self._level_meter_callback
-            if lm is not None:
-                try:
-                    lm(audio_bytes)
-                except Exception as e:
-                    logger.debug("level meter callback error: %s", e)
-            try:
-                if self._command_listener is not None:
-                    self._command_listener.process_audio_chunk(audio_bytes, timestamp)
-                if self._sound_listener is not None:
-                    self._sound_listener.process_audio_chunk(audio_bytes, timestamp)
+                lm(audio_bytes)
             except Exception as e:
-                logger.error("VAD worker chunk error: %s", e, exc_info=True)
-        logger.debug("Audio VAD worker thread exiting")
-
-    def _start_vad_worker(self) -> None:
-        if self._vad_worker_thread is not None and self._vad_worker_thread.is_alive():
-            return
-        self._vad_stop.clear()
-        self._vad_worker_thread = threading.Thread(target=self._vad_worker_loop, name="AudioVADWorker", daemon=True)
-        self._vad_worker_thread.start()
-        logger.debug("Audio VAD worker thread started")
-
-    def _stop_vad_worker(self) -> None:
-        self._vad_stop.set()
-        if self._vad_worker_thread is not None:
-            self._vad_worker_thread.join(timeout=5.0)
-            if self._vad_worker_thread.is_alive():
-                logger.warning("Audio VAD worker did not stop within timeout")
-            self._vad_worker_thread = None
-        while True:
-            try:
-                self._vad_queue.get_nowait()
-            except queue.Empty:
-                break
+                logger.debug("level meter callback error: %s", e)
+        try:
+            if self._command_listener is not None:
+                self._command_listener.process_audio_chunk(audio_bytes, timestamp)
+            if self._sound_listener is not None:
+                self._sound_listener.process_audio_chunk(audio_bytes, timestamp)
+        except Exception as e:
+            logger.error("VAD worker chunk error: %s", e, exc_info=True)
 
     def init_listeners(self) -> None:
         self._command_listener.setup_subscriptions()
@@ -143,7 +106,6 @@ class AudioService:
     def start_processing(self) -> None:
         try:
             logger.info("Starting audio processing with continuous streaming")
-            self._start_vad_worker()
             self._recorder.start()
             logger.info("Audio processing started successfully")
 
@@ -155,7 +117,6 @@ class AudioService:
         try:
             logger.info("Stopping audio processing")
             self._recorder.stop()
-            self._stop_vad_worker()
             logger.info("Audio processing stopped")
         except Exception as e:
             logger.error(f"Error stopping audio processing: {e}", exc_info=True)

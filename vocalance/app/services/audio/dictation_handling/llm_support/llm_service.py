@@ -4,7 +4,7 @@ import logging
 import multiprocessing
 import os
 import threading
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from llama_cpp import Llama
 
@@ -140,7 +140,7 @@ class LLMService:
         messages: List[Dict[str, str]],
         fallback_text: str,
         agentic_prompt: str,
-        token_callback: Optional[Callable[[str], None]],
+        token_callback: Optional[Callable[[str], Awaitable[None]]],
     ) -> Optional[str]:
         """Run one completion, emit bus events, return final text."""
         async with self._request_lock:
@@ -170,7 +170,16 @@ class LLMService:
 
             self._model_loaded = True
             try:
-                result = await self._generate_streaming(messages, token_callback)
+                full_text = []
+                async for token in self._generate_streaming(messages):
+                    full_text.append(token)
+                    if token_callback:
+                        try:
+                            await token_callback(token)
+                        except Exception as e:
+                            logger.error(f"Token callback error: {e}", exc_info=True)
+
+                result = "".join(full_text).strip()
                 final_result = result if result else fallback_text.strip()
                 await self._publish_completed(final_result, agentic_prompt)
                 return final_result
@@ -182,7 +191,7 @@ class LLMService:
                 await self._dispose_loaded_model()
 
     async def process_dictation_streaming(
-        self, raw_text: str, agentic_prompt: str, token_callback: Optional[Callable[[str], None]] = None
+        self, raw_text: str, agentic_prompt: str, token_callback: Optional[Callable[[str], Awaitable[None]]] = None
     ) -> Optional[str]:
         messages = self._build_messages(agentic_prompt, raw_text)
         return await self._run_chat_completion(messages, raw_text, agentic_prompt, token_callback)
@@ -195,7 +204,7 @@ class LLMService:
         clipboard_text: str,
         spoken_prompt: str,
         agentic_prompt: str,
-        token_callback: Optional[Callable[[str], None]] = None,
+        token_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Optional[str]:
         messages = self._build_amend_messages(agentic_prompt, clipboard_text, spoken_prompt)
         return await self._run_chat_completion(messages, spoken_prompt, agentic_prompt, token_callback)
@@ -222,17 +231,14 @@ class LLMService:
             {"role": "user", "content": user_content},
         ]
 
-    async def _generate_streaming(
-        self, messages: List[Dict[str, str]], token_callback: Optional[Callable[[str], None]] = None
-    ) -> Optional[str]:
+    async def _generate_streaming(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         try:
             cfg = self.config.llm
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             token_queue = asyncio.Queue(maxsize=50)
-            full_text = []
 
             if not self.llm:
-                return None
+                return
 
             llm_ref = self.llm
 
@@ -263,29 +269,13 @@ class LLMService:
                                 token_count += 1
                                 if token_count <= 5 or token_count % 10 == 0:
                                     logger.debug(f"LLM generated token #{token_count}: '{token}'")
-                                try:
-                                    coro = token_queue.put(token)
-                                    asyncio.run_coroutine_threadsafe(coro, loop)
-                                except RuntimeError:
-                                    logger.warning("Event loop closed during token streaming")
-                                    coro.close()
-                                    break
+                                loop.call_soon_threadsafe(token_queue.put_nowait, token)
                     logger.info(f"LLM generation completed: {token_count} tokens generated")
-
-                    try:
-                        coro = token_queue.put(None)
-                        asyncio.run_coroutine_threadsafe(coro, loop)
-                    except RuntimeError:
-                        logger.warning("Event loop closed during streaming completion")
-                        coro.close()
+                    loop.call_soon_threadsafe(token_queue.put_nowait, None)
 
                 except Exception as e:
                     logger.error(f"Generation error: {e}", exc_info=True)
-                    try:
-                        coro = token_queue.put(None)
-                        asyncio.run_coroutine_threadsafe(coro, loop)
-                    except RuntimeError:
-                        coro.close()
+                    loop.call_soon_threadsafe(token_queue.put_nowait, None)
 
             executor_task = loop.run_in_executor(None, sync_generate)
 
@@ -297,27 +287,16 @@ class LLMService:
                         logger.debug(f"Token stream ended (received {callback_count} tokens)")
                         break
 
-                    full_text.append(token)
-                    if token_callback:
-                        try:
-                            callback_count += 1
-                            if callback_count <= 5 or callback_count % 10 == 0:
-                                logger.debug(f"Calling token_callback #{callback_count} with: '{token}'")
-                            token_callback(token)
-                        except Exception as e:
-                            logger.error(f"Token callback error: {e}", exc_info=True)
+                    callback_count += 1
+                    yield token
 
                 await executor_task
-                result = "".join(full_text).strip()
-                return result if result else None
 
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout after {cfg.generation_timeout_sec}s")
-                return None
 
         except Exception as e:
             logger.error(f"Generation error: {e}", exc_info=True)
-            return None
 
     async def _publish_completed(self, processed_text: str, agentic_prompt: str) -> None:
         event = LLMProcessingCompletedEvent(processed_text=processed_text, agentic_prompt=agentic_prompt)
