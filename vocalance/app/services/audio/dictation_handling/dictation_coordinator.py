@@ -11,7 +11,7 @@ import re
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
 
@@ -120,7 +120,7 @@ class DictationSession:
     accumulated_text: str = ""
     last_text_time: Optional[float] = None
     is_first_segment: bool = True
-    active_modifier: Optional[DictationModifierId] = None
+    active_modifiers: set[DictationModifierId] = field(default_factory=set)
 
 
 @dataclass
@@ -359,15 +359,23 @@ class DictationCoordinator:
                 if not session or self._current_state != DictationState.RECORDING:
                     return
                 mid = event.modifier_id
-                current = session.active_modifier
-                if current == mid:
-                    new_mod: Optional[DictationModifierId] = None
-                    label = ""
-                    active = False
+                current_mods = set(session.active_modifiers)
+
+                casing_mods = {"upper", "capitals", "camel", "snake", "kebab", "diminish"}
+                punct_mods = {"spelling", "strip"}
+
+                if mid in current_mods:
+                    current_mods.remove(mid)
                 else:
-                    new_mod = mid
-                    label = f"{modifier_display_label(mid)} active"
-                    active = True
+                    if mid in casing_mods:
+                        current_mods -= casing_mods
+                    elif mid in punct_mods:
+                        current_mods -= punct_mods
+                    current_mods.add(mid)
+
+                label = ", ".join(modifier_display_label(m) for m in current_mods) if current_mods else ""
+                active = bool(current_mods)
+
                 self._current_session = DictationSession(
                     session_id=session.session_id,
                     mode=session.mode,
@@ -375,11 +383,13 @@ class DictationCoordinator:
                     accumulated_text=session.accumulated_text,
                     last_text_time=session.last_text_time,
                     is_first_segment=session.is_first_segment,
-                    active_modifier=new_mod,
+                    active_modifiers=current_mods,
                 )
 
-            await self._publish_event(DictationModifierStateChangedEvent(active=active, modifier_id=new_mod, display_label=label))
-            logger.info("Dictation modifier: %s -> %s", current, new_mod)
+            await self._publish_event(
+                DictationModifierStateChangedEvent(active=active, active_modifiers=current_mods, display_label=label)
+            )
+            logger.info("Dictation modifiers: %s -> %s", session.active_modifiers, current_mods)
             if session.mode in MOONSHINE_CHUNK_DICTATION_MODES:
                 self._moonshine_suppress_until = time.monotonic() + MOONSHINE_MODIFIER_SUPPRESS_SEC
         except Exception as e:
@@ -402,33 +412,61 @@ class DictationCoordinator:
         cleaned = self._clean_text(raw_text)
         if not cleaned or self._is_isolated_stt_noise_fragment(cleaned):
             return ""
-        with_subs = self.alias_service.apply_substitutions(cleaned)
+
+        text_with_placeholders, alias_map = self.alias_service.extract_aliases(cleaned)
+
+        with_subs = text_with_placeholders
+        for placeholder, alias_text in alias_map.items():
+            pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
+            with_subs = pattern.sub(lambda m: alias_text, with_subs)
+
         if self._is_isolated_stt_noise_fragment(with_subs):
             return ""
-        return apply_dictation_postprocess(with_subs, session.active_modifier)
+
+        processed = apply_dictation_postprocess(text_with_placeholders, session.active_modifiers)
+
+        for placeholder, alias_text in alias_map.items():
+            pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
+            processed = pattern.sub(lambda m: alias_text, processed)
+
+        return processed
 
     def _prepare_dictation_segment_partial(self, raw_text: str, session: DictationSession) -> str:
         """Same cleaning and filtering as finals, but spelling modifier is deferred (streaming UI)."""
         cleaned = self._clean_text(raw_text)
         if not cleaned or self._is_isolated_stt_noise_fragment(cleaned):
             return ""
-        with_subs = self.alias_service.apply_substitutions(cleaned)
+
+        text_with_placeholders, alias_map = self.alias_service.extract_aliases(cleaned)
+
+        with_subs = text_with_placeholders
+        for placeholder, alias_text in alias_map.items():
+            pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
+            with_subs = pattern.sub(lambda m: alias_text, with_subs)
+
         if self._is_isolated_stt_noise_fragment(with_subs):
             return ""
-        return apply_dictation_postprocess_partial(with_subs, session.active_modifier)
+
+        processed = apply_dictation_postprocess_partial(text_with_placeholders, session.active_modifiers)
+
+        for placeholder, alias_text in alias_map.items():
+            pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
+            processed = pattern.sub(lambda m: alias_text, processed)
+
+        return processed
 
     async def _publish_modifier_cleared(self) -> None:
         """Emit inactive modifier state (session end and similar)."""
-        await self._publish_event(DictationModifierStateChangedEvent(active=False, modifier_id=None, display_label=""))
+        await self._publish_event(DictationModifierStateChangedEvent(active=False, active_modifiers=set(), display_label=""))
 
     @staticmethod
-    def _dictation_segment_input_options(mode: DictationMode, modifier: Optional[DictationModifierId]) -> tuple[bool, bool]:
+    def _dictation_segment_input_options(mode: DictationMode, modifiers: set[DictationModifierId]) -> tuple[bool, bool]:
         """Return ``(add_trailing_space, skip_prose_segment_join_rules)`` for :meth:`TextInputService.input_text`.
 
-        Camel, snake, and spelling modifiers disable trailing spaces and prose join rules (period removal
+        Camel, snake, kebab, and spelling modifiers disable trailing spaces and prose join rules (period removal
         and forced lowercase after a non-sentence boundary) so identifiers and spoken punctuation stay intact.
         """
-        skip_join = modifier in ("camel", "snake", "spelling")
+        skip_join = bool(modifiers.intersection({"camel", "snake", "kebab", "spelling"}))
         add_trailing = mode != DictationMode.TYPE and not skip_join
         return add_trailing, skip_join
 
@@ -462,7 +500,7 @@ class DictationCoordinator:
                 accumulated_text=self._append_text(session.accumulated_text, cleaned_text),
                 last_text_time=time.time() if session.mode == DictationMode.TYPE else None,
                 is_first_segment=False,
-                active_modifier=session.active_modifier,
+                active_modifiers=session.active_modifiers,
             )
 
             with self._state_lock:
@@ -471,7 +509,7 @@ class DictationCoordinator:
                 else:
                     return
 
-            add_trailing, skip_join = self._dictation_segment_input_options(updated_session.mode, updated_session.active_modifier)
+            add_trailing, skip_join = self._dictation_segment_input_options(updated_session.mode, updated_session.active_modifiers)
             await self.text_service.input_text(
                 text=cleaned_text,
                 add_trailing_space=add_trailing,
@@ -870,6 +908,8 @@ class DictationCoordinator:
 
                 self.text_service.reset_session()
 
+                initial_modifiers = {"strip", "diminish"} if mode == DictationMode.TYPE else set()
+
                 self._current_session = DictationSession(
                     session_id=session_id,
                     mode=mode,
@@ -877,12 +917,18 @@ class DictationCoordinator:
                     accumulated_text="",
                     last_text_time=None,
                     is_first_segment=True,
-                    active_modifier=None,
+                    active_modifiers=initial_modifiers,
                 )
                 self._set_state(DictationState.RECORDING)
 
             await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
+
+            if initial_modifiers:
+                label = ", ".join(modifier_display_label(m) for m in initial_modifiers)
+                await self._publish_event(
+                    DictationModifierStateChangedEvent(active=True, active_modifiers=initial_modifiers, display_label=label)
+                )
 
             if mode in MOONSHINE_CHUNK_DICTATION_MODES:
                 self._streaming_finalized_text = ""
@@ -1073,6 +1119,9 @@ class DictationCoordinator:
             cfg.modifier_camel_phrase,
             cfg.modifier_snake_phrase,
             cfg.modifier_spelling_phrase,
+            cfg.modifier_kebab_phrase,
+            cfg.modifier_diminish_phrase,
+            cfg.modifier_strip_phrase,
         )
         return self._strip_config_phrases_case_insensitive(s, modifier_phrases)
 

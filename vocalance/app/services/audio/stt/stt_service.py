@@ -61,6 +61,9 @@ class SpeechToTextService:
             (d.modifier_camel_phrase.lower(), "camel"),
             (d.modifier_snake_phrase.lower(), "snake"),
             (d.modifier_spelling_phrase.lower(), "spelling"),
+            (d.modifier_kebab_phrase.lower(), "kebab"),
+            (d.modifier_diminish_phrase.lower(), "diminish"),
+            (d.modifier_strip_phrase.lower(), "strip"),
         ]
         self._modifier_phrases = sorted(mod_pairs, key=lambda x: -len(x[0]))
 

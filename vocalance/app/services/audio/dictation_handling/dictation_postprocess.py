@@ -14,6 +14,9 @@ _MODIFIER_DISPLAY: dict[str, str] = {
     "camel": "Camel",
     "snake": "Snake",
     "spelling": "Spelling",
+    "kebab": "Kebab",
+    "diminish": "Diminish",
+    "strip": "Strip",
 }
 
 
@@ -76,6 +79,24 @@ def _to_camel_case(text: str) -> str:
 def _to_snake_case(text: str) -> str:
     words = _words_for_camel_snake(text)
     return "_".join(w.lower() for w in words if w)
+
+
+def _to_kebab_case(text: str) -> str:
+    words = _words_for_camel_snake(text)
+    return "-".join(w.lower() for w in words if w)
+
+
+def _apply_strip_modifier(text: str) -> str:
+    if not text:
+        return text
+    s = re.sub(r"[^\w\s]", "", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _apply_diminish_modifier(text: str) -> str:
+    if not text:
+        return text
+    return text.lower()
 
 
 _SPELLING_PUNCT_PHRASES: list[tuple[str, str]] = sorted(
@@ -231,33 +252,47 @@ def _apply_sentence_casing_after_punct(text: str) -> str:
     return "".join(chars)
 
 
-def apply_modifier_transform(text: str, modifier_id: DictationModifierId) -> str:
-    if modifier_id == "upper":
-        return _title_each_word(text)
-    if modifier_id == "capitals":
-        return text.upper()
-    if modifier_id == "camel":
-        return _to_camel_case(text)
-    if modifier_id == "snake":
-        return _to_snake_case(text)
-    if modifier_id == "spelling":
-        return _apply_spelling_modifier(text)
+def apply_modifier_transform(text: str, active_modifiers: set[DictationModifierId]) -> str:
+    if not active_modifiers:
+        return text
+
+    if "spelling" in active_modifiers:
+        text = _apply_spelling_modifier(text)
+    if "strip" in active_modifiers:
+        text = _apply_strip_modifier(text)
+
+    if "diminish" in active_modifiers:
+        text = _apply_diminish_modifier(text)
+    if "upper" in active_modifiers:
+        text = _title_each_word(text)
+    if "capitals" in active_modifiers:
+        text = text.upper()
+    if "camel" in active_modifiers:
+        text = _to_camel_case(text)
+    if "snake" in active_modifiers:
+        text = _to_snake_case(text)
+    if "kebab" in active_modifiers:
+        text = _to_kebab_case(text)
+
     return text
 
 
-def apply_dictation_postprocess(text: str, modifier_id: Optional[DictationModifierId]) -> str:
+def apply_dictation_postprocess(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
     if not text:
         return text
     result = apply_base_postprocess(text)
-    if modifier_id is None:
+    if not active_modifiers:
         return result
-    return apply_modifier_transform(result, modifier_id)
+    return apply_modifier_transform(result, active_modifiers)
 
 
-def apply_dictation_postprocess_partial(text: str, modifier_id: Optional[DictationModifierId]) -> str:
+def apply_dictation_postprocess_partial(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
     if not text:
         return text
     result = apply_base_postprocess(text)
-    if modifier_id is None or modifier_id == "spelling":
+    if not active_modifiers or active_modifiers == {"spelling"}:
         return result
-    return apply_modifier_transform(result, modifier_id)
+
+    # Apply all except spelling for partials
+    partial_mods = active_modifiers - {"spelling"}
+    return apply_modifier_transform(result, partial_mods)

@@ -280,6 +280,9 @@ class DictationConfig(BaseModel):
     )
     modifier_snake_phrase: str = Field(default="snake", description="Voice phrase to toggle snake_case modifier")
     modifier_spelling_phrase: str = Field(default="spelling", description="Voice phrase to toggle spoken-punctuation modifier")
+    modifier_kebab_phrase: str = Field(default="kebab", description="Voice phrase to toggle kebab-case modifier")
+    modifier_diminish_phrase: str = Field(default="diminish", description="Voice phrase to toggle lowercase modifier")
+    modifier_strip_phrase: str = Field(default="strip", description="Voice phrase to toggle strip punctuation modifier")
 
 
 class LocalLLMArtifact(BaseModel):

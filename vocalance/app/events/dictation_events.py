@@ -4,7 +4,7 @@ from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent, EventPriority
 
-DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling"]
+DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling", "kebab", "diminish", "strip"]
 
 
 class DictationStatusChangedEvent(BaseEvent):
@@ -268,6 +268,6 @@ class DictationModifierStateChangedEvent(BaseEvent):
     """Published when the active dictation modifier is toggled, switched, or cleared."""
 
     active: bool = Field(description="True when a modifier is now active")
-    modifier_id: Optional[DictationModifierId] = Field(default=None, description="Active modifier, if any")
+    active_modifiers: set[DictationModifierId] = Field(default_factory=set, description="Active modifiers, if any")
     display_label: str = Field(default="", description="Human-readable label for the chip, e.g. 'Upper'")
     priority: EventPriority = EventPriority.HIGH

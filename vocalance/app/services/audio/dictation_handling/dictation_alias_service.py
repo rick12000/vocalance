@@ -202,6 +202,45 @@ class DictationAliasService:
                 self._aliases[key] = old_value
         return success
 
+    def extract_aliases(self, text: str) -> tuple[str, dict[str, str]]:
+        """Extract aliases from text, returning text with placeholders and a map of placeholders to original text.
+
+        The placeholders are formatted as 'vocalancealiasN' to survive post-processing modifiers
+        (like camel, snake, strip) without being split or removed.
+        """
+        if not text:
+            return text, {}
+
+        with self._lock:
+            if not self._aliases:
+                return text, {}
+            aliases_copy = dict(self._aliases)
+
+        sorted_keys = sorted(aliases_copy.keys(), key=len, reverse=True)
+        escaped_keys = [re.escape(k) for k in sorted_keys]
+        if not escaped_keys:
+            return text, {}
+
+        pattern = rf"\b{ALIAS_FLAG_WORD}\s+({'|'.join(escaped_keys)})\b"
+
+        alias_map = {}
+        counter = [0]
+
+        def replace_match(match: re.Match) -> str:
+            matched_key = match.group(1).lower()
+            substitution = aliases_copy.get(matched_key, match.group(0))
+            placeholder = f"vocalancealias{counter[0]}"
+            alias_map[placeholder] = substitution
+            counter[0] += 1
+            return placeholder
+
+        result = re.sub(pattern, replace_match, text, flags=re.IGNORECASE)
+
+        if result != text:
+            logger.debug(f"Extracted aliases: '{text}' -> '{result}' with map {alias_map}")
+
+        return result, alias_map
+
     def apply_substitutions(self, text: str) -> str:
         if not text:
             return text
