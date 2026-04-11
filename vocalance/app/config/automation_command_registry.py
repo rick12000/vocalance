@@ -548,6 +548,30 @@ class AutomationCommandRegistry:
             long_description="Open the files panel in coding IDEs",
             functional_group="General IDE",
         ),
+        ExactMatchCommand(
+            command_key="refresh",
+            action_type="hotkey",
+            action_value="ctrl+r",
+            short_description="Refresh Page",
+            long_description="Refresh the current web page or application",
+            functional_group="Window Navigation",
+        ),
+        ExactMatchCommand(
+            command_key="right desk",
+            action_type="hotkey",
+            action_value="ctrl+win+right",
+            short_description="Next Desktop",
+            long_description="Switch to the next virtual desktop",
+            functional_group="Window Navigation",
+        ),
+        ExactMatchCommand(
+            command_key="left desk",
+            action_type="hotkey",
+            action_value="ctrl+win+left",
+            short_description="Previous Desktop",
+            long_description="Switch to the previous virtual desktop",
+            functional_group="Window Navigation",
+        ),
     ]
 
     @classmethod
