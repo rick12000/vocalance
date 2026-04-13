@@ -123,24 +123,24 @@ class QtGridController(QtBaseController):
             )
         )
 
-    async def _handle_grid_state_event(self, event_data: GridStateEvent) -> None:
+    def _handle_grid_state_event(self, grid_state: GridStateEvent) -> None:
         """Handle grid state events from the service."""
-        if event_data.state == "visible":
-            config = event_data.config or {}
+        if grid_state.state == "visible":
+            config = grid_state.config or {}
             rows = config.get("rows")
             cols = config.get("cols")
             num_rects = (rows * cols) if (rows and cols) else None
             self.show_grid_overlay(num_rects, config.get("click_mode", "click"))
-        elif event_data.state == "hidden":
+        elif grid_state.state == "hidden":
             self.hide_grid_overlay()
-        elif event_data.state == "interaction_request":
+        elif grid_state.state == "interaction_request":
             if not self.is_grid_overlay_active():
-                self.logger.warning(f"Grid not visible, cannot click cell {event_data.config.get('cell_label')}")
+                self.logger.warning(f"Grid not visible, cannot click cell {grid_state.config.get('cell_label')}")
                 return
             if not self.grid_view:
-                self.logger.error(f"Grid view not set, cannot click cell {event_data.config.get('cell_label')}")
+                self.logger.error(f"Grid view not set, cannot click cell {grid_state.config.get('cell_label')}")
                 return
-            config = event_data.config or {}
+            config = grid_state.config or {}
             self.handle_grid_selection(config.get("cell_label"), config.get("click_mode", "click"))
 
     def cleanup(self) -> None:

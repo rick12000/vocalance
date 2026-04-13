@@ -1,5 +1,7 @@
+from typing import Optional
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPaintEvent
 from PySide6.QtWidgets import QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -16,7 +18,7 @@ class TransparentTextEdit(QPlainTextEdit):
     - Designed for use inside a dark rounded container
     """
 
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Initialize transparent text edit widget.
 
         Args:
@@ -64,7 +66,7 @@ class TextDisplayContainer(QWidget):
     - Clean, minimal design
     """
 
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Initialize text display container.
 
         Args:
@@ -103,11 +105,11 @@ class TextDisplayContainer(QWidget):
         self.text_edit = TransparentTextEdit()
         layout.addWidget(self.text_edit)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Paint the rounded background.
 
         Args:
-            event: The paint event
+            paint_event: The paint event
         """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -120,4 +122,4 @@ class TextDisplayContainer(QWidget):
         painter.fillPath(path, self._bg_color)
 
         # Call parent paintEvent to draw children
-        super().paintEvent(event)
+        super().paintEvent(paint_event)

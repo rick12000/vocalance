@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from functools import wraps
-from typing import Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, Optional, Type
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.base_event import BaseEvent
@@ -26,7 +26,7 @@ class ThreadSafeEventPublisher:
     def __init__(self, event_bus: EventBus, event_loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         self.event_bus: EventBus = event_bus
         self.event_loop: Optional[asyncio.AbstractEventLoop] = event_loop
-        self.subscriptions: Dict = defaultdict(list)
+        self.subscriptions: Dict[Type[BaseEvent], list] = defaultdict(list)
 
     def _get_event_loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """Get the event loop, attempting to find running loop if not set.
@@ -44,25 +44,25 @@ class ThreadSafeEventPublisher:
         except RuntimeError:
             return None
 
-    def publish(self, event: BaseEvent) -> None:
+    def publish(self, published_event: BaseEvent) -> None:
         """Publish an event to the event bus.
 
         Args:
-            event: Event instance to publish.
+            published_event: Event instance to publish.
         """
         loop = self._get_event_loop()
         if not loop:
-            logger.error(f"Cannot publish event {type(event).__name__}: no running event loop")
+            logger.error(f"Cannot publish event {type(published_event).__name__}: no running event loop")
             return
 
-        coro = self.event_bus.publish(event)
+        coro = self.event_bus.publish(published_event)
         try:
             loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
         except Exception as e:
-            logger.error(f"Failed to publish event {type(event).__name__}: {e}")
+            logger.error(f"Failed to publish event {type(published_event).__name__}: {e}")
             coro.close()
 
-    def subscribe(self, event_type: Type[BaseEvent], handler: Callable) -> None:
+    def subscribe(self, event_type: Type[BaseEvent], handler: Callable[..., Any]) -> None:
         """Subscribe a handler to an event type.
 
         Args:
@@ -96,9 +96,9 @@ def thread_safe_event_handler(publisher: ThreadSafeEventPublisher) -> Callable:
         Decorator function.
     """
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return func(*args, **kwargs)
             except Exception as e:

@@ -1,6 +1,6 @@
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.complex_components import SidebarButton
@@ -10,16 +10,16 @@ from vocalance.app.ui.qt_theme import theme
 class SidebarButtonManager:
     """Manages selection state of sidebar buttons."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._buttons: List[SidebarButton] = []
         self._selected: Optional[SidebarButton] = None
 
-    def add(self, button: SidebarButton):
+    def add(self, button: SidebarButton) -> None:
         """Add button to manager."""
         self._buttons.append(button)
         button.clicked.connect(lambda: self.select(button))
 
-    def select(self, button: SidebarButton):
+    def select(self, button: SidebarButton) -> None:
         """Select a button, deselecting others."""
         if self._selected:
             self._selected.set_selected(False)
@@ -27,12 +27,12 @@ class SidebarButtonManager:
         button.set_selected(True)
         self._selected = button
 
-    def set_expanded(self, expanded: bool):
+    def set_expanded(self, expanded: bool) -> None:
         """Set expanded state for all buttons."""
         for btn in self._buttons:
             btn.set_expanded(expanded)
 
-    def set_text_opacity(self, opacity: float):
+    def set_text_opacity(self, opacity: float) -> None:
         """Set text opacity for all buttons."""
         for btn in self._buttons:
             btn.set_text_opacity(opacity)
@@ -41,7 +41,7 @@ class SidebarButtonManager:
 class ExpandableSidebar(QFrame):
     """Sidebar that expands on hover with animation."""
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         # Transparent background
@@ -76,25 +76,25 @@ class ExpandableSidebar(QFrame):
         self._anim_min.finished.connect(self._on_animation_finished)
         self._expanding = False
 
-    def add_widget(self, widget: QWidget):
+    def add_widget(self, widget: QWidget) -> None:
         """Add widget to sidebar layout."""
         self._layout.addWidget(widget)
 
-    def add_stretch(self):
+    def add_stretch(self) -> None:
         """Add stretch to sidebar layout."""
         self._layout.addStretch()
 
-    def enterEvent(self, event):
+    def enterEvent(self, enter_event: QEvent) -> None:
         """Handle mouse enter - expand sidebar."""
         self._animate(True)
-        super().enterEvent(event)
+        super().enterEvent(enter_event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, leave_event: QEvent) -> None:
         """Handle mouse leave - collapse sidebar."""
         self._animate(False)
-        super().leaveEvent(event)
+        super().leaveEvent(leave_event)
 
-    def _animate(self, expand: bool):
+    def _animate(self, expand: bool) -> None:
         """Animate sidebar width.
 
         Args:
@@ -116,7 +116,7 @@ class ExpandableSidebar(QFrame):
 
         # Update button text visibility is handled in _on_animation_finished for collapse
 
-    def _on_width_changed(self, value):
+    def _on_width_changed(self, value: Any) -> None:
         """Handle width animation progress."""
         current_width = int(value)
 
@@ -132,7 +132,7 @@ class ExpandableSidebar(QFrame):
         # Update opacity
         self.manager.set_text_opacity(progress)
 
-    def _on_animation_finished(self):
+    def _on_animation_finished(self) -> None:
         """Handle animation completion."""
         if not self._expanding:
             # If collapsed, hide text completely

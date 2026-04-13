@@ -1,7 +1,7 @@
 from typing import Literal, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPaintEvent, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLayout, QScrollArea, QVBoxLayout, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -10,7 +10,7 @@ from vocalance.app.ui.qt_theme import theme
 class TransparentWidget(QWidget):
     """A QWidget that guarantees transparent background with no stylesheet interference."""
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         # Disable auto fill background - we'll handle it ourselves
         self.setAutoFillBackground(False)
@@ -23,7 +23,7 @@ class TransparentWidget(QWidget):
         palette.setColor(QPalette.ColorRole.AlternateBase, QColor("transparent"))
         self.setPalette(palette)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Explicitly paint transparent background."""
         # Do nothing - let parent show through
 
@@ -31,7 +31,7 @@ class TransparentWidget(QWidget):
 class TransparentViewport(QWidget):
     """A viewport widget that guarantees transparent background."""
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setAutoFillBackground(False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
@@ -42,7 +42,7 @@ class TransparentViewport(QWidget):
         palette.setColor(QPalette.ColorRole.AlternateBase, QColor("transparent"))
         self.setPalette(palette)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Don't paint any background."""
 
 
@@ -57,10 +57,10 @@ class BaseContainer(QFrame):
         self,
         parent: Optional[QWidget] = None,
         layout: Literal["vertical", "horizontal"] = "vertical",
-        bg_color: str = None,
-        border_color: str = None,
-        border_radius: int = None,
-    ):
+        bg_color: Optional[str] = None,
+        border_color: Optional[str] = None,
+        border_radius: Optional[int] = None,
+    ) -> None:
         super().__init__(parent)
 
         # Store styling attributes
@@ -90,15 +90,15 @@ class BaseContainer(QFrame):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
 
-    def add(self, widget: QWidget, stretch: int = 0):
+    def add(self, widget: QWidget, stretch: int = 0) -> None:
         """Add widget to layout."""
         self._layout.addWidget(widget, stretch)
 
-    def add_layout(self, layout: QLayout, stretch: int = 0):
+    def add_layout(self, layout: QLayout, stretch: int = 0) -> None:
         """Add sublayout to layout."""
         self._layout.addLayout(layout, stretch)
 
-    def add_stretch(self, stretch: int = 1):
+    def add_stretch(self, stretch: int = 1) -> None:
         """Add stretch to layout."""
         self._layout.addStretch(stretch)
 
@@ -106,7 +106,7 @@ class BaseContainer(QFrame):
         """Return the layout."""
         return self._layout
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for border and rounded corners."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -135,7 +135,7 @@ class Box(BaseContainer):
     Spacing: border (1px) + padding (box_padding) from theme.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical"):
+    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical") -> None:
         super().__init__(
             parent=parent,
             layout=layout,
@@ -155,7 +155,7 @@ class Box(BaseContainer):
 class Panel(BaseContainer):
     """Secondary panel container."""
 
-    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical"):
+    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical") -> None:
         super().__init__(
             parent=parent,
             layout=layout,
@@ -172,7 +172,7 @@ class Panel(BaseContainer):
 class Card(BaseContainer):
     """Card container for grouped content."""
 
-    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical"):
+    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical") -> None:
         super().__init__(
             parent=parent,
             layout=layout,
@@ -197,7 +197,7 @@ class TransparentBox(BaseContainer):
         parent: Optional[QWidget] = None,
         layout: Literal["vertical", "horizontal"] = "vertical",
         spacing: Optional[int] = None,
-    ):
+    ) -> None:
         super().__init__(
             parent=parent,
             layout=layout,
@@ -215,7 +215,7 @@ class TransparentBox(BaseContainer):
         if spacing is not None:
             self._layout.setSpacing(spacing)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Override to not paint anything - let parent show through."""
         # Don't call parent paintEvent - that would draw the background
         # Just let the transparent background work
@@ -229,7 +229,7 @@ class ContentArea(QWidget):
     - ContentArea provides layout for items with proper spacing
     """
 
-    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical"):
+    def __init__(self, parent: Optional[QWidget] = None, layout: Literal["vertical", "horizontal"] = "vertical") -> None:
         super().__init__(parent)
 
         # Transparent background
@@ -255,15 +255,15 @@ class ContentArea(QWidget):
         # Spacing between content items
         self._layout.setSpacing(theme.config.container.content_vertical_spacing)
 
-    def add(self, widget: QWidget, stretch: int = 0):
+    def add(self, widget: QWidget, stretch: int = 0) -> None:
         """Add widget to content area."""
         self._layout.addWidget(widget, stretch)
 
-    def add_layout(self, layout: QLayout, stretch: int = 0):
+    def add_layout(self, layout: QLayout, stretch: int = 0) -> None:
         """Add sublayout."""
         self._layout.addLayout(layout, stretch)
 
-    def add_stretch(self, stretch: int = 1):
+    def add_stretch(self, stretch: int = 1) -> None:
         """Add stretch."""
         self._layout.addStretch(stretch)
 
@@ -278,7 +278,7 @@ class ScrollableContainer(QFrame):
     Uses centralized QSS for scrollbar styling.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         # Transparent frame
@@ -394,7 +394,7 @@ class TwoColumnLayout(QWidget):
         left_title: str = "",
         right_title: str = "",
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         # Import here to avoid circular imports
@@ -452,7 +452,7 @@ class FormField(QWidget):
         input_widget: QWidget,
         parent: Optional[QWidget] = None,
         description: Optional[str] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         # Import here to avoid circular imports
@@ -482,7 +482,7 @@ class FormField(QWidget):
 class ListItem(QWidget):
     """Standard list item with systematic spacing and transparent background."""
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         # Transparent background
@@ -499,7 +499,7 @@ class ListItem(QWidget):
         self._layout.setContentsMargins(h_pad, v_pad, h_pad, v_pad)
         self._layout.setSpacing(theme.config.spacing.small)
 
-    def add(self, widget: QWidget, stretch: int = 0):
+    def add(self, widget: QWidget, stretch: int = 0) -> None:
         """Add widget to list item."""
         self._layout.addWidget(widget, stretch)
 
@@ -507,7 +507,7 @@ class ListItem(QWidget):
 class GroupHeader(QWidget):
     """Group header for lists with systematic spacing."""
 
-    def __init__(self, text: str, is_first: bool = False, parent: Optional[QWidget] = None):
+    def __init__(self, text: str, is_first: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         # Import here to avoid circular imports
@@ -559,7 +559,7 @@ class CollapsibleSection(QWidget):
     - Configurable to start expanded or collapsed
     """
 
-    def __init__(self, title: str, is_first: bool = False, start_expanded: bool = False, parent: Optional[QWidget] = None):
+    def __init__(self, title: str, is_first: bool = False, start_expanded: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         from vocalance.app.ui.components.buttons import CollapseButton, ExpandButton
@@ -638,7 +638,7 @@ class CollapsibleSection(QWidget):
         # Set initial visibility
         self.content_widget.setVisible(self.is_expanded)
 
-    def _toggle_expanded(self):
+    def _toggle_expanded(self) -> None:
         """Toggle the expanded/collapsed state."""
         self.is_expanded = not self.is_expanded
         self.content_widget.setVisible(self.is_expanded)
@@ -676,7 +676,7 @@ class ListForm(QWidget):
     prompts, sounds, etc.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         # Transparent background

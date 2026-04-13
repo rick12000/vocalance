@@ -99,8 +99,8 @@ class DictationAliasService:
         """Publish alias list updated event."""
         with self._lock:
             aliases_copy = dict(self._aliases)
-        event = DictationAliasListUpdatedEvent(aliases=aliases_copy)
-        self._event_publisher.publish(event)
+        list_update = DictationAliasListUpdatedEvent(aliases=aliases_copy)
+        self._event_publisher.publish(list_update)
 
     def get_aliases(self) -> Dict[str, str]:
         """Get all aliases (thread-safe copy).

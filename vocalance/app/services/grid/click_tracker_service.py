@@ -108,19 +108,19 @@ class ClickTrackerService:
 
         logger.debug("ClickTrackerService subscriptions set up")
 
-    async def _handle_mouse_click(self, event_data: PerformMouseClickEventData) -> None:
+    def _handle_mouse_click(self, click_request: PerformMouseClickEventData) -> None:
         """Handle mouse click event by adding to in-memory cache only.
 
         NO storage I/O here - just fast memory append.
         """
         timestamp = time.time()
-        new_click = GridClickEvent(x=event_data.x, y=event_data.y, timestamp=timestamp, cell_id=None)
+        new_click = GridClickEvent(x=click_request.x, y=click_request.y, timestamp=timestamp, cell_id=None)
 
         with self._lock:
             self._clicks.append(new_click)
             click_count = len(self._clicks)
 
-        logger.debug(f"Click logged to memory cache: ({event_data.x}, {event_data.y}) - total: {click_count}")
+        logger.debug(f"Click logged to memory cache: ({click_request.x}, {click_request.y}) - total: {click_count}")
 
     def _calculate_click_counts(
         self, all_clicks: List[Dict[str, Any]], rect_definitions: List[Dict[str, Any]]
@@ -161,7 +161,7 @@ class ClickTrackerService:
         with self._lock:
             return [click.model_dump() for click in self._clicks]
 
-    async def get_click_statistics(self) -> Dict[str, Any]:
+    def get_click_statistics(self) -> Dict[str, Any]:
         """Get click statistics from in-memory cache."""
         with self._lock:
             all_clicks = [click.model_dump() for click in self._clicks]

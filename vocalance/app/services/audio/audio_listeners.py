@@ -149,8 +149,8 @@ class CommandAudioListener:
         audio_bytes = audio_int16.tobytes()
         duration = len(audio_float32) / self.sample_rate
 
-        event = CommandAudioSegmentReadyEvent(audio_bytes=audio_bytes, sample_rate=self.sample_rate)
-        _schedule_publish_on_loop(self._main_loop, self.event_bus.publish(event), "CommandAudioListener")
+        segment_ready = CommandAudioSegmentReadyEvent(audio_bytes=audio_bytes, sample_rate=self.sample_rate)
+        _schedule_publish_on_loop(self._main_loop, self.event_bus.publish(segment_ready), "CommandAudioListener")
         logger.info("Command segment ready: %.3fs, %s chunks, %s bytes", duration, len(self._audio_buffer), len(audio_bytes))
 
         self._reset_state()
@@ -316,9 +316,9 @@ class SoundAudioListener:
         self._consecutive_silent_chunks = 0
         self._segment_peak_energy = 0.0
 
-    def _handle_dictation_mode_change(self, event: DictationModeDisableOthersEvent) -> None:
+    def _handle_dictation_mode_change(self, dictation_mode_change: DictationModeDisableOthersEvent) -> None:
         with self._vad_lock:
-            self._dictation_active = event.dictation_mode_active
+            self._dictation_active = dictation_mode_change.dictation_mode_active
             if self._dictation_active:
                 self._reset_state()
 

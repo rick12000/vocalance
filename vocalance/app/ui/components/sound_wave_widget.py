@@ -1,7 +1,8 @@
 import math
+from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPaintEvent
 from PySide6.QtWidgets import QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -52,7 +53,7 @@ class SoundWaveWidget(QWidget):
     - Modern aesthetic with rounded bars
     """
 
-    def __init__(self, parent: QWidget = None):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
         # Visualizer config
@@ -108,7 +109,7 @@ class SoundWaveWidget(QWidget):
 
         self.update()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Draw the sound waves with gradient."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

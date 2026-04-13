@@ -3,8 +3,8 @@
 from typing import Optional, Tuple
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
+from PySide6.QtGui import QCloseEvent, QColor, QPalette, QShowEvent
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.buttons import DangerButton
 from vocalance.app.ui.qt_theme import theme
@@ -17,7 +17,7 @@ class LlmDownloadProgressDialog(QDialog):
 
     _SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
-    def __init__(self, parent=None, model_label: str = "") -> None:
+    def __init__(self, parent: Optional[QWidget] = None, model_label: str = "") -> None:
         super().__init__(parent)
         self.setWindowTitle("Download language model")
         self.setModal(True)
@@ -109,17 +109,17 @@ class LlmDownloadProgressDialog(QDialog):
         self._frame_i = (self._frame_i + 1) % len(self._SPINNER_FRAMES)
         self._spinner.setText(self._SPINNER_FRAMES[self._frame_i])
 
-    def showEvent(self, event) -> None:
+    def showEvent(self, show_event: QShowEvent) -> None:
         self._timer.start(80)
-        super().showEvent(event)
+        super().showEvent(show_event)
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, close_event: QCloseEvent) -> None:
         self._timer.stop()
         if self._outcome is None:
             self.cancel_clicked.emit()
-            event.ignore()
+            close_event.ignore()
             return
-        super().closeEvent(event)
+        super().closeEvent(close_event)
 
     def set_status(self, message: str) -> None:
         self._status.setText(message)

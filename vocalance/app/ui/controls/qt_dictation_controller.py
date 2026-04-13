@@ -41,7 +41,7 @@ class QtDictationController(QtBaseController):
         self,
         event_bus: EventBus,
         config: GlobalAppConfig,
-    ):
+    ) -> None:
         """Initialize dictation controller.
 
         Args:
@@ -75,52 +75,51 @@ class QtDictationController(QtBaseController):
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
-    async def _on_prompts_updated(self, event):
+    def _on_prompts_updated(self, list_update: AgenticPromptListUpdatedEvent) -> None:
         """Handle prompts list updated event."""
-        self.prompts = getattr(event, "prompts", [])
+        self.prompts = list_update.prompts
         self.prompts_loaded.emit(self.prompts)
         self.notify_status(f"Loaded {len(self.prompts)} prompts.")
 
-    async def _on_current_prompt_updated(self, event):
+    def _on_current_prompt_updated(self, selection: AgenticPromptUpdatedEvent) -> None:
         """Handle current prompt updated event."""
-        if hasattr(event, "prompt_id"):
-            self.current_prompt_id = event.prompt_id
-            self.current_prompt_updated.emit(self.current_prompt_id)
-            self.notify_status("Current prompt updated.")
+        self.current_prompt_id = selection.prompt_id
+        self.current_prompt_updated.emit(self.current_prompt_id)
+        self.notify_status("Current prompt updated.")
 
-    async def _on_dictation_status_changed(self, event):
+    def _on_dictation_status_changed(self, status: DictationStatusChangedEvent) -> None:
         """Handle dictation status changed event."""
-        self.dictation_status_changed.emit(getattr(event, "is_active", False), getattr(event, "mode", "inactive"))
+        self.dictation_status_changed.emit(status.is_active, status.mode)
 
-    async def _on_dictation_session(self, event: DictationSessionEvent) -> None:
+    def _on_dictation_session(self, session: DictationSessionEvent) -> None:
         """Handle dictation session events."""
-        if event.state == "started":
-            self.dictation_started.emit(event.mode)
-        elif event.state == "stopped":
-            if event.mode in ("smart", "amend"):
-                self.dictation_stopped.emit(event.mode, event.raw_text or "")
-            elif event.mode in ("visual", "hidden"):
-                self.dictation_stopped.emit(event.mode, event.accumulated_text or "")
+        if session.state == "started":
+            self.dictation_started.emit(session.mode)
+        elif session.state == "stopped":
+            if session.mode in ("smart", "amend"):
+                self.dictation_stopped.emit(session.mode, session.raw_text or "")
+            elif session.mode in ("visual", "hidden"):
+                self.dictation_stopped.emit(session.mode, session.accumulated_text or "")
 
-    async def _on_partial_text(self, event):
+    def _on_partial_text(self, partial: PartialDictationTextEvent) -> None:
         """Handle partial dictation text event."""
-        self.partial_text.emit(getattr(event, "text", ""))
+        self.partial_text.emit(partial.text)
 
-    async def _on_final_text(self, event):
+    def _on_final_text(self, final: FinalDictationTextEvent) -> None:
         """Handle final dictation text event."""
-        self.final_text.emit(getattr(event, "text", ""))
+        self.final_text.emit(final.text)
 
-    async def _on_llm_started(self, event):
+    def _on_llm_started(self, started: LLMProcessingStartedEvent) -> None:
         """Handle LLM processing started event."""
-        self.llm_processing_started.emit(getattr(event, "raw_text", ""), getattr(event, "agentic_prompt", ""))
+        self.llm_processing_started.emit(started.raw_text, started.agentic_prompt)
 
-    async def _on_llm_completed(self, event):
+    def _on_llm_completed(self, completed: LLMProcessingCompletedEvent) -> None:
         """Handle LLM processing completed event."""
-        self.llm_processing_completed.emit(getattr(event, "processed_text", ""), getattr(event, "agentic_prompt", ""))
+        self.llm_processing_completed.emit(completed.processed_text, completed.agentic_prompt)
 
-    async def _on_llm_failed(self, event):
+    def _on_llm_failed(self, failed: LLMProcessingFailedEvent) -> None:
         """Handle LLM processing failed event."""
-        self.llm_processing_failed.emit(getattr(event, "error_message", "Unknown error"), getattr(event, "original_text", ""))
+        self.llm_processing_failed.emit(failed.error_message, failed.original_text)
 
     def add_prompt(self, name: str, prompt_text: str) -> bool:
         """Publish an add-prompt action request.

@@ -82,9 +82,10 @@ def test_callback_invoked_with_audio_chunks(mock_app_config, mock_callback):
         mock_event_bus = Mock()
         recorder = AudioRecorder(app_config=mock_app_config, event_bus=mock_event_bus, on_audio_chunk=mock_callback)
 
-    recorder.start()
-    time.sleep(0.2)
-    recorder.stop()
+        recorder.start()
+        recorder._audio_callback(mock_audio_data, 480, None, None)
+        time.sleep(0.2)
+        recorder.stop()
 
     assert mock_callback.call_count > 0
 
@@ -107,9 +108,10 @@ def test_callback_receives_audio_data(mock_app_config, mock_callback):
         mock_event_bus = Mock()
         recorder = AudioRecorder(app_config=mock_app_config, event_bus=mock_event_bus, on_audio_chunk=mock_callback)
 
-    recorder.start()
-    time.sleep(0.2)
-    recorder.stop()
+        recorder.start()
+        recorder._audio_callback(mock_audio_data, 480, None, None)
+        time.sleep(0.2)
+        recorder.stop()
 
     assert mock_callback.call_count > 0
 

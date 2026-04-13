@@ -94,13 +94,13 @@ class MarkService:
 
         logger.debug("MarkService subscriptions set up")
 
-    async def _handle_mark_command_parsed(self, event_data: MarkCommandParsedEvent) -> None:
+    async def _handle_mark_command_parsed(self, parsed_mark_command: MarkCommandParsedEvent) -> None:
         """Handle parsed mark commands.
 
         Routes mark commands to the appropriate handler based on command type.
         Validates mark existence before execution for mark execute commands.
         """
-        command = event_data.command
+        command = parsed_mark_command.command
         logger.debug("MarkService received mark command: %s", type(command).__name__)
 
         if isinstance(command, MarkExecuteCommand):
@@ -303,53 +303,52 @@ class MarkService:
         logger.debug("MarkService shutdown grace complete")
 
     # UI Event Handlers - simplified with unified storage
-    async def _handle_get_all_request(self, _event_data) -> None:
+    async def _handle_get_all_request(self, _request: MarkGetAllRequestEventData) -> None:
         """Handle get all marks request."""
         marks = await self.get_all_marks()
         logger.debug("Mark get-all request: %s marks", len(marks))
         await self._event_bus.publish(MarksChangedEventData(marks=marks))
 
-    async def _handle_create_mark_request(self, event_data) -> None:
+    async def _handle_create_mark_request(self, create_request: MarkCreateRequestEventData) -> None:
         """Handle create mark request from UI."""
-        success, message = await self._add_mark(event_data.name, event_data.x, event_data.y)
+        success, message = await self._add_mark(create_request.name, create_request.x, create_request.y)
         if success:
             await self._publish_marks_changed_event()
         logger.debug(f"Handled create mark request - {message}")
 
-    async def _handle_delete_by_name_request(self, event_data) -> None:
+    async def _handle_delete_by_name_request(self, delete_request: MarkDeleteByNameRequestEventData) -> None:
         """Handle delete mark by name request."""
-        success = await self._remove_mark(event_data.name)
+        success = await self._remove_mark(delete_request.name)
         if success:
             await self._publish_marks_changed_event()
         logger.debug(f"Handled delete mark request - {'success' if success else 'failed'}")
 
-    async def _handle_delete_all_request(self, _event_data) -> None:
+    async def _handle_delete_all_request(self, _request: MarkDeleteAllRequestEventData) -> None:
         """Handle delete all marks request."""
         num_cleared = await self._reset_all_marks()
         await self._publish_marks_changed_event()
         logger.debug(f"Handled delete all marks request - {num_cleared} marks cleared")
 
-    async def _handle_execute_mark_request(self, event_data) -> None:
+    async def _handle_execute_mark_request(self, execute_request: MarkExecuteRequestEventData) -> None:
         """Handle execute mark request."""
-        coords = await self._get_mark_coordinates(event_data.name)
+        label = str(execute_request.name_or_id)
+        coords = await self._get_mark_coordinates(label)
         if coords:
             x, y = coords
-            logger.debug("Execute mark UI request: %s at (%s, %s)", event_data.name, x, y)
+            logger.debug("Execute mark UI request: %s at (%s, %s)", label, x, y)
             pyautogui.click(x, y)
-            message = f"Navigated to mark '{event_data.name}' at ({x}, {y}) and clicked."
+            message = f"Navigated to mark '{label}' at ({x}, {y}) and clicked."
             await self._event_bus.publish(
-                MarkOperationSuccessEventData(
-                    operation="execute", label=event_data.name, message=message, marks_data={"x": x, "y": y}
-                )
+                MarkOperationSuccessEventData(operation="execute", label=label, message=message, marks_data={"x": x, "y": y})
             )
         else:
-            message = f"Mark '{event_data.name}' not found for execution"
+            message = f"Mark '{label}' not found for execution"
             logger.warning(message)
 
-    async def _handle_visualize_all_request(self, _event_data) -> None:
+    async def _handle_visualize_all_request(self, _request: MarkVisualizeAllRequestEventData) -> None:
         """Handle visualize all marks request."""
         await self.visualize_marks(True)
 
-    async def _handle_visualize_cancel_request(self, _event_data) -> None:
+    async def _handle_visualize_cancel_request(self, _request: MarkVisualizeCancelRequestEventData) -> None:
         """Handle cancel visualization request."""
         await self.visualize_marks(False)

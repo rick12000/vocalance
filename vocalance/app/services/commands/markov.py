@@ -98,16 +98,16 @@ class MarkovCommandService:
             filtered = filtered[-commands_window:]
         return filtered
 
-    async def _handle_dictation_mode_change(self, event: DictationModeDisableOthersEvent) -> None:
+    def _handle_dictation_mode_change(self, dictation_mode_change: DictationModeDisableOthersEvent) -> None:
         prev = self._dictation_active
-        self._dictation_active = event.dictation_mode_active
+        self._dictation_active = dictation_mode_change.dictation_mode_active
         if prev != self._dictation_active:
             logger.info(
                 "Markov predictor %s",
                 "DISABLED (dictation active)" if self._dictation_active else "ENABLED",
             )
 
-    async def _handle_audio_detected_fast_track(self, event: AudioDetectedEvent) -> None:
+    async def _handle_audio_detected_fast_track(self, audio_detected: AudioDetectedEvent) -> None:
         try:
             now = time.time()
             if now - self._last_prediction_time < self._prediction_cooldown:
@@ -139,17 +139,17 @@ class MarkovCommandService:
         except Exception as e:
             logger.error("Error in Markov prediction handler: %s", e, exc_info=True)
 
-    async def _handle_prediction_feedback(self, event: MarkovPredictionFeedbackEvent) -> None:
-        actual = event.actual_command
-        if event.predicted_command != actual and event.was_correct is False:
+    def _handle_prediction_feedback(self, feedback: MarkovPredictionFeedbackEvent) -> None:
+        actual = feedback.actual_command
+        if feedback.predicted_command != actual and feedback.was_correct is False:
             logger.warning(
                 "Markov prediction incorrect: predicted %r, actual %r — cooldown",
-                event.predicted_command,
+                feedback.predicted_command,
                 actual,
             )
             self._cooldown_remaining = self._markov_config.incorrect_prediction_cooldown
-        elif event.predicted_command == actual and event.was_correct:
-            logger.info("Markov prediction correct: %r", event.predicted_command)
+        elif feedback.predicted_command == actual and feedback.was_correct:
+            logger.info("Markov prediction correct: %r", feedback.predicted_command)
 
         if self._cooldown_remaining > 0:
             self._cooldown_remaining -= 1
@@ -188,5 +188,5 @@ class MarkovCommandService:
     def on_confidence_threshold_updated(self, threshold: float) -> None:
         self._markov_config.confidence_threshold = threshold
 
-    async def shutdown(self) -> None:
+    def shutdown(self) -> None:
         logger.debug("Markov predictor shutdown")

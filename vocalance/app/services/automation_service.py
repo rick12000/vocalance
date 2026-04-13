@@ -53,7 +53,7 @@ class AutomationService:
         self._event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=self._handle_command_mappings_updated)
         logger.debug("AutomationService subscriptions set up")
 
-    async def _handle_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:
+    def _handle_automation_command(self, parsed_automation: AutomationCommandParsedEvent) -> None:
         """Process and execute automation commands with cooldown and count handling.
 
         CRITICAL: Creates background task to avoid blocking event bus.
@@ -63,18 +63,18 @@ class AutomationService:
         thread pool, and publishes execution status events.
 
         Args:
-            event_data: Event containing the automation command to execute.
+            parsed_automation: Event containing the automation command to execute.
         """
         # Create background task to avoid blocking event bus
-        asyncio.create_task(self._execute_automation_command(event_data))
+        asyncio.create_task(self._execute_automation_command(parsed_automation))
 
-    async def _execute_automation_command(self, event_data: AutomationCommandParsedEvent) -> None:
+    async def _execute_automation_command(self, parsed_automation: AutomationCommandParsedEvent) -> None:
         """Background task for automation command execution - does not block event bus.
 
         Args:
-            event_data: Event containing the automation command to execute.
+            parsed_automation: Event containing the automation command to execute.
         """
-        command = event_data.command
+        command = parsed_automation.command
         count = getattr(command, "count", 1)
 
         if isinstance(command, ParameterizedCommand) and count <= 0:
@@ -234,11 +234,11 @@ class AutomationService:
         cooldown_period = self._app_config.automation_cooldown_seconds
         return current_time - last_execution >= cooldown_period
 
-    async def _handle_command_mappings_updated(self, _event_data: CommandMappingsUpdatedEvent) -> None:
+    async def _handle_command_mappings_updated(self, _mappings_update: CommandMappingsUpdatedEvent) -> None:
         """Handle command mappings update by clearing cooldown timers.
 
         Args:
-            _event_data: Event containing updated mappings.
+            _mappings_update: Event containing updated mappings (cooldowns reset on any update).
         """
         async with self._cooldown_lock:
             self._cooldown_timers.clear()
@@ -247,5 +247,5 @@ class AutomationService:
     async def shutdown(self) -> None:
         """Shutdown the automation service and cleanup resources."""
         if self._thread_pool:
-            self._thread_pool.shutdown(wait=True)
+            await asyncio.to_thread(self._thread_pool.shutdown, wait=True)
         logger.debug("AutomationService shutdown")

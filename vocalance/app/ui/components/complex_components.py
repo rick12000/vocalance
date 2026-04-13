@@ -1,7 +1,7 @@
 from typing import Optional, Tuple
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPixmap
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, Signal
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPaintEvent, QPalette, QPixmap
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.inputs import TextInput
@@ -22,7 +22,7 @@ class FormGroup(QWidget):
         input_widget: QWidget,
         parent: Optional[QWidget] = None,
         description: Optional[str] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         # Transparent background
@@ -62,7 +62,7 @@ class FormGroup(QWidget):
 class Tile(BaseContainer):
     """Tile component for instructions or info cards with rounded corners and gradient title text."""
 
-    def __init__(self, title: str, content: str, parent: Optional[QWidget] = None):
+    def __init__(self, title: str, content: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(
             parent=parent,
             layout="vertical",
@@ -84,11 +84,11 @@ class Tile(BaseContainer):
         class CenteredGradientLabel(GradientTextMixin, QLabel):
             """Gradient label with proper center alignment support."""
 
-            def paintEvent(self, event):
+            def paintEvent(self, paint_event: QPaintEvent) -> None:
                 """Override paintEvent to render centered text with gradient."""
                 if not self._gradient_enabled or not self._gradient_colors:
                     # Fall back to default QLabel painting
-                    QLabel.paintEvent(self, event)
+                    QLabel.paintEvent(self, paint_event)
                     return
 
                 # Custom gradient painting with center alignment
@@ -176,7 +176,7 @@ class IconWidget(QWidget):
     and high-quality rendering regardless of source pixmap DPI.
     """
 
-    def __init__(self, pixmap: Optional[QPixmap], size: int, parent: Optional[QWidget] = None):
+    def __init__(self, pixmap: Optional[QPixmap], size: int, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._pixmap = pixmap
         # Enforce fixed size logic
@@ -186,12 +186,12 @@ class IconWidget(QWidget):
         # Let mouse events pass through to parent button
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
-    def set_pixmap(self, pixmap: QPixmap):
+    def set_pixmap(self, pixmap: QPixmap) -> None:
         """Update the displayed pixmap."""
         self._pixmap = pixmap
         self.update()
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Paint the pixmap scaled to the widget's fixed size."""
         if not self._pixmap or self._pixmap.isNull():
             return
@@ -222,7 +222,7 @@ class SidebarButton(QWidget):
         text: str,
         icon_pixmap: Optional[QPixmap] = None,
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         self._text_content = text
@@ -265,7 +265,7 @@ class SidebarButton(QWidget):
         # Apply initial styling
         self._update_appearance()
 
-    def _setup_ui(self, icon_pixmap: Optional[QPixmap]):
+    def _setup_ui(self, icon_pixmap: Optional[QPixmap]) -> None:
         """Setup button UI with fixed icon positioning.
 
         Design: Icon area has fixed width matching collapsed sidebar.
@@ -320,7 +320,7 @@ class SidebarButton(QWidget):
         # This reinforces the left alignment of the icon
         layout.addStretch(1)
 
-    def _update_appearance(self):
+    def _update_appearance(self) -> None:
         """Update button appearance based on state."""
         # Determine text color: blue_2 on hover/select, shapes.accent by default
         if self._hovered or self._selected:
@@ -359,17 +359,17 @@ class SidebarButton(QWidget):
 
         return result
 
-    def set_selected(self, selected: bool):
+    def set_selected(self, selected: bool) -> None:
         """Set selection state."""
         self._selected = selected
         self._update_appearance()
 
-    def set_text_opacity(self, opacity: float):
+    def set_text_opacity(self, opacity: float) -> None:
         """Set opacity of the text label."""
         if hasattr(self, "opacity_effect"):
             self.opacity_effect.setOpacity(opacity)
 
-    def set_expanded(self, expanded: bool):
+    def set_expanded(self, expanded: bool) -> None:
         """Set expansion state."""
         self._expanded = expanded
         if self.text_label:
@@ -377,28 +377,28 @@ class SidebarButton(QWidget):
         if hasattr(self, "spacer"):
             self.spacer.setVisible(expanded)
 
-    def enterEvent(self, event):
+    def enterEvent(self, enter_event: QEvent) -> None:
         """Handle mouse enter."""
         self._hovered = True
         self._update_appearance()
-        super().enterEvent(event)
+        super().enterEvent(enter_event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, leave_event: QEvent) -> None:
         """Handle mouse leave."""
         self._hovered = False
         self._update_appearance()
-        super().leaveEvent(event)
+        super().leaveEvent(leave_event)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, press_event: QMouseEvent) -> None:
         """Handle mouse press - emit clicked signal."""
-        if event.button() == Qt.MouseButton.LeftButton:
+        if press_event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
-        super().mousePressEvent(event)
+        super().mousePressEvent(press_event)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """No custom painting - rely on theme colors for text and icon highlighting."""
         # Remove the blue background highlight - just use default painting
-        super().paintEvent(event)
+        super().paintEvent(paint_event)
 
 
 class HeaderIconButton(QWidget):
@@ -414,10 +414,10 @@ class HeaderIconButton(QWidget):
         self,
         text: str,
         icon_pixmap: Optional[QPixmap] = None,
-        text_icon_spacing: int = None,
-        icon_size: int = None,
+        text_icon_spacing: Optional[int] = None,
+        icon_size: Optional[int] = None,
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         self._text_content = text
@@ -449,7 +449,7 @@ class HeaderIconButton(QWidget):
         # Setup animation for text expansion
         self._setup_animation()
 
-    def _setup_ui(self, icon_pixmap: Optional[QPixmap]):
+    def _setup_ui(self, icon_pixmap: Optional[QPixmap]) -> None:
         """Setup button UI with icon on right, text expands left on hover."""
         layout = QHBoxLayout(self)
         layout.setContentsMargins(self._button_padding, self._button_padding, self._button_padding, self._button_padding)
@@ -488,7 +488,7 @@ class HeaderIconButton(QWidget):
         else:
             self.icon_widget = None
 
-    def _setup_animation(self):
+    def _setup_animation(self) -> None:
         """Setup animation for text expansion."""
         # Animation for text label width
         self._text_anim = QPropertyAnimation(self.text_label, b"maximumWidth")
@@ -509,7 +509,7 @@ class HeaderIconButton(QWidget):
         painter.end()
         return result
 
-    def _animate_expansion(self, expand: bool):
+    def _animate_expansion(self, expand: bool) -> None:
         """Animate text expansion/collapse."""
         if expand:
             # Calculate text width
@@ -536,20 +536,20 @@ class HeaderIconButton(QWidget):
             self._spacer_anim.setEndValue(0)
             self._spacer_anim.start()
 
-    def enterEvent(self, event):
+    def enterEvent(self, enter_event: QEvent) -> None:
         """Handle mouse enter - show text."""
         self._hovered = True
         self._animate_expansion(True)
-        super().enterEvent(event)
+        super().enterEvent(enter_event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, leave_event: QEvent) -> None:
         """Handle mouse leave - hide text."""
         self._hovered = False
         self._animate_expansion(False)
-        super().leaveEvent(event)
+        super().leaveEvent(leave_event)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, press_event: QMouseEvent) -> None:
         """Handle mouse press - emit clicked signal."""
-        if event.button() == Qt.MouseButton.LeftButton:
+        if press_event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
-        super().mousePressEvent(event)
+        super().mousePressEvent(press_event)

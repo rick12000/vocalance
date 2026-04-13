@@ -21,9 +21,7 @@ async def mark_service(event_bus, app_config, mock_storage_service, mock_protect
     )
     service.setup_subscriptions()
 
-    await event_bus.start_worker()
     yield service
-    await event_bus.stop_worker()
 
 
 @pytest.mark.asyncio

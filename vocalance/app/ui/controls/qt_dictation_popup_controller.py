@@ -26,7 +26,7 @@ class QtDictationPopupController:
     - Event subscriptions for dictation lifecycle
     """
 
-    def __init__(self, event_bus: EventBus):
+    def __init__(self, event_bus: EventBus) -> None:
         """Initialize dictation popup controller.
 
         Args:
@@ -139,12 +139,12 @@ class QtDictationPopupController:
 
     # Event handlers
 
-    async def _on_dictation_status_changed(self, event: DictationStatusChangedEvent) -> None:
+    def _on_dictation_status_changed(self, status_changed: DictationStatusChangedEvent) -> None:
         """Show or hide the simple listening popup for standard and type dictation."""
         try:
-            is_active = event.is_active
-            mode = event.mode
-            show_ui = event.show_ui
+            is_active = status_changed.is_active
+            mode = status_changed.mode
+            show_ui = status_changed.show_ui
 
             self.logger.debug(f"DictationStatusChanged: is_active={is_active}, mode={mode}, show_ui={show_ui}")
 
@@ -156,10 +156,10 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling dictation status change: {e}", exc_info=True)
 
-    async def _on_dictation_session(self, event: DictationSessionEvent) -> None:
+    def _on_dictation_session(self, session: DictationSessionEvent) -> None:
         """Handle dictation session start/stop events."""
-        mode = event.mode
-        state = event.state
+        mode = session.mode
+        state = session.state
 
         if state == "started":
             if mode == "amend":
@@ -181,11 +181,11 @@ class QtDictationPopupController:
                 self.hide_popup()
                 self.logger.debug("Hidden dictation stopped - hiding popup")
 
-    async def _on_partial_text(self, event: PartialDictationTextEvent) -> None:
+    def _on_partial_text(self, partial: PartialDictationTextEvent) -> None:
         """Handle partial dictation text event (gray/tentative text)."""
         try:
-            text = event.text
-            segment_id = event.segment_id
+            text = partial.text
+            segment_id = partial.segment_id
             self.logger.info(f"PARTIAL TEXT EVENT: text='{text}', segment_id={segment_id}")
             if text:
                 # Call display_partial_text, not append_dictation_text!
@@ -194,11 +194,11 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling partial text event: {e}", exc_info=True)
 
-    async def _on_final_text(self, event: FinalDictationTextEvent) -> None:
+    def _on_final_text(self, final: FinalDictationTextEvent) -> None:
         """Handle final dictation text event (white/stable text)."""
         try:
-            text = event.text
-            segment_id = event.segment_id
+            text = final.text
+            segment_id = final.segment_id
             self.logger.info(f"FINAL TEXT EVENT: text='{text}', segment_id={segment_id}")
             if text:
                 # Call display_final_text, not append_dictation_text!
@@ -207,25 +207,25 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling final text event: {e}", exc_info=True)
 
-    async def _on_llm_started(self, event: LLMProcessingStartedEvent) -> None:
+    async def _on_llm_started(self, started: LLMProcessingStartedEvent) -> None:
         """Publish LLMProcessingReadyEvent once the popup can accept tokens."""
         self.on_llm_status_changed("Processing...")
 
-        session_id = event.session_id or "default"
+        session_id = started.session_id or "default"
         ready_event = LLMProcessingReadyEvent(session_id=session_id)
         await self.event_bus.publish(ready_event)
         self.logger.debug(f"Published LLMProcessingReadyEvent for session {session_id}")
 
-    async def _on_llm_token(self, event: LLMTokenGeneratedEvent) -> None:
+    def _on_llm_token(self, token_event: LLMTokenGeneratedEvent) -> None:
         """Append one token to the LLM output pane."""
         try:
-            token = event.token
+            token = token_event.token
             if token:
                 self.on_llm_token(token)
         except Exception as e:
             self.logger.error(f"Error handling LLM token: {e}", exc_info=True)
 
-    async def _on_llm_completed(self, _event: LLMProcessingCompletedEvent) -> None:
+    def _on_llm_completed(self, _llm_completion: LLMProcessingCompletedEvent) -> None:
         """Show completion briefly, then hide the popup."""
         self.on_llm_status_changed("Complete!")
         # Hide popup after brief delay to show completion
@@ -235,20 +235,20 @@ class QtDictationPopupController:
         QTimer.singleShot(1500, self.hide_popup)  # 1500ms = 1.5s
         self.logger.debug("Scheduled popup hide after 1.5s delay")
 
-    async def _on_modifier_state_changed(self, event: DictationModifierStateChangedEvent) -> None:
+    def _on_modifier_state_changed(self, modifier_state: DictationModifierStateChangedEvent) -> None:
         """Forward modifier state to the popup view (chip appears only in smart, amend, and visual layouts)."""
         try:
-            if event.active and event.display_label:
-                self.popup_view.set_modifier_banner(event.display_label, True)
+            if modifier_state.active and modifier_state.display_label:
+                self.popup_view.set_modifier_banner(modifier_state.display_label, True)
             else:
                 self.popup_view.set_modifier_banner("", False)
         except Exception as e:
             self.logger.error("Error handling modifier state: %s", e, exc_info=True)
 
-    async def _on_stop_word_detected(self, event: DictationStopWordDetectedEvent) -> None:
+    def _on_stop_word_detected(self, stop_word: DictationStopWordDetectedEvent) -> None:
         """Set an orange border when the stop phrase is detected in supported modes."""
         try:
-            mode = event.mode
+            mode = stop_word.mode
             self.logger.info(f"Stop word detected in {mode} mode - changing border to orange")
 
             # Only change border for modes that use the streaming popup (not simple listening)

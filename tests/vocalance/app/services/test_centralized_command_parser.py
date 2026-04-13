@@ -37,10 +37,7 @@ async def command_parser(event_bus, app_config, mock_action_map_provider, mock_c
     )
     parser.setup_subscriptions()
     await parser.initialize()
-
-    await event_bus.start_worker()
     yield parser
-    await event_bus.stop_worker()
 
 
 @pytest.mark.asyncio

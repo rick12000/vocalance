@@ -1,6 +1,6 @@
 from typing import Optional
 
-from PySide6.QtGui import QColor, QPalette, QTextOption
+from PySide6.QtGui import QColor, QPalette, QResizeEvent, QTextOption
 from PySide6.QtWidgets import QLineEdit, QPlainTextEdit, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -17,7 +17,7 @@ class TextInput(QLineEdit):
         self,
         placeholder: str = "",
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         self.setPlaceholderText(placeholder)
@@ -70,7 +70,7 @@ class PasswordInput(TextInput):
         self,
         placeholder: str = "",
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(placeholder, parent)
 
         # Set echo mode to hide password
@@ -103,7 +103,7 @@ class ExpandableTextArea(QPlainTextEdit):
         self,
         placeholder: str = "",
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         self.placeholder_text = placeholder
@@ -195,9 +195,9 @@ class ExpandableTextArea(QPlainTextEdit):
         # The scrollbar will automatically appear when content exceeds minimum height
         # No additional adjustment needed - QPlainTextEdit handles this natively
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, resize_event: QResizeEvent) -> None:
         """Recalculate height on resize."""
-        super().resizeEvent(event)
+        super().resizeEvent(resize_event)
         self._calculate_height_from_placeholder()
 
     def text(self) -> str:

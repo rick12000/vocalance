@@ -31,13 +31,13 @@ class PauseStateManager:
         self._event_bus.subscribe(event_type=SystemControlCommandParsedEvent, handler=self._handle_system_control_command)
         logger.info("PauseStateManager subscriptions set up")
 
-    async def _handle_system_control_command(self, event: SystemControlCommandParsedEvent) -> None:
+    async def _handle_system_control_command(self, system_control: SystemControlCommandParsedEvent) -> None:
         """Handle system control commands (pause/resume).
 
         Args:
-            event: System control command event.
+            system_control: System control command event.
         """
-        command = event.command
+        command = system_control.command
 
         if isinstance(command, PauseCommand):
             await self._set_paused(True)

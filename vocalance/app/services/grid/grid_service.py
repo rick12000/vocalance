@@ -68,9 +68,9 @@ class GridService:
         async with self._state_lock:
             self._visible = visible
 
-    async def _handle_grid_command(self, event_data: GridCommandParsedEvent) -> None:
+    async def _handle_grid_command(self, parsed_grid_command: GridCommandParsedEvent) -> None:
         """Handle grid commands (show/select) with mode-specific processing."""
-        command = event_data.command
+        command = parsed_grid_command.command
         command_type = type(command).__name__
 
         if isinstance(command, GridShowCommand):
@@ -109,9 +109,9 @@ class GridService:
         else:
             logger.warning(f"Unknown grid command type: {command_type}")
 
-    async def _handle_grid_state_event(self, event_data: GridStateEvent) -> None:
+    def _handle_grid_state_event(self, grid_state_update: GridStateEvent) -> None:
         """Handle grid state events (like config updates)."""
-        if event_data.state == "config_updated" and event_data.config:
+        if grid_state_update.state == "config_updated" and grid_state_update.config:
             config_fields = [
                 "rows",
                 "cols",
@@ -127,7 +127,7 @@ class GridService:
 
             updated_fields = {}
             for field in config_fields:
-                value = event_data.config.get(field)
+                value = grid_state_update.config.get(field)
                 if value is not None and hasattr(self._config.grid, field):
                     if field == "cancel_phrases" and isinstance(value, list):
                         value = list(set(value))
@@ -144,6 +144,6 @@ class GridService:
     def get_current_config(self):
         return self._config.grid
 
-    async def shutdown(self) -> None:
+    def shutdown(self) -> None:
         logger.info("Shutting down GridService")
         self.subscription_manager.unsubscribe_all()

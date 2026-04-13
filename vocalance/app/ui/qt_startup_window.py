@@ -1,10 +1,13 @@
 import logging
 import threading
+from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette
+from PySide6.QtGui import QCloseEvent, QColor, QPainter, QPainterPath, QPaintEvent, QPalette
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
+from vocalance.app.config.app_config import AssetPathsConfig
+from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
@@ -33,10 +36,10 @@ class StartupWindow(QDialog):
     def __init__(
         self,
         logger: logging.Logger,
-        asset_paths_config,
-        shutdown_coordinator=None,
-        icon_manager: WindowIconManager = None,
-    ):
+        asset_paths_config: AssetPathsConfig,
+        shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+        icon_manager: Optional[WindowIconManager] = None,
+    ) -> None:
         """Initialize startup window.
 
         Args:
@@ -210,7 +213,7 @@ class StartupWindow(QDialog):
             y = (screen_geometry.height() - self.height()) // 2
             self.move(x, y)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Paint rounded rectangle background for transparent window effect."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -372,20 +375,20 @@ class StartupWindow(QDialog):
         with self._lock:
             return not self.is_closed
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, close_event: QCloseEvent) -> None:
         """Handle window close event.
 
         Args:
-            event: Close event.
+            close_event: Close event.
         """
         self._close_impl()
-        event.accept()
+        close_event.accept()
 
 
 class StartupProgressTracker:
     """Track and display progress during startup."""
 
-    def __init__(self, startup_window: StartupWindow, total_steps: int):
+    def __init__(self, startup_window: StartupWindow, total_steps: int) -> None:
         """Initialize progress tracker.
 
         Args:

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from PySide6.QtCore import Signal
 
@@ -21,6 +21,7 @@ from vocalance.app.events.mark_events import (
     MarkVisualizeAllRequestEventData,
     MarkVisualizeCancelRequestEventData,
 )
+from vocalance.app.services.mark_service import MarkService
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
@@ -39,9 +40,9 @@ class QtMarksController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        mark_service,
+        mark_service: MarkService,
         config: GlobalAppConfig,
-    ):
+    ) -> None:
         """Initialize marks controller.
 
         Args:
@@ -73,7 +74,7 @@ class QtMarksController(QtBaseController):
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
-    def set_mark_view(self, mark_view) -> None:
+    def set_mark_view(self, mark_view: Any) -> None:
         """Set the mark view reference.
 
         Args:
@@ -196,11 +197,12 @@ class QtMarksController(QtBaseController):
         """
         self.notify_status(f"Mark visualization failed: {error_message}", True)
 
-    async def _on_marks_changed(self, event) -> None:
+    def _on_marks_changed(self, marks_snapshot: MarksChangedEventData) -> None:
         """Handle marks changed event and update cached marks list."""
-        if hasattr(event, "marks"):
+        if marks_snapshot.marks:
             self.marks_list = [
-                MarkData(name=m["name"], x=m["x"], y=m["y"], description=m.get("description", "")) for m in event.marks.values()
+                MarkData(name=m["name"], x=m["x"], y=m["y"], description=m.get("description", ""))
+                for m in marks_snapshot.marks.values()
             ]
         else:
             self.marks_list = []
@@ -209,20 +211,21 @@ class QtMarksController(QtBaseController):
         if self.mark_view:
             self.update_mark_view_data(self.marks_list)
 
-    async def _on_mark_operation_status(self, event) -> None:
+    def _on_mark_operation_status(self, operation_result: MarkOperationSuccessEventData) -> None:
         """Handle mark operation success/failure events."""
-        self.notify_status(getattr(event, "message", "Mark operation completed."), False)
+        message = operation_result.message or "Mark operation completed."
+        self.notify_status(message, False)
 
-    async def _handle_mark_list_changed(self, event) -> None:
+    def _handle_mark_list_changed(self, _change: Union[MarkCreatedEventData, MarkDeletedEventData]) -> None:
         """Handle mark list change events by refreshing from the service."""
         self.refresh_marks()
 
-    async def _handle_mark_visualization_state_changed(self, event_data) -> None:
+    async def _handle_mark_visualization_state_changed(self, viz_state: MarkVisualizationStateChangedEventData) -> None:
         """Handle mark visualization state change from the service layer."""
         if not self.mark_view:
             return
 
-        if event_data.is_visible and not self.mark_view.is_active():
+        if viz_state.is_visible and not self.mark_view.is_active():
             self.refresh_marks()
             for _ in range(50):
                 await asyncio.sleep(0.01)
@@ -235,7 +238,7 @@ class QtMarksController(QtBaseController):
                 self.mark_view.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
                 self.mark_view.show_requested.emit()
 
-        elif not event_data.is_visible and self.mark_view.is_active():
+        elif not viz_state.is_visible and self.mark_view.is_active():
             self.mark_view.hide_requested.emit()
 
     def notify_status(self, message: str, is_error: bool = False) -> None:

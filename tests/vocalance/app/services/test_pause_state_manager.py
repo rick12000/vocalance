@@ -16,9 +16,7 @@ async def pause_state_manager(event_bus):
     manager = PauseStateManager(event_bus=event_bus)
     manager.setup_subscriptions()
 
-    await event_bus.start_worker()
     yield manager
-    await event_bus.stop_worker()
 
 
 @pytest_asyncio.fixture

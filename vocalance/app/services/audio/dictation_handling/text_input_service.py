@@ -164,7 +164,7 @@ class TextInputService:
 
         logger.info("TextInputService initialized")
 
-    async def initialize(self) -> bool:
+    def initialize(self) -> bool:
         try:
             logger.info("TextInputService ready")
             return True
@@ -373,7 +373,7 @@ class TextInputService:
             logger.error(f"Backspace error: {e}", exc_info=True)
             return False
 
-    async def shutdown(self) -> None:
+    def shutdown(self) -> None:
         logger.info("TextInputService shutdown complete")
 
 

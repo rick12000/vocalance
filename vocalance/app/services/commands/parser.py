@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional, Union
 
@@ -181,19 +182,22 @@ class CentralizedCommandParser:
             self._parse_mark_execute_fallback,
         )
         for parse in parsers:
-            result = await parse(normalized)
+            if asyncio.iscoroutinefunction(parse):
+                result = await parse(normalized)
+            else:
+                result = parse(normalized)
             if not isinstance(result, NoMatchResult):
                 return result
         return NoMatchResult()
 
-    async def _parse_system_control_commands(self, normalized_text: str) -> ParseResultType:
+    def _parse_system_control_commands(self, normalized_text: str) -> ParseResultType:
         if normalized_text == "pause":
             return PauseCommand()
         if normalized_text == "resume":
             return ResumeCommand()
         return NoMatchResult()
 
-    async def _parse_dictation_commands(self, normalized_text: str) -> ParseResultType:
+    def _parse_dictation_commands(self, normalized_text: str) -> ParseResultType:
         if normalized_text == self._dictation_start_trigger:
             return DictationStartCommand()
         if normalized_text == self._dictation_stop_trigger:
@@ -210,7 +214,7 @@ class CentralizedCommandParser:
             return DictationAmendStartCommand()
         return NoMatchResult()
 
-    async def _parse_mark_commands(self, normalized_text: str) -> ParseResultType:
+    def _parse_mark_commands(self, normalized_text: str) -> ParseResultType:
         words = normalized_text.split()
         if not words:
             return NoMatchResult()
@@ -237,7 +241,7 @@ class CentralizedCommandParser:
 
         return NoMatchResult()
 
-    async def _parse_grid_show_for_phrase(
+    def _parse_grid_show_for_phrase(
         self, normalized_text: str, phrase: str, click_mode: str
     ) -> Union[GridShowCommand, ErrorResult, None]:
         if not normalized_text.startswith(phrase):
@@ -262,7 +266,7 @@ class CentralizedCommandParser:
             (self._grid_hover_phrase, "hover"),
             (self._grid_drag_phrase, "drag"),
         ):
-            got = await self._parse_grid_show_for_phrase(normalized_text, phrase, mode)
+            got = self._parse_grid_show_for_phrase(normalized_text, phrase, mode)
             if got is not None:
                 return got
 
@@ -317,7 +321,7 @@ class CentralizedCommandParser:
 
         return NoMatchResult()
 
-    async def _parse_mark_execute_fallback(self, normalized_text: str) -> ParseResultType:
+    def _parse_mark_execute_fallback(self, normalized_text: str) -> ParseResultType:
         words = normalized_text.split()
         if len(words) == 1:
             return MarkExecuteCommand(label=normalized_text)
@@ -330,8 +334,8 @@ class CentralizedCommandParser:
             return
         await self._event_bus.publish(event_cls(source=source, command=command))
 
-    async def _handle_command_text_recognized(self, event: CommandTextRecognizedEvent) -> None:
-        text = event.text
+    async def _handle_command_text_recognized(self, text_recognized: CommandTextRecognizedEvent) -> None:
+        text = text_recognized.text
         if self._pending_markov_prediction is not None:
             await self._send_markov_feedback(
                 predicted=self._pending_markov_prediction,
@@ -345,10 +349,10 @@ class CentralizedCommandParser:
         await self._send_markov_feedback(predicted=None, actual=text, was_correct=True, source="stt")
         await self._process_text_input(text=text, source="stt", record_history=True)
 
-    async def _handle_custom_sound_recognized(self, event_data: CustomSoundRecognizedEvent) -> None:
-        phrase = event_data.mapped_command or self._sound_to_command_mapping.get(event_data.label)
+    async def _handle_custom_sound_recognized(self, sound_recognized: CustomSoundRecognizedEvent) -> None:
+        phrase = sound_recognized.mapped_command or self._sound_to_command_mapping.get(sound_recognized.label)
         if not phrase:
-            logger.warning("No command mapping found for sound: %s", event_data.label)
+            logger.warning("No command mapping found for sound: %s", sound_recognized.label)
             return
 
         if self._pending_markov_prediction is not None:
@@ -364,15 +368,15 @@ class CentralizedCommandParser:
         await self._send_markov_feedback(predicted=None, actual=phrase, was_correct=True, source="sound")
         await self._process_text_input(text=phrase, source="sound", record_history=True)
 
-    async def _handle_sound_mapping_updated(self, event_data: SoundToCommandMappingUpdatedEvent) -> None:
-        self._sound_to_command_mapping[event_data.sound_label] = event_data.command_phrase
+    def _handle_sound_mapping_updated(self, mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
+        self._sound_to_command_mapping[mapping_update.sound_label] = mapping_update.command_phrase
 
-    async def _handle_sound_mappings_response(self, event_data: SoundMappingsResponseEvent) -> None:
-        self._sound_to_command_mapping = event_data.mappings
+    def _handle_sound_mappings_response(self, mappings_snapshot: SoundMappingsResponseEvent) -> None:
+        self._sound_to_command_mapping = mappings_snapshot.mappings
 
-    async def _handle_markov_prediction(self, event: MarkovPredictionEvent) -> None:
-        self._pending_markov_prediction = event.predicted_command
-        await self._process_text_input(text=event.predicted_command, source="markov", record_history=False)
+    async def _handle_markov_prediction(self, prediction: MarkovPredictionEvent) -> None:
+        self._pending_markov_prediction = prediction.predicted_command
+        await self._process_text_input(text=prediction.predicted_command, source="markov", record_history=False)
 
     async def _send_markov_feedback(self, predicted: Optional[str], actual: str, was_correct: bool, source: str) -> None:
         predicted_for_event = predicted if predicted is not None else actual

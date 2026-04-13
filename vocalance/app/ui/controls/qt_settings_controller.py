@@ -10,6 +10,7 @@ from vocalance.app.config.app_config import GlobalAppConfig, get_whitelisted_llm
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import SettingsChangedEvent
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
+from vocalance.app.services.storage.settings_service import SettingsService
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
@@ -27,10 +28,10 @@ class QtSettingsController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        settings_service,
+        settings_service: SettingsService,
         config: GlobalAppConfig,
-        main_window,
-    ):
+        main_window: Any,
+    ) -> None:
         """Initialize settings controller.
 
         Args:
@@ -60,24 +61,24 @@ class QtSettingsController(QtBaseController):
             handler=self._handle_settings_changed,
         )
 
-    def _handle_settings_changed(self, event: SettingsChangedEvent) -> None:
+    def _handle_settings_changed(self, settings_change: SettingsChangedEvent) -> None:
         """Handle settings changed event."""
         try:
-            self._cached_settings = event.all_settings
+            self._cached_settings = settings_change.all_settings
             self.all_settings_changed.emit(self._cached_settings)
-            for key, value in event.updated_settings.items():
+            for key, value in settings_change.updated_settings.items():
                 self.setting_changed.emit(key, value)
         except Exception as e:
             self.logger.error(f"Error handling settings changed: {e}", exc_info=True)
 
-    async def load_settings_async(self) -> Dict[str, Any]:
+    def load_settings_async(self) -> Dict[str, Any]:
         """Load all settings asynchronously and emit them to the view.
 
         Returns:
             Dict of current effective settings, or empty dict on failure.
         """
         try:
-            settings = await self.settings_service.get_effective_settings()
+            settings = self.settings_service.get_effective_settings()
             self._cached_settings = settings
             self.settings_loaded.emit(settings)
             return settings
@@ -87,8 +88,8 @@ class QtSettingsController(QtBaseController):
             return {}
 
     def load_settings(self) -> None:
-        """Schedule an async settings load."""
-        asyncio.ensure_future(self.load_settings_async())
+        """Load settings."""
+        self.load_settings_async()
 
     async def update_setting_async(self, key: str, value: Any) -> Tuple[bool, str]:
         """Update a single setting asynchronously.
@@ -227,7 +228,7 @@ class QtSettingsController(QtBaseController):
         try:
             success, message = await asyncio.to_thread(self.settings_service.reset_to_defaults)
             if success:
-                await self.load_settings_async()
+                self.load_settings_async()
             else:
                 self.operation_error.emit(message)
             return success, message
@@ -254,7 +255,7 @@ class QtSettingsController(QtBaseController):
                 success = await self.settings_service.reset_setting(setting_key)
                 if not success:
                     self.logger.warning(f"Failed to reset setting: {setting_key}")
-            await self.load_settings_async()
+            self.load_settings_async()
             return True, "Section reset successfully"
         except Exception as e:
             self.logger.error(f"Error resetting section settings: {e}", exc_info=True)

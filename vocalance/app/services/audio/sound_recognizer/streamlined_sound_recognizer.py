@@ -179,7 +179,7 @@ class SoundRecognizer:
                 logger.error("TensorFlow not available")
                 return False
 
-            if not await self._initialize_yamnet_model():
+            if not self._initialize_yamnet_model():
                 return False
 
             await self._load_model_data_async()
@@ -194,10 +194,10 @@ class SoundRecognizer:
             logger.error(f"Failed to initialize recognizer: {e}", exc_info=True)
             return False
 
-    async def warm_start_esc50_samples(self) -> None:
+    def warm_start_esc50_samples(self) -> None:
         try:
             logger.info("Warm-starting ESC-50 sample cache...")
-            await self._copy_esc50_samples()
+            self._copy_esc50_samples()
             logger.info("ESC-50 warm-start completed")
         except Exception as e:
             logger.error(f"Failed to warm-start ESC-50 samples (non-critical): {e}")
@@ -287,12 +287,12 @@ class SoundRecognizer:
             logger.error(f"Failed to save model data: {e}", exc_info=True)
             return False
 
-    async def _initialize_yamnet_model(self) -> bool:
+    def _initialize_yamnet_model(self) -> bool:
         try:
             assets_yamnet_path = self.asset_path_config.yamnet_model_path
             app_yamnet_path = os.path.join(self.model_path, "yamnet")
 
-            if await self._copy_yamnet_from_assets(assets_path=assets_yamnet_path, app_path=app_yamnet_path):
+            if self._copy_yamnet_from_assets(assets_path=assets_yamnet_path, app_path=app_yamnet_path):
                 self.yamnet_model = tf.saved_model.load(app_yamnet_path)
                 logger.info("YAMNet model copied from assets and loaded successfully")
                 return True
@@ -305,7 +305,7 @@ class SoundRecognizer:
             logger.error(f"Failed to initialize YAMNet model: {e}")
             return False
 
-    async def _copy_yamnet_from_assets(self, assets_path: str, app_path: str) -> bool:
+    def _copy_yamnet_from_assets(self, assets_path: str, app_path: str) -> bool:
         try:
             if not os.path.exists(assets_path):
                 logger.info(f"YAMNet model not found in assets at {assets_path}")
@@ -356,7 +356,7 @@ class SoundRecognizer:
             logger.error(f"Error validating YAMNet model: {e}")
             return False
 
-    async def _copy_esc50_samples(self) -> None:
+    def _copy_esc50_samples(self) -> None:
         try:
             assets_esc50_path = self.asset_path_config.esc50_samples_path
 
@@ -378,13 +378,13 @@ class SoundRecognizer:
                 return
 
             logger.info(f"Copying ESC-50 samples for categories: {needed_categories}")
-            copied_count = await self._copy_categories_from_assets(assets_path=assets_esc50_path, categories=needed_categories)
+            copied_count = self._copy_categories_from_assets(assets_path=assets_esc50_path, categories=needed_categories)
             logger.info(f"Successfully copied {copied_count} ESC-50 samples from assets")
 
         except Exception as e:
             logger.debug(f"Failed to copy ESC-50 samples (non-critical): {e}")
 
-    async def _copy_categories_from_assets(self, assets_path: str, categories: list) -> int:
+    def _copy_categories_from_assets(self, assets_path: str, categories: list) -> int:
         if not os.path.exists(assets_path):
             raise ValueError(f"ESC-50 assets not found at {assets_path}")
 

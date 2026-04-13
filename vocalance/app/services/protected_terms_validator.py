@@ -38,12 +38,12 @@ class ProtectedTermsValidator:
     def setup_invalidation_subscriptions(self, event_bus: EventBus) -> None:
         """Invalidate cache when command or sound mappings change (marks invalidate via MarkService)."""
 
-        def _on_mappings_updated(event: CommandMappingsUpdatedEvent) -> None:
-            if event.success:
+        def _on_mappings_updated(mappings_update: CommandMappingsUpdatedEvent) -> None:
+            if mappings_update.success:
                 self.invalidate_cache()
 
-        def _on_sound_mapping_updated(event: SoundToCommandMappingUpdatedEvent) -> None:
-            if event.success:
+        def _on_sound_mapping_updated(sound_mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
+            if sound_mapping_update.success:
                 self.invalidate_cache()
 
         event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=_on_mappings_updated)

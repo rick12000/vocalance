@@ -92,16 +92,16 @@ class SoundService:
             logger.error(f"Error initializing SoundService: {e}", exc_info=True)
             return False
 
-    async def _handle_audio_chunk(self, event_data: ProcessAudioChunkForSoundRecognitionEvent) -> None:
+    def _handle_audio_chunk(self, audio_chunk: ProcessAudioChunkForSoundRecognitionEvent) -> None:
         if not self.is_initialized:
             return
 
-        asyncio.create_task(self._process_audio_chunk(event_data))
+        asyncio.create_task(self._process_audio_chunk(audio_chunk))
 
-    async def _process_audio_chunk(self, event_data: ProcessAudioChunkForSoundRecognitionEvent) -> None:
+    async def _process_audio_chunk(self, audio_chunk: ProcessAudioChunkForSoundRecognitionEvent) -> None:
         try:
-            audio_float32 = self._preprocess_audio_chunk(audio_bytes=event_data.audio_chunk)
-            sample_rate = event_data.sample_rate
+            audio_float32 = self._preprocess_audio_chunk(audio_bytes=audio_chunk.audio_chunk)
+            sample_rate = audio_chunk.sample_rate
 
             with self._training_lock:
                 training_active = self._training_active
@@ -143,7 +143,7 @@ class SoundService:
         audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
         return audio_int16.astype(np.float32) / 32768.0
 
-    async def start_training(self, sound_label: str) -> bool:
+    def start_training(self, sound_label: str) -> bool:
         """Start training mode for a specific sound."""
         if not self.is_initialized:
             logger.error("Service not initialized")
@@ -302,30 +302,32 @@ class SoundService:
         with self._training_lock:
             return self._current_training_label
 
-    async def _handle_training_request(self, event_data: SoundTrainingRequestEvent) -> None:
+    async def _handle_training_request(self, training_request: SoundTrainingRequestEvent) -> None:
         try:
-            logger.info(f"Starting training for sound: {event_data.sound_label}")
+            logger.info(f"Starting training for sound: {training_request.sound_label}")
 
             await self.event_bus.publish(
                 SoundTrainingInitiatedEvent(
-                    sound_name=event_data.sound_label,
-                    total_samples=event_data.num_samples,
+                    sound_name=training_request.sound_label,
+                    total_samples=training_request.num_samples,
                 )
             )
 
             with self._training_lock:
                 self._training_active = True
-                self._current_training_label = event_data.sound_label
+                self._current_training_label = training_request.sound_label
                 self._training_samples = []
-                self._target_samples = event_data.num_samples
+                self._target_samples = training_request.num_samples
 
-            logger.info(f"Training initiated for '{event_data.sound_label}' - collecting {event_data.num_samples} samples")
+            logger.info(
+                f"Training initiated for '{training_request.sound_label}' - collecting {training_request.num_samples} samples"
+            )
 
         except Exception as e:
             logger.error(f"Error handling training request: {e}", exc_info=True)
-            await self.event_bus.publish(SoundTrainingFailedEvent(sound_name=event_data.sound_label, reason=str(e)))
+            await self.event_bus.publish(SoundTrainingFailedEvent(sound_name=training_request.sound_label, reason=str(e)))
 
-    async def _handle_sound_list_request(self, event_data: RequestSoundListEvent) -> None:
+    async def _handle_sound_list_request(self, _list_request: RequestSoundListEvent) -> None:
         """Handle request for sound list."""
         try:
             sounds = list(self.recognizer.get_stats().get("trained_sounds", {}).keys())
@@ -334,7 +336,7 @@ class SoundService:
         except Exception as e:
             logger.error(f"Error handling sound list request: {e}", exc_info=True)
 
-    async def _handle_mappings_request(self, event_data: RequestSoundMappingsEvent) -> None:
+    async def _handle_mappings_request(self, _mappings_request: RequestSoundMappingsEvent) -> None:
         """Handle request for sound mappings."""
         try:
             stats = self.recognizer.get_stats()
@@ -344,17 +346,17 @@ class SoundService:
         except Exception as e:
             logger.error(f"Error handling mappings request: {e}", exc_info=True)
 
-    async def _handle_delete_sound(self, event_data: DeleteSoundCommand) -> None:
+    async def _handle_delete_sound(self, delete_sound: DeleteSoundCommand) -> None:
         """Handle delete sound command."""
         try:
-            success = await self.recognizer.delete_sound(sound_label=event_data.label)
-            await self.event_bus.publish(SoundDeletedEvent(label=event_data.label, success=success))
-            logger.info(f"Delete sound '{event_data.label}' - success: {success}")
+            success = await self.recognizer.delete_sound(sound_label=delete_sound.label)
+            await self.event_bus.publish(SoundDeletedEvent(label=delete_sound.label, success=success))
+            logger.info(f"Delete sound '{delete_sound.label}' - success: {success}")
         except Exception as e:
             logger.error(f"Error deleting sound: {e}", exc_info=True)
-            await self.event_bus.publish(SoundDeletedEvent(label=event_data.label, success=False))
+            await self.event_bus.publish(SoundDeletedEvent(label=delete_sound.label, success=False))
 
-    async def _handle_reset_all_sounds(self, event_data: ResetAllSoundsCommand) -> None:
+    async def _handle_reset_all_sounds(self, _reset_sounds: ResetAllSoundsCommand) -> None:
         """Handle reset all sounds command."""
         try:
             success = await self.recognizer.reset_all_sounds()
@@ -364,34 +366,32 @@ class SoundService:
             logger.error(f"Error resetting sounds: {e}", exc_info=True)
             await self.event_bus.publish(AllSoundsResetEvent(success=False))
 
-    async def _handle_map_sound_command(self, event_data: MapSoundToCommandPhraseCommand) -> None:
+    async def _handle_map_sound_command(self, map_sound: MapSoundToCommandPhraseCommand) -> None:
         """Handle map sound to command phrase."""
         try:
             success = await self.recognizer.set_mapping(
-                sound_label=event_data.sound_label,
-                command=event_data.command_phrase,
+                sound_label=map_sound.sound_label,
+                command=map_sound.command_phrase,
             )
             await self.event_bus.publish(
                 SoundToCommandMappingUpdatedEvent(
-                    sound_label=event_data.sound_label,
-                    command_phrase=event_data.command_phrase,
+                    sound_label=map_sound.sound_label,
+                    command_phrase=map_sound.command_phrase,
                     success=success,
                 )
             )
             if success:
-                logger.info(
-                    f"Mapped sound '{event_data.sound_label}' to command '{event_data.command_phrase}' and saved to storage"
-                )
+                logger.info(f"Mapped sound '{map_sound.sound_label}' to command '{map_sound.command_phrase}' and saved to storage")
             else:
                 logger.warning(
-                    f"Mapped sound '{event_data.sound_label}' to command '{event_data.command_phrase}' but failed to save to storage"
+                    f"Mapped sound '{map_sound.sound_label}' to command '{map_sound.command_phrase}' but failed to save to storage"
                 )
         except Exception as e:
             logger.error(f"Error mapping sound to command: {e}", exc_info=True)
             await self.event_bus.publish(
                 SoundToCommandMappingUpdatedEvent(
-                    sound_label=event_data.sound_label,
-                    command_phrase=event_data.command_phrase,
+                    sound_label=map_sound.sound_label,
+                    command_phrase=map_sound.command_phrase,
                     success=False,
                 )
             )

@@ -22,7 +22,7 @@ _PROGRESS_INTERVAL_BYTES = 50 * 1024 * 1024
 class LLMModelDownloader:
     """Hugging Face GGUF downloads: hub client (retries) or HTTP stream (cancellable)."""
 
-    def __init__(self, config: GlobalAppConfig):
+    def __init__(self, config: GlobalAppConfig) -> None:
         self._config = config
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="LLMDownloader")
         self._download_lock = threading.RLock()

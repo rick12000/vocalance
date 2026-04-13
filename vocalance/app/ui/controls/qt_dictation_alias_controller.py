@@ -6,6 +6,7 @@ from PySide6.QtCore import Signal
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import DictationAliasListUpdatedEvent
+from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
@@ -25,8 +26,8 @@ class QtDictationAliasController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        alias_service,
-    ):
+        alias_service: DictationAliasService,
+    ) -> None:
         """Initialize dictation alias controller.
 
         Args:
@@ -51,9 +52,9 @@ class QtDictationAliasController(QtBaseController):
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
-    async def _on_aliases_updated(self, event: DictationAliasListUpdatedEvent) -> None:
+    def _on_aliases_updated(self, list_update: DictationAliasListUpdatedEvent) -> None:
         """Handle alias list updated event."""
-        self._aliases = event.aliases
+        self._aliases = list_update.aliases
         self.aliases_loaded.emit(self._aliases)
 
     def refresh_aliases(self) -> None:

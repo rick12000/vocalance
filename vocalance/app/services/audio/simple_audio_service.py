@@ -90,8 +90,8 @@ class AudioService:
 
         logger.info("Audio service event subscriptions configured (2 listeners)")
 
-    async def _handle_audio_mode_change_request(self, event: AudioModeChangeRequestEvent) -> None:
-        logger.info("Audio mode change request: mode=%s reason=%s", event.mode, event.reason)
+    def _handle_audio_mode_change_request(self, mode_change_request: AudioModeChangeRequestEvent) -> None:
+        logger.info("Audio mode change request: mode=%s reason=%s", mode_change_request.mode, mode_change_request.reason)
 
     def start_processing(self) -> None:
         try:
@@ -111,7 +111,7 @@ class AudioService:
         except Exception as e:
             logger.error(f"Error stopping audio processing: {e}", exc_info=True)
 
-    async def shutdown(self) -> None:
+    def shutdown(self) -> None:
         try:
             logger.info("Shutting down audio service")
             self.stop_processing()

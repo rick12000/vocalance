@@ -35,7 +35,7 @@ class WindowIconManager:
     - Works correctly with Windows taskbar on all DPI levels
     """
 
-    def __init__(self, icon_path: Optional[Path] = None):
+    def __init__(self, icon_path: Optional[Path] = None) -> None:
         """Initialize window icon manager.
 
         Args:

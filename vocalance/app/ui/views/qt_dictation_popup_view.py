@@ -4,7 +4,7 @@ from collections import deque
 from typing import Callable, Optional, cast
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPaintEvent, QPalette, QTextCharFormat
+from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QPainter, QPaintEvent, QPalette, QTextCharFormat
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
@@ -40,7 +40,7 @@ class QtDictationPopupView(QMainWindow):
     WINDOW_MARGIN_Y = 80
     DUAL_PANE_MODES: frozenset[str] = frozenset({"smart", "amend"})
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize dictation popup view."""
         super().__init__()
 
@@ -1011,9 +1011,9 @@ class QtDictationPopupView(QMainWindow):
         self._target_geometry = QRect(x, y, width, height)
         self.logger.debug(f"Target position calculated: ({x}, {y}) with size ({width}, {height}), type={position_type}")
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, key_event: QKeyEvent) -> None:
         """Handle key press events - allow Escape to close."""
-        if event.key() == Qt.Key.Key_Escape:
+        if key_event.key() == Qt.Key.Key_Escape:
             self.hide_popup()
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(key_event)

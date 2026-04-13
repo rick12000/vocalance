@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Callable, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPaintEvent, QPalette
 from PySide6.QtWidgets import QCheckBox, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -18,8 +18,8 @@ class Checkbox(QCheckBox):
         text: str = "",
         parent: Optional[QWidget] = None,
         checked: bool = False,
-        command=None,
-    ):
+        command: Optional[Callable[[int], None]] = None,
+    ) -> None:
         super().__init__(text, parent)
 
         # Set font
@@ -50,23 +50,23 @@ class Checkbox(QCheckBox):
         if command:
             self.stateChanged.connect(command)
 
-    def enterEvent(self, event):
+    def enterEvent(self, enter_event: QEvent) -> None:
         """Handle mouse enter."""
         self._is_hovered = True
         self.update()
-        super().enterEvent(event)
+        super().enterEvent(enter_event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, leave_event: QEvent) -> None:
         """Handle mouse leave."""
         self._is_hovered = False
         self.update()
-        super().leaveEvent(event)
+        super().leaveEvent(leave_event)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for checkbox indicator."""
         try:
             # Let QCheckBox handle text
-            super().paintEvent(event)
+            super().paintEvent(paint_event)
 
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -122,5 +122,5 @@ class Checkbox(QCheckBox):
                 painter.drawLine(check_x + 3, check_y + 3, check_x + 10, check_y - 4)
         except Exception:
             # Fallback: just use default painting
-            super().paintEvent(event)
+            super().paintEvent(paint_event)
             return

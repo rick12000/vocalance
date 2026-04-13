@@ -1,7 +1,8 @@
 import math
+from typing import Optional
 
 from PySide6.QtCore import QMetaObject, QRectF, Qt, QTimer, Slot
-from PySide6.QtGui import QBrush, QColor, QPainter
+from PySide6.QtGui import QBrush, QColor, QHideEvent, QPainter, QPaintEvent, QShowEvent
 from PySide6.QtWidgets import QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -18,7 +19,7 @@ class SpinnerWidget(QWidget):
     - Smooth wave animation across dots
     """
 
-    def __init__(self, parent: QWidget = None, size: int = 24):
+    def __init__(self, parent: Optional[QWidget] = None, size: int = 24) -> None:
         """Initialize spinner widget.
 
         Args:
@@ -79,7 +80,7 @@ class SpinnerWidget(QWidget):
             self._timer.stop()
             self.setVisible(False)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Draw the bouncing dots with gradient colors."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -129,16 +130,16 @@ class SpinnerWidget(QWidget):
             rect = QRectF(x - (scaled_size - self._dot_size) / 2, y - scaled_size / 2, scaled_size, scaled_size)
             painter.drawEllipse(rect)
 
-    def showEvent(self, event) -> None:
+    def showEvent(self, show_event: QShowEvent) -> None:
         """Ensure timer is running when widget becomes visible."""
-        super().showEvent(event)
+        super().showEvent(show_event)
         # showEvent is always called on main Qt thread
         if self._is_animating and not self._timer.isActive():
             self._timer.start()
 
-    def hideEvent(self, event) -> None:
+    def hideEvent(self, hide_event: QHideEvent) -> None:
         """Pause animation when widget becomes hidden."""
-        super().hideEvent(event)
+        super().hideEvent(hide_event)
         # hideEvent is always called on main Qt thread
         if self._timer.isActive():
             self._timer.stop()

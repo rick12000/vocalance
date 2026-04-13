@@ -1,7 +1,7 @@
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPaintEvent
 from PySide6.QtWidgets import QLabel
 
 
@@ -29,7 +29,7 @@ class GradientTextMixin:
     Thread-safe: All operations use Qt's main thread.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the mixin.
 
         Note: This must be called before QLabel.__init__ in MRO chain.
@@ -86,7 +86,7 @@ class GradientTextMixin:
         """
         return self._gradient_enabled
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Override paintEvent to render text with gradient.
 
         This method intercepts the normal QLabel paint event and renders
@@ -94,11 +94,11 @@ class GradientTextMixin:
         If gradient is disabled, falls back to standard QLabel painting.
 
         Args:
-            event: QPaintEvent from Qt event system.
+            paint_event: QPaintEvent from Qt event system.
         """
         if not self._gradient_enabled or not self._gradient_colors:
             # Fall back to default QLabel painting
-            super().paintEvent(event)
+            super().paintEvent(paint_event)
             return
 
         # Custom gradient painting

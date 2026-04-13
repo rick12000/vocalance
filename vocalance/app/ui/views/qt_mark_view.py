@@ -2,11 +2,12 @@ import logging
 from typing import Dict, List, Tuple
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.mark_events import MarkData
+from vocalance.app.services.mark_service import MarkService
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -24,7 +25,7 @@ class QtMarkView(QWidget):
     show_requested = Signal()
     hide_requested = Signal()
 
-    def __init__(self, mark_service, config: GlobalAppConfig):
+    def __init__(self, mark_service: MarkService, config: GlobalAppConfig) -> None:
         """Initialize mark view.
 
         Args:
@@ -264,7 +265,7 @@ class QtMarkView(QWidget):
         if self._is_active:
             self.update()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Paint marks on screen with semi-transparent background and fully opaque marks."""
         self.logger.info(f"paintEvent called: active={self._is_active}, marks_count={len(self.marks)}")
         painter = QPainter(self)
@@ -325,14 +326,14 @@ class QtMarkView(QWidget):
 
         self.logger.info(f"Completed painting {len(self.marks)} marks")
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, key_event: QKeyEvent) -> None:
         """Handle Escape key to close overlay."""
-        if event.key() == Qt.Key.Key_Escape:
+        if key_event.key() == Qt.Key.Key_Escape:
             # Schedule hide on next event loop iteration to avoid blocking
             QTimer.singleShot(0, self._do_hide_direct)
-            event.accept()
+            key_event.accept()
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(key_event)
 
     def show(self) -> None:
         """Show the overlay - calls signal for thread safety."""

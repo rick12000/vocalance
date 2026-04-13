@@ -23,7 +23,6 @@ async def test_pause_state_manager_initial_state():
 async def test_pause_state_manager_pause():
     """Test pausing the application."""
     event_bus = EventBus()
-    await event_bus.start_worker()
 
     manager = PauseStateManager(event_bus=event_bus)
     manager.setup_subscriptions()
@@ -39,14 +38,11 @@ async def test_pause_state_manager_pause():
     assert await manager.is_paused() is True
     assert manager.is_paused_sync() is True
 
-    await event_bus.stop_worker()
-
 
 @pytest.mark.asyncio
 async def test_pause_state_manager_resume():
     """Test resuming the application."""
     event_bus = EventBus()
-    await event_bus.start_worker()
 
     manager = PauseStateManager(event_bus=event_bus)
     manager.setup_subscriptions()
@@ -64,14 +60,13 @@ async def test_pause_state_manager_resume():
     assert await manager.is_paused() is False
     assert manager.is_paused_sync() is False
 
-    await event_bus.stop_worker()
+    assert manager.is_paused_sync() is False
 
 
 @pytest.mark.asyncio
 async def test_pause_resume_toggle():
     """Test multiple pause/resume cycles."""
     event_bus = EventBus()
-    await event_bus.start_worker()
 
     manager = PauseStateManager(event_bus=event_bus)
     manager.setup_subscriptions()
@@ -94,4 +89,4 @@ async def test_pause_resume_toggle():
     await asyncio.sleep(0.1)
     assert await manager.is_paused() is False
 
-    await event_bus.stop_worker()
+    assert manager.is_paused_sync() is False

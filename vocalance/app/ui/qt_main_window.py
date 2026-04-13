@@ -3,11 +3,15 @@ import threading
 from typing import Optional
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPalette
+from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QIcon, QPalette
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
+from vocalance.app.services.audio.simple_audio_service import AudioService
+from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
+from vocalance.app.services.storage.settings_service import SettingsService
+from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.ui.components.complex_components import HeaderIconButton, SidebarButton
 from vocalance.app.ui.components.labels import BodyLabel, LargeLabel, TitleLabel
 from vocalance.app.ui.components.layouts import BaseContainer, TransparentBox
@@ -30,10 +34,10 @@ class VocalanceMainWindow(QMainWindow):
         event_bus: EventBus,
         logger: logging.Logger,
         config: GlobalAppConfig,
-        storage_service=None,
+        storage_service: Optional[StorageService] = None,
         icon_manager: Optional[WindowIconManager] = None,
-        shutdown_coordinator=None,
-    ):
+        shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+    ) -> None:
         super().__init__()
 
         self.event_bus = event_bus
@@ -507,13 +511,13 @@ class VocalanceMainWindow(QMainWindow):
         layout.addWidget(label)
         return placeholder
 
-    def set_settings_service(self, settings_service) -> None:
+    def set_settings_service(self, settings_service: SettingsService) -> None:
         self._settings_service = settings_service
 
-    def set_audio_service(self, audio_service) -> None:
+    def set_audio_service(self, audio_service: AudioService) -> None:
         self._audio_service = audio_service
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, close_event: QCloseEvent) -> None:
         """Handle window close event.
 
         Cleans up controllers synchronously then signals the shutdown coordinator.
@@ -521,7 +525,7 @@ class VocalanceMainWindow(QMainWindow):
         """
         self.logger.info("Main window close event triggered")
         self.cleanup_controllers()
-        event.accept()
+        close_event.accept()
 
         if self._shutdown_coordinator:
             self._shutdown_coordinator.request_shutdown(reason="User closed main window", source="main_window_close_event")

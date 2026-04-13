@@ -286,7 +286,7 @@ def _setup_clipboard_mocks(mock_paste, mock_copy, expected_text):
 @pytest.mark.asyncio
 async def test_initialize_succeeds(text_input_service):
     """Test that initialization succeeds."""
-    result = await text_input_service.initialize()
+    result = text_input_service.initialize()
     assert result is True
 
 
@@ -491,5 +491,5 @@ async def test_backspace_default_count(text_input_service):
 @pytest.mark.asyncio
 async def test_shutdown(text_input_service):
     """Test service shutdown."""
-    await text_input_service.shutdown()
+    text_input_service.shutdown()
     # Should complete without error

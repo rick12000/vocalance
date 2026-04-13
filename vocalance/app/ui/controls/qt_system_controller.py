@@ -1,8 +1,10 @@
 import logging
+from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QMessageBox
 
+from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDeviceErrorEvent
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
@@ -19,7 +21,7 @@ class QtSystemController(QtBaseController):
     # Signals for system events
     audio_device_error = Signal(str)
 
-    def __init__(self, event_bus, main_window):
+    def __init__(self, event_bus: EventBus, main_window: Any) -> None:
         """Initialize system controller.
 
         Args:
@@ -46,17 +48,17 @@ class QtSystemController(QtBaseController):
         """Connect Qt signals to slots."""
         self.audio_device_error.connect(self._show_audio_device_error_dialog)
 
-    async def _handle_audio_device_error(self, event: AudioDeviceErrorEvent) -> None:
+    def _handle_audio_device_error(self, device_error: AudioDeviceErrorEvent) -> None:
         """Handle audio device error event from service layer.
 
         Args:
-            event: Audio device error event.
+            device_error: Audio device error event.
         """
         try:
-            self.logger.warning(f"Audio device error: {event.error_message}")
+            self.logger.warning(f"Audio device error: {device_error.error_message}")
 
             # Emit Qt signal (thread-safe - will invoke on main thread)
-            self.audio_device_error.emit(event.error_message)
+            self.audio_device_error.emit(device_error.error_message)
 
         except Exception as e:
             self.logger.error(f"Error handling audio device error: {e}", exc_info=True)

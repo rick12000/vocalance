@@ -179,7 +179,7 @@ async def test_set_current_prompt(agentic_service, mock_storage):
     prompt_id = await agentic_service.add_prompt("Test prompt", "Test")
     mock_storage.write.return_value = True
 
-    result = await agentic_service.set_current_prompt(prompt_id)
+    result = agentic_service.set_current_prompt(prompt_id)
 
     assert result is True
     assert agentic_service.current_prompt_id == prompt_id
@@ -188,7 +188,7 @@ async def test_set_current_prompt(agentic_service, mock_storage):
 @pytest.mark.asyncio
 async def test_set_current_prompt_nonexistent_fails(agentic_service):
     """Test that setting nonexistent prompt fails."""
-    result = await agentic_service.set_current_prompt("nonexistent_id")
+    result = agentic_service.set_current_prompt("nonexistent_id")
     assert result is False
 
 

@@ -17,6 +17,7 @@ from vocalance.app.events.command_management_events import (
     ResetCommandsToDefaultsEvent,
     UpdateCommandPhraseEvent,
 )
+from vocalance.app.services.commands.management import CommandManagementService
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
@@ -33,9 +34,9 @@ class QtCommandsController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        command_management_service,
+        command_management_service: CommandManagementService,
         config: GlobalAppConfig,
-    ):
+    ) -> None:
         """Initialize commands controller.
 
         Args:
@@ -63,32 +64,31 @@ class QtCommandsController(QtBaseController):
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
-    def on_view_ready(self):
+    def on_view_ready(self) -> None:
         """Request initial command mappings when view is ready."""
         self._request_command_mappings()
 
-    def _request_command_mappings(self):
+    def _request_command_mappings(self) -> None:
         """Publish a request for current command mappings."""
         asyncio.ensure_future(self.event_bus.publish(RequestCommandMappingsEvent()))
 
-    async def _on_command_mappings_updated(self, event):
+    def _on_command_mappings_updated(self, mappings_update: CommandMappingsUpdatedEvent) -> None:
         """Handle command mappings updated event."""
-        if hasattr(event, "updated_mappings") and event.updated_mappings is not None:
-            self.available_commands = event.updated_mappings
+        if mappings_update.updated_mappings is not None:
+            self.available_commands = mappings_update.updated_mappings
             self.commands_loaded.emit(self.available_commands)
         else:
             self._request_command_mappings()
 
-    async def _on_command_mappings_response(self, event):
+    def _on_command_mappings_response(self, response: CommandMappingsResponseEvent) -> None:
         """Handle command mappings response event."""
-        if hasattr(event, "mappings"):
-            self.available_commands = event.mappings
-            self.commands_loaded.emit(self.available_commands)
+        self.available_commands = response.mappings
+        self.commands_loaded.emit(self.available_commands)
 
-    async def _on_command_validation_error(self, event):
+    def _on_command_validation_error(self, validation_error: CommandValidationErrorEvent) -> None:
         """Handle command validation error event."""
-        error_message = event.error_message
-        command_phrase = getattr(event, "command_phrase", "Unknown")
+        error_message = validation_error.error_message
+        command_phrase = validation_error.command_phrase or "Unknown"
         self.logger.error(f"Command validation error for phrase '{command_phrase}': {error_message}")
         self.validation_error.emit(error_message, command_phrase)
         self.operation_error.emit(error_message)

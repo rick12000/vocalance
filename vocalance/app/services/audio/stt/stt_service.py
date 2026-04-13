@@ -118,17 +118,17 @@ class SpeechToTextService:
         logger.info("STT service event subscriptions configured")
 
     async def _publish_recognition_result(self, text: str, processing_time: float, engine: str) -> None:
-        event = CommandTextRecognizedEvent(
+        recognized = CommandTextRecognizedEvent(
             text=text, processing_time_ms=processing_time, engine=engine, mode=STTMode.COMMAND.value
         )
-        await self.event_bus.publish(event)
-        logger.info("Published %s: '%s' from %s", type(event).__name__, text, engine)
+        await self.event_bus.publish(recognized)
+        logger.info("Published %s: '%s' from %s", type(recognized).__name__, text, engine)
 
-    async def _handle_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent) -> None:
+    def _handle_command_audio_segment(self, audio_segment: CommandAudioSegmentReadyEvent) -> None:
         """Spawn async processing so the bus handler returns quickly."""
-        asyncio.create_task(self._process_command_audio_segment(event_data))
+        asyncio.create_task(self._process_command_audio_segment(audio_segment))
 
-    async def _process_command_audio_segment(self, event_data: CommandAudioSegmentReadyEvent) -> None:
+    async def _process_command_audio_segment(self, audio_segment: CommandAudioSegmentReadyEvent) -> None:
         """Run Vosk on the segment: full commands when idle, stop-word-only while dictation is active."""
         if not self._engines_initialized:
             logger.error("STT engines not initialized")
@@ -141,7 +141,7 @@ class SpeechToTextService:
 
         if is_dictation_active:
             logger.debug("In dictation mode - checking for stop trigger only")
-            vosk_result = await self.vosk_engine.recognize(event_data.audio_bytes, event_data.sample_rate)
+            vosk_result = await self.vosk_engine.recognize(audio_segment.audio_bytes, audio_segment.sample_rate)
             logger.debug("Vosk result during dictation: '%s'", vosk_result)
 
             if self._is_stop_trigger(vosk_result):
@@ -162,7 +162,7 @@ class SpeechToTextService:
         logger.debug("Processing command audio in normal mode")
 
         processing_start = time.time()
-        recognized_text = await self.vosk_engine.recognize(event_data.audio_bytes, event_data.sample_rate)
+        recognized_text = await self.vosk_engine.recognize(audio_segment.audio_bytes, audio_segment.sample_rate)
         processing_time = (time.time() - processing_start) * 1000
 
         if recognized_text and recognized_text.strip():
@@ -189,15 +189,15 @@ class SpeechToTextService:
             current_mode = self._current_dictation_mode
 
         if current_mode and current_mode != "inactive":
-            event = DictationStopWordDetectedEvent(mode=current_mode)
-            await self.event_bus.publish(event)
+            stop_word_event = DictationStopWordDetectedEvent(mode=current_mode)
+            await self.event_bus.publish(stop_word_event)
             logger.info("Published DictationStopWordDetectedEvent for mode: %s", current_mode)
 
-    async def _handle_dictation_mode_change(self, event_data: DictationModeDisableOthersEvent) -> None:
+    async def _handle_dictation_mode_change(self, dictation_mode_change: DictationModeDisableOthersEvent) -> None:
         async with self._state_lock:
             old_state = self._dictation_active
-            self._dictation_active = event_data.dictation_mode_active
-            self._current_dictation_mode = event_data.dictation_mode
+            self._dictation_active = dictation_mode_change.dictation_mode_active
+            self._current_dictation_mode = dictation_mode_change.dictation_mode
             logger.info(
                 "STT service dictation mode changed: %s -> %s (mode: %s)",
                 old_state,

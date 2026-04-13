@@ -50,7 +50,8 @@ def test_dictation_segment_input_options(
     expected_add_trailing: bool,
     expected_skip_join: bool,
 ) -> None:
-    add, skip = DictationCoordinator._dictation_segment_input_options(mode, modifier)
+    modifiers_set = {modifier} if modifier else set()
+    add, skip = DictationCoordinator._dictation_segment_input_options(mode, modifiers_set)
     assert add is expected_add_trailing
     assert skip is expected_skip_join
 

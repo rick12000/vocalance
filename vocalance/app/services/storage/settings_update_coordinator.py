@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class SettingsUpdateCoordinator:
     """Apply ``SettingsChangedEvent`` to ``GlobalAppConfig`` and notify registered services."""
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         self._event_bus = event_bus
         self._config = config
         self._service_registry: Dict[str, Any] = {}
@@ -29,10 +29,10 @@ class SettingsUpdateCoordinator:
         self._service_registry[service_name] = service_instance
         logger.debug(f"Registered service for settings updates: {service_name}")
 
-    async def _handle_settings_updated(self, event: SettingsChangedEvent) -> None:
+    async def _handle_settings_updated(self, settings_change: SettingsChangedEvent) -> None:
         """Handle settings update event and coordinate updates across services"""
         try:
-            updated_settings = event.updated_settings
+            updated_settings = settings_change.updated_settings
 
             # Update the GlobalAppConfig first (single source of truth)
             self._update_config(updated_settings=updated_settings)

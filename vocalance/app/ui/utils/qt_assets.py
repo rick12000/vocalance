@@ -82,7 +82,7 @@ class QtAssetCache:
     Thread-safe for loading from multiple threads.
     """
 
-    def __init__(self, asset_paths_config: AssetPathsConfig):
+    def __init__(self, asset_paths_config: AssetPathsConfig) -> None:
         """Initialize Qt asset cache.
 
         Args:

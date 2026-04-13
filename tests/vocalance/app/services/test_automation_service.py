@@ -15,9 +15,7 @@ async def automation_service(event_bus, app_config):
     service = AutomationService(event_bus, app_config)
     service.setup_subscriptions()
 
-    await event_bus.start_worker()
     yield service
-    await event_bus.stop_worker()
 
 
 @pytest.mark.asyncio

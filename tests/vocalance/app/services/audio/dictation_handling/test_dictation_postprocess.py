@@ -112,4 +112,5 @@ def test_apply_dictation_postprocess_base_then_modifier() -> None:
     ],
 )
 def test_apply_dictation_postprocess_partial(raw: str, modifier_id: Optional[DictationModifierId], expected: str) -> None:
-    assert apply_dictation_postprocess_partial(raw, modifier_id) == expected
+    modifiers_set = {modifier_id} if modifier_id else set()
+    assert apply_dictation_postprocess_partial(raw, modifiers_set) == expected

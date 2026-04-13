@@ -35,21 +35,19 @@ def audio_service(event_bus, app_config):
     loop.close()
 
 
-@pytest.mark.asyncio
-async def test_shutdown_cleans_up_resources(audio_service):
+def test_shutdown_cleans_up_resources(audio_service):
     """Test that shutdown properly cleans up all resources."""
-    await audio_service.shutdown()
+    audio_service.shutdown()
 
     assert audio_service._recorder is None
     assert audio_service._command_listener is None
     assert audio_service._sound_listener is None
 
 
-@pytest.mark.asyncio
-async def test_audio_mode_change_handling(audio_service):
+def test_audio_mode_change_handling(audio_service):
     """Test that audio mode change requests are handled without errors."""
     event = AudioModeChangeRequestEvent(mode="dictation", reason="user_command")
-    await audio_service._handle_audio_mode_change_request(event)
+    audio_service._handle_audio_mode_change_request(event)
 
 
 def test_dictation_chunk_callback_registration(audio_service):

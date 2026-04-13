@@ -25,6 +25,8 @@ from vocalance.app.events.sound_events import (
     SoundTrainingProgressEvent,
     SoundTrainingRequestEvent,
 )
+from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
+from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
@@ -45,10 +47,10 @@ class QtSoundController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        sound_service,
-        storage_service,
+        sound_service: SoundService,
+        storage_service: StorageService,
         config: GlobalAppConfig,
-    ):
+    ) -> None:
         """Initialize sound controller.
 
         Args:
@@ -89,70 +91,67 @@ class QtSoundController(QtBaseController):
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
-    def on_view_ready(self):
+    def on_view_ready(self) -> None:
         """Request initial data when the view is ready."""
         self.refresh_sound_mappings()
         self._request_marks_for_cache()
 
-    async def _on_sound_list_updated(self, event):
+    def _on_sound_list_updated(self, list_update: SoundListUpdatedEvent) -> None:
         """Handle sound list updated event."""
-        self.available_sounds = getattr(event, "sounds", [])
+        self.available_sounds = list_update.sounds
         self.sounds_loaded.emit(self.available_sounds)
 
-    async def _on_sound_deleted(self, event):
+    def _on_sound_deleted(self, deletion: SoundDeletedEvent) -> None:
         """Handle sound deleted event."""
-        if getattr(event, "success", False):
+        if deletion.success:
             self.refresh_sound_list()
 
-    async def _on_all_sounds_reset(self, event):
+    def _on_all_sounds_reset(self, reset: AllSoundsResetEvent) -> None:
         """Handle all sounds reset event."""
-        if getattr(event, "success", False):
+        if reset.success:
             self.available_sounds = []
             self.refresh_sound_list()
             self.all_sounds_deleted.emit()
 
-    async def _on_sound_mapping_updated(self, event):
+    def _on_sound_mapping_updated(self, mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
         """Handle sound-to-command mapping update event."""
-        if event.success:
-            self._sound_mappings_cache[event.sound_label] = event.command_phrase
-            self.sound_mapping_updated.emit(event.sound_label, event.command_phrase)
+        if mapping_update.success:
+            self._sound_mappings_cache[mapping_update.sound_label] = mapping_update.command_phrase
+            self.sound_mapping_updated.emit(mapping_update.sound_label, mapping_update.command_phrase)
             self.refresh_sound_list()
 
-    async def _on_sound_mappings_response(self, event):
+    def _on_sound_mappings_response(self, mappings_snapshot: SoundMappingsResponseEvent) -> None:
         """Handle sound mappings response event."""
-        if hasattr(event, "mappings"):
-            self._update_sound_mappings_cache(event.mappings)
-            self.refresh_sound_list()
+        self._update_sound_mappings_cache(mappings_snapshot.mappings)
+        self.refresh_sound_list()
 
-    async def _on_training_initiated(self, event):
+    def _on_training_initiated(self, initiated: SoundTrainingInitiatedEvent) -> None:
         """Handle training initiated event."""
-        self.training_started.emit(getattr(event, "sound_name", "Unknown"), getattr(event, "total_samples", 0))
+        self.training_started.emit(initiated.sound_name, initiated.total_samples)
 
-    async def _on_training_progress(self, event):
+    def _on_training_progress(self, progress: SoundTrainingProgressEvent) -> None:
         """Handle training progress event."""
-        self.training_progress.emit(
-            getattr(event, "label", "Unknown"),
-            getattr(event, "current_sample", 0),
-            getattr(event, "total_samples", 0),
-        )
+        self.training_progress.emit(progress.label, progress.current_sample, progress.total_samples)
 
-    async def _on_training_complete(self, event):
+    def _on_training_complete(self, complete: SoundTrainingCompleteEvent) -> None:
         """Handle training complete event."""
         self.refresh_sound_list()
-        self.training_completed.emit(getattr(event, "sound_name", "Unknown"))
+        self.training_completed.emit(complete.sound_name)
 
-    async def _on_training_failed(self, event):
+    def _on_training_failed(self, failed: SoundTrainingFailedEvent) -> None:
         """Handle training failed event."""
-        self.training_error.emit(getattr(event, "sound_name", "Unknown"), getattr(event, "reason", "Unknown error"))
+        self.training_error.emit(failed.sound_name, failed.reason)
 
-    async def _on_marks_changed(self, event):
+    def _on_marks_changed(self, marks_snapshot: MarksChangedEventData) -> None:
         """Handle marks changed event to update the local marks cache."""
-        if hasattr(event, "marks") and event.marks:
-            if isinstance(event.marks, dict):
-                self._marks_cache = list(event.marks.keys())
+        if marks_snapshot.marks:
+            if isinstance(marks_snapshot.marks, dict):
+                self._marks_cache = list(marks_snapshot.marks.keys())
             else:
                 self._marks_cache = [
-                    m if isinstance(m, str) else (m.name if hasattr(m, "name") else m.get("name", "")) for m in event.marks if m
+                    m if isinstance(m, str) else (m.name if hasattr(m, "name") else m.get("name", ""))
+                    for m in marks_snapshot.marks
+                    if m
                 ]
         else:
             self._marks_cache = []

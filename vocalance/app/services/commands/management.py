@@ -80,8 +80,8 @@ class CommandManagementService:
         commands_data = await self._storage.read(model_type=CommandsData)
         return build_command_projection(commands_data)[1]
 
-    async def _handle_add_custom_command(self, event_data: AddCustomCommandEvent) -> None:
-        command = event_data.command
+    async def _handle_add_custom_command(self, add_command: AddCustomCommandEvent) -> None:
+        command = add_command.command
         phrase = command.command_key.lower().strip()
         err = await self._validate_command_phrase(phrase)
         if err:
@@ -96,9 +96,9 @@ class CommandManagementService:
         else:
             await self._publish_validation_error("Failed to store custom command", phrase)
 
-    async def _handle_update_command_phrase(self, event: UpdateCommandPhraseEvent) -> None:
-        old_phrase = event.old_command_phrase
-        new_phrase = event.new_command_phrase
+    async def _handle_update_command_phrase(self, phrase_update: UpdateCommandPhraseEvent) -> None:
+        old_phrase = phrase_update.old_command_phrase
+        new_phrase = phrase_update.new_command_phrase
         old_norm = old_phrase.lower().strip()
         new_norm = new_phrase.lower().strip()
 
@@ -131,8 +131,8 @@ class CommandManagementService:
         else:
             await self._publish_validation_error("Failed to update command phrase", new_phrase)
 
-    async def _handle_delete_custom_command(self, event: DeleteCustomCommandEvent) -> None:
-        phrase = event.command.command_key.lower().strip()
+    async def _handle_delete_custom_command(self, delete_command: DeleteCustomCommandEvent) -> None:
+        phrase = delete_command.command.command_key.lower().strip()
         commands_data = await self._storage.read(model_type=CommandsData)
         if phrase in commands_data.custom_commands:
             del commands_data.custom_commands[phrase]
@@ -145,11 +145,11 @@ class CommandManagementService:
         else:
             await self._publish_validation_error("Failed to delete custom command")
 
-    async def _handle_request_command_mappings(self, event: RequestCommandMappingsEvent) -> None:
+    async def _handle_request_command_mappings(self, _request: RequestCommandMappingsEvent) -> None:
         mappings = await self.get_command_mappings()
         await self._event_bus.publish(CommandMappingsResponseEvent(mappings=mappings))
 
-    async def _handle_reset_to_defaults(self, event: ResetCommandsToDefaultsEvent) -> None:
+    async def _handle_reset_to_defaults(self, _reset: ResetCommandsToDefaultsEvent) -> None:
         if await self._storage.write(data=CommandsData()):
             await self._publish_mappings_updated(True, "Reset commands to defaults")
         else:

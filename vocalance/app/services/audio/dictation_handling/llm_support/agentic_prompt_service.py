@@ -25,7 +25,7 @@ _DEFAULT_PROMPT = (
 class AgenticPromptService:
     """CRUD + selection for agentic LLM prompts; persisted via ``StorageService`` (``RLock``)."""
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService):
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
         self.event_bus = event_bus
         self.config = config
         self._storage = storage
@@ -112,7 +112,7 @@ class AgenticPromptService:
         logger.info("Edited prompt: %s", name)
         return True
 
-    async def set_current_prompt(self, prompt_id: str) -> bool:
+    def set_current_prompt(self, prompt_id: str) -> bool:
         with self._lock:
             if prompt_id not in self.prompts:
                 return False
@@ -162,16 +162,16 @@ class AgenticPromptService:
     def setup_subscriptions(self) -> None:
         self.event_bus.subscribe(event_type=AgenticPromptActionRequest, handler=self._handle_agentic_prompt_action)
 
-    async def _handle_agentic_prompt_action(self, event_data: AgenticPromptActionRequest) -> None:
-        action = event_data.action
-        if action == "add_prompt" and event_data.name and event_data.text:
-            await self.add_prompt(event_data.text, event_data.name)
-        elif action == "delete_prompt" and event_data.prompt_id:
-            await self.delete_prompt(event_data.prompt_id)
-        elif action == "edit_prompt" and event_data.prompt_id and event_data.name and event_data.text:
-            await self.edit_prompt(event_data.prompt_id, event_data.name, event_data.text)
-        elif action == "set_current_prompt" and event_data.prompt_id:
-            await self.set_current_prompt(event_data.prompt_id)
+    async def _handle_agentic_prompt_action(self, action_request: AgenticPromptActionRequest) -> None:
+        action = action_request.action
+        if action == "add_prompt" and action_request.name and action_request.text:
+            await self.add_prompt(action_request.text, action_request.name)
+        elif action == "delete_prompt" and action_request.prompt_id:
+            await self.delete_prompt(action_request.prompt_id)
+        elif action == "edit_prompt" and action_request.prompt_id and action_request.name and action_request.text:
+            await self.edit_prompt(action_request.prompt_id, action_request.name, action_request.text)
+        elif action == "set_current_prompt" and action_request.prompt_id:
+            self.set_current_prompt(action_request.prompt_id)
         elif action == "get_prompts":
             pass
         else:

@@ -3,6 +3,8 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QObject, Signal
 
+from vocalance.app.event_bus import EventBus
+
 
 class QtBaseController(QObject):
     """Base class for Qt controllers providing shared event bus access, signals, and logging.
@@ -14,7 +16,7 @@ class QtBaseController(QObject):
     status_updated = Signal(str, bool)
     error_occurred = Signal(str)
 
-    def __init__(self, event_bus, logger: logging.Logger):
+    def __init__(self, event_bus: EventBus, logger: logging.Logger) -> None:
         """Initialize the base controller.
 
         Args:

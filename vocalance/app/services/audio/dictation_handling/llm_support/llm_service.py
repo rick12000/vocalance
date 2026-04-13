@@ -50,7 +50,7 @@ class LLMService:
             return spec
         return get_whitelisted_llm_model(DEFAULT_LLM_MODEL_ID)
 
-    async def initialize(self) -> bool:
+    def initialize(self) -> bool:
         return True
 
     def _load_model(self, model_path: str) -> Optional[Llama]:
@@ -299,12 +299,12 @@ class LLMService:
             logger.error(f"Generation error: {e}", exc_info=True)
 
     async def _publish_completed(self, processed_text: str, agentic_prompt: str) -> None:
-        event = LLMProcessingCompletedEvent(processed_text=processed_text, agentic_prompt=agentic_prompt)
-        await self.event_bus.publish(event)
+        completion = LLMProcessingCompletedEvent(processed_text=processed_text, agentic_prompt=agentic_prompt)
+        await self.event_bus.publish(completion)
 
     async def _publish_failed(self, error_message: str, original_text: str) -> None:
-        event = LLMProcessingFailedEvent(error_message=error_message, original_text=original_text)
-        await self.event_bus.publish(event)
+        failure = LLMProcessingFailedEvent(error_message=error_message, original_text=original_text)
+        await self.event_bus.publish(failure)
 
     def is_ready(self) -> bool:
         return self._model_loaded and self.llm is not None

@@ -73,7 +73,7 @@ class FastServiceInitializer:
         """
         progress_tracker.start_step(step_name="Starting core services...")
         progress_tracker.update_sub_step(sub_step_name="Initializing grid service...")
-        await self._init_core_services()
+        self._init_core_services()
         progress_tracker.complete_step()
         self._check_cancellation()
 
@@ -129,7 +129,7 @@ class FastServiceInitializer:
         finally:
             self._background_tasks.clear()
 
-    async def _init_core_services(self) -> None:
+    def _init_core_services(self) -> None:
         """Initialize lightweight core services that have no external dependencies.
 
         Creates GridService for click grid overlay functionality and AutomationService
@@ -184,7 +184,7 @@ class FastServiceInitializer:
                 self.services["settings_coordinator"] = settings_coordinator
                 self.services["settings"] = settings
 
-        async def init_commands() -> None:
+        def init_commands() -> None:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Setting up command storage")
 
@@ -218,7 +218,7 @@ class FastServiceInitializer:
             with self._services_lock:
                 self.services["click_tracker"] = click_tracker
 
-        async def init_marks() -> None:
+        def init_marks() -> None:
             if progress_tracker:
                 progress_tracker.update_status_animated(status="Configuring mark system")
 
@@ -235,7 +235,9 @@ class FastServiceInitializer:
             with self._services_lock:
                 self.services["mark"] = mark
 
-        await asyncio.gather(init_settings(), init_commands(), init_click_tracker(), init_marks())
+        await asyncio.gather(
+            init_settings(), asyncio.to_thread(init_commands), init_click_tracker(), asyncio.to_thread(init_marks)
+        )
 
     async def _init_audio_services(self, progress_tracker: Optional[StartupProgressTracker] = None) -> None:
         """Initialize audio processing pipeline services sequentially with cancellation checks.
@@ -262,7 +264,7 @@ class FastServiceInitializer:
         # Create unified deduplicator for all command sources (Vosk, sound, Markov)
         deduplicator = EventDeduplicator(window_ms=self.config.command_parser.duplicate_detection_window_ms)
 
-        async def init_audio() -> None:
+        def init_audio() -> None:
             if progress_tracker:
                 progress_tracker.update_sub_step(sub_step_name="Starting audio capture...")
 
@@ -401,7 +403,7 @@ class FastServiceInitializer:
             with self._services_lock:
                 self.services["markov_predictor"] = markov_predictor
 
-        await init_audio()
+        init_audio()
         self._check_cancellation()
 
         await init_sound()
@@ -409,20 +411,18 @@ class FastServiceInitializer:
 
         # Warm-start ESC-50 sample cache in background (non-blocking)
         # This ensures fast training even on first use
-        async def init_esc50_warmstart() -> None:
+        def init_esc50_warmstart() -> None:
             """Warm-start ESC-50 samples in background without blocking other initialization."""
             try:
                 with self._services_lock:
                     sound_service = self.services.get("sound_service")
                 if sound_service:
-                    await sound_service.recognizer.warm_start_esc50_samples()
-            except asyncio.CancelledError:
-                logger.debug("ESC-50 warm-start cancelled during shutdown")
+                    sound_service.recognizer.warm_start_esc50_samples()
             except Exception as e:
                 logger.warning(f"ESC-50 warm-start failed (non-critical): {e}")
 
         # Track background task for cancellation
-        esc50_task = asyncio.create_task(init_esc50_warmstart())
+        esc50_task = asyncio.create_task(asyncio.to_thread(init_esc50_warmstart))
         self._background_tasks.append(esc50_task)
 
         await init_stt()
@@ -474,7 +474,7 @@ class FastServiceInitializer:
 
         logger.debug("Services registered with settings coordinator")
 
-    async def activate_all_services(self) -> None:
+    def activate_all_services(self) -> None:
         """Activate all services by setting up event subscriptions and starting audio processing.
 
         Iterates through initialized services and calls setup_subscriptions() to register
@@ -638,7 +638,11 @@ async def _shutdown_services_in_order(services: Dict[str, Any]) -> list[str]:
         if service_name in services and hasattr(services[service_name], "shutdown"):
             try:
                 logger.debug(f"Shutting down {service_name}...")
-                await services[service_name].shutdown()
+                shutdown_func = services[service_name].shutdown
+                if asyncio.iscoroutinefunction(shutdown_func):
+                    await shutdown_func()
+                else:
+                    shutdown_func()
                 logger.debug(f"{service_name} shutdown completed")
             except Exception as e:
                 error_msg = f"Error shutting down {service_name}: {e}"
@@ -987,7 +991,7 @@ async def main() -> None:
         await asyncio.sleep(0.5)
 
         logger.info("Activating services now that initialization is complete")
-        await service_initializer.activate_all_services()
+        service_initializer.activate_all_services()
 
         main_window = VocalanceMainWindow(
             event_bus=event_bus,

@@ -107,7 +107,7 @@ async def test_prediction_fires_with_sufficient_history(markov_service, mock_sto
     # Build up command history to trigger prediction
     for cmd in ["copy", "paste", "copy"]:
         feedback = MarkovPredictionFeedbackEvent(predicted_command=cmd, actual_command=cmd, was_correct=True, source="test")
-        await markov_service._handle_prediction_feedback(feedback)
+        markov_service._handle_prediction_feedback(feedback)
 
     # Now audio detected should predict "paste"
     import time
@@ -131,7 +131,7 @@ async def test_prediction_disabled_during_dictation(markov_service, mock_storage
 
     # Enable dictation mode
     dictation_event = DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard")
-    await markov_service._handle_dictation_mode_change(dictation_event)
+    markov_service._handle_dictation_mode_change(dictation_event)
 
     # Try to trigger prediction
     import time
@@ -151,11 +151,11 @@ async def test_prediction_enabled_after_dictation(markov_service, mock_storage, 
 
     # Enable then disable dictation
     enable_event = DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard")
-    await markov_service._handle_dictation_mode_change(enable_event)
+    markov_service._handle_dictation_mode_change(enable_event)
     assert markov_service._dictation_active is True
 
     disable_event = DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")
-    await markov_service._handle_dictation_mode_change(disable_event)
+    markov_service._handle_dictation_mode_change(disable_event)
     assert markov_service._dictation_active is False
 
 
@@ -167,7 +167,7 @@ async def test_feedback_updates_command_history(markov_service, mock_storage):
 
     # Provide feedback
     feedback = MarkovPredictionFeedbackEvent(predicted_command="copy", actual_command="paste", was_correct=False, source="stt")
-    await markov_service._handle_prediction_feedback(feedback)
+    markov_service._handle_prediction_feedback(feedback)
 
     # Command history should be updated with actual command
     assert len(markov_service._command_history) == 1
@@ -182,7 +182,7 @@ async def test_incorrect_prediction_triggers_cooldown(markov_service, mock_stora
 
     # Incorrect prediction - sets cooldown and then decrements it once
     feedback = MarkovPredictionFeedbackEvent(predicted_command="copy", actual_command="paste", was_correct=False, source="stt")
-    await markov_service._handle_prediction_feedback(feedback)
+    markov_service._handle_prediction_feedback(feedback)
 
     # Cooldown is set to config value, then decremented by 1 in same call
     # So it should be config value - 1
@@ -198,7 +198,7 @@ async def test_correct_prediction_no_cooldown(markov_service, mock_storage):
 
     # Correct prediction
     feedback = MarkovPredictionFeedbackEvent(predicted_command="copy", actual_command="copy", was_correct=True, source="stt")
-    await markov_service._handle_prediction_feedback(feedback)
+    markov_service._handle_prediction_feedback(feedback)
 
     # Should not enter cooldown
     assert markov_service._cooldown_remaining == 0

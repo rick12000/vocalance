@@ -1,8 +1,8 @@
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPaintEvent, QPen
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QPushButton, QWidget
 
@@ -19,8 +19,8 @@ class PrimaryButton(QPushButton):
         self,
         text: str = "",
         parent: Optional[QWidget] = None,
-        command=None,
-    ):
+        command: Optional[Callable[[], None]] = None,
+    ) -> None:
         super().__init__(text, parent)
 
         # Set cursor
@@ -51,31 +51,31 @@ class PrimaryButton(QPushButton):
         if command:
             self.clicked.connect(command)
 
-    def enterEvent(self, event):
+    def enterEvent(self, enter_event: QEvent) -> None:
         """Handle mouse enter."""
         self._is_hovered = True
         self.update()
-        super().enterEvent(event)
+        super().enterEvent(enter_event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, leave_event: QEvent) -> None:
         """Handle mouse leave."""
         self._is_hovered = False
         self.update()
-        super().leaveEvent(event)
+        super().leaveEvent(leave_event)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, press_event: QMouseEvent) -> None:
         """Handle mouse press."""
         self._is_pressed = True
         self.update()
-        super().mousePressEvent(event)
+        super().mousePressEvent(press_event)
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, release_event: QMouseEvent) -> None:
         """Handle mouse release."""
         self._is_pressed = False
         self.update()
-        super().mouseReleaseEvent(event)
+        super().mouseReleaseEvent(release_event)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for primary button appearance with gradient border."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -110,8 +110,8 @@ class DangerButton(QPushButton):
         self,
         text: str = "",
         parent: Optional[QWidget] = None,
-        command=None,
-    ):
+        command: Optional[Callable[[], None]] = None,
+    ) -> None:
         super().__init__(text, parent)
 
         # Set cursor
@@ -142,31 +142,31 @@ class DangerButton(QPushButton):
         if command:
             self.clicked.connect(command)
 
-    def enterEvent(self, event):
+    def enterEvent(self, enter_event: QEvent) -> None:
         """Handle mouse enter."""
         self._is_hovered = True
         self.update()
-        super().enterEvent(event)
+        super().enterEvent(enter_event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, leave_event: QEvent) -> None:
         """Handle mouse leave."""
         self._is_hovered = False
         self.update()
-        super().leaveEvent(event)
+        super().leaveEvent(leave_event)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, press_event: QMouseEvent) -> None:
         """Handle mouse press."""
         self._is_pressed = True
         self.update()
-        super().mousePressEvent(event)
+        super().mousePressEvent(press_event)
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, release_event: QMouseEvent) -> None:
         """Handle mouse release."""
         self._is_pressed = False
         self.update()
-        super().mouseReleaseEvent(event)
+        super().mouseReleaseEvent(release_event)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for danger button appearance."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -208,8 +208,8 @@ class GhostButton(QPushButton):
         self,
         text: str = "",
         parent: Optional[QWidget] = None,
-        command=None,
-    ):
+        command: Optional[Callable[[], None]] = None,
+    ) -> None:
         super().__init__(text, parent)
 
         # Set cursor
@@ -292,8 +292,8 @@ class ChangeButton(PrimaryButton):
     def __init__(
         self,
         parent: Optional[QWidget] = None,
-        command=None,
-    ):
+        command: Optional[Callable[[], None]] = None,
+    ) -> None:
         # Initialize with empty text
         super().__init__("", parent, command)
 
@@ -314,7 +314,7 @@ class ChangeButton(PrimaryButton):
         # Create vector renderer
         self._renderer = _create_recolored_renderer(str(icon_path), theme.config.text.light)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for circular button with icon."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -363,8 +363,8 @@ class DeleteButton(DangerButton):
     def __init__(
         self,
         parent: Optional[QWidget] = None,
-        command=None,
-    ):
+        command: Optional[Callable[[], None]] = None,
+    ) -> None:
         # Initialize with empty text
         super().__init__("", parent, command)
 
@@ -385,7 +385,7 @@ class DeleteButton(DangerButton):
         # Create vector renderer
         self._renderer = _create_recolored_renderer(str(icon_path), theme.config.shapes.accent)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for circular danger button with icon."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -438,8 +438,8 @@ class ExpandButton(PrimaryButton):
     def __init__(
         self,
         parent: Optional[QWidget] = None,
-        command=None,
-    ):
+        command: Optional[Callable[[], None]] = None,
+    ) -> None:
         # Initialize with empty text
         super().__init__("", parent, command)
 
@@ -460,7 +460,7 @@ class ExpandButton(PrimaryButton):
         # Create vector renderer with shapes light color
         self._renderer = _create_recolored_renderer(str(icon_path), theme.config.shapes.light)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for circular button with icon."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -513,8 +513,8 @@ class CollapseButton(PrimaryButton):
     def __init__(
         self,
         parent: Optional[QWidget] = None,
-        command=None,
-    ):
+        command: Optional[Callable[[], None]] = None,
+    ) -> None:
         # Initialize with empty text
         super().__init__("", parent, command)
 
@@ -535,7 +535,7 @@ class CollapseButton(PrimaryButton):
         # Create vector renderer with shapes light color
         self._renderer = _create_recolored_renderer(str(icon_path), theme.config.shapes.light)
 
-    def paintEvent(self, event):
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Custom paint for circular button with icon."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

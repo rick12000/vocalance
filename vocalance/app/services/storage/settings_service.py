@@ -88,7 +88,7 @@ class SettingsService:
         """Initialize service and load settings"""
         try:
             await self._load_user_overrides()
-            await self._build_effective_settings()
+            self._build_effective_settings()
 
             logger.info("SettingsService initialized successfully")
             return True
@@ -118,7 +118,7 @@ class SettingsService:
             logger.error(f"Failed to load user overrides: {e}")
             self._user_overrides = {}
 
-    async def _build_effective_settings(self) -> None:
+    def _build_effective_settings(self) -> None:
         """Build effective settings by applying overrides to defaults"""
         try:
             # Start with defaults from Pydantic field definitions
@@ -168,14 +168,14 @@ class SettingsService:
                     continue
                 self._effective_settings[category][key] = value
 
-    async def get_effective_settings(self) -> Dict[str, Any]:
+    def get_effective_settings(self) -> Dict[str, Any]:
         """Get current effective settings (defaults + overrides)"""
         return self._effective_settings.copy()
 
-    async def get_setting(self, setting_path: str, default: Any = None) -> Any:
+    def get_setting(self, setting_path: str, default: Any = None) -> Any:
         """Get a single setting value using dot notation"""
         try:
-            settings = await self.get_effective_settings()
+            settings = self.get_effective_settings()
 
             keys = setting_path.split(".")
             current = settings
@@ -219,7 +219,7 @@ class SettingsService:
 
             if success:
                 # Rebuild effective settings
-                await self._build_effective_settings()
+                self._build_effective_settings()
 
                 # Publish dynamic settings update event only for real-time settings
                 real_time_updates = {k: v for k, v in settings_updates.items() if k in self.REAL_TIME_SETTINGS}
@@ -253,7 +253,7 @@ class SettingsService:
             success = await self._storage.write(data=settings_data)
 
             if success:
-                await self._build_effective_settings()
+                self._build_effective_settings()
 
                 # Publish update only for real-time settings
                 if setting_path in self.REAL_TIME_SETTINGS:
@@ -280,7 +280,7 @@ class SettingsService:
 
             if success:
                 # Rebuild effective settings (will use all defaults now)
-                await self._build_effective_settings()
+                self._build_effective_settings()
 
                 logger.info("All settings reset to defaults successfully")
                 return True, "Settings reset to defaults successfully"
@@ -389,9 +389,9 @@ class SettingsService:
     async def _publish_settings_changed_event(self, settings_updates: Dict[str, Any]) -> None:
         """Publish settings changed event for real-time propagation"""
         try:
-            all_settings = await self.get_effective_settings()
-            event = SettingsChangedEvent(updated_settings=settings_updates, all_settings=all_settings)
-            await self._event_bus.publish(event)
+            all_settings = self.get_effective_settings()
+            settings_change = SettingsChangedEvent(updated_settings=settings_updates, all_settings=all_settings)
+            await self._event_bus.publish(settings_change)
         except Exception as e:
             logger.error(f"Failed to publish settings changed event: {e}")
 

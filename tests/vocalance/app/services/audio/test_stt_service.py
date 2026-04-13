@@ -23,9 +23,7 @@ async def stt_service_with_mocked_engines(event_bus, app_config):
     service._engines_initialized = True
     service.setup_subscriptions()
 
-    await event_bus.start_worker()
     yield service
-    await event_bus.stop_worker()
 
 
 @pytest.mark.asyncio

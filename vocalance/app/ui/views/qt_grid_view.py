@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pyautogui
 from PySide6.QtCore import Q_ARG, QMetaObject, QRect, Qt, QTimer, Slot
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -303,7 +303,7 @@ class QtGridView(QWidget):
 
         return rect_definitions, rect_w, rect_h
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
         """Paint grid overlay with four distinct layers:
 
         LAYER 1 (Bottom): Full-screen semi-transparent background
@@ -436,19 +436,19 @@ class QtGridView(QWidget):
 
         self.logger.debug(f"Drew grid: {num_cols}x{num_rows} = {len(rect_map)} cells")
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, key_event: QKeyEvent) -> None:
         """Handle key press events."""
-        if event.key() == Qt.Key.Key_Escape:
+        if key_event.key() == Qt.Key.Key_Escape:
             # Schedule hide on next event loop iteration to avoid blocking
             QTimer.singleShot(0, self._do_hide)
-            event.accept()
-        elif event.key() >= Qt.Key.Key_0 and event.key() <= Qt.Key.Key_9:
-            digit = event.key() - Qt.Key.Key_0
+            key_event.accept()
+        elif key_event.key() >= Qt.Key.Key_0 and key_event.key() <= Qt.Key.Key_9:
+            digit = key_event.key() - Qt.Key.Key_0
             # Schedule number input handling to avoid blocking
             QTimer.singleShot(0, lambda: self._handle_number_input(digit))
-            event.accept()
+            key_event.accept()
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(key_event)
 
     def _handle_number_input(self, digit: int) -> None:
         """Handle number input for grid cell selection."""

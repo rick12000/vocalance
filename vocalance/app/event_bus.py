@@ -32,27 +32,27 @@ class EventBus:
         self._critical_operations: set = set()
         self._lock: threading.RLock = threading.RLock()
 
-    async def publish(self, event: BaseEvent) -> None:
+    async def publish(self, published_event: BaseEvent) -> None:
         """Publish an event and synchronously dispatch to matching subscribers.
 
         Validates event type, rejects events during shutdown, and directly executes
         all matching handlers. Awaits async handlers and calls sync handlers directly.
 
         Args:
-            event: BaseEvent subclass instance to publish to subscribers.
+            published_event: BaseEvent subclass instance to publish to subscribers.
         """
         with self._lock:
             is_shutting_down = self._is_shutting_down
 
         if is_shutting_down:
-            logger.debug(f"Rejecting event {type(event).__name__} during shutdown")
+            logger.debug(f"Rejecting event {type(published_event).__name__} during shutdown")
             return
 
-        if not isinstance(event, BaseEvent):
-            logger.error(f"Event data must be a subclass of BaseEvent, got {type(event)}")
+        if not isinstance(published_event, BaseEvent):
+            logger.error(f"Event data must be a subclass of BaseEvent, got {type(published_event)}")
             return
 
-        event_type = type(event)
+        dispatched_type = type(published_event)
         handler_found = False
 
         # Optimize: only copy handlers for matching event types
@@ -60,7 +60,7 @@ class EventBus:
         handlers_to_call = []
         with self._lock:
             for subscribed_type, handlers in self._subscribers.items():
-                if isinstance(event, subscribed_type):
+                if isinstance(published_event, subscribed_type):
                     handler_found = True
                     # Create a copy of the handlers list to avoid modification during iteration
                     handlers_to_call.extend(list(handlers))
@@ -70,22 +70,22 @@ class EventBus:
             try:
                 handler_start = time.monotonic()
                 if asyncio.iscoroutinefunction(handler):
-                    await handler(event)
+                    await handler(published_event)
                 else:
-                    handler(event)
+                    handler(published_event)
 
                 handler_time = time.monotonic() - handler_start
                 if handler_time > 0.1:
                     logger.warning(
-                        f"Slow handler {handler.__name__ if hasattr(handler, '__name__') else handler} for event '{event_type.__name__}': {handler_time:.4f}s"
+                        f"Slow handler {handler.__name__ if hasattr(handler, '__name__') else handler} for event '{dispatched_type.__name__}': {handler_time:.4f}s"
                     )
 
             except Exception as e:
                 handler_name = handler.__name__ if hasattr(handler, "__name__") else str(handler)
-                logger.error(f"Error in handler {handler_name} for event '{event_type.__name__}': {e}", exc_info=True)
+                logger.error(f"Error in handler {handler_name} for event '{dispatched_type.__name__}': {e}", exc_info=True)
 
         if not handler_found:
-            logger.debug(f"No handlers registered for event '{event_type.__name__}'")
+            logger.debug(f"No handlers registered for event '{dispatched_type.__name__}'")
 
     def subscribe(self, event_type: Type[BaseEvent], handler: Callable[[BaseEvent], Any]) -> None:
         """Subscribe a handler to receive events of a specific type.
@@ -184,7 +184,7 @@ class EventBus:
         with self._lock:
             is_shutting_down = self._is_shutting_down
             critical_ops = list(self._critical_operations)
-            subscribers = {event.__name__: len(handlers) for event, handlers in self._subscribers.items()}
+            subscribers = {etype.__name__: len(handlers) for etype, handlers in self._subscribers.items()}
 
         return {
             "subscribers": subscribers,

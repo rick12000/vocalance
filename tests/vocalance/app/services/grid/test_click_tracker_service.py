@@ -91,11 +91,10 @@ def test_prioritize_grid_rects_stable_ties_by_position():
     assert r1[0]["data"]["y"] == 0
 
 
-@pytest.mark.asyncio
-async def test_handle_mouse_click_stores_click(click_tracker, mock_storage, mock_event_bus):
+def test_handle_mouse_click_stores_click(click_tracker, mock_storage, mock_event_bus):
     """Test mouse click event stores click data in memory cache."""
     event = PerformMouseClickEventData(x=100, y=200, button="left")
-    await click_tracker._handle_mouse_click(event)
+    click_tracker._handle_mouse_click(event)
 
     # Check the in-memory cache
     clicks = click_tracker.get_all_clicks_sync()
@@ -104,14 +103,13 @@ async def test_handle_mouse_click_stores_click(click_tracker, mock_storage, mock
     assert clicks[0]["y"] == 200
 
 
-@pytest.mark.asyncio
-async def test_handle_mouse_click_publishes_event(click_tracker, mock_storage, mock_event_bus):
+def test_handle_mouse_click_publishes_event(click_tracker, mock_storage, mock_event_bus):
     """Test mouse click publishes ClickLoggedEvent."""
     mock_storage.read.return_value = GridClicksData(clicks=[])
     mock_storage.write.return_value = True
 
     event = PerformMouseClickEventData(x=100, y=200, button="left")
-    await click_tracker._handle_mouse_click(event)
+    click_tracker._handle_mouse_click(event)
 
     # Should publish event through event publisher
     # Event publisher uses thread-safe publish, not event_bus.publish directly
@@ -190,25 +188,23 @@ async def test_is_click_in_rect_handles_invalid_data(click_tracker):
     assert is_inside is False
 
 
-@pytest.mark.asyncio
-async def test_get_click_statistics_empty(click_tracker, mock_storage):
+def test_get_click_statistics_empty(click_tracker, mock_storage):
     """Test statistics with no clicks."""
     mock_storage.read.return_value = GridClicksData(clicks=[])
 
-    stats = await click_tracker.get_click_statistics()
+    stats = click_tracker.get_click_statistics()
 
     assert stats["total_clicks"] == 0
 
 
-@pytest.mark.asyncio
-async def test_get_click_statistics_with_clicks(click_tracker):
+def test_get_click_statistics_with_clicks(click_tracker):
     """Test statistics calculation with clicks from memory cache."""
     # Add clicks to the in-memory cache
     for i, (x, y, ts) in enumerate([(100, 100, 1000.0), (200, 200, 2000.0), (300, 300, 3000.0)]):
         event = PerformMouseClickEventData(x=x, y=y, button="left")
-        await click_tracker._handle_mouse_click(event)
+        click_tracker._handle_mouse_click(event)
 
-    stats = await click_tracker.get_click_statistics()
+    stats = click_tracker.get_click_statistics()
 
     assert stats["total_clicks"] == 3
     # Note: Timestamps will be current time, not the fixed values we used above

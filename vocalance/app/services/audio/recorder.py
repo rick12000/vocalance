@@ -48,7 +48,12 @@ class AudioRecorder:
         self.app_config = app_config
         self.event_bus = event_bus
         self.on_audio_chunk = on_audio_chunk
-        self.loop = loop or asyncio.get_running_loop()
+        self.loop = loop
+        if not self.loop:
+            try:
+                self.loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
 
         self.sample_rate = app_config.audio.sample_rate
         self.chunk_size = int(self.sample_rate * 0.03)
@@ -88,7 +93,10 @@ class AudioRecorder:
         if self.on_audio_chunk:
             audio_bytes = indata.tobytes()
             timestamp = time.time()
-            self.loop.call_soon_threadsafe(self.on_audio_chunk, audio_bytes, timestamp)
+            if self.loop:
+                self.loop.call_soon_threadsafe(self.on_audio_chunk, audio_bytes, timestamp)
+            else:
+                self.on_audio_chunk(audio_bytes, timestamp)
 
     def _create_stream(self) -> bool:
         """Create and start input stream on the host default input device."""
@@ -120,8 +128,8 @@ class AudioRecorder:
 
         async def do_publish():
             try:
-                event = AudioDeviceErrorEvent(error_message=error_message)
-                await self.event_bus.publish(event)
+                device_error = AudioDeviceErrorEvent(error_message=error_message)
+                await self.event_bus.publish(device_error)
             except Exception as e:
                 self.logger.error(f"Failed to publish device error event: {e}")
 

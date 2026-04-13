@@ -251,7 +251,6 @@ async def test_invalidation_subscriptions(event_bus, app_config, mock_storage):
     )
     v = ProtectedTermsValidator(config=app_config, storage=mock_storage)
     v.setup_invalidation_subscriptions(event_bus)
-    await event_bus.start_worker()
 
     await v.get_all_protected_terms()
     first_reads = mock_storage.read.call_count
@@ -266,8 +265,6 @@ async def test_invalidation_subscriptions(event_bus, app_config, mock_storage):
     await asyncio.sleep(0.05)
     await v.get_all_protected_terms()
     assert mock_storage.read.call_count > first_reads
-
-    await event_bus.stop_worker()
 
 
 @pytest.mark.asyncio
