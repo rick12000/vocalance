@@ -45,59 +45,13 @@ class AudioModeChangeRequestEvent(BaseEvent):
     priority: EventPriority = EventPriority.CRITICAL
 
 
-class SmartDictationStartedEvent(BaseEvent):
-    """Dual-pane LLM dictation started: smart (dictation column) or amend (spoken instructions column)."""
+class DictationSessionEvent(BaseEvent):
+    """Event fired when a dictation session starts or stops."""
 
-    mode: Literal["smart", "amend"] = Field(
-        default="smart",
-        description='"smart" = transcribed dictation; "amend" = spoken instructions for the copied selection',
-    )
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class SmartDictationStoppedEvent(BaseEvent):
-    """Dual-pane LLM dictation stopped; raw segment proceeds to LLM."""
-
-    mode: Literal["smart", "amend"] = Field(default="smart", description="Which dual-pane mode ended")
-    raw_text: str = Field(description="Raw text before LLM (dictation or spoken prompt)")
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class VisualDictationStartedEvent(BaseEvent):
-    """Event fired when visual dictation mode is activated"""
-
-    mode: Literal["visual"] = "visual"
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class VisualDictationStoppedEvent(BaseEvent):
-    """Event fired when visual dictation mode is deactivated"""
-
-    mode: Literal["visual"] = "visual"
-    accumulated_text: str = Field(description="Accumulated text to be pasted")
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class HiddenDictationStartedEvent(BaseEvent):
-    """Event fired when hidden dictation mode is activated.
-
-    Hidden mode accumulates text silently without UI display, showing only
-    a sound wave indicator. Text is pasted when stopped.
-    """
-
-    mode: Literal["hidden"] = "hidden"
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class HiddenDictationStoppedEvent(BaseEvent):
-    """Event fired when hidden dictation mode is deactivated.
-
-    Contains the accumulated text that was captured during the hidden
-    dictation session, ready to be pasted.
-    """
-
-    mode: Literal["hidden"] = "hidden"
-    accumulated_text: str = Field(description="Accumulated text to be pasted")
+    mode: Literal["smart", "visual", "hidden", "amend"] = Field(description="Which dictation mode is starting or stopping")
+    state: Literal["started", "stopped"] = Field(description="Whether the session is starting or stopping")
+    raw_text: Optional[str] = Field(default=None, description="Raw text before LLM (for smart/amend stopped)")
+    accumulated_text: Optional[str] = Field(default=None, description="Accumulated text to be pasted (for visual/hidden stopped)")
     priority: EventPriority = EventPriority.NORMAL
 
 
@@ -133,13 +87,6 @@ class LLMTokenGeneratedEvent(BaseEvent):
     """Event fired when a token is generated during LLM streaming"""
 
     token: str = Field(description="The generated token from LLM streaming")
-    priority: EventPriority = EventPriority.HIGH
-
-
-class SmartDictationTextDisplayEvent(BaseEvent):
-    """Event fired when cleaned text should be displayed in smart dictation UI"""
-
-    text: str = Field(description="Cleaned text to display in smart dictation UI")
     priority: EventPriority = EventPriority.HIGH
 
 
@@ -228,18 +175,6 @@ class DictationAliasListUpdatedEvent(BaseEvent):
 
     aliases: Dict[str, str] = Field(description="Current alias mappings (key -> substitution)")
     priority: EventPriority = EventPriority.LOW
-
-
-class DictationAliasActionRequest(BaseEvent):
-    """Event for requesting dictation alias actions.
-
-    Published by UI controller to request CRUD operations on aliases.
-    """
-
-    action: Literal["add_alias", "update_alias", "delete_alias", "get_aliases"] = Field(description="The action to perform")
-    key: Optional[str] = Field(default=None, description="Alias activation phrase")
-    value: Optional[str] = Field(default=None, description="Alias substitution text")
-    priority: EventPriority = EventPriority.NORMAL
 
 
 class DictationStopWordDetectedEvent(BaseEvent):

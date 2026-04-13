@@ -4,13 +4,13 @@ from typing import Any, Dict
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import DynamicSettingsUpdatedEvent
+from vocalance.app.events.core_events import SettingsChangedEvent
 
 logger = logging.getLogger(__name__)
 
 
 class SettingsUpdateCoordinator:
-    """Apply ``DynamicSettingsUpdatedEvent`` to ``GlobalAppConfig`` and notify registered services."""
+    """Apply ``SettingsChangedEvent`` to ``GlobalAppConfig`` and notify registered services."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig):
         self._event_bus = event_bus
@@ -21,7 +21,7 @@ class SettingsUpdateCoordinator:
 
     def setup_subscriptions(self) -> None:
         """Subscribe to settings update events"""
-        self._event_bus.subscribe(event_type=DynamicSettingsUpdatedEvent, handler=self._handle_settings_updated)
+        self._event_bus.subscribe(event_type=SettingsChangedEvent, handler=self._handle_settings_updated)
         logger.debug("SettingsUpdateCoordinator subscriptions configured")
 
     def register_service(self, service_name: str, service_instance: Any) -> None:
@@ -29,7 +29,7 @@ class SettingsUpdateCoordinator:
         self._service_registry[service_name] = service_instance
         logger.debug(f"Registered service for settings updates: {service_name}")
 
-    async def _handle_settings_updated(self, event: DynamicSettingsUpdatedEvent) -> None:
+    async def _handle_settings_updated(self, event: SettingsChangedEvent) -> None:
         """Handle settings update event and coordinate updates across services"""
         try:
             updated_settings = event.updated_settings

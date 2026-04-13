@@ -3,7 +3,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from vocalance.app.events.core_events import RecordingTriggerEvent
 from vocalance.app.events.dictation_events import AudioModeChangeRequestEvent
 from vocalance.app.services.audio.simple_audio_service import AudioService
 
@@ -44,18 +43,6 @@ async def test_shutdown_cleans_up_resources(audio_service):
     assert audio_service._recorder is None
     assert audio_service._command_listener is None
     assert audio_service._sound_listener is None
-
-
-@pytest.mark.asyncio
-async def test_recording_trigger_handling(audio_service):
-    """Test that recording triggers are handled without errors."""
-    # Test start trigger
-    event = RecordingTriggerEvent(trigger="start")
-    await audio_service._handle_recording_trigger(event)
-
-    # Test stop trigger
-    event = RecordingTriggerEvent(trigger="stop")
-    await audio_service._handle_recording_trigger(event)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,7 @@
 from typing import Any, Dict, Literal, Optional, Union
 
+from pydantic import BaseModel
+
 from vocalance.app.events.base_event import BaseEvent, EventPriority
 
 
@@ -75,27 +77,10 @@ class MarksChangedEventData(BaseEvent):
     priority: EventPriority = EventPriority.LOW
 
 
-class AllMarksClearedEventData(BaseEvent):
-    """Event indicating all marks have been cleared."""
-
-    count: int
-    priority: EventPriority = EventPriority.LOW
-
-
 class MarkVisualizationStateChangedEventData(BaseEvent):
     """Event indicating mark visualization state has changed."""
 
     is_visible: bool
-    priority: EventPriority = EventPriority.LOW
-
-
-class MarkOperationFailedEventData(BaseEvent):
-    """Event indicating a mark operation has failed."""
-
-    operation: Literal["create", "execute", "delete", "visualize", "reset", "visualize_cancel"]
-    name_or_id: Optional[Union[str, int]] = None
-    reason: str
-    details: Optional[Dict[str, Any]] = None
     priority: EventPriority = EventPriority.LOW
 
 
@@ -109,11 +94,10 @@ class MarkOperationSuccessEventData(BaseEvent):
     priority: EventPriority = EventPriority.LOW
 
 
-class MarkData(BaseEvent):
+class MarkData(BaseModel):
     """Data model for a single mark."""
 
     name: str
     x: int
     y: int
     description: str = ""
-    priority: EventPriority = EventPriority.LOW

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 
@@ -7,7 +7,6 @@ from vocalance.app.config.command_types import (
     DictationCommandType,
     GridCommandType,
     MarkCommandType,
-    SoundCommandType,
     SystemControlCommandType,
 )
 from vocalance.app.events.base_event import BaseEvent, EventPriority
@@ -68,38 +67,6 @@ class GridCommandParsedEvent(BaseCommandEvent):
     """
 
     command: GridCommandType = Field(..., description="The parsed grid command")
-
-
-class SoundCommandParsedEvent(BaseCommandEvent):
-    """Event published when a sound command is parsed.
-
-    Attributes:
-        command: The parsed sound command.
-    """
-
-    command: SoundCommandType = Field(..., description="The parsed sound command")
-
-
-class CommandNoMatchEvent(BaseCommandEvent):
-    """Event published when no command matches the input text.
-
-    Attributes:
-        attempted_parsers: List of parsers that were attempted.
-    """
-
-    attempted_parsers: List[str] = []
-
-
-class CommandParseErrorEvent(BaseCommandEvent):
-    """Event published when an error occurs during command parsing.
-
-    Attributes:
-        error_message: Description of the parsing error.
-        attempted_parser: The parser that encountered the error.
-    """
-
-    error_message: str = Field(..., description="Description of the parsing error")
-    attempted_parser: Optional[str] = Field(default=None, description="The parser that encountered the error")
 
 
 class SystemControlCommandParsedEvent(BaseCommandEvent):

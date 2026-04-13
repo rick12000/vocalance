@@ -8,7 +8,6 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.mark_events import MarkData  # noqa: F401
 from vocalance.app.events.mark_events import (
-    AllMarksClearedEventData,
     MarkCreatedEventData,
     MarkCreateRequestEventData,
     MarkDeleteAllRequestEventData,
@@ -16,7 +15,6 @@ from vocalance.app.events.mark_events import (
     MarkDeletedEventData,
     MarkExecuteRequestEventData,
     MarkGetAllRequestEventData,
-    MarkOperationFailedEventData,
     MarkOperationSuccessEventData,
     MarksChangedEventData,
     MarkVisualizationStateChangedEventData,
@@ -69,10 +67,8 @@ class QtMarksController(QtBaseController):
         try:
             self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
             self.event_bus.subscribe(MarkOperationSuccessEventData, self._on_mark_operation_status)
-            self.event_bus.subscribe(MarkOperationFailedEventData, self._on_mark_operation_status)
             self.event_bus.subscribe(MarkCreatedEventData, self._handle_mark_list_changed)
             self.event_bus.subscribe(MarkDeletedEventData, self._handle_mark_list_changed)
-            self.event_bus.subscribe(AllMarksClearedEventData, self._handle_mark_list_changed)
             self.event_bus.subscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
@@ -215,7 +211,7 @@ class QtMarksController(QtBaseController):
 
     async def _on_mark_operation_status(self, event) -> None:
         """Handle mark operation success/failure events."""
-        self.notify_status(getattr(event, "message", "Mark operation completed."), not getattr(event, "success", True))
+        self.notify_status(getattr(event, "message", "Mark operation completed."), False)
 
     async def _handle_mark_list_changed(self, event) -> None:
         """Handle mark list change events by refreshing from the service."""
@@ -258,10 +254,8 @@ class QtMarksController(QtBaseController):
         try:
             self.event_bus.unsubscribe(MarksChangedEventData, self._on_marks_changed)
             self.event_bus.unsubscribe(MarkOperationSuccessEventData, self._on_mark_operation_status)
-            self.event_bus.unsubscribe(MarkOperationFailedEventData, self._on_mark_operation_status)
             self.event_bus.unsubscribe(MarkCreatedEventData, self._handle_mark_list_changed)
             self.event_bus.unsubscribe(MarkDeletedEventData, self._handle_mark_list_changed)
-            self.event_bus.unsubscribe(AllMarksClearedEventData, self._handle_mark_list_changed)
             self.event_bus.unsubscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")

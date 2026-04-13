@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import ClickLoggedEventData, PerformMouseClickEventData
+from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
@@ -119,10 +119,6 @@ class ClickTrackerService:
         with self._lock:
             self._clicks.append(new_click)
             click_count = len(self._clicks)
-
-        # Publish event for any listeners
-        click_logged_event = ClickLoggedEventData(x=event_data.x, y=event_data.y, timestamp=timestamp)
-        self.event_publisher.publish(click_logged_event)
 
         logger.debug(f"Click logged to memory cache: ({event_data.x}, {event_data.y}) - total: {click_count}")
 

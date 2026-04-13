@@ -1,19 +1,8 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent, EventPriority
-
-
-class RecordingTriggerEvent(BaseEvent):
-    """Unified event for starting or stopping audio recording.
-
-    Attributes:
-        trigger: Recording action (start or stop).
-    """
-
-    trigger: Literal["start", "stop"] = Field(..., description="Recording action")
-    priority: EventPriority = EventPriority.CRITICAL
 
 
 class CommandAudioSegmentReadyEvent(BaseEvent):
@@ -75,38 +64,6 @@ class TextRecognizedEvent(BaseEvent):
     priority: EventPriority = EventPriority.HIGH
 
 
-class ProcessCommandPhraseEvent(BaseEvent):
-    """Command phrase ready for processing.
-
-    Attributes:
-        phrase: Command phrase text.
-        source: Source of the command.
-        context: Additional context data.
-    """
-
-    phrase: str
-    source: Optional[str] = None
-    context: Optional[Any] = None
-    priority: EventPriority = EventPriority.HIGH
-
-
-class CommandExecutedStatusEvent(BaseEvent):
-    """Status update after command execution.
-
-    Attributes:
-        command: Command data.
-        success: Whether execution succeeded.
-        message: Status message.
-        source: Source of the command.
-    """
-
-    command: Dict[str, Any]
-    success: bool
-    message: Optional[str] = None
-    source: Optional[str] = None
-    priority: EventPriority = EventPriority.NORMAL
-
-
 class CustomSoundRecognizedEvent(BaseEvent):
     """Custom sound recognized by sound recognizer.
 
@@ -135,21 +92,6 @@ class PerformMouseClickEventData(BaseEvent):
     y: int
     source: Optional[str] = "unknown"
     priority: EventPriority = EventPriority.CRITICAL
-
-
-class ClickLoggedEventData(BaseEvent):
-    """Click logged for tracking.
-
-    Attributes:
-        x: X coordinate.
-        y: Y coordinate.
-        timestamp: Timestamp of click.
-    """
-
-    x: int
-    y: int
-    timestamp: float
-    priority: EventPriority = EventPriority.LOW
 
 
 class MarkovPredictionEvent(BaseEvent):
@@ -184,25 +126,16 @@ class MarkovPredictionFeedbackEvent(BaseEvent):
     priority: EventPriority = EventPriority.LOW  # Background training feedback
 
 
-class SettingsResponseEvent(BaseEvent):
-    """Event containing current effective settings.
-
-    Attributes:
-        settings: Dictionary of current settings.
-    """
-
-    settings: Dict[str, Any]
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class DynamicSettingsUpdatedEvent(BaseEvent):
+class SettingsChangedEvent(BaseEvent):
     """Event published when runtime settings are changed.
 
     Attributes:
         updated_settings: Dictionary of setting paths to new values.
+        all_settings: Dictionary of all effective settings.
     """
 
     updated_settings: Dict[str, Any] = Field(description="Dictionary of setting paths to new values")
+    all_settings: Dict[str, Any] = Field(description="Dictionary of all effective settings")
     priority: EventPriority = EventPriority.HIGH
 
 
@@ -216,57 +149,6 @@ class CommandTextRecognizedEvent(TextRecognizedEvent):
 
 class DictationTextRecognizedEvent(TextRecognizedEvent):
     """Text recognized in dictation mode (e.g. Moonshine streaming or segment batch)."""
-
-
-class STTProcessingStartedEvent(BaseEvent):
-    """Event indicating STT processing has started.
-
-    Attributes:
-        engine: STT engine being used.
-        mode: Processing mode (command or dictation).
-        audio_size_bytes: Size of audio being processed.
-    """
-
-    engine: str = Field(description="STT engine being used")
-    mode: str = Field(description="Processing mode (command, dictation)")
-    audio_size_bytes: int = Field(description="Size of audio being processed")
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class STTProcessingCompletedEvent(BaseEvent):
-    """Event indicating STT processing has completed.
-
-    Attributes:
-        engine: STT engine that was used.
-        mode: Processing mode (command or dictation).
-        processing_time_ms: Processing time in milliseconds.
-        text_length: Length of recognized text.
-    """
-
-    engine: str = Field(description="STT engine that was used")
-    mode: str = Field(description="Processing mode (command, dictation)")
-    processing_time_ms: float = Field(description="Processing time in milliseconds")
-    text_length: int = Field(description="Length of recognized text")
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class GetMainWindowHandleRequest(BaseEvent):
-    """Request the main window handle (e.g., HWND)."""
-
-    priority: EventPriority = EventPriority.CRITICAL
-
-
-class GetMainWindowHandleResponse(BaseEvent):
-    """Response carrying the main window handle.
-
-    Attributes:
-        hwnd: Window handle or None if error.
-        error_message: Error message if retrieval failed.
-    """
-
-    hwnd: Optional[int] = None
-    error_message: Optional[str] = None
-    priority: EventPriority = EventPriority.CRITICAL
 
 
 class AudioDeviceErrorEvent(BaseEvent):

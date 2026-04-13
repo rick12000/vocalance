@@ -8,12 +8,7 @@ from typing import Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import (
-    CommandAudioSegmentReadyEvent,
-    CommandTextRecognizedEvent,
-    STTProcessingCompletedEvent,
-    STTProcessingStartedEvent,
-)
+from vocalance.app.events.core_events import CommandAudioSegmentReadyEvent, CommandTextRecognizedEvent
 from vocalance.app.events.dictation_events import (
     DictationModeDisableOthersEvent,
     DictationModifierId,
@@ -166,24 +161,12 @@ class SpeechToTextService:
 
         logger.debug("Processing command audio in normal mode")
 
-        await self.event_bus.publish(
-            STTProcessingStartedEvent(engine="vosk", mode=STTMode.COMMAND.value, audio_size_bytes=len(event_data.audio_bytes))
-        )
         processing_start = time.time()
         recognized_text = await self.vosk_engine.recognize(event_data.audio_bytes, event_data.sample_rate)
         processing_time = (time.time() - processing_start) * 1000
 
         if recognized_text and recognized_text.strip():
             await self._publish_recognition_result(recognized_text, processing_time, "vosk")
-
-        await self.event_bus.publish(
-            STTProcessingCompletedEvent(
-                engine="vosk",
-                mode=STTMode.COMMAND.value,
-                processing_time_ms=processing_time,
-                text_length=len(recognized_text) if recognized_text else 0,
-            )
-        )
 
     def _is_stop_trigger(self, text: Optional[str]) -> bool:
         if not text:

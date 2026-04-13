@@ -24,7 +24,6 @@ from vocalance.app.events.sound_events import (
     SoundTrainingInitiatedEvent,
     SoundTrainingProgressEvent,
     SoundTrainingRequestEvent,
-    SoundTrainingStatusEvent,
 )
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
@@ -86,7 +85,6 @@ class QtSoundController(QtBaseController):
             self.event_bus.subscribe(SoundTrainingProgressEvent, self._on_training_progress)
             self.event_bus.subscribe(SoundTrainingCompleteEvent, self._on_training_complete)
             self.event_bus.subscribe(SoundTrainingFailedEvent, self._on_training_failed)
-            self.event_bus.subscribe(SoundTrainingStatusEvent, self._on_training_status)
             self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
@@ -146,10 +144,6 @@ class QtSoundController(QtBaseController):
     async def _on_training_failed(self, event):
         """Handle training failed event."""
         self.training_error.emit(getattr(event, "sound_name", "Unknown"), getattr(event, "reason", "Unknown error"))
-
-    async def _on_training_status(self, event):
-        """Handle training status event."""
-        self.training_status.emit(getattr(event, "message", ""), getattr(event, "status_type", "info"))
 
     async def _on_marks_changed(self, event):
         """Handle marks changed event to update the local marks cache."""
@@ -284,7 +278,6 @@ class QtSoundController(QtBaseController):
             self.event_bus.unsubscribe(SoundTrainingProgressEvent, self._on_training_progress)
             self.event_bus.unsubscribe(SoundTrainingCompleteEvent, self._on_training_complete)
             self.event_bus.unsubscribe(SoundTrainingFailedEvent, self._on_training_failed)
-            self.event_bus.unsubscribe(SoundTrainingStatusEvent, self._on_training_status)
             self.event_bus.unsubscribe(MarksChangedEventData, self._on_marks_changed)
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")

@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig, is_whitelisted_llm_model_id
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import DynamicSettingsUpdatedEvent, SettingsResponseEvent
+from vocalance.app.events.core_events import SettingsChangedEvent
 from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
 from vocalance.app.services.storage.storage_models import SettingsData
 from vocalance.app.services.storage.storage_service import StorageService
@@ -89,7 +89,6 @@ class SettingsService:
         try:
             await self._load_user_overrides()
             await self._build_effective_settings()
-            await self._publish_settings_response()
 
             logger.info("SettingsService initialized successfully")
             return True
@@ -221,12 +220,11 @@ class SettingsService:
             if success:
                 # Rebuild effective settings
                 await self._build_effective_settings()
-                await self._publish_settings_response()
 
                 # Publish dynamic settings update event only for real-time settings
                 real_time_updates = {k: v for k, v in settings_updates.items() if k in self.REAL_TIME_SETTINGS}
                 if real_time_updates:
-                    await self._publish_dynamic_settings_update(settings_updates=real_time_updates)
+                    await self._publish_settings_changed_event(settings_updates=real_time_updates)
 
                 return True
 
@@ -256,12 +254,11 @@ class SettingsService:
 
             if success:
                 await self._build_effective_settings()
-                await self._publish_settings_response()
 
                 # Publish update only for real-time settings
                 if setting_path in self.REAL_TIME_SETTINGS:
                     default_value = self._get_default_value(setting_path=setting_path)
-                    await self._publish_dynamic_settings_update(settings_updates={setting_path: default_value})
+                    await self._publish_settings_changed_event(settings_updates={setting_path: default_value})
 
                 return True
 
@@ -284,7 +281,6 @@ class SettingsService:
             if success:
                 # Rebuild effective settings (will use all defaults now)
                 await self._build_effective_settings()
-                await self._publish_settings_response()
 
                 logger.info("All settings reset to defaults successfully")
                 return True, "Settings reset to defaults successfully"
@@ -390,22 +386,14 @@ class SettingsService:
             logger.error(f"Error getting default for {setting_path}: {e}")
             return None
 
-    async def _publish_settings_response(self) -> None:
-        """Publish current settings for UI and services"""
+    async def _publish_settings_changed_event(self, settings_updates: Dict[str, Any]) -> None:
+        """Publish settings changed event for real-time propagation"""
         try:
-            settings = await self.get_effective_settings()
-            event = SettingsResponseEvent(settings=settings)
+            all_settings = await self.get_effective_settings()
+            event = SettingsChangedEvent(updated_settings=settings_updates, all_settings=all_settings)
             await self._event_bus.publish(event)
         except Exception as e:
-            logger.error(f"Failed to publish settings response: {e}")
-
-    async def _publish_dynamic_settings_update(self, settings_updates: Dict[str, Any]) -> None:
-        """Publish dynamic settings update event for real-time propagation"""
-        try:
-            event = DynamicSettingsUpdatedEvent(updated_settings=settings_updates)
-            await self._event_bus.publish(event)
-        except Exception as e:
-            logger.error(f"Failed to publish dynamic settings update: {e}")
+            logger.error(f"Failed to publish settings changed event: {e}")
 
     async def apply_startup_settings_to_config(self) -> None:
         """Apply user overrides to config at startup via coordinator"""
@@ -417,7 +405,7 @@ class SettingsService:
             }
 
             if settings_to_apply:
-                await self._publish_dynamic_settings_update(settings_updates=settings_to_apply)
+                await self._publish_settings_changed_event(settings_updates=settings_to_apply)
 
         except Exception as e:
             logger.error(f"Failed to apply startup settings: {e}")

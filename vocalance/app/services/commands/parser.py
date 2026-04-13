@@ -36,8 +36,6 @@ from vocalance.app.config.command_types import (
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import (
     AutomationCommandParsedEvent,
-    CommandNoMatchEvent,
-    CommandParseErrorEvent,
     DictationCommandParsedEvent,
     GridCommandParsedEvent,
     MarkCommandParsedEvent,
@@ -48,7 +46,6 @@ from vocalance.app.events.core_events import (
     CustomSoundRecognizedEvent,
     MarkovPredictionEvent,
     MarkovPredictionFeedbackEvent,
-    ProcessCommandPhraseEvent,
 )
 from vocalance.app.events.sound_events import (
     RequestSoundMappingsEvent,
@@ -131,7 +128,6 @@ class CentralizedCommandParser:
     def setup_subscriptions(self) -> None:
         pairs = [
             (CommandTextRecognizedEvent, self._handle_command_text_recognized),
-            (ProcessCommandPhraseEvent, self._handle_process_command_phrase),
             (CustomSoundRecognizedEvent, self._handle_custom_sound_recognized),
             (SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated),
             (SoundMappingsResponseEvent, self._handle_sound_mappings_response),
@@ -152,9 +148,6 @@ class CentralizedCommandParser:
     async def shutdown(self) -> None:
         await self._history_manager.shutdown()
 
-    async def _handle_process_command_phrase(self, event_data: ProcessCommandPhraseEvent) -> None:
-        await self._process_text_input(event_data.phrase, source=event_data.source, record_history=False)
-
     async def _process_text_input(self, text: str, source: Optional[str] = None, *, record_history: bool = False) -> None:
         src = source or "unknown"
         if source != "markov" and self._deduplicator.should_deduplicate(text, source=src):
@@ -173,18 +166,6 @@ class CentralizedCommandParser:
 
             await self._publish_command_event(parsed, source)
             self._deduplicator.record_event(text, source=src)
-        elif isinstance(parsed, NoMatchResult):
-            await self._event_bus.publish(
-                CommandNoMatchEvent(source=source, attempted_parsers=["dictation", "mark", "grid", "automation"])
-            )
-        elif isinstance(parsed, ErrorResult):
-            await self._event_bus.publish(
-                CommandParseErrorEvent(
-                    source=source,
-                    error_message=parsed.error_message,
-                    attempted_parser="CentralizedCommandParser",
-                )
-            )
 
     async def _parse_text(self, text: str) -> ParseResultType:
         normalized = text.lower().strip()

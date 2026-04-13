@@ -1,16 +1,8 @@
-import asyncio
 import logging
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.grid_events import (
-    ClickGridCellRequestEventData,
-    GridInteractionFailedEventData,
-    GridInteractionSuccessEventData,
-    GridVisibilityChangedEventData,
-    HideGridRequestEventData,
-    ShowGridRequestEventData,
-)
+from vocalance.app.events.grid_events import GridStateEvent
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
@@ -45,9 +37,7 @@ class QtGridController(QtBaseController):
     def _subscribe_to_events(self) -> None:
         """Subscribe to grid bus events."""
         try:
-            self.event_bus.subscribe(ShowGridRequestEventData, self._handle_show_grid_request)
-            self.event_bus.subscribe(HideGridRequestEventData, self._handle_hide_grid_request)
-            self.event_bus.subscribe(ClickGridCellRequestEventData, self._handle_click_grid_cell_request)
+            self.event_bus.subscribe(GridStateEvent, self._handle_grid_state_event)
         except Exception as e:
             self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
 
@@ -107,15 +97,16 @@ class QtGridController(QtBaseController):
             center_x: X coordinate of the cell centre.
             center_y: Y coordinate of the cell centre.
         """
+        import asyncio
+
         asyncio.ensure_future(
             self.event_bus.publish(
-                GridInteractionSuccessEventData(
-                    operation="select_cell",
-                    details={"selected_number": str(selected_number), "x": center_x, "y": center_y},
+                GridStateEvent(
+                    state="interaction_success",
+                    config={"selected_number": selected_number, "center_x": center_x, "center_y": center_y},
                 )
             )
         )
-        asyncio.ensure_future(self.event_bus.publish(GridVisibilityChangedEventData(visible=False)))
 
     def on_grid_selection_failed(self, selected_number: int, error_message: str) -> None:
         """Publish a failure event after a cell selection attempt by the view.
@@ -124,42 +115,38 @@ class QtGridController(QtBaseController):
             selected_number: The cell number that failed.
             error_message: Description of the failure.
         """
+        import asyncio
+
         asyncio.ensure_future(
             self.event_bus.publish(
-                GridInteractionFailedEventData(
-                    operation="select_cell",
-                    reason=error_message,
-                    cell_label=str(selected_number),
-                    details={"selected_number": str(selected_number)},
-                )
+                GridStateEvent(state="interaction_failed", config={"selected_number": selected_number}, message=error_message)
             )
         )
 
-    async def _handle_show_grid_request(self, event_data) -> None:
-        """Handle a show-grid request event from the service."""
-        num_rects = (event_data.rows * event_data.cols) if (event_data.rows and event_data.cols) else None
-        self.show_grid_overlay(num_rects, getattr(event_data, "click_mode", "click"))
-
-    async def _handle_hide_grid_request(self, event_data) -> None:
-        """Handle a hide-grid request event from the service."""
-        self.hide_grid_overlay()
-
-    async def _handle_click_grid_cell_request(self, event_data) -> None:
-        """Handle a click-grid-cell request event from the service."""
-        if not self.is_grid_overlay_active():
-            self.logger.warning(f"Grid not visible, cannot click cell {event_data.cell_label}")
-            return
-        if not self.grid_view:
-            self.logger.error(f"Grid view not set, cannot click cell {event_data.cell_label}")
-            return
-        self.handle_grid_selection(event_data.cell_label, getattr(event_data, "click_mode", "click"))
+    async def _handle_grid_state_event(self, event_data: GridStateEvent) -> None:
+        """Handle grid state events from the service."""
+        if event_data.state == "visible":
+            config = event_data.config or {}
+            rows = config.get("rows")
+            cols = config.get("cols")
+            num_rects = (rows * cols) if (rows and cols) else None
+            self.show_grid_overlay(num_rects, config.get("click_mode", "click"))
+        elif event_data.state == "hidden":
+            self.hide_grid_overlay()
+        elif event_data.state == "interaction_request":
+            if not self.is_grid_overlay_active():
+                self.logger.warning(f"Grid not visible, cannot click cell {event_data.config.get('cell_label')}")
+                return
+            if not self.grid_view:
+                self.logger.error(f"Grid view not set, cannot click cell {event_data.config.get('cell_label')}")
+                return
+            config = event_data.config or {}
+            self.handle_grid_selection(config.get("cell_label"), config.get("click_mode", "click"))
 
     def cleanup(self) -> None:
         """Unsubscribe from all events, clean up the view, and release resources."""
         try:
-            self.event_bus.unsubscribe(ShowGridRequestEventData, self._handle_show_grid_request)
-            self.event_bus.unsubscribe(HideGridRequestEventData, self._handle_hide_grid_request)
-            self.event_bus.unsubscribe(ClickGridCellRequestEventData, self._handle_click_grid_cell_request)
+            self.event_bus.unsubscribe(GridStateEvent, self._handle_grid_state_event)
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")
 

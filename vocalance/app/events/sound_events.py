@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal
+from typing import Dict, List
 
 from pydantic import Field
 
@@ -13,27 +13,12 @@ class SoundTrainingRequestEvent(BaseEvent):
     priority: EventPriority = EventPriority.NORMAL
 
 
-class CancelSoundTrainingCommand(BaseEvent):
-    """Command to cancel ongoing sound training."""
-
-    label: str = Field(..., description="Label for the sound training to cancel.")
-    priority: EventPriority = EventPriority.NORMAL
-
-
 class SoundTrainingInitiatedEvent(BaseEvent):
     """Event indicating sound training has been initiated."""
 
     sound_name: str
     total_samples: int
     priority: EventPriority = EventPriority.NORMAL
-
-
-class SoundTrainingStatusEvent(BaseEvent):
-    """Status message event during sound training process."""
-
-    message: str
-    status_type: Literal["info", "warning", "error", "success"]
-    priority: EventPriority = EventPriority.LOW
 
 
 class SoundTrainingProgressEvent(BaseEvent):

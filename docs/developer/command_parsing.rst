@@ -26,7 +26,7 @@ After recognition services produce text and sound events (see :doc:`speech_and_s
        I -->|Mark| K[MarkCommandParsedEvent]
        I -->|Grid| L[GridCommandParsedEvent]
        I -->|Automation| M[AutomationCommandParsedEvent]
-       I -->|No Match| N[CommandNoMatchEvent]
+       I -->|No Match| N[NoMatchResult]
 
        style B fill:#e1f5ff
        style H fill:#fff4e1
@@ -59,7 +59,7 @@ Text enters the parser normalized: lowercase and whitespace-trimmed. The parser 
 
        return NoMatchResult()
 
-Each parser checks specific patterns. If a parser returns a command object, parsing is complete. If all parsers return no match, a ``CommandNoMatchEvent`` is published. If a parser succeeds, the resulting command object is published as a typed event for execution.
+Each parser checks specific patterns. If a parser returns a command object, parsing is complete. If all parsers return no match, a ``NoMatchResult`` is returned. If a parser succeeds, the resulting command object is published as a typed event for execution.
 
 Command Types
 =============

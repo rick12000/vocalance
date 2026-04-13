@@ -35,20 +35,15 @@ from vocalance.app.events.dictation_events import (
     DictationModifierId,
     DictationModifierPhraseEvent,
     DictationModifierStateChangedEvent,
+    DictationSessionEvent,
     DictationStatusChangedEvent,
     FinalDictationTextEvent,
-    HiddenDictationStartedEvent,
-    HiddenDictationStoppedEvent,
     LLMProcessingCompletedEvent,
     LLMProcessingFailedEvent,
     LLMProcessingReadyEvent,
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
     PartialDictationTextEvent,
-    SmartDictationStartedEvent,
-    SmartDictationStoppedEvent,
-    VisualDictationStartedEvent,
-    VisualDictationStoppedEvent,
 )
 from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
 from vocalance.app.services.audio.dictation_handling.dictation_postprocess import (
@@ -735,8 +730,6 @@ class DictationCoordinator:
         if not stop_word or not text:
             return text
 
-        import re
-
         pattern = r"\b" + re.escape(stop_word) + r"\b"
         result = re.sub(pattern, "", text, flags=re.IGNORECASE)
         return " ".join(result.split())
@@ -806,7 +799,7 @@ class DictationCoordinator:
                 dual = "amend" if session.mode is DictationMode.AMEND else "smart"
                 reason = "Amend mode LLM processing" if dual == "amend" else "Smart dictation processing"
                 await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason=reason))
-                await self._publish_event(SmartDictationStoppedEvent(raw_text=final_text, mode=dual))
+                await self._publish_event(DictationSessionEvent(mode=dual, state="stopped", raw_text=final_text))
                 await self._publish_event(
                     LLMProcessingStartedEvent(
                         raw_text=final_text,
@@ -818,17 +811,17 @@ class DictationCoordinator:
                 await self._end_smart_session()
             elif session.mode == DictationMode.VISUAL:
                 if final_text:
-                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=final_text))
+                    await self._publish_event(DictationSessionEvent(mode="visual", state="stopped", accumulated_text=final_text))
                     await self.text_service.input_text(final_text)
                 else:
-                    await self._publish_event(VisualDictationStoppedEvent(accumulated_text=""))
+                    await self._publish_event(DictationSessionEvent(mode="visual", state="stopped", accumulated_text=""))
                 await self._finalize_session(session)
             elif session.mode == DictationMode.HIDDEN:
                 if final_text:
-                    await self._publish_event(HiddenDictationStoppedEvent(accumulated_text=final_text))
+                    await self._publish_event(DictationSessionEvent(mode="hidden", state="stopped", accumulated_text=final_text))
                     await self.text_service.input_text(final_text)
                 else:
-                    await self._publish_event(HiddenDictationStoppedEvent(accumulated_text=""))
+                    await self._publish_event(DictationSessionEvent(mode="hidden", state="stopped", accumulated_text=""))
                 await self._finalize_session(session)
 
             logger.info(
@@ -945,13 +938,13 @@ class DictationCoordinator:
                     logger.error("Moonshine engine unavailable — cannot start chunk dictation for %s", mode.value)
 
             if mode == DictationMode.SMART:
-                await self._publish_event(SmartDictationStartedEvent())
+                await self._publish_event(DictationSessionEvent(mode="smart", state="started"))
             elif mode == DictationMode.AMEND:
-                await self._publish_event(SmartDictationStartedEvent(mode="amend"))
+                await self._publish_event(DictationSessionEvent(mode="amend", state="started"))
             elif mode == DictationMode.VISUAL:
-                await self._publish_event(VisualDictationStartedEvent())
+                await self._publish_event(DictationSessionEvent(mode="visual", state="started"))
             elif mode == DictationMode.HIDDEN:
-                await self._publish_event(HiddenDictationStartedEvent())
+                await self._publish_event(DictationSessionEvent(mode="hidden", state="started"))
 
             if mode == DictationMode.TYPE:
                 self._type_silence_task = asyncio.create_task(self._monitor_type_silence())

@@ -4,7 +4,6 @@ from typing import Callable, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import RecordingTriggerEvent
 from vocalance.app.events.dictation_events import AudioModeChangeRequestEvent
 from vocalance.app.services.audio.audio_listeners import CommandAudioListener, SoundAudioListener
 from vocalance.app.services.audio.audio_processor import AudioProcessor
@@ -87,18 +86,9 @@ class AudioService:
         self._command_listener.set_main_event_loop(self._main_event_loop)
         self._sound_listener.set_main_event_loop(self._main_event_loop)
 
-        self._event_bus.subscribe(event_type=RecordingTriggerEvent, handler=self._handle_recording_trigger)
         self._event_bus.subscribe(event_type=AudioModeChangeRequestEvent, handler=self._handle_audio_mode_change_request)
 
         logger.info("Audio service event subscriptions configured (2 listeners)")
-
-    async def _handle_recording_trigger(self, event: RecordingTriggerEvent) -> None:
-        if event.trigger == "start":
-            logger.info("Start recording command received - recorder already active")
-        elif event.trigger == "stop":
-            logger.info("Stop recording command received - recorder continues running")
-        else:
-            logger.warning(f"Unknown recording trigger: {event.trigger}")
 
     async def _handle_audio_mode_change_request(self, event: AudioModeChangeRequestEvent) -> None:
         logger.info("Audio mode change request: mode=%s reason=%s", event.mode, event.reason)

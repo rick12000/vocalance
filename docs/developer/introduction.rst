@@ -141,13 +141,6 @@ the command using pyautogui:
                command.action_value
            )
 
-       # Publish execution status
-       status_event = CommandExecutedStatusEvent(
-           command=command.__dict__,
-           success=success
-       )
-       await event_bus.publish(status_event)
-
 The mouse click happens here, completing the event flow from microphone to computer action.
 
 The Event Flow

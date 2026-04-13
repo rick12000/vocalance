@@ -10,16 +10,13 @@ from vocalance.app.events.dictation_events import (
     AgenticPromptActionRequest,
     AgenticPromptListUpdatedEvent,
     AgenticPromptUpdatedEvent,
+    DictationSessionEvent,
     DictationStatusChangedEvent,
     FinalDictationTextEvent,
     LLMProcessingCompletedEvent,
     LLMProcessingFailedEvent,
     LLMProcessingStartedEvent,
     PartialDictationTextEvent,
-    SmartDictationStartedEvent,
-    SmartDictationStoppedEvent,
-    VisualDictationStartedEvent,
-    VisualDictationStoppedEvent,
 )
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
@@ -69,10 +66,7 @@ class QtDictationController(QtBaseController):
             self.event_bus.subscribe(AgenticPromptListUpdatedEvent, self._on_prompts_updated)
             self.event_bus.subscribe(AgenticPromptUpdatedEvent, self._on_current_prompt_updated)
             self.event_bus.subscribe(DictationStatusChangedEvent, self._on_dictation_status_changed)
-            self.event_bus.subscribe(SmartDictationStartedEvent, self._on_smart_started)
-            self.event_bus.subscribe(SmartDictationStoppedEvent, self._on_smart_stopped)
-            self.event_bus.subscribe(VisualDictationStartedEvent, self._on_visual_started)
-            self.event_bus.subscribe(VisualDictationStoppedEvent, self._on_visual_stopped)
+            self.event_bus.subscribe(DictationSessionEvent, self._on_dictation_session)
             self.event_bus.subscribe(PartialDictationTextEvent, self._on_partial_text)
             self.event_bus.subscribe(FinalDictationTextEvent, self._on_final_text)
             self.event_bus.subscribe(LLMProcessingStartedEvent, self._on_llm_started)
@@ -98,21 +92,15 @@ class QtDictationController(QtBaseController):
         """Handle dictation status changed event."""
         self.dictation_status_changed.emit(getattr(event, "is_active", False), getattr(event, "mode", "inactive"))
 
-    async def _on_smart_started(self, event: SmartDictationStartedEvent) -> None:
-        """Handle smart/amend dictation started event."""
-        self.dictation_started.emit(event.mode)
-
-    async def _on_smart_stopped(self, event: SmartDictationStoppedEvent) -> None:
-        """Handle smart/amend dictation stopped event."""
-        self.dictation_stopped.emit(event.mode, event.raw_text)
-
-    async def _on_visual_started(self, event):
-        """Handle visual dictation started event."""
-        self.dictation_started.emit("visual")
-
-    async def _on_visual_stopped(self, event):
-        """Handle visual dictation stopped event."""
-        self.dictation_stopped.emit("visual", getattr(event, "accumulated_text", ""))
+    async def _on_dictation_session(self, event: DictationSessionEvent) -> None:
+        """Handle dictation session events."""
+        if event.state == "started":
+            self.dictation_started.emit(event.mode)
+        elif event.state == "stopped":
+            if event.mode in ("smart", "amend"):
+                self.dictation_stopped.emit(event.mode, event.raw_text or "")
+            elif event.mode in ("visual", "hidden"):
+                self.dictation_stopped.emit(event.mode, event.accumulated_text or "")
 
     async def _on_partial_text(self, event):
         """Handle partial dictation text event."""
@@ -250,10 +238,7 @@ class QtDictationController(QtBaseController):
             self.event_bus.unsubscribe(AgenticPromptListUpdatedEvent, self._on_prompts_updated)
             self.event_bus.unsubscribe(AgenticPromptUpdatedEvent, self._on_current_prompt_updated)
             self.event_bus.unsubscribe(DictationStatusChangedEvent, self._on_dictation_status_changed)
-            self.event_bus.unsubscribe(SmartDictationStartedEvent, self._on_smart_started)
-            self.event_bus.unsubscribe(SmartDictationStoppedEvent, self._on_smart_stopped)
-            self.event_bus.unsubscribe(VisualDictationStartedEvent, self._on_visual_started)
-            self.event_bus.unsubscribe(VisualDictationStoppedEvent, self._on_visual_stopped)
+            self.event_bus.unsubscribe(DictationSessionEvent, self._on_dictation_session)
             self.event_bus.unsubscribe(PartialDictationTextEvent, self._on_partial_text)
             self.event_bus.unsubscribe(FinalDictationTextEvent, self._on_final_text)
             self.event_bus.unsubscribe(LLMProcessingStartedEvent, self._on_llm_started)

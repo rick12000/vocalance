@@ -23,7 +23,7 @@ After commands are parsed (see :doc:`command_parsing`), they are routed to execu
        F --> I[Grid Overlay<br/>Cell Click]
        G --> J[PyAutoGUI<br/>Keyboard/Mouse]
 
-       H --> K[CommandExecutedStatusEvent]
+       H --> K[Execution Log]
        I --> K
        J --> K
 
@@ -138,7 +138,7 @@ Displaying the Grid
 
 The grid supports three modes, selected by which show phrase was recognized. Each maps to a ``GridShowCommand`` with a ``click_mode`` of ``"click"``, ``"hover"``, or ``"drag"``. Default phrases are configured on ``GridConfig`` (``show_grid_phrase``, ``hover_grid_phrase``, ``drag_grid_phrase``).
 
-When a ``GridShowCommand`` is handled, the service computes rows and columns, stores ``click_mode`` for the next selection, and publishes ``ShowGridRequestEventData``:
+When a ``GridShowCommand`` is handled, the service computes rows and columns, stores ``click_mode`` for the next selection, and publishes ``GridStateEvent``:
 
 .. code-block:: python
 
@@ -147,7 +147,10 @@ When a ``GridShowCommand`` is handled, the service computes rows and columns, st
        rows, cols = self._calculate_grid_dimensions(num_rects)
        click_mode = command.click_mode  # "click", "hover", or "drag"
 
-       show_event = ShowGridRequestEventData(rows=rows, cols=cols, click_mode=click_mode)
+       show_event = GridStateEvent(
+           state="visible",
+           config={"rows": rows, "cols": cols, "click_mode": click_mode}
+       )
        self.event_publisher.publish(show_event)
        await self._publish_visibility_event(True, rows, cols)
 
@@ -164,7 +167,7 @@ Each show phrase supports an optional cell count (e.g. ``go 100``, ``hover 50``,
 Cell Selection: Click, Hover, and Drag
 ----------------------------------------
 
-Once displayed, a spoken number selects a cell. The service reads the stored ``click_mode`` and publishes ``ClickGridCellRequestEventData``:
+Once displayed, a spoken number selects a cell. The service reads the stored ``click_mode`` and publishes ``GridStateEvent``:
 
 .. code-block:: python
 
@@ -175,9 +178,9 @@ Once displayed, a spoken number selects a cell. The service reads the stored ``c
                return
            click_mode = self._current_click_mode  # From the last GridShowCommand
 
-       click_event = ClickGridCellRequestEventData(
-           cell_label=str(command.selected_number),
-           click_mode=click_mode
+       click_event = GridStateEvent(
+           state="interaction_request",
+           config={"cell_label": str(command.selected_number), "click_mode": click_mode}
        )
        self.event_publisher.publish(click_event)
 
@@ -345,15 +348,15 @@ The service handles various action value formats depending on action type:
 Execution Status and Error Handling
 ====================================
 
-All three services publish ``CommandExecutedStatusEvent`` after each execution:
+All three services log after each execution:
 
 .. code-block:: python
 
-   CommandExecutedStatusEvent(
-       command={"command_type": "MarkExecuteCommand", "label": "home"},
-       success=True,
-       message="Jumped to mark 'home'",
-       source="mark_service"
+   logger.info(
+       "Command status - %s: %s - %s",
+       "MarkExecuteCommand",
+       "SUCCESS",
+       "Jumped to mark 'home'"
    )
 
 These status events flow through the event bus to:

@@ -7,11 +7,10 @@ from typing import Callable, Dict, Optional
 import pyautogui
 
 from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.config.command_types import ActionType, BaseCommand, ParameterizedCommand
+from vocalance.app.config.command_types import ActionType, ParameterizedCommand
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import AutomationCommandParsedEvent
 from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
-from vocalance.app.events.core_events import CommandExecutedStatusEvent
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +78,9 @@ class AutomationService:
         count = getattr(command, "count", 1)
 
         if isinstance(command, ParameterizedCommand) and count <= 0:
-            await self._publish_status(command, event_data.source, False, f"Invalid repeat count: {count}")
             return
 
         if not await self._check_cooldown(command.command_key):
-            await self._publish_status(command, event_data.source, False, f"Command '{command.command_key}' is on cooldown")
             return
 
         success = await self._execute_command(command.action_type, command.action_value, count)
@@ -91,11 +88,6 @@ class AutomationService:
         if success:
             async with self._cooldown_lock:
                 self._cooldown_timers[command.command_key] = time.time()
-
-        count_text = f" {count} times" if count > 1 else ""
-        status = "successfully" if success else "failed"
-        message = f"Command '{command.command_key}' executed{count_text} {status}"
-        await self._publish_status(command, event_data.source, success, message)
 
     async def _execute_command(self, action_type: ActionType, action_value: str, count: int = 1) -> bool:
         """Execute automation action in thread pool.
@@ -242,32 +234,11 @@ class AutomationService:
         cooldown_period = self._app_config.automation_cooldown_seconds
         return current_time - last_execution >= cooldown_period
 
-    async def _publish_status(self, command: BaseCommand, source: Optional[str], success: bool, message: str) -> None:
-        """Publish command execution status event.
-
-        Args:
-            command: Executed command.
-            source: Source of the command.
-            success: Whether execution succeeded.
-            message: Status message.
-        """
-        status_event = CommandExecutedStatusEvent(
-            command={
-                "command_key": command.command_key,
-                "action_type": command.action_type,
-                "action_value": command.action_value,
-            },
-            success=success,
-            message=message,
-            source=source,
-        )
-        await self._event_bus.publish(status_event)
-
-    async def _handle_command_mappings_updated(self, event_data: CommandMappingsUpdatedEvent) -> None:
+    async def _handle_command_mappings_updated(self, _event_data: CommandMappingsUpdatedEvent) -> None:
         """Handle command mappings update by clearing cooldown timers.
 
         Args:
-            event_data: Event containing updated mappings.
+            _event_data: Event containing updated mappings.
         """
         async with self._cooldown_lock:
             self._cooldown_timers.clear()

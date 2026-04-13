@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal
 
 from vocalance.app.config.app_config import GlobalAppConfig, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.settings_events import SettingChangedEvent, SettingsResetEvent, SettingsUpdatedEvent
+from vocalance.app.events.core_events import SettingsChangedEvent
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
@@ -55,39 +55,20 @@ class QtSettingsController(QtBaseController):
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to settings events."""
-        try:
-            self.event_bus.subscribe(SettingsUpdatedEvent, self._handle_settings_updated)
-            self.event_bus.subscribe(SettingChangedEvent, self._handle_setting_changed)
-            self.event_bus.subscribe(SettingsResetEvent, self._handle_settings_reset)
-        except Exception as e:
-            self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
+        self.event_bus.subscribe(
+            event_type=SettingsChangedEvent,
+            handler=self._handle_settings_changed,
+        )
 
-    def _handle_settings_updated(self, event) -> None:
-        """Handle settings updated event."""
+    def _handle_settings_changed(self, event: SettingsChangedEvent) -> None:
+        """Handle settings changed event."""
         try:
-            settings = getattr(event, "settings", {})
-            self._cached_settings = settings
-            self.all_settings_changed.emit(settings)
+            self._cached_settings = event.all_settings
+            self.all_settings_changed.emit(self._cached_settings)
+            for key, value in event.updated_settings.items():
+                self.setting_changed.emit(key, value)
         except Exception as e:
-            self.logger.error(f"Error handling settings updated: {e}", exc_info=True)
-
-    def _handle_setting_changed(self, event) -> None:
-        """Handle individual setting changed event."""
-        try:
-            key = getattr(event, "key", "")
-            value = getattr(event, "value", None)
-            self._cached_settings[key] = value
-            self.setting_changed.emit(key, value)
-        except Exception as e:
-            self.logger.error(f"Error handling setting changed: {e}", exc_info=True)
-
-    def _handle_settings_reset(self, event) -> None:
-        """Handle settings reset event."""
-        try:
-            self.settings_reset.emit()
-            asyncio.ensure_future(self.load_settings_async())
-        except Exception as e:
-            self.logger.error(f"Error handling settings reset: {e}", exc_info=True)
+            self.logger.error(f"Error handling settings changed: {e}", exc_info=True)
 
     async def load_settings_async(self) -> Dict[str, Any]:
         """Load all settings asynchronously and emit them to the view.
@@ -303,11 +284,4 @@ class QtSettingsController(QtBaseController):
 
     def cleanup(self) -> None:
         """Unsubscribe from all events and release resources."""
-        try:
-            self.event_bus.unsubscribe(SettingsUpdatedEvent, self._handle_settings_updated)
-            self.event_bus.unsubscribe(SettingChangedEvent, self._handle_setting_changed)
-            self.event_bus.unsubscribe(SettingsResetEvent, self._handle_settings_reset)
-        except Exception as e:
-            self.logger.warning(f"Error during cleanup: {e}")
-
         super().cleanup()

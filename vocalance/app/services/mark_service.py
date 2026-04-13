@@ -16,7 +16,6 @@ from vocalance.app.config.command_types import (
 )
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import MarkCommandParsedEvent
-from vocalance.app.events.core_events import CommandExecutedStatusEvent
 from vocalance.app.events.mark_events import (
     MarkCreatedEventData,
     MarkCreateRequestEventData,
@@ -109,14 +108,14 @@ class MarkService:
                 logger.warning("MarkService: Mark '%s' does not exist, ignoring execute command", command.label)
                 return
 
-        await self._execute_mark_command(command, source=event_data.source)
+        await self._execute_mark_command(command)
 
     async def _mark_exists(self, label: str) -> bool:
         """Check if a mark with the given label exists using cached lookup."""
         marks_data = await self._storage.read(model_type=MarksData)
         return label.lower().strip() in marks_data.marks
 
-    async def _execute_mark_command(self, command: BaseCommand, source: Optional[str] = None) -> None:
+    async def _execute_mark_command(self, command: BaseCommand) -> None:
         """Execute mark commands (create, execute, delete, visualize, reset).
 
         Processes mark command types through appropriate handlers, performs actions
@@ -124,24 +123,15 @@ class MarkService:
 
         Args:
             command: Parsed mark command to execute
-            source: Command origin (e.g. stt, ui) for status events.
         """
-        success = False
-        message = ""
-        mark_data_for_event: Optional[Dict[str, Any]] = None
-        command_type_name = type(command).__name__
-
         if isinstance(command, MarkCreateCommand):
             ix, iy = int(round(command.x)), int(round(command.y))
             mark_created, create_msg = await self._add_mark(command.label, ix, iy)
             if mark_created:
-                success = True
                 message = f"Mark '{command.label}' created at ({ix}, {iy})."
                 logger.info(message)
-                mark_data_for_event = {"name": command.label, "x": ix, "y": iy}
                 await self._event_bus.publish(MarkCreatedEventData(name=command.label, x=ix, y=iy))
             else:
-                success = False
                 message = f"Failed to create mark '{command.label}': {create_msg}"
                 logger.warning(message)
 
@@ -153,10 +143,8 @@ class MarkService:
                 logger.debug(f"Moving mouse to ({x}, {y}) and clicking for mark '{command.label}'")
                 pyautogui.click(x, y)
 
-                success = True
                 message = f"Navigated to mark '{command.label}' at ({x}, {y}) and clicked."
                 logger.info(message)
-                mark_data_for_event = {"name": command.label, "x": x, "y": y}
 
                 await self._event_bus.publish(
                     MarkOperationSuccessEventData(
@@ -164,20 +152,16 @@ class MarkService:
                     )
                 )
             else:
-                success = False
                 message = f"Mark '{command.label}' not found."
                 logger.warning(message)
 
         elif isinstance(command, MarkDeleteCommand):
             deleted = await self._remove_mark(command.label)
             if deleted:
-                success = True
                 message = f"Mark '{command.label}' deleted."
                 logger.info(message)
-                mark_data_for_event = {"name": command.label}
                 await self._event_bus.publish(MarkDeletedEventData(name=command.label))
             else:
-                success = False
                 message = f"Mark '{command.label}' not found."
                 logger.warning(message)
 
@@ -185,29 +169,23 @@ class MarkService:
             # Publish marks data BEFORE visualizing
             await self._publish_marks_changed_event()
             await self.visualize_marks(True)
-            success = True
             message = "Mark visualization activated."
             logger.info(message)
 
         elif isinstance(command, MarkResetCommand):
             num_cleared = await self._reset_all_marks()
-            success = True
             message = f"All {num_cleared} marks have been reset."
             logger.info(message)
             await self._publish_marks_changed_event()
 
         elif isinstance(command, MarkVisualizeCancelCommand):
             await self.visualize_marks(False)
-            success = True
             message = "Mark visualization cancelled."
             logger.info(message)
 
         else:
-            success = False
             message = f"Unknown mark command: {type(command)}"
             logger.error(message)
-
-        await self._emit_command_status(command_type_name, success, message, mark_data_for_event, source=source)
 
     async def _is_label_valid(self, label: str) -> Tuple[bool, str]:
         """Validate mark label using protected terms validator.
@@ -292,24 +270,6 @@ class MarkService:
 
         return num_cleared
 
-    async def _emit_command_status(
-        self,
-        command_type: str,
-        success: bool,
-        message: str,
-        details: Optional[Dict[str, Any]] = None,
-        source: Optional[str] = None,
-    ) -> None:
-        await self._event_bus.publish(
-            CommandExecutedStatusEvent(
-                command={"command_type": command_type, "details": details or {}},
-                success=success,
-                message=message,
-                source=source or "mark_service",
-            )
-        )
-        logger.debug("Command status - %s: %s - %s", command_type, "SUCCESS" if success else "FAILED", message)
-
     async def _publish_marks_changed_event(self) -> None:
         """Publish marks changed event for UI updates."""
         all_marks = await self.get_all_marks()
@@ -343,7 +303,7 @@ class MarkService:
         logger.debug("MarkService shutdown grace complete")
 
     # UI Event Handlers - simplified with unified storage
-    async def _handle_get_all_request(self, event_data) -> None:
+    async def _handle_get_all_request(self, _event_data) -> None:
         """Handle get all marks request."""
         marks = await self.get_all_marks()
         logger.debug("Mark get-all request: %s marks", len(marks))
@@ -363,7 +323,7 @@ class MarkService:
             await self._publish_marks_changed_event()
         logger.debug(f"Handled delete mark request - {'success' if success else 'failed'}")
 
-    async def _handle_delete_all_request(self, event_data) -> None:
+    async def _handle_delete_all_request(self, _event_data) -> None:
         """Handle delete all marks request."""
         num_cleared = await self._reset_all_marks()
         await self._publish_marks_changed_event()
@@ -382,22 +342,14 @@ class MarkService:
                     operation="execute", label=event_data.name, message=message, marks_data={"x": x, "y": y}
                 )
             )
-            await self._emit_command_status(
-                "MarkExecuteCommand",
-                True,
-                message,
-                {"name": event_data.name, "x": x, "y": y},
-                source="ui",
-            )
         else:
             message = f"Mark '{event_data.name}' not found for execution"
             logger.warning(message)
-            await self._emit_command_status("MarkExecuteCommand", False, message, source="ui")
 
-    async def _handle_visualize_all_request(self, event_data) -> None:
+    async def _handle_visualize_all_request(self, _event_data) -> None:
         """Handle visualize all marks request."""
         await self.visualize_marks(True)
 
-    async def _handle_visualize_cancel_request(self, event_data) -> None:
+    async def _handle_visualize_cancel_request(self, _event_data) -> None:
         """Handle cancel visualization request."""
         await self.visualize_marks(False)

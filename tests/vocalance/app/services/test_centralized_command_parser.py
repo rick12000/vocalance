@@ -16,7 +16,6 @@ from vocalance.app.config.command_types import (
 )
 from vocalance.app.events.command_events import (
     AutomationCommandParsedEvent,
-    CommandNoMatchEvent,
     DictationCommandParsedEvent,
     GridCommandParsedEvent,
     MarkCommandParsedEvent,
@@ -307,26 +306,6 @@ async def test_mark_execute_fallback_for_single_word(command_parser):
     assert len(captured_events) == 1
     assert isinstance(captured_events[0].command, MarkExecuteCommand)
     assert captured_events[0].command.label == "home"
-
-
-@pytest.mark.asyncio
-async def test_no_match_for_unknown_phrase(command_parser):
-    """Test that unknown multi-word phrases produce no match event."""
-    parser = command_parser
-    event_bus = parser._event_bus
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(CommandNoMatchEvent, capture_event)
-
-    event = CommandTextRecognizedEvent(text="unknown command phrase", engine="vosk")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.1)
-
-    assert len(captured_events) == 1
 
 
 @pytest.mark.asyncio

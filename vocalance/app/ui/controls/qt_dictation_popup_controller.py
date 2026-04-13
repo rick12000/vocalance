@@ -3,21 +3,15 @@ import logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import (
     DictationModifierStateChangedEvent,
+    DictationSessionEvent,
     DictationStatusChangedEvent,
     DictationStopWordDetectedEvent,
     FinalDictationTextEvent,
-    HiddenDictationStartedEvent,
-    HiddenDictationStoppedEvent,
     LLMProcessingCompletedEvent,
     LLMProcessingReadyEvent,
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
     PartialDictationTextEvent,
-    SmartDictationStartedEvent,
-    SmartDictationStoppedEvent,
-    SmartDictationTextDisplayEvent,
-    VisualDictationStartedEvent,
-    VisualDictationStoppedEvent,
 )
 from vocalance.app.ui.views.qt_dictation_popup_view import QtDictationPopupView
 
@@ -55,19 +49,11 @@ class QtDictationPopupController:
             self.event_bus.subscribe(DictationStatusChangedEvent, self._on_dictation_status_changed)
 
             # Smart/Visual/Hidden dictation mode lifecycle
-            self.event_bus.subscribe(SmartDictationStartedEvent, self._on_smart_started)
-            self.event_bus.subscribe(SmartDictationStoppedEvent, self._on_smart_stopped)
-            self.event_bus.subscribe(VisualDictationStartedEvent, self._on_visual_started)
-            self.event_bus.subscribe(VisualDictationStoppedEvent, self._on_visual_stopped)
-            self.event_bus.subscribe(HiddenDictationStartedEvent, self._on_hidden_started)
-            self.event_bus.subscribe(HiddenDictationStoppedEvent, self._on_hidden_stopped)
+            self.event_bus.subscribe(DictationSessionEvent, self._on_dictation_session)
 
             # Streaming dictation text events (partial/final for visual/smart modes)
             self.event_bus.subscribe(PartialDictationTextEvent, self._on_partial_text)
             self.event_bus.subscribe(FinalDictationTextEvent, self._on_final_text)
-
-            # Smart dictation text display events
-            self.event_bus.subscribe(SmartDictationTextDisplayEvent, self._on_smart_dictation_text)
 
             # LLM processing events (for smart mode)
             self.event_bus.subscribe(LLMProcessingStartedEvent, self._on_llm_started)
@@ -170,40 +156,30 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling dictation status change: {e}", exc_info=True)
 
-    async def _on_smart_started(self, event: SmartDictationStartedEvent) -> None:
-        """Dual-pane LLM dictation started (smart or amend)."""
+    async def _on_dictation_session(self, event: DictationSessionEvent) -> None:
+        """Handle dictation session start/stop events."""
         mode = event.mode
-        if mode == "amend":
-            self.popup_view.show_amend_dictation()
-        else:
-            self.show_smart_dictation()
+        state = event.state
 
-    async def _on_smart_stopped(self, _event: SmartDictationStoppedEvent) -> None:
-        """Switch dual-pane UI to LLM processing before tokens stream."""
-        self.popup_view.show_llm_processing()
-        self.logger.debug("Dual-pane dictation stopped — LLM processing UI")
-
-    async def _on_visual_started(self, _event: VisualDictationStartedEvent) -> None:
-        """Show the visual dictation popup."""
-        self.show_visual_dictation()
-
-    async def _on_visual_stopped(self, _event: VisualDictationStoppedEvent) -> None:
-        """Hide the popup after visual dictation ends."""
-        self.hide_popup()
-
-    async def _on_hidden_started(self, _event: HiddenDictationStartedEvent) -> None:
-        """Handle hidden dictation started event.
-
-        Shows simple listening popup (sound wave only) for hidden mode,
-        since hidden mode doesn't display streaming text.
-        """
-        self.show_simple_listening()
-        self.logger.debug("Hidden dictation started - showing simple listening popup")
-
-    async def _on_hidden_stopped(self, _event: HiddenDictationStoppedEvent) -> None:
-        """Hide the popup after hidden dictation ends."""
-        self.hide_popup()
-        self.logger.debug("Hidden dictation stopped - hiding popup")
+        if state == "started":
+            if mode == "amend":
+                self.popup_view.show_amend_dictation()
+            elif mode == "smart":
+                self.show_smart_dictation()
+            elif mode == "visual":
+                self.show_visual_dictation()
+            elif mode == "hidden":
+                self.show_simple_listening()
+                self.logger.debug("Hidden dictation started - showing simple listening popup")
+        elif state == "stopped":
+            if mode in ("smart", "amend"):
+                self.popup_view.show_llm_processing()
+                self.logger.debug("Dual-pane dictation stopped — LLM processing UI")
+            elif mode == "visual":
+                self.hide_popup()
+            elif mode == "hidden":
+                self.hide_popup()
+                self.logger.debug("Hidden dictation stopped - hiding popup")
 
     async def _on_partial_text(self, event: PartialDictationTextEvent) -> None:
         """Handle partial dictation text event (gray/tentative text)."""
@@ -230,17 +206,6 @@ class QtDictationPopupController:
                 self.logger.debug(f"Displayed final text: '{text[:30]}...'")
         except Exception as e:
             self.logger.error(f"Error handling final text event: {e}", exc_info=True)
-
-    async def _on_smart_dictation_text(self, event: SmartDictationTextDisplayEvent) -> None:
-        """Append non-streaming dictation text to the popup."""
-        try:
-            text = event.text
-            self.logger.info(f"SMART DICTATION TEXT EVENT: text='{text}'")
-            if text:
-                self.on_dictation_text_recognized(text)
-                self.logger.debug(f"Smart dictation text appended: '{text[:30]}...'")
-        except Exception as e:
-            self.logger.error(f"Error handling smart dictation text: {e}", exc_info=True)
 
     async def _on_llm_started(self, event: LLMProcessingStartedEvent) -> None:
         """Publish LLMProcessingReadyEvent once the popup can accept tokens."""

@@ -100,11 +100,11 @@ Events are ordered in the queue by priority, so a CRITICAL event published after
 Event Type Hierarchy
 ---------------------
 
-Events are organized by functional area. Core audio and recognition events include `CommandAudioSegmentReadyEvent` (command/sound VAD segments), `CommandTextRecognizedEvent` (Vosk), dictation streaming events (`PartialDictationTextEvent`, `FinalDictationTextEvent`, and `DictationTextRecognizedEvent` from Moonshine via the coordinator), `CustomSoundRecognizedEvent`, and `CommandExecutedStatusEvent`.
+Events are organized by functional area. Core audio and recognition events include `CommandAudioSegmentReadyEvent` (command/sound VAD segments), `CommandTextRecognizedEvent` (Vosk), dictation streaming events (`PartialDictationTextEvent`, `FinalDictationTextEvent`, and `DictationTextRecognizedEvent` from Moonshine via the coordinator), and `CustomSoundRecognizedEvent`.
 
-Command events (`AutomationCommandParsedEvent`, `MarkCommandParsedEvent`, etc.) represent parsed commands ready for execution. Dictation events coordinate the dictation workflow: `DictationStatusChangedEvent` indicates active/inactive state, `PartialDictationTextEvent` and `FinalDictationTextEvent` drive streaming UI, and `LLMTokenGeneratedEvent` delivers streaming LLM output for smart and amend (dual-pane) modes. `SmartDictationStartedEvent` / `SmartDictationStoppedEvent` carry ``mode="smart"`` or ``"amend"`` so the UI can branch.
+Command events (`AutomationCommandParsedEvent`, `MarkCommandParsedEvent`, etc.) represent parsed commands ready for execution. Dictation events coordinate the dictation workflow: `DictationStatusChangedEvent` indicates active/inactive state, `PartialDictationTextEvent` and `FinalDictationTextEvent` drive streaming UI, and `LLMTokenGeneratedEvent` delivers streaming LLM output for smart and amend (dual-pane) modes. `DictationSessionEvent` carries ``mode="smart"`` or ``"amend"`` and ``state="started"`` or ``"stopped"`` so the UI can branch.
 
-Management events (`CommandMappingsUpdatedEvent`, `SettingsUpdatedEvent`, etc.) communicate configuration changes and operational state to services that need to adapt their behavior.
+Management events (`CommandMappingsUpdatedEvent`, `SettingsChangedEvent`, etc.) communicate configuration changes and operational state to services that need to adapt their behavior.
 
 Threading Architecture
 ======================

@@ -478,7 +478,7 @@ This streaming provides visual feedback during ~2-5 second LLM processing.
 Amend mode (selection + instructions)
 ======================================
 
-Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Moonshine streaming fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``SmartDictationStartedEvent`` / ``SmartDictationStoppedEvent`` use ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. Streaming modes rely on partial/final dictation events rather than immediate typing from every ``DictationTextRecognizedEvent``.
+Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Moonshine streaming fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``DictationSessionEvent`` uses ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. Streaming modes rely on partial/final dictation events rather than immediate typing from every ``DictationTextRecognizedEvent``.
 
 Type Mode: Raw Insertion
 ==========================
@@ -540,7 +540,7 @@ How It Works
        if mode == DictationMode.HIDDEN:
            await self._start_streaming_mode(mode)
            # No popup window created—accumulation happens silently
-           await self.event_bus.publish(HiddenDictationStartedEvent(...))
+           await self.event_bus.publish(DictationSessionEvent(mode="hidden", state="started"))
 
    async def _handle_dictation_text_recognized(self, event: DictationTextRecognizedEvent):
        if self._current_mode == DictationMode.HIDDEN:
