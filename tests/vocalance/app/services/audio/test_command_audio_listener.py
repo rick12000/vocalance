@@ -52,8 +52,6 @@ async def test_energy_calculation_int16(command_listener):
 
 @pytest.mark.asyncio
 async def test_speech_onset_detection(command_listener, speech_chunk, event_bus):
-    command_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_audio_detected(event):
@@ -70,8 +68,6 @@ async def test_speech_onset_detection(command_listener, speech_chunk, event_bus)
 
 @pytest.mark.asyncio
 async def test_pre_roll_included_in_recording(command_listener, silence_chunk, speech_chunk):
-    command_listener.setup_subscriptions()
-
     for _ in range(command_listener.pre_roll_chunks):
         _feed_chunk(command_listener, silence_chunk)
 
@@ -80,8 +76,6 @@ async def test_pre_roll_included_in_recording(command_listener, silence_chunk, s
 
 @pytest.mark.asyncio
 async def test_silence_detection_ends_recording(command_listener, speech_chunk, silence_chunk, event_bus):
-    command_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_segment(event):
@@ -105,8 +99,6 @@ async def test_silence_detection_ends_recording(command_listener, speech_chunk, 
 
 @pytest.mark.asyncio
 async def test_segment_ready_event_emission(command_listener, speech_chunk, silence_chunk, event_bus):
-    command_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_segment(event):
@@ -133,8 +125,6 @@ async def test_segment_ready_event_emission(command_listener, speech_chunk, sile
 
 @pytest.mark.asyncio
 async def test_maximum_duration_enforced(command_listener, speech_chunk, event_bus):
-    command_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_segment(event):
@@ -153,8 +143,6 @@ async def test_maximum_duration_enforced(command_listener, speech_chunk, event_b
 
 @pytest.mark.asyncio
 async def test_state_reset_after_segment(command_listener, speech_chunk, silence_chunk, event_bus):
-    command_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_segment(event):
@@ -177,8 +165,6 @@ async def test_state_reset_after_segment(command_listener, speech_chunk, silence
 
 @pytest.mark.asyncio
 async def test_audio_detected_event_once_per_session(command_listener, speech_chunk, silence_chunk, event_bus):
-    command_listener.setup_subscriptions()
-
     audio_detected_events = []
 
     async def capture_audio_detected(event):
@@ -204,8 +190,6 @@ async def test_audio_detected_event_once_per_session(command_listener, speech_ch
 
 @pytest.mark.asyncio
 async def test_concurrent_chunk_processing_safe(command_listener, speech_chunk):
-    command_listener.setup_subscriptions()
-
     await asyncio.gather(
         *[asyncio.to_thread(command_listener.process_audio_chunk, speech_chunk.tobytes(), float(i)) for i in range(10)]
     )

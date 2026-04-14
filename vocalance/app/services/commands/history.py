@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import List
@@ -21,19 +20,16 @@ class CommandHistoryManager:
         self._storage = storage
         self._protected_terms_validator = protected_terms_validator
         self._session_history: List[CommandHistoryEntry] = []
-        self._lock = asyncio.Lock()
 
     async def initialize(self) -> bool:
         try:
             history_data = await self._storage.read(model_type=CommandHistoryData)
         except Exception as e:
             logger.debug("No existing command history (starting fresh): %s", e)
-            async with self._lock:
-                self._session_history = []
+            self._session_history = []
             return True
 
-        async with self._lock:
-            self._session_history = list(history_data.history)
+        self._session_history = list(history_data.history)
         logger.debug("Loaded %s commands from history", len(self._session_history))
         return True
 
@@ -43,24 +39,19 @@ class CommandHistoryManager:
             return
 
         entry = CommandHistoryEntry(command=command, timestamp=time.time(), success=None, metadata={"source": source})
-        async with self._lock:
-            self._session_history.append(entry)
+        self._session_history.append(entry)
         logger.debug("Recorded to history: %r (source=%s)", command, source)
 
     async def get_recent_history(self, count: int) -> List[CommandHistoryEntry]:
-        async with self._lock:
-            return list(self._session_history[-count:])
+        return list(self._session_history[-count:])
 
     async def get_full_history(self) -> List[CommandHistoryEntry]:
-        async with self._lock:
-            return list(self._session_history)
+        return list(self._session_history)
 
     async def shutdown(self) -> bool:
-        async with self._lock:
-            if not self._session_history:
-                return True
-            payload = CommandHistoryData(history=self._session_history)
-
+        if not self._session_history:
+            return True
+        payload = CommandHistoryData(history=self._session_history)
         ok = await self._storage.write(data=payload)
         if not ok:
             logger.error("Failed to write command history")

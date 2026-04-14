@@ -1,13 +1,14 @@
+import asyncio
 import logging
 import re
 import threading
-from typing import Dict
+from typing import Dict, Optional
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import DictationAliasListUpdatedEvent
 from vocalance.app.services.storage.storage_models import DictationAliasData
 from vocalance.app.services.storage.storage_service import StorageService
-from vocalance.app.utils.event_utils import ThreadSafeEventPublisher
+from vocalance.app.utils.concurrency import schedule_on_loop
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +30,8 @@ class DictationAliasService:
         self,
         event_bus: EventBus,
         storage: StorageService,
-        event_loop=None,
+        event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
-        """Initialize dictation alias service.
-
-        Args:
-            event_bus: EventBus for pub/sub messaging.
-            storage: Storage service for persistent data.
-            event_loop: Optional asyncio event loop for cross-thread operations.
-        """
         self._event_bus = event_bus
         self._storage = storage
         self._event_loop = event_loop
@@ -45,8 +39,6 @@ class DictationAliasService:
         self._lock = threading.RLock()
         self._aliases: Dict[str, str] = {}
         self._loaded = False
-
-        self._event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=event_loop)
 
         logger.debug("DictationAliasService initialized")
 
@@ -96,11 +88,14 @@ class DictationAliasService:
             return False
 
     def _publish_update(self) -> None:
-        """Publish alias list updated event."""
+        """Schedule alias list updated event onto the asyncio loop."""
         with self._lock:
             aliases_copy = dict(self._aliases)
-        list_update = DictationAliasListUpdatedEvent(aliases=aliases_copy)
-        self._event_publisher.publish(list_update)
+        loop = self._event_loop
+        if loop and not loop.is_closed():
+            schedule_on_loop(loop, self._event_bus.publish(DictationAliasListUpdatedEvent(aliases=aliases_copy)))
+        else:
+            logger.warning("DictationAliasService: no event loop available for _publish_update")
 
     def get_aliases(self) -> Dict[str, str]:
         """Get all aliases (thread-safe copy).

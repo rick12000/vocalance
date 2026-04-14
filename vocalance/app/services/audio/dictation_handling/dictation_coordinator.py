@@ -30,7 +30,6 @@ from vocalance.app.events.base_event import BaseEvent
 from vocalance.app.events.command_events import DictationCommandParsedEvent
 from vocalance.app.events.core_events import DictationTextRecognizedEvent
 from vocalance.app.events.dictation_events import (
-    AudioModeChangeRequestEvent,
     DictationModeDisableOthersEvent,
     DictationModifierId,
     DictationModifierPhraseEvent,
@@ -54,8 +53,9 @@ from vocalance.app.services.audio.dictation_handling.dictation_postprocess impor
 from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
 from vocalance.app.services.audio.dictation_handling.text_input_service import TextInputService, remove_formatting
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_service import StorageService
-from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
+from vocalance.app.utils.concurrency import SubscriptionTracker
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class LLMSession:
     clipboard_text: Optional[str] = None
 
 
-class DictationCoordinator:
+class DictationCoordinator(Service):
     """Owns dictation modes, Moonshine streaming, modifiers, LLM and paste/typing paths (``RLock`` on state)."""
 
     def __init__(
@@ -170,10 +170,16 @@ class DictationCoordinator:
         self._moonshine_ingress_epoch: int = 0
         self._moonshine_suppress_until: float = 0.0
 
-        self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus, event_loop=gui_event_loop)
-        self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="DictationCoordinator")
+        self._subs = SubscriptionTracker(event_bus=event_bus)
 
-        logger.debug("DictationCoordinator initialized with production-ready threading")
+        self._subs.subscribe(DictationTextRecognizedEvent, self._handle_dictation_text)
+        self._subs.subscribe(LLMProcessingCompletedEvent, self._handle_llm_completed)
+        self._subs.subscribe(LLMProcessingFailedEvent, self._handle_llm_failed)
+        self._subs.subscribe(DictationCommandParsedEvent, self._handle_dictation_command)
+        self._subs.subscribe(LLMProcessingReadyEvent, self._handle_llm_processing_ready)
+        self._subs.subscribe(DictationModifierPhraseEvent, self._handle_dictation_modifier_phrase)
+
+        logger.debug("DictationCoordinator initialized")
 
     @property
     def active_mode(self) -> DictationMode:
@@ -266,11 +272,6 @@ class DictationCoordinator:
         except Exception as e:
             logger.error("Moonshine ingress feed error: %s", e, exc_info=True)
 
-    def _get_state(self) -> DictationState:
-        """Thread-safe state getter"""
-        with self._state_lock:
-            return self._current_state
-
     def _set_state(self, new_state: DictationState) -> None:
         """Thread-safe state setter with validation.
 
@@ -319,7 +320,6 @@ class DictationCoordinator:
                 logger.error("Service initialization failed")
                 return False
 
-            self.agentic_service.setup_subscriptions()
             logger.info("Dictation coordinator initialized successfully")
             return True
 
@@ -327,26 +327,14 @@ class DictationCoordinator:
             logger.error(f"Initialization error: {e}", exc_info=True)
             return False
 
-    def setup_subscriptions(self) -> None:
-        """Set up event subscriptions for dictation coordinator.
+    # Typed accessors for UI layer — hides internal collaborator decomposition
+    @property
+    def prompts(self) -> AgenticPromptService:
+        return self.agentic_service
 
-        Subscribes to dictation text, command parsed events, LLM events,
-        audio chunks for streaming, and agentic prompt ready events for
-        comprehensive dictation workflow management.
-        """
-        subscriptions = [
-            (DictationTextRecognizedEvent, self._handle_dictation_text),
-            (LLMProcessingCompletedEvent, self._handle_llm_completed),
-            (LLMProcessingFailedEvent, self._handle_llm_failed),
-            (DictationCommandParsedEvent, self._handle_dictation_command),
-            (LLMProcessingReadyEvent, self._handle_llm_processing_ready),
-            (DictationModifierPhraseEvent, self._handle_dictation_modifier_phrase),
-        ]
-
-        for event_type, handler in subscriptions:
-            self.subscription_manager.subscribe(event_type, handler)
-
-        logger.info("Event subscriptions configured")
+    @property
+    def aliases(self) -> DictationAliasService:
+        return self.alias_service
 
     async def _handle_dictation_modifier_phrase(self, modifier_phrase: DictationModifierPhraseEvent) -> None:
         """Apply a Vosk-side modifier phrase: toggle off if repeated, else switch, publish UI state, suppress Moonshine."""
@@ -496,7 +484,7 @@ class DictationCoordinator:
                 session_id=session.session_id,
                 mode=session.mode,
                 start_time=session.start_time,
-                accumulated_text=self._append_text(session.accumulated_text, cleaned_text),
+                accumulated_text=(f"{session.accumulated_text} {cleaned_text}" if session.accumulated_text else cleaned_text),
                 last_text_time=time.time() if session.mode == DictationMode.TYPE else None,
                 is_first_segment=False,
                 active_modifiers=session.active_modifiers,
@@ -554,7 +542,6 @@ class DictationCoordinator:
         """Handle LLM failure - reset state and cleanup"""
         logger.warning(f"LLM processing failed: {llm_failure.error_message}")
         await self._cleanup_llm_session()
-        self._publish_error("LLM processing failed")
 
     async def _handle_dictation_command(self, parsed_dictation: DictationCommandParsedEvent) -> None:
         """Handle dictation commands"""
@@ -583,14 +570,13 @@ class DictationCoordinator:
         loop = asyncio.get_event_loop()
         captured = await loop.run_in_executor(None, self.text_service.capture_selection_via_copy)
         if not captured or not captured.strip():
-            logger.warning("Amend mode: no text captured from foreground selection")
-            self._publish_error("Amend: no text captured — keep focus on the app with the selection")
+            logger.warning("Amend mode: no text captured — keep focus on the app with the selection")
             return
         with self._state_lock:
             self._amend_clipboard_snapshot = captured.strip()
         await self._start_session(DictationMode.AMEND)
 
-    def _handle_llm_processing_ready(self, llm_ready: LLMProcessingReadyEvent) -> None:
+    async def _handle_llm_processing_ready(self, llm_ready: LLMProcessingReadyEvent) -> None:
         """Handle LLM processing ready signal from UI"""
         try:
             with self._state_lock:
@@ -801,8 +787,6 @@ class DictationCoordinator:
             if session.mode in _STREAMING_LLM_MODES and final_text and self._pending_llm_session:
                 await self._publish_modifier_cleared()
                 dual = "amend" if session.mode is DictationMode.AMEND else "smart"
-                reason = "Amend mode LLM processing" if dual == "amend" else "Smart dictation processing"
-                await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason=reason))
                 await self._publish_event(DictationSessionEvent(mode=dual, state="stopped", raw_text=final_text))
                 await self._publish_event(
                     LLMProcessingStartedEvent(
@@ -918,7 +902,6 @@ class DictationCoordinator:
                 )
                 self._set_state(DictationState.RECORDING)
 
-            await self._publish_event(AudioModeChangeRequestEvent(mode="dictation", reason=f"{mode.value} mode activated"))
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=mode.value))
 
             if initial_modifiers:
@@ -1002,37 +985,19 @@ class DictationCoordinator:
                 self._set_state(DictationState.IDLE)
 
     async def _start_llm_processing(self, llm_session: LLMSession) -> None:
-        """Actually start the LLM processing after UI is ready"""
+        """Start LLM inference after the UI signals ready."""
         try:
-            if hasattr(self.llm_service, "process_dictation_streaming"):
-                logger.info("Starting LLM streaming processing...")
-
-                if llm_session.clipboard_text is not None:
-                    await self.llm_service.process_amend_streaming(
-                        llm_session.clipboard_text,
-                        llm_session.raw_text,
-                        llm_session.agentic_prompt,
-                        token_callback=self._stream_token,
-                    )
-                else:
-                    await self.llm_service.process_dictation_streaming(
-                        llm_session.raw_text, llm_session.agentic_prompt, token_callback=self._stream_token
-                    )
-
-                logger.info("LLM streaming processing completed")
+            if llm_session.clipboard_text is not None:
+                await self.llm_service.process_amend_streaming(
+                    llm_session.clipboard_text,
+                    llm_session.raw_text,
+                    llm_session.agentic_prompt,
+                    token_callback=self._stream_token,
+                )
             else:
-                logger.info("Starting LLM non-streaming processing...")
-                if llm_session.clipboard_text is not None:
-                    await self.llm_service.process_amend_streaming(
-                        llm_session.clipboard_text,
-                        llm_session.raw_text,
-                        llm_session.agentic_prompt,
-                        None,
-                    )
-                else:
-                    await self.llm_service.process_dictation(llm_session.raw_text, llm_session.agentic_prompt)
-                logger.info("LLM non-streaming processing completed")
-
+                await self.llm_service.process_dictation_streaming(
+                    llm_session.raw_text, llm_session.agentic_prompt, token_callback=self._stream_token
+                )
         except Exception as e:
             logger.error(f"LLM processing error: {e}", exc_info=True)
 
@@ -1053,8 +1018,6 @@ class DictationCoordinator:
     async def _end_smart_session(self) -> None:
         """End smart dictation session"""
         try:
-            await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Smart dictation completed"))
-
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive"))
 
             await self._publish_status(False, DictationMode.INACTIVE)
@@ -1066,8 +1029,6 @@ class DictationCoordinator:
         """Finalize non-smart session"""
         try:
             await self._publish_modifier_cleared()
-            await self._publish_event(AudioModeChangeRequestEvent(mode="command", reason="Dictation stopped"))
-
             await self._publish_event(DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive"))
 
             await self._publish_status(False, DictationMode.INACTIVE)
@@ -1122,14 +1083,6 @@ class DictationCoordinator:
         )
         return self._strip_config_phrases_case_insensitive(s, modifier_phrases)
 
-    def _append_text(self, existing: str, new_text: str) -> str:
-        """Append text with proper spacing"""
-        if not existing:
-            return new_text
-        if not new_text:
-            return existing
-        return f"{existing} {new_text}"
-
     async def _publish_event(self, published_event: BaseEvent) -> None:
         """Publish event with error handling"""
         try:
@@ -1138,24 +1091,14 @@ class DictationCoordinator:
             logger.error(f"Event publishing error: {e}", exc_info=True)
 
     async def _publish_status(self, is_active: bool, mode: DictationMode) -> None:
-        """Publish status change event"""
-        try:
-            status_event = DictationStatusChangedEvent(
+        await self._publish_event(
+            DictationStatusChangedEvent(
                 is_active=is_active,
                 mode=mode.value,
                 show_ui=is_active,
                 stop_command=self.config.dictation.stop_trigger if is_active else None,
             )
-            await self._publish_event(status_event)
-        except Exception as e:
-            logger.error(f"Status publishing error: {e}", exc_info=True)
-
-    def _publish_error(self, message: str) -> None:
-        """Log error message"""
-        try:
-            logger.error(f"Dictation error: {message}")
-        except Exception as e:
-            logger.error(f"Error logging error: {e}", exc_info=True)
+        )
 
     async def shutdown(self) -> None:
         """Shutdown coordinator with proper resource cleanup"""

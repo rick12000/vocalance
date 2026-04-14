@@ -6,11 +6,7 @@ from typing import Dict, List, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.dictation_events import (
-    AgenticPromptActionRequest,
-    AgenticPromptListUpdatedEvent,
-    AgenticPromptUpdatedEvent,
-)
+from vocalance.app.events.dictation_events import AgenticPromptListUpdatedEvent, AgenticPromptUpdatedEvent
 from vocalance.app.services.storage.storage_models import AgenticPrompt, AgenticPromptsData
 from vocalance.app.services.storage.storage_service import StorageService
 
@@ -158,22 +154,3 @@ class AgenticPromptService:
 
     async def shutdown(self) -> None:
         await self._save_prompts()
-
-    def setup_subscriptions(self) -> None:
-        self.event_bus.subscribe(event_type=AgenticPromptActionRequest, handler=self._handle_agentic_prompt_action)
-
-    async def _handle_agentic_prompt_action(self, action_request: AgenticPromptActionRequest) -> None:
-        action = action_request.action
-        if action == "add_prompt" and action_request.name and action_request.text:
-            await self.add_prompt(action_request.text, action_request.name)
-        elif action == "delete_prompt" and action_request.prompt_id:
-            await self.delete_prompt(action_request.prompt_id)
-        elif action == "edit_prompt" and action_request.prompt_id and action_request.name and action_request.text:
-            await self.edit_prompt(action_request.prompt_id, action_request.name, action_request.text)
-        elif action == "set_current_prompt" and action_request.prompt_id:
-            self.set_current_prompt(action_request.prompt_id)
-        elif action == "get_prompts":
-            pass
-        else:
-            logger.warning("Unhandled agentic prompt action: %s", action)
-        await self._publish_state()

@@ -11,13 +11,14 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDetectedEvent, MarkovPredictionEvent, MarkovPredictionFeedbackEvent
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
 from vocalance.app.services.storage.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
 
-class MarkovCommandService:
+class MarkovCommandService(Service):
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
         self._event_bus = event_bus
         self._config = config
@@ -36,6 +37,10 @@ class MarkovCommandService:
         self._cooldown_remaining = 0
         self._dictation_active = False
 
+        event_bus.subscribe(AudioDetectedEvent, self._handle_audio_detected_fast_track)
+        event_bus.subscribe(MarkovPredictionFeedbackEvent, self._handle_prediction_feedback)
+        event_bus.subscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)
+
     async def initialize(self) -> bool:
         try:
             await self._train_model()
@@ -44,11 +49,6 @@ class MarkovCommandService:
         except Exception as e:
             logger.error("Failed to initialize predictor: %s", e, exc_info=True)
             return False
-
-    def setup_subscriptions(self) -> None:
-        self._event_bus.subscribe(event_type=AudioDetectedEvent, handler=self._handle_audio_detected_fast_track)
-        self._event_bus.subscribe(event_type=MarkovPredictionFeedbackEvent, handler=self._handle_prediction_feedback)
-        self._event_bus.subscribe(event_type=DictationModeDisableOthersEvent, handler=self._handle_dictation_mode_change)
 
     async def _train_model(self) -> None:
         for order in range(self._markov_config.min_order, self._markov_config.max_order + 1):
@@ -98,7 +98,7 @@ class MarkovCommandService:
             filtered = filtered[-commands_window:]
         return filtered
 
-    def _handle_dictation_mode_change(self, dictation_mode_change: DictationModeDisableOthersEvent) -> None:
+    async def _handle_dictation_mode_change(self, dictation_mode_change: DictationModeDisableOthersEvent) -> None:
         prev = self._dictation_active
         self._dictation_active = dictation_mode_change.dictation_mode_active
         if prev != self._dictation_active:
@@ -139,7 +139,7 @@ class MarkovCommandService:
         except Exception as e:
             logger.error("Error in Markov prediction handler: %s", e, exc_info=True)
 
-    def _handle_prediction_feedback(self, feedback: MarkovPredictionFeedbackEvent) -> None:
+    async def _handle_prediction_feedback(self, feedback: MarkovPredictionFeedbackEvent) -> None:
         actual = feedback.actual_command
         if feedback.predicted_command != actual and feedback.was_correct is False:
             logger.warning(
@@ -188,5 +188,7 @@ class MarkovCommandService:
     def on_confidence_threshold_updated(self, threshold: float) -> None:
         self._markov_config.confidence_threshold = threshold
 
-    def shutdown(self) -> None:
-        logger.debug("Markov predictor shutdown")
+    async def shutdown(self) -> None:
+        self._event_bus.unsubscribe(AudioDetectedEvent, self._handle_audio_detected_fast_track)
+        self._event_bus.unsubscribe(MarkovPredictionFeedbackEvent, self._handle_prediction_feedback)
+        self._event_bus.unsubscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)

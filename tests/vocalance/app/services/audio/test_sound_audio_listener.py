@@ -20,7 +20,7 @@ def _feed_chunk(listener: SoundAudioListener, chunk: np.ndarray, timestamp: floa
 @pytest_asyncio.fixture
 async def sound_listener(event_bus, app_config):
     listener = SoundAudioListener(event_bus, app_config)
-    listener.set_main_event_loop(asyncio.get_running_loop())
+    listener.setup_subscriptions()
     return listener
 
 
@@ -38,8 +38,6 @@ def silence_chunk():
 
 @pytest.mark.asyncio
 async def test_sound_onset_detection_triggers_recording(sound_listener, sound_chunk):
-    sound_listener.setup_subscriptions()
-
     _feed_chunk(sound_listener, sound_chunk)
 
     with sound_listener._vad_lock:
@@ -48,8 +46,6 @@ async def test_sound_onset_detection_triggers_recording(sound_listener, sound_ch
 
 @pytest.mark.asyncio
 async def test_sound_segment_creation_and_emission(sound_listener, sound_chunk, silence_chunk, event_bus):
-    sound_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_sound_event(event):
@@ -75,8 +71,6 @@ async def test_sound_segment_creation_and_emission(sound_listener, sound_chunk, 
 
 @pytest.mark.asyncio
 async def test_maximum_duration_enforced(sound_listener, sound_chunk, event_bus):
-    sound_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_sound_event(event):
@@ -95,8 +89,6 @@ async def test_maximum_duration_enforced(sound_listener, sound_chunk, event_bus)
 
 @pytest.mark.asyncio
 async def test_dictation_mode_disables_and_reenables_sound_processing(sound_listener, sound_chunk, silence_chunk, event_bus):
-    sound_listener.setup_subscriptions()
-
     captured_events = []
 
     async def capture_sound_event(event):
@@ -105,7 +97,7 @@ async def test_dictation_mode_disables_and_reenables_sound_processing(sound_list
     event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, capture_sound_event)
 
     dictation_event = DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard")
-    sound_listener._handle_dictation_mode_change(dictation_event)
+    await sound_listener._handle_dictation_mode_change(dictation_event)
 
     for _ in range(5):
         _feed_chunk(sound_listener, sound_chunk)
@@ -115,7 +107,7 @@ async def test_dictation_mode_disables_and_reenables_sound_processing(sound_list
     assert sound_listener._dictation_active
 
     dictation_event = DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")
-    sound_listener._handle_dictation_mode_change(dictation_event)
+    await sound_listener._handle_dictation_mode_change(dictation_event)
 
     for _ in range(5):
         _feed_chunk(sound_listener, sound_chunk)

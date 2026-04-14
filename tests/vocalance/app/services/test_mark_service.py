@@ -6,7 +6,7 @@ import pytest_asyncio
 
 from vocalance.app.config.command_types import MarkCreateCommand
 from vocalance.app.events.command_events import MarkCommandParsedEvent
-from vocalance.app.events.mark_events import MarkCreatedEventData
+from vocalance.app.events.mark_events import MarksChangedEventData
 from vocalance.app.services.mark_service import MarkService
 
 
@@ -19,8 +19,6 @@ async def mark_service(event_bus, app_config, mock_storage_service, mock_protect
         storage=mock_storage_service,
         protected_terms_validator=mock_protected_terms_validator,
     )
-    service.setup_subscriptions()
-
     yield service
 
 
@@ -36,17 +34,17 @@ async def test_mark_create_command(mock_move, mark_service):
     async def capture_event(event):
         captured_events.append(event)
 
-    event_bus.subscribe(MarkCreatedEventData, capture_event)
+    event_bus.subscribe(MarksChangedEventData, capture_event)
 
     command = MarkCreateCommand(label="home", x=100.0, y=200.0)
     event = MarkCommandParsedEvent(command=command, source="speech")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    created_events = [e for e in captured_events if isinstance(e, MarkCreatedEventData)]
+    changed_events = [e for e in captured_events if isinstance(e, MarksChangedEventData)]
 
-    assert len(created_events) == 1
-    assert created_events[0].name == "home"
+    assert len(changed_events) == 1
+    assert "home" in changed_events[0].marks
 
 
 @pytest.mark.asyncio
@@ -63,7 +61,7 @@ async def test_reserved_label_rejection(mark_service, mock_protected_terms_valid
     async def capture_event(event):
         captured_events.append(event)
 
-    event_bus.subscribe(MarkCreatedEventData, capture_event)
+    event_bus.subscribe(MarksChangedEventData, capture_event)
 
     command = MarkCreateCommand(label="show grid", x=100.0, y=200.0)
     event = MarkCommandParsedEvent(command=command, source="speech")

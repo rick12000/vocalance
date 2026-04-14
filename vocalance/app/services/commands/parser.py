@@ -48,11 +48,8 @@ from vocalance.app.events.core_events import (
     MarkovPredictionEvent,
     MarkovPredictionFeedbackEvent,
 )
-from vocalance.app.events.sound_events import (
-    RequestSoundMappingsEvent,
-    SoundMappingsResponseEvent,
-    SoundToCommandMappingUpdatedEvent,
-)
+from vocalance.app.events.sound_events import SoundMappingsResponseEvent, SoundToCommandMappingUpdatedEvent
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
 from vocalance.app.services.commands.history import CommandHistoryManager
 from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
@@ -84,7 +81,7 @@ _PARSED_EVENT_BY_COMMAND: Dict[type, Any] = {
 }
 
 
-class CentralizedCommandParser:
+class CentralizedCommandParser(Service):
     """Ordered parse pipeline (system → dictation → marks → grid → automation → mark click)."""
 
     def __init__(
@@ -106,6 +103,12 @@ class CentralizedCommandParser:
         self._load_trigger_strings()
         self._deduplicator = deduplicator or EventDeduplicator(window_ms=app_config.command_parser.duplicate_detection_window_ms)
 
+        event_bus.subscribe(CommandTextRecognizedEvent, self._handle_command_text_recognized)
+        event_bus.subscribe(CustomSoundRecognizedEvent, self._handle_custom_sound_recognized)
+        event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated)
+        event_bus.subscribe(SoundMappingsResponseEvent, self._handle_sound_mappings_response)
+        event_bus.subscribe(MarkovPredictionEvent, self._handle_markov_prediction)
+
     def _load_trigger_strings(self) -> None:
         g = self._app_config.grid
         self._grid_show_phrase = g.show_grid_phrase.lower()
@@ -126,20 +129,8 @@ class CentralizedCommandParser:
         self._dictation_hidden_trigger = d.hidden_start_trigger.lower()
         self._dictation_amend_trigger = d.amend_start_trigger.lower()
 
-    def setup_subscriptions(self) -> None:
-        pairs = [
-            (CommandTextRecognizedEvent, self._handle_command_text_recognized),
-            (CustomSoundRecognizedEvent, self._handle_custom_sound_recognized),
-            (SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated),
-            (SoundMappingsResponseEvent, self._handle_sound_mappings_response),
-            (MarkovPredictionEvent, self._handle_markov_prediction),
-        ]
-        for event_type, handler in pairs:
-            self._event_bus.subscribe(event_type=event_type, handler=handler)
-
     async def initialize(self) -> bool:
         try:
-            await self._event_bus.publish(RequestSoundMappingsEvent())
             await self._history_manager.initialize()
             return True
         except Exception as e:
@@ -147,6 +138,14 @@ class CentralizedCommandParser:
             return False
 
     async def shutdown(self) -> None:
+        for event_type, handler in [
+            (CommandTextRecognizedEvent, self._handle_command_text_recognized),
+            (CustomSoundRecognizedEvent, self._handle_custom_sound_recognized),
+            (SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated),
+            (SoundMappingsResponseEvent, self._handle_sound_mappings_response),
+            (MarkovPredictionEvent, self._handle_markov_prediction),
+        ]:
+            self._event_bus.unsubscribe(event_type, handler)
         await self._history_manager.shutdown()
 
     async def _process_text_input(self, text: str, source: Optional[str] = None, *, record_history: bool = False) -> None:
@@ -158,7 +157,7 @@ class CentralizedCommandParser:
 
         if isinstance(parsed, BaseCommand):
             if self._pause_state_manager and not isinstance(parsed, ResumeCommand):
-                if await self._pause_state_manager.is_paused():
+                if self._pause_state_manager.is_paused():
                     logger.debug("Application paused — ignoring command: %s", text)
                     return
 
@@ -368,10 +367,10 @@ class CentralizedCommandParser:
         await self._send_markov_feedback(predicted=None, actual=phrase, was_correct=True, source="sound")
         await self._process_text_input(text=phrase, source="sound", record_history=True)
 
-    def _handle_sound_mapping_updated(self, mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
+    async def _handle_sound_mapping_updated(self, mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
         self._sound_to_command_mapping[mapping_update.sound_label] = mapping_update.command_phrase
 
-    def _handle_sound_mappings_response(self, mappings_snapshot: SoundMappingsResponseEvent) -> None:
+    async def _handle_sound_mappings_response(self, mappings_snapshot: SoundMappingsResponseEvent) -> None:
         self._sound_to_command_mapping = mappings_snapshot.mappings
 
     async def _handle_markov_prediction(self, prediction: MarkovPredictionEvent) -> None:

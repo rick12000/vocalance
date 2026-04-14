@@ -75,7 +75,7 @@ async def test_audio_chunk_recognition(sound_service, mock_recognizer, mock_even
     event_data.audio_chunk = np.array([1000, -2000], dtype=np.int16).tobytes()
     event_data.sample_rate = 16000
 
-    await sound_service._process_audio_chunk(event_data)
+    await sound_service._handle_audio_chunk(event_data)
 
     # Should have called recognize_sound
     mock_recognizer.recognize_sound.assert_called_once()
@@ -103,7 +103,7 @@ async def test_audio_chunk_no_recognition(sound_service, mock_recognizer, mock_e
     event_data.audio_chunk = np.array([1000, -2000], dtype=np.int16).tobytes()
     event_data.sample_rate = 16000
 
-    await sound_service._process_audio_chunk(event_data)
+    await sound_service._handle_audio_chunk(event_data)
 
     # Should not publish any event
     mock_event_bus.publish.assert_not_called()
@@ -122,7 +122,7 @@ async def test_esc50_sounds_ignored(sound_service, mock_recognizer, mock_event_b
     event_data.audio_chunk = np.array([1000, -2000], dtype=np.int16).tobytes()
     event_data.sample_rate = 16000
 
-    await sound_service._process_audio_chunk(event_data)
+    await sound_service._handle_audio_chunk(event_data)
 
     # Should not publish any event for ESC-50 sounds
     mock_event_bus.publish.assert_not_called()

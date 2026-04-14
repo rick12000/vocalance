@@ -63,7 +63,6 @@ async def coordinator(mock_event_bus, mock_storage, app_config):
         coord.llm_service.initialize = AsyncMock(return_value=True)
         coord.agentic_service = Mock()
         coord.agentic_service.initialize = AsyncMock(return_value=True)
-        coord.agentic_service.setup_subscriptions = Mock()
         coord.alias_service = Mock()
         coord.alias_service.initialize = AsyncMock(return_value=True)
 
@@ -174,11 +173,12 @@ async def test_llm_session_creation(coordinator):
 
 @pytest.mark.asyncio
 async def test_thread_safe_state_getter(coordinator):
-    """Test that state getter uses lock."""
+    """Test that state is readable under the lock."""
     with coordinator._state_lock:
         coordinator._current_state = DictationState.RECORDING
 
-    state = coordinator._get_state()
+    with coordinator._state_lock:
+        state = coordinator._current_state
     assert state == DictationState.RECORDING
 
 
@@ -235,9 +235,9 @@ async def test_state_machine_valid_all_paths(coordinator):
 @pytest.mark.asyncio
 async def test_concurrent_state_access(coordinator):
     """Test thread-safe concurrent state access."""
-    # Simulate concurrent reads
     for _ in range(10):
-        state = coordinator._get_state()
+        with coordinator._state_lock:
+            state = coordinator._current_state
         assert isinstance(state, DictationState)
 
 
@@ -258,12 +258,13 @@ async def test_dictation_session_immutability_principles(coordinator):
 
 @pytest.mark.asyncio
 async def test_get_state_returns_copy_of_state(coordinator):
-    """Test that _get_state returns actual state value."""
+    """Test that state reads are consistent under the lock."""
     with coordinator._state_lock:
         coordinator._set_state(DictationState.RECORDING)
 
-    state1 = coordinator._get_state()
-    state2 = coordinator._get_state()
+    with coordinator._state_lock:
+        state1 = coordinator._current_state
+        state2 = coordinator._current_state
 
     assert state1 == state2
     assert state1 == DictationState.RECORDING
@@ -284,7 +285,6 @@ async def test_initialization_with_all_services(mock_event_bus, mock_storage, ap
         mock_text.return_value.initialize = AsyncMock(return_value=True)
         mock_llm.return_value.initialize = AsyncMock(return_value=True)
         mock_agentic.return_value.initialize = AsyncMock(return_value=True)
-        mock_agentic.return_value.setup_subscriptions = Mock()
         mock_alias.return_value.initialize = AsyncMock(return_value=True)
 
         coord = DictationCoordinator(

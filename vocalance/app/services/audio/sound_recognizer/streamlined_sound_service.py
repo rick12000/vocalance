@@ -9,13 +9,6 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import CustomSoundRecognizedEvent, ProcessAudioChunkForSoundRecognitionEvent
 from vocalance.app.events.sound_events import (
-    AllSoundsResetEvent,
-    DeleteSoundCommand,
-    MapSoundToCommandPhraseCommand,
-    RequestSoundListEvent,
-    RequestSoundMappingsEvent,
-    ResetAllSoundsCommand,
-    SoundDeletedEvent,
     SoundListUpdatedEvent,
     SoundMappingsResponseEvent,
     SoundToCommandMappingUpdatedEvent,
@@ -23,16 +16,16 @@ from vocalance.app.events.sound_events import (
     SoundTrainingFailedEvent,
     SoundTrainingInitiatedEvent,
     SoundTrainingProgressEvent,
-    SoundTrainingRequestEvent,
 )
 from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
 
-class SoundService:
-    """Sound recognition, training, and sound→command mappings (event-driven, thread-safe training state)."""
+class SoundService(Service):
+    """Sound recognition, training, and sound→command mappings (thread-safe training state)."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
         self.event_bus = event_bus
@@ -47,37 +40,7 @@ class SoundService:
         self._training_samples = []
         self._target_samples = 0
 
-        self._shutdown_event = asyncio.Event()
-
-    def setup_subscriptions(self) -> None:
-        self.event_bus.subscribe(
-            event_type=ProcessAudioChunkForSoundRecognitionEvent,
-            handler=self._handle_audio_chunk,
-        )
-        self.event_bus.subscribe(
-            event_type=SoundTrainingRequestEvent,
-            handler=self._handle_training_request,
-        )
-        self.event_bus.subscribe(
-            event_type=RequestSoundListEvent,
-            handler=self._handle_sound_list_request,
-        )
-        self.event_bus.subscribe(
-            event_type=RequestSoundMappingsEvent,
-            handler=self._handle_mappings_request,
-        )
-        self.event_bus.subscribe(
-            event_type=DeleteSoundCommand,
-            handler=self._handle_delete_sound,
-        )
-        self.event_bus.subscribe(
-            event_type=ResetAllSoundsCommand,
-            handler=self._handle_reset_all_sounds,
-        )
-        self.event_bus.subscribe(
-            event_type=MapSoundToCommandPhraseCommand,
-            handler=self._handle_map_sound_command,
-        )
+        event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
 
     async def initialize(self) -> bool:
         try:
@@ -85,6 +48,7 @@ class SoundService:
             self.is_initialized = await self.recognizer.initialize()
             if self.is_initialized:
                 logger.info("SoundService initialized successfully")
+                await self._publish_mappings()
             else:
                 logger.error("Failed to initialize SoundService - recognizer initialization failed")
             return self.is_initialized
@@ -92,20 +56,23 @@ class SoundService:
             logger.error(f"Error initializing SoundService: {e}", exc_info=True)
             return False
 
-    def _handle_audio_chunk(self, audio_chunk: ProcessAudioChunkForSoundRecognitionEvent) -> None:
-        if not self.is_initialized:
-            return
+    def get_sound_list(self) -> list:
+        return list(self.recognizer.get_stats().get("trained_sounds", {}).keys())
 
-        asyncio.create_task(self._process_audio_chunk(audio_chunk))
+    def get_sound_mappings(self) -> dict:
+        return self.recognizer.get_stats().get("sound_mappings", {})
 
-    async def _process_audio_chunk(self, audio_chunk: ProcessAudioChunkForSoundRecognitionEvent) -> None:
+    async def _publish_mappings(self) -> None:
+        await self.event_bus.publish(SoundMappingsResponseEvent(mappings=self.get_sound_mappings()))
+        await self.event_bus.publish(SoundListUpdatedEvent(sounds=self.get_sound_list()))
+
+    async def _handle_audio_chunk(self, audio_chunk: ProcessAudioChunkForSoundRecognitionEvent) -> None:
         try:
             audio_float32 = self._preprocess_audio_chunk(audio_bytes=audio_chunk.audio_chunk)
             sample_rate = audio_chunk.sample_rate
 
             with self._training_lock:
                 training_active = self._training_active
-                self._current_training_label
 
             if training_active:
                 await self._collect_training_sample(audio=audio_float32, sample_rate=sample_rate)
@@ -118,14 +85,13 @@ class SoundService:
                 sound_label, confidence = result
                 if not sound_label.startswith("esc50_"):
                     command = self.recognizer.get_mapping(sound_label=sound_label)
-
-                    recognition_event = CustomSoundRecognizedEvent(
-                        label=sound_label,
-                        confidence=confidence,
-                        mapped_command=command or "",
+                    await self.event_bus.publish(
+                        CustomSoundRecognizedEvent(
+                            label=sound_label,
+                            confidence=confidence,
+                            mapped_command=command or "",
+                        )
                     )
-
-                    await self.event_bus.publish(recognition_event)
                     logger.info(f"Recognized: {sound_label} (confidence: {confidence:.3f})")
 
         except ValueError as e:
@@ -136,19 +102,18 @@ class SoundService:
     def _preprocess_audio_chunk(self, audio_bytes: bytes) -> np.ndarray:
         if not isinstance(audio_bytes, bytes):
             raise ValueError("Audio must be bytes")
-
         if len(audio_bytes) == 0:
             raise ValueError("Audio bytes are empty")
-
         audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
         return audio_int16.astype(np.float32) / 32768.0
 
-    def start_training(self, sound_label: str) -> bool:
-        """Start training mode for a specific sound."""
+    # ── Public interface for direct callers ───────────────────────────────────
+
+    async def start_training_session(self, sound_label: str, num_samples: int) -> bool:
+        """Initiate a training session for a sound. Returns False if already training."""
         if not self.is_initialized:
             logger.error("Service not initialized")
             return False
-
         if not sound_label or not isinstance(sound_label, str):
             logger.error("Invalid sound label")
             return False
@@ -157,13 +122,69 @@ class SoundService:
             if self._training_active:
                 logger.warning(f"Training already active for '{self._current_training_label}'")
                 return False
-
             self._training_active = True
             self._current_training_label = sound_label
             self._training_samples = []
+            self._target_samples = num_samples
 
-        logger.info(f"Started training for sound: '{sound_label}'")
+        await self.event_bus.publish(SoundTrainingInitiatedEvent(sound_name=sound_label, total_samples=num_samples))
+        logger.info(f"Training initiated for '{sound_label}' - collecting {num_samples} samples")
         return True
+
+    async def delete_sound(self, sound_label: str) -> bool:
+        """Delete a trained sound. Returns True on success."""
+        try:
+            success = await self.recognizer.delete_sound(sound_label=sound_label)
+            if success:
+                await self._publish_mappings()
+            logger.info(f"Delete sound '{sound_label}' - success: {success}")
+            return success
+        except Exception as e:
+            logger.error(f"Error deleting sound: {e}", exc_info=True)
+            return False
+
+    async def reset_all_sounds(self) -> bool:
+        """Reset all trained sounds. Returns True on success."""
+        try:
+            success = await self.recognizer.reset_all_sounds()
+            if success:
+                await self._publish_mappings()
+            logger.info(f"Reset all sounds - success: {success}")
+            return success
+        except Exception as e:
+            logger.error(f"Error resetting sounds: {e}", exc_info=True)
+            return False
+
+    async def map_sound_to_command(self, sound_label: str, command_phrase: str) -> bool:
+        """Map a sound to a command phrase. Returns True on success."""
+        try:
+            success = await self.recognizer.set_mapping(
+                sound_label=sound_label,
+                command=command_phrase,
+            )
+            await self.event_bus.publish(
+                SoundToCommandMappingUpdatedEvent(
+                    sound_label=sound_label,
+                    command_phrase=command_phrase,
+                    success=success,
+                )
+            )
+            if success:
+                await self._publish_mappings()
+                logger.info(f"Mapped sound '{sound_label}' to command '{command_phrase}'")
+            else:
+                logger.warning(f"Failed to save mapping for sound '{sound_label}'")
+            return success
+        except Exception as e:
+            logger.error(f"Error mapping sound to command: {e}", exc_info=True)
+            await self.event_bus.publish(
+                SoundToCommandMappingUpdatedEvent(
+                    sound_label=sound_label,
+                    command_phrase=command_phrase,
+                    success=False,
+                )
+            )
+            return False
 
     async def _collect_training_sample(self, audio: np.ndarray, sample_rate: int) -> None:
         with self._training_lock:
@@ -207,21 +228,19 @@ class SoundService:
             if not self._training_active:
                 logger.warning("No training session active")
                 return False
-
             if not self._training_samples:
                 logger.warning("No training samples collected")
                 self._reset_training_state()
                 return False
-
             label = self._current_training_label
             samples = self._training_samples.copy()
 
         try:
             success = await self.recognizer.train_sound(label=label, samples=samples)
-
             if success:
                 logger.info(f"Training completed for '{label}' with {len(samples)} samples")
                 await self.event_bus.publish(SoundTrainingCompleteEvent(sound_name=label, success=True))
+                await self._publish_mappings()
             else:
                 logger.error(f"Training failed for '{label}'")
                 await self.event_bus.publish(SoundTrainingFailedEvent(sound_name=label, reason="Training failed"))
@@ -238,7 +257,6 @@ class SoundService:
             return False
 
     def cancel_training(self) -> None:
-        """Cancel current training session."""
         with self._training_lock:
             if self._training_active:
                 label = self._current_training_label
@@ -250,15 +268,33 @@ class SoundService:
         self._current_training_label = None
         self._training_samples = []
 
-    async def set_sound_mapping(self, sound_label: str, command: str) -> bool:
+    def start_training(self, sound_label: str) -> bool:
+        """Synchronous training-state activation (used internally)."""
+        if not self.is_initialized:
+            logger.error("Service not initialized")
+            return False
         if not sound_label or not isinstance(sound_label, str):
             logger.error("Invalid sound label")
             return False
 
+        with self._training_lock:
+            if self._training_active:
+                logger.warning(f"Training already active for '{self._current_training_label}'")
+                return False
+            self._training_active = True
+            self._current_training_label = sound_label
+            self._training_samples = []
+
+        logger.info(f"Started training for sound: '{sound_label}'")
+        return True
+
+    async def set_sound_mapping(self, sound_label: str, command: str) -> bool:
+        if not sound_label or not isinstance(sound_label, str):
+            logger.error("Invalid sound label")
+            return False
         if not command or not isinstance(command, str):
             logger.error("Invalid command")
             return False
-
         success = await self.recognizer.set_mapping(sound_label=sound_label, command=command)
         if success:
             logger.info(f"Mapped sound '{sound_label}' to command '{command}' and saved to storage")
@@ -267,21 +303,16 @@ class SoundService:
         return success
 
     def get_sound_mapping(self, sound_label: str) -> Optional[str]:
-        """Get command mapping for a sound."""
         if not sound_label or not isinstance(sound_label, str):
             return None
-
         return self.recognizer.get_mapping(sound_label=sound_label)
 
     def get_stats(self) -> dict:
-        """Get service statistics."""
         stats = self.recognizer.get_stats()
-
         with self._training_lock:
             training_active = self._training_active
             current_label = self._current_training_label
             samples_collected = len(self._training_samples)
-
         stats.update(
             {
                 "service_initialized": self.is_initialized,
@@ -293,108 +324,12 @@ class SoundService:
         return stats
 
     def is_training_active(self) -> bool:
-        """Check if training is currently active."""
         with self._training_lock:
             return self._training_active
 
     def get_current_training_label(self) -> Optional[str]:
-        """Get the label of the currently training sound."""
         with self._training_lock:
             return self._current_training_label
-
-    async def _handle_training_request(self, training_request: SoundTrainingRequestEvent) -> None:
-        try:
-            logger.info(f"Starting training for sound: {training_request.sound_label}")
-
-            await self.event_bus.publish(
-                SoundTrainingInitiatedEvent(
-                    sound_name=training_request.sound_label,
-                    total_samples=training_request.num_samples,
-                )
-            )
-
-            with self._training_lock:
-                self._training_active = True
-                self._current_training_label = training_request.sound_label
-                self._training_samples = []
-                self._target_samples = training_request.num_samples
-
-            logger.info(
-                f"Training initiated for '{training_request.sound_label}' - collecting {training_request.num_samples} samples"
-            )
-
-        except Exception as e:
-            logger.error(f"Error handling training request: {e}", exc_info=True)
-            await self.event_bus.publish(SoundTrainingFailedEvent(sound_name=training_request.sound_label, reason=str(e)))
-
-    async def _handle_sound_list_request(self, _list_request: RequestSoundListEvent) -> None:
-        """Handle request for sound list."""
-        try:
-            sounds = list(self.recognizer.get_stats().get("trained_sounds", {}).keys())
-            await self.event_bus.publish(SoundListUpdatedEvent(sounds=sounds))
-            logger.debug(f"Published sound list with {len(sounds)} sounds")
-        except Exception as e:
-            logger.error(f"Error handling sound list request: {e}", exc_info=True)
-
-    async def _handle_mappings_request(self, _mappings_request: RequestSoundMappingsEvent) -> None:
-        """Handle request for sound mappings."""
-        try:
-            stats = self.recognizer.get_stats()
-            mappings = stats.get("sound_mappings", {})
-            await self.event_bus.publish(SoundMappingsResponseEvent(mappings=mappings))
-            logger.debug(f"Published sound mappings: {mappings}")
-        except Exception as e:
-            logger.error(f"Error handling mappings request: {e}", exc_info=True)
-
-    async def _handle_delete_sound(self, delete_sound: DeleteSoundCommand) -> None:
-        """Handle delete sound command."""
-        try:
-            success = await self.recognizer.delete_sound(sound_label=delete_sound.label)
-            await self.event_bus.publish(SoundDeletedEvent(label=delete_sound.label, success=success))
-            logger.info(f"Delete sound '{delete_sound.label}' - success: {success}")
-        except Exception as e:
-            logger.error(f"Error deleting sound: {e}", exc_info=True)
-            await self.event_bus.publish(SoundDeletedEvent(label=delete_sound.label, success=False))
-
-    async def _handle_reset_all_sounds(self, _reset_sounds: ResetAllSoundsCommand) -> None:
-        """Handle reset all sounds command."""
-        try:
-            success = await self.recognizer.reset_all_sounds()
-            await self.event_bus.publish(AllSoundsResetEvent(success=success))
-            logger.info(f"Reset all sounds - success: {success}")
-        except Exception as e:
-            logger.error(f"Error resetting sounds: {e}", exc_info=True)
-            await self.event_bus.publish(AllSoundsResetEvent(success=False))
-
-    async def _handle_map_sound_command(self, map_sound: MapSoundToCommandPhraseCommand) -> None:
-        """Handle map sound to command phrase."""
-        try:
-            success = await self.recognizer.set_mapping(
-                sound_label=map_sound.sound_label,
-                command=map_sound.command_phrase,
-            )
-            await self.event_bus.publish(
-                SoundToCommandMappingUpdatedEvent(
-                    sound_label=map_sound.sound_label,
-                    command_phrase=map_sound.command_phrase,
-                    success=success,
-                )
-            )
-            if success:
-                logger.info(f"Mapped sound '{map_sound.sound_label}' to command '{map_sound.command_phrase}' and saved to storage")
-            else:
-                logger.warning(
-                    f"Mapped sound '{map_sound.sound_label}' to command '{map_sound.command_phrase}' but failed to save to storage"
-                )
-        except Exception as e:
-            logger.error(f"Error mapping sound to command: {e}", exc_info=True)
-            await self.event_bus.publish(
-                SoundToCommandMappingUpdatedEvent(
-                    sound_label=map_sound.sound_label,
-                    command_phrase=map_sound.command_phrase,
-                    success=False,
-                )
-            )
 
     def on_confidence_threshold_updated(self, threshold: float) -> None:
         self.recognizer.on_confidence_threshold_updated(threshold=threshold)
@@ -403,17 +338,11 @@ class SoundService:
         self.recognizer.on_vote_threshold_updated(threshold=threshold)
 
     async def shutdown(self) -> None:
+        self.event_bus.unsubscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
         try:
-            logger.info("Shutting down SoundService")
-
             self._shutdown_event.set()
-
             self.cancel_training()
-
             if self.recognizer:
                 await self.recognizer.shutdown()
-
-            logger.info("SoundService shutdown complete")
-
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}", exc_info=True)
+            logger.error("Error during SoundService shutdown: %s", e, exc_info=True)

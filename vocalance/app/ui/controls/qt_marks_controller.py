@@ -6,21 +6,7 @@ from PySide6.QtCore import Signal
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.mark_events import MarkData  # noqa: F401
-from vocalance.app.events.mark_events import (
-    MarkCreatedEventData,
-    MarkCreateRequestEventData,
-    MarkDeleteAllRequestEventData,
-    MarkDeleteByNameRequestEventData,
-    MarkDeletedEventData,
-    MarkExecuteRequestEventData,
-    MarkGetAllRequestEventData,
-    MarkOperationSuccessEventData,
-    MarksChangedEventData,
-    MarkVisualizationStateChangedEventData,
-    MarkVisualizeAllRequestEventData,
-    MarkVisualizeCancelRequestEventData,
-)
+from vocalance.app.events.mark_events import MarkData, MarksChangedEventData, MarkVisualizationStateChangedEventData
 from vocalance.app.services.mark_service import MarkService
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
@@ -43,13 +29,6 @@ class QtMarksController(QtBaseController):
         mark_service: MarkService,
         config: GlobalAppConfig,
     ) -> None:
-        """Initialize marks controller.
-
-        Args:
-            event_bus: Event bus for pub/sub.
-            mark_service: Mark service instance.
-            config: Global app configuration.
-        """
         super().__init__(
             event_bus=event_bus,
             logger=logging.getLogger("QtMarksController"),
@@ -60,180 +39,114 @@ class QtMarksController(QtBaseController):
         self.mark_view = None
         self.marks_list: List[MarkData] = []
 
-        self._subscribe_to_events()
-        self.logger.debug("QtMarksController initialized")
-
-    def _subscribe_to_events(self) -> None:
-        """Subscribe to mark service events."""
-        try:
-            self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
-            self.event_bus.subscribe(MarkOperationSuccessEventData, self._on_mark_operation_status)
-            self.event_bus.subscribe(MarkCreatedEventData, self._handle_mark_list_changed)
-            self.event_bus.subscribe(MarkDeletedEventData, self._handle_mark_list_changed)
-            self.event_bus.subscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
-        except Exception as e:
-            self.logger.error(f"Error subscribing to events: {e}", exc_info=True)
+        self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
+        self.event_bus.subscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
 
     def set_mark_view(self, mark_view: Any) -> None:
-        """Set the mark view reference.
-
-        Args:
-            mark_view: Mark overlay view instance.
-        """
         self.mark_view = mark_view
-        if self.mark_view:
-            self.logger.debug("Mark view reference set")
 
     def refresh_marks(self) -> None:
-        """Publish a request for all marks."""
-        asyncio.ensure_future(self.event_bus.publish(MarkGetAllRequestEventData()))
+        asyncio.create_task(self._refresh_marks_async())
+
+    async def _refresh_marks_async(self) -> None:
+        marks = await self.mark_service.get_all_marks()
+        self._update_marks_list(marks)
+
+    def _update_marks_list(self, marks: dict) -> None:
+        if marks:
+            self.marks_list = [
+                MarkData(name=m["name"], x=m["x"], y=m["y"], description=m.get("description", "")) for m in marks.values()
+            ]
+        else:
+            self.marks_list = []
+        self.marks_loaded.emit(self.marks_list)
+        if self.mark_view:
+            self.update_mark_view_data(self.marks_list)
 
     def create_mark(self, name: Optional[str], x: int, y: int, description: Optional[str] = None) -> None:
-        """Publish a mark creation request.
+        asyncio.create_task(self._create_mark_async(name, x, y))
 
-        Args:
-            name: Mark name.
-            x: Screen x-coordinate.
-            y: Screen y-coordinate.
-            description: Optional description.
-        """
-        asyncio.ensure_future(self.event_bus.publish(MarkCreateRequestEventData(name=name, x=x, y=y, description=description)))
+    async def _create_mark_async(self, name: Optional[str], x: int, y: int) -> None:
+        success, msg = await self.mark_service.create_mark(name, x, y)
+        if success:
+            self.mark_created.emit(name or "", x, y)
+        else:
+            self.notify_status(msg, True)
 
     def delete_mark_by_name(self, mark_name: str) -> None:
-        """Publish a mark deletion request by name.
-
-        Args:
-            mark_name: Name of the mark to delete.
-        """
-        asyncio.ensure_future(self.event_bus.publish(MarkDeleteByNameRequestEventData(name=mark_name)))
+        asyncio.create_task(self._delete_mark_async(mark_name))
 
     def delete_mark(self, mark_name: str) -> None:
-        """Delete a mark by name.
-
-        Args:
-            mark_name: Name of the mark to delete.
-        """
         self.delete_mark_by_name(mark_name)
 
+    async def _delete_mark_async(self, mark_name: str) -> None:
+        await self.mark_service.delete_mark(mark_name)
+        self.mark_deleted.emit(mark_name)
+
     def delete_all_marks(self) -> None:
-        """Publish a request to delete all marks."""
-        asyncio.ensure_future(self.event_bus.publish(MarkDeleteAllRequestEventData()))
+        asyncio.create_task(self._delete_all_marks_async())
+
+    async def _delete_all_marks_async(self) -> None:
+        await self.mark_service.delete_all_marks()
+        self.all_marks_deleted.emit()
 
     def execute_mark(self, identifier: Union[str, int]) -> None:
-        """Publish a mark execution request.
-
-        Args:
-            identifier: Mark name or numeric ID.
-        """
-        asyncio.ensure_future(self.event_bus.publish(MarkExecuteRequestEventData(name_or_id=identifier)))
+        asyncio.create_task(self.mark_service.execute_mark(str(identifier)))
 
     def request_show_overlay(self) -> None:
-        """Publish a request to show the mark visualization overlay."""
-        asyncio.ensure_future(self.event_bus.publish(MarkVisualizeAllRequestEventData()))
+        asyncio.create_task(self.mark_service.set_visualization(True))
 
     def request_hide_overlay(self) -> None:
-        """Publish a request to hide the mark visualization overlay."""
-        asyncio.ensure_future(self.event_bus.publish(MarkVisualizeCancelRequestEventData()))
+        asyncio.create_task(self.mark_service.set_visualization(False))
 
     def show_mark_overlay(self) -> None:
-        """Fetch fresh marks from the service then show the overlay."""
         if not self.mark_view:
             self.logger.error("Cannot show mark overlay: mark view not set")
             return
-        asyncio.ensure_future(self._show_mark_overlay_async())
+        asyncio.create_task(self._show_mark_overlay_async())
 
     def show_marks_overlay(self) -> None:
-        """Alias for show_mark_overlay."""
         self.show_mark_overlay()
 
     async def _show_mark_overlay_async(self) -> None:
-        """Fetch marks from the service then show the overlay once they arrive."""
-        self.refresh_marks()
-
-        for _ in range(50):
-            await asyncio.sleep(0.01)
-            if self.marks_list:
-                break
-        else:
-            self.logger.warning("Timeout waiting for marks from service before showing overlay")
-
+        marks = await self.mark_service.get_all_marks()
+        self._update_marks_list(marks)
         if self.mark_view:
             self.mark_view.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
             self.mark_view.show_requested.emit()
 
     def hide_mark_overlay(self) -> None:
-        """Hide the mark overlay directly via the view."""
         if self.mark_view:
             self.mark_view.hide_requested.emit()
         else:
             self.logger.error("Cannot hide mark overlay: mark view not set")
 
     def is_mark_overlay_active(self) -> bool:
-        """Return True if the mark overlay is currently active."""
         return self.mark_view.is_active() if self.mark_view else False
 
     def update_mark_view_data(self, marks_list: List[MarkData]) -> None:
-        """Push updated mark data to the view.
-
-        Args:
-            marks_list: List of MarkData instances to display.
-        """
         if self.mark_view:
             self.mark_view.update_marks(marks_list)
 
     def on_mark_visualization_shown(self) -> None:
-        """Handle successful mark visualization show from the view."""
-        asyncio.ensure_future(self.event_bus.publish(MarkVisualizationStateChangedEventData(is_visible=True)))
+        asyncio.create_task(self.mark_service.set_visualization(True))
 
     def on_mark_visualization_hidden(self) -> None:
-        """Handle mark visualization hide from the view."""
-        asyncio.ensure_future(self.event_bus.publish(MarkVisualizationStateChangedEventData(is_visible=False)))
+        asyncio.create_task(self.mark_service.set_visualization(False))
 
     def on_mark_visualization_failed(self, error_message: str) -> None:
-        """Handle failed mark visualization from the view.
-
-        Args:
-            error_message: Description of the failure.
-        """
         self.notify_status(f"Mark visualization failed: {error_message}", True)
 
     def _on_marks_changed(self, marks_snapshot: MarksChangedEventData) -> None:
-        """Handle marks changed event and update cached marks list."""
-        if marks_snapshot.marks:
-            self.marks_list = [
-                MarkData(name=m["name"], x=m["x"], y=m["y"], description=m.get("description", ""))
-                for m in marks_snapshot.marks.values()
-            ]
-        else:
-            self.marks_list = []
-
-        self.marks_loaded.emit(self.marks_list)
-        if self.mark_view:
-            self.update_mark_view_data(self.marks_list)
-
-    def _on_mark_operation_status(self, operation_result: MarkOperationSuccessEventData) -> None:
-        """Handle mark operation success/failure events."""
-        message = operation_result.message or "Mark operation completed."
-        self.notify_status(message, False)
-
-    def _handle_mark_list_changed(self, _change: Union[MarkCreatedEventData, MarkDeletedEventData]) -> None:
-        """Handle mark list change events by refreshing from the service."""
-        self.refresh_marks()
+        self._update_marks_list(marks_snapshot.marks)
 
     async def _handle_mark_visualization_state_changed(self, viz_state: MarkVisualizationStateChangedEventData) -> None:
-        """Handle mark visualization state change from the service layer."""
         if not self.mark_view:
             return
 
         if viz_state.is_visible and not self.mark_view.is_active():
-            self.refresh_marks()
-            for _ in range(50):
-                await asyncio.sleep(0.01)
-                if self.marks_list:
-                    break
-            else:
-                self.logger.warning("Timeout waiting for marks before showing overlay")
-
+            marks = await self.mark_service.get_all_marks()
+            self._update_marks_list(marks)
             if self.mark_view:
                 self.mark_view.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
                 self.mark_view.show_requested.emit()
@@ -242,23 +155,13 @@ class QtMarksController(QtBaseController):
             self.mark_view.hide_requested.emit()
 
     def notify_status(self, message: str, is_error: bool = False) -> None:
-        """Emit a status update signal.
-
-        Args:
-            message: Status message text.
-            is_error: True if this represents an error condition.
-        """
         self.status_updated.emit(message, is_error)
         if is_error:
             self.operation_error.emit(message)
 
     def cleanup(self) -> None:
-        """Unsubscribe from all events, clean up the view, and release resources."""
         try:
             self.event_bus.unsubscribe(MarksChangedEventData, self._on_marks_changed)
-            self.event_bus.unsubscribe(MarkOperationSuccessEventData, self._on_mark_operation_status)
-            self.event_bus.unsubscribe(MarkCreatedEventData, self._handle_mark_list_changed)
-            self.event_bus.unsubscribe(MarkDeletedEventData, self._handle_mark_list_changed)
             self.event_bus.unsubscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")

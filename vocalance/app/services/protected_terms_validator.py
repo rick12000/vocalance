@@ -21,33 +21,26 @@ class ProtectedTermsValidator:
     """
 
     def __init__(self, config: GlobalAppConfig, storage: StorageService) -> None:
-        """Initialize validator with configuration and storage.
-
-        Args:
-            config: Global application configuration.
-            storage: Storage service for mark/sound data access.
-        """
-        self._config: GlobalAppConfig = config
-        self._storage: StorageService = storage
+        self._config = config
+        self._storage = storage
+        self._event_bus: Optional[EventBus] = None
         self._cached_terms: Optional[Set[str]] = None
         self._cache_expiry: float = 0.0
         self._cache_ttl: float = config.protected_terms_validator.cache_ttl_seconds
 
-        logger.debug("ProtectedTermsValidator initialized")
-
     def setup_invalidation_subscriptions(self, event_bus: EventBus) -> None:
-        """Invalidate cache when command or sound mappings change (marks invalidate via MarkService)."""
+        """Subscribe to mapping change events to keep the protected-terms cache fresh."""
+        self._event_bus = event_bus
+        event_bus.subscribe(CommandMappingsUpdatedEvent, self._on_mappings_updated)
+        event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self._on_sound_mapping_updated)
 
-        def _on_mappings_updated(mappings_update: CommandMappingsUpdatedEvent) -> None:
-            if mappings_update.success:
-                self.invalidate_cache()
+    async def _on_mappings_updated(self, event: CommandMappingsUpdatedEvent) -> None:
+        if event.success:
+            self.invalidate_cache()
 
-        def _on_sound_mapping_updated(sound_mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
-            if sound_mapping_update.success:
-                self.invalidate_cache()
-
-        event_bus.subscribe(event_type=CommandMappingsUpdatedEvent, handler=_on_mappings_updated)
-        event_bus.subscribe(event_type=SoundToCommandMappingUpdatedEvent, handler=_on_sound_mapping_updated)
+    async def _on_sound_mapping_updated(self, event: SoundToCommandMappingUpdatedEvent) -> None:
+        if event.success:
+            self.invalidate_cache()
 
     async def get_all_protected_terms(self) -> Set[str]:
         """Get all protected terms from all sources with caching.

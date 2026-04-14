@@ -10,10 +10,7 @@ from vocalance.app.services.grid.grid_service import GridService
 
 @pytest_asyncio.fixture
 async def grid_service(event_bus, app_config):
-    """Create grid service for testing."""
     service = GridService(event_bus, app_config)
-    service.setup_subscriptions()
-
     yield service
 
 
@@ -23,18 +20,12 @@ async def test_grid_show_default(grid_service, app_config):
     service = grid_service
     event_bus = service._event_bus
 
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
     command = GridShowCommand(num_rects=None)
     event = GridCommandParsedEvent(command=command, source="speech")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    async with service._state_lock:
-        assert service._visible is True
+    assert service._visible is True
 
 
 @pytest.mark.asyncio
@@ -43,18 +34,12 @@ async def test_grid_show_with_custom_count(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
     command = GridShowCommand(num_rects=9)
     event = GridCommandParsedEvent(command=command, source="speech")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    async with service._state_lock:
-        assert service._visible is True
+    assert service._visible is True
 
 
 @pytest.mark.asyncio
@@ -77,8 +62,7 @@ async def test_grid_select_cell(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    async with service._state_lock:
-        service._visible = True
+    service._visible = True
 
     captured_events = []
 
@@ -106,9 +90,8 @@ async def test_grid_select_cell_drag_mode(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    async with service._state_lock:
-        service._visible = True
-        service._current_click_mode = "drag"
+    service._visible = True
+    service._current_click_mode = "drag"
 
     captured_events = []
 
@@ -136,16 +119,14 @@ async def test_grid_visibility_state_tracking(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    async with service._state_lock:
-        assert service._visible is False
+    assert service._visible is False
 
     show_command = GridShowCommand(num_rects=9)
     show_event = GridCommandParsedEvent(command=show_command, source="speech")
     await event_bus.publish(show_event)
     await asyncio.sleep(0.1)
 
-    async with service._state_lock:
-        assert service._visible is True
+    assert service._visible is True
 
 
 @pytest.mark.parametrize("num_rects,expected_min_cells", [(4, 4), (9, 9), (16, 16), (12, 12), (25, 25)])

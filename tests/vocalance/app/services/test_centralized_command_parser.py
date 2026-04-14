@@ -35,7 +35,6 @@ async def command_parser(event_bus, app_config, mock_action_map_provider, mock_c
         action_map_provider=mock_action_map_provider,
         history_manager=mock_command_history_manager,
     )
-    parser.setup_subscriptions()
     await parser.initialize()
     yield parser
 

@@ -3,20 +3,12 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from vocalance.app.config.command_types import AutomationCommand
-from vocalance.app.events.command_management_events import (
-    AddCustomCommandEvent,
-    DeleteCustomCommandEvent,
-    RequestCommandMappingsEvent,
-    ResetCommandsToDefaultsEvent,
-    UpdateCommandPhraseEvent,
-)
 from vocalance.app.services.commands.management import CommandManagementService
 from vocalance.app.services.storage.storage_models import CommandsData
 
 
 @pytest.fixture
 def mock_event_bus():
-    """Mock event bus for testing."""
     event_bus = Mock()
     event_bus.subscribe = Mock()
     event_bus.publish = AsyncMock()
@@ -25,7 +17,6 @@ def mock_event_bus():
 
 @pytest.fixture
 def mock_storage():
-    """Mock storage service for testing."""
     storage = Mock()
     storage.read = AsyncMock()
     storage.write = AsyncMock()
@@ -34,7 +25,6 @@ def mock_storage():
 
 @pytest.fixture
 def mock_protected_terms_validator():
-    """Mock protected terms validator."""
     validator = Mock()
     validator.validate_term = AsyncMock()
     return validator
@@ -42,7 +32,6 @@ def mock_protected_terms_validator():
 
 @pytest.fixture
 def mock_action_map_provider():
-    """Mock action map provider."""
     provider = Mock()
     provider.get_action_map = AsyncMock()
     return provider
@@ -50,7 +39,6 @@ def mock_action_map_provider():
 
 @pytest.fixture
 def command_management_service(mock_event_bus, mock_storage, mock_protected_terms_validator, mock_action_map_provider):
-    """Create CommandManagementService instance."""
     return CommandManagementService(
         event_bus=mock_event_bus,
         storage=mock_storage,
@@ -60,19 +48,13 @@ def command_management_service(mock_event_bus, mock_storage, mock_protected_term
 
 
 @pytest.mark.asyncio
-async def test_setup_subscriptions(command_management_service, mock_event_bus):
-    """Test event subscriptions are configured."""
-    command_management_service.setup_subscriptions()
-
-    # Should subscribe to multiple event types
-    assert mock_event_bus.subscribe.call_count >= 4
+async def test_no_event_subscriptions(command_management_service, mock_event_bus):
+    """CommandManagementService has no event subscriptions (UI calls methods directly)."""
+    assert mock_event_bus.subscribe.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_add_custom_command_success(
-    command_management_service, mock_storage, mock_protected_terms_validator, mock_event_bus
-):
-    """Test successfully adding custom command."""
+async def test_add_command_success(command_management_service, mock_storage, mock_protected_terms_validator, mock_event_bus):
     mock_protected_terms_validator.validate_term.return_value = (True, None)
     mock_storage.read.return_value = CommandsData(custom_commands={}, phrase_overrides={})
     mock_storage.write.return_value = True
@@ -86,20 +68,18 @@ async def test_add_custom_command_success(
         long_description="Test command",
     )
 
-    event = AddCustomCommandEvent(command=custom_cmd)
-    await command_management_service._handle_add_custom_command(event)
+    success, err = await command_management_service.add_command(custom_cmd)
 
-    # Should write to storage
+    assert success is True
+    assert err == ""
     mock_storage.write.assert_called_once()
-    # Should publish success event
     assert mock_event_bus.publish.call_count >= 1
 
 
 @pytest.mark.asyncio
-async def test_add_custom_command_validation_error(
+async def test_add_command_validation_error(
     command_management_service, mock_protected_terms_validator, mock_storage, mock_event_bus
 ):
-    """Test adding custom command with validation error."""
     mock_protected_terms_validator.validate_term.return_value = (False, "Protected term")
     mock_storage.read.return_value = CommandsData(custom_commands={}, phrase_overrides={})
 
@@ -112,12 +92,11 @@ async def test_add_custom_command_validation_error(
         long_description="Test",
     )
 
-    event = AddCustomCommandEvent(command=custom_cmd)
-    await command_management_service._handle_add_custom_command(event)
+    success, err = await command_management_service.add_command(custom_cmd)
 
-    # Should not write to storage
+    assert success is False
+    assert err != ""
     mock_storage.write.assert_not_called()
-    # Should publish error event
     mock_event_bus.publish.assert_called()
 
 
@@ -125,7 +104,6 @@ async def test_add_custom_command_validation_error(
 async def test_update_command_phrase_custom_command(
     command_management_service, mock_storage, mock_protected_terms_validator, mock_event_bus
 ):
-    """Test updating phrase for custom command."""
     custom_cmd = AutomationCommand(
         command_key="old phrase",
         action_type="hotkey",
@@ -138,10 +116,9 @@ async def test_update_command_phrase_custom_command(
     mock_protected_terms_validator.validate_term.return_value = (True, None)
     mock_storage.write.return_value = True
 
-    event = UpdateCommandPhraseEvent(old_command_phrase="old phrase", new_command_phrase="new phrase")
-    await command_management_service._handle_update_command_phrase(event)
+    success, err = await command_management_service.update_command_phrase("old phrase", "new phrase")
 
-    # Should write updated data
+    assert success is True
     mock_storage.write.assert_called_once()
     written_data = mock_storage.write.call_args[1]["data"]
     assert "new phrase" in written_data.custom_commands
@@ -152,22 +129,18 @@ async def test_update_command_phrase_custom_command(
 async def test_update_command_phrase_validation_error(
     command_management_service, mock_storage, mock_protected_terms_validator, mock_event_bus
 ):
-    """Test updating phrase with validation error."""
     mock_storage.read.return_value = CommandsData(custom_commands={}, phrase_overrides={})
     mock_protected_terms_validator.validate_term.return_value = (False, "Protected term")
 
-    event = UpdateCommandPhraseEvent(old_command_phrase="old", new_command_phrase="copy")
-    await command_management_service._handle_update_command_phrase(event)
+    success, err = await command_management_service.update_command_phrase("old", "copy")
 
-    # Should not write
+    assert success is False
     mock_storage.write.assert_not_called()
-    # Should publish error
     mock_event_bus.publish.assert_called()
 
 
 @pytest.mark.asyncio
-async def test_delete_custom_command(command_management_service, mock_storage, mock_event_bus):
-    """Test deleting custom command."""
+async def test_delete_command(command_management_service, mock_storage, mock_event_bus):
     custom_cmd = AutomationCommand(
         command_key="delete me",
         action_type="hotkey",
@@ -179,10 +152,9 @@ async def test_delete_custom_command(command_management_service, mock_storage, m
     mock_storage.read.return_value = CommandsData(custom_commands={"delete me": custom_cmd}, phrase_overrides={})
     mock_storage.write.return_value = True
 
-    event = DeleteCustomCommandEvent(command=custom_cmd)
-    await command_management_service._handle_delete_custom_command(event)
+    success, err = await command_management_service.delete_command(custom_cmd)
 
-    # Should write updated data
+    assert success is True
     mock_storage.write.assert_called_once()
     written_data = mock_storage.write.call_args[1]["data"]
     assert "delete me" not in written_data.custom_commands
@@ -190,7 +162,6 @@ async def test_delete_custom_command(command_management_service, mock_storage, m
 
 @pytest.mark.asyncio
 async def test_delete_nonexistent_command(command_management_service, mock_storage, mock_event_bus):
-    """Test deleting command that doesn't exist."""
     mock_storage.read.return_value = CommandsData(custom_commands={}, phrase_overrides={})
 
     custom_cmd = AutomationCommand(
@@ -202,35 +173,20 @@ async def test_delete_nonexistent_command(command_management_service, mock_stora
         long_description="Test",
     )
 
-    event = DeleteCustomCommandEvent(command=custom_cmd)
-    await command_management_service._handle_delete_custom_command(event)
+    success, err = await command_management_service.delete_command(custom_cmd)
 
-    # Should not call write (command doesn't exist)
+    assert success is True
     mock_storage.write.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_request_command_mappings(command_management_service, mock_storage, mock_event_bus):
-    """Test requesting command mappings."""
-    mock_storage.read.return_value = CommandsData(custom_commands={}, phrase_overrides={})
-
-    event = RequestCommandMappingsEvent()
-    await command_management_service._handle_request_command_mappings(event)
-
-    # Should publish mappings response
-    mock_event_bus.publish.assert_called_once()
-
-
-@pytest.mark.asyncio
 async def test_reset_to_defaults(command_management_service, mock_storage, mock_event_bus):
-    """Test resetting commands to defaults."""
     mock_storage.read.return_value = CommandsData()
     mock_storage.write.return_value = True
 
-    event = ResetCommandsToDefaultsEvent()
-    await command_management_service._handle_reset_to_defaults(event)
+    success, err = await command_management_service.reset_to_defaults()
 
-    # Should write empty CommandsData
+    assert success is True
     mock_storage.write.assert_called_once()
     written_data = mock_storage.write.call_args[1]["data"]
     assert isinstance(written_data, CommandsData)
@@ -240,7 +196,6 @@ async def test_reset_to_defaults(command_management_service, mock_storage, mock_
 
 @pytest.mark.asyncio
 async def test_get_command_mappings_includes_custom_and_defaults(command_management_service, mock_storage):
-    """Test getting all command mappings."""
     custom_cmd = AutomationCommand(
         command_key="custom",
         action_type="hotkey",
@@ -253,23 +208,18 @@ async def test_get_command_mappings_includes_custom_and_defaults(command_managem
 
     mappings = await command_management_service.get_command_mappings()
 
-    # Should include custom commands
     custom_commands = [m for m in mappings if m.is_custom]
     assert len(custom_commands) >= 1
-
-    # Should include default commands
     default_commands = [m for m in mappings if not m.is_custom]
     assert len(default_commands) > 0
 
 
 @pytest.mark.asyncio
 async def test_get_command_mappings_applies_overrides(command_management_service, mock_storage):
-    """Test command mappings apply phrase overrides."""
     mock_storage.read.return_value = CommandsData(custom_commands={}, phrase_overrides={"copy": "copy that"})
 
     mappings = await command_management_service.get_command_mappings()
 
-    # Should have override phrase, not original
     mapping_phrases = [m.command_key for m in mappings]
     assert "copy that" in mapping_phrases
     assert "copy" not in mapping_phrases
@@ -277,8 +227,6 @@ async def test_get_command_mappings_applies_overrides(command_management_service
 
 @pytest.mark.asyncio
 async def test_validate_command_phrase_empty(command_management_service, mock_protected_terms_validator, mock_action_map_provider):
-    """Test validation rejects empty phrases."""
-    # Empty phrase should be caught before calling validator, but set up mock anyway
     mock_protected_terms_validator.validate_term.return_value = (False, "Term cannot be empty")
     mock_action_map_provider.get_action_map.return_value = {}
 
@@ -291,7 +239,6 @@ async def test_validate_command_phrase_empty(command_management_service, mock_pr
 async def test_validate_command_phrase_protected(
     command_management_service, mock_protected_terms_validator, mock_action_map_provider
 ):
-    """Test validation rejects protected terms."""
     mock_protected_terms_validator.validate_term.return_value = (False, "Protected term")
     mock_action_map_provider.get_action_map.return_value = {}
 
@@ -303,7 +250,6 @@ async def test_validate_command_phrase_protected(
 async def test_validate_command_phrase_already_exists(
     command_management_service, mock_protected_terms_validator, mock_action_map_provider
 ):
-    """Test validation rejects phrases that already exist."""
     mock_protected_terms_validator.validate_term.return_value = (True, None)
     mock_action_map_provider.get_action_map.return_value = {
         "existing command": AutomationCommand(
@@ -325,7 +271,6 @@ async def test_validate_command_phrase_already_exists(
 async def test_validate_command_phrase_with_exclude(
     command_management_service, mock_protected_terms_validator, mock_action_map_provider
 ):
-    """Test validation allows phrase when it matches exclude."""
     mock_protected_terms_validator.validate_term.return_value = (True, None)
     mock_action_map_provider.get_action_map.return_value = {}
 
@@ -335,15 +280,13 @@ async def test_validate_command_phrase_with_exclude(
 
 @pytest.mark.asyncio
 async def test_update_default_command_phrase(command_management_service, mock_storage, mock_protected_terms_validator):
-    """Test updating phrase for default command creates override."""
     mock_storage.read.return_value = CommandsData(custom_commands={}, phrase_overrides={})
     mock_protected_terms_validator.validate_term.return_value = (True, None)
     mock_storage.write.return_value = True
 
-    event = UpdateCommandPhraseEvent(old_command_phrase="copy", new_command_phrase="copy that")
-    await command_management_service._handle_update_command_phrase(event)
+    success, err = await command_management_service.update_command_phrase("copy", "copy that")
 
-    # Should create phrase override
+    assert success is True
     mock_storage.write.assert_called_once()
     written_data = mock_storage.write.call_args[1]["data"]
     assert "copy" in written_data.phrase_overrides
@@ -352,7 +295,6 @@ async def test_update_default_command_phrase(command_management_service, mock_st
 
 @pytest.mark.asyncio
 async def test_custom_command_functional_group_renamed(command_management_service, mock_storage):
-    """Test custom commands with 'Other' group are renamed to 'Custom'."""
     custom_cmd = AutomationCommand(
         command_key="test",
         action_type="hotkey",
@@ -366,7 +308,6 @@ async def test_custom_command_functional_group_renamed(command_management_servic
 
     mappings = await command_management_service.get_command_mappings()
 
-    # Custom command with 'Other' should be renamed to 'Custom'
     test_cmd = next((m for m in mappings if m.command_key == "test"), None)
     assert test_cmd is not None
     assert test_cmd.functional_group == "Custom"

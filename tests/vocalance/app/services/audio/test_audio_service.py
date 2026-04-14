@@ -1,27 +1,9 @@
 import asyncio
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-from vocalance.app.events.dictation_events import AudioModeChangeRequestEvent
 from vocalance.app.services.audio.simple_audio_service import AudioService
-
-
-@pytest.fixture
-def mock_recorder():
-    recorder = Mock()
-    recorder.start = Mock()
-    recorder.stop = Mock()
-    recorder.is_recording = Mock(return_value=False)
-    recorder.is_active = Mock(return_value=True)
-    return recorder
-
-
-@pytest.fixture
-def mock_listener():
-    listener = Mock()
-    listener.setup_subscriptions = Mock()
-    return listener
 
 
 @pytest.fixture
@@ -35,23 +17,18 @@ def audio_service(event_bus, app_config):
     loop.close()
 
 
-def test_shutdown_cleans_up_resources(audio_service):
-    """Test that shutdown properly cleans up all resources."""
-    audio_service.shutdown()
+@pytest.mark.asyncio
+async def test_shutdown_cleans_up_resources(audio_service):
+    """Shutdown nulls all heavyweight references."""
+    await audio_service.shutdown()
 
     assert audio_service._recorder is None
     assert audio_service._command_listener is None
     assert audio_service._sound_listener is None
 
 
-def test_audio_mode_change_handling(audio_service):
-    """Test that audio mode change requests are handled without errors."""
-    event = AudioModeChangeRequestEvent(mode="dictation", reason="user_command")
-    audio_service._handle_audio_mode_change_request(event)
-
-
 def test_dictation_chunk_callback_registration(audio_service):
-    """Moonshine PCM ingress is wired via set_dictation_chunk_callback (recorder thread, not the bus)."""
+    """Moonshine PCM ingress is wired via set_dictation_chunk_callback."""
 
     def _cb(_b: bytes, _sr: int) -> None:
         pass

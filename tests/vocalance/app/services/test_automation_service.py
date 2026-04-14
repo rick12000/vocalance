@@ -11,10 +11,7 @@ from vocalance.app.services.automation_service import AutomationService
 
 @pytest_asyncio.fixture
 async def automation_service(event_bus, app_config):
-    """Create automation service for testing."""
     service = AutomationService(event_bus, app_config)
-    service.setup_subscriptions()
-
     yield service
 
 

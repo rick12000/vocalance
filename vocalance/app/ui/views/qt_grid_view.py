@@ -675,7 +675,7 @@ class QtGridView(QWidget):
     def _publish_grid_mouse_click(self, x: int, y: int) -> None:
         """Log a grid-originated click at physical coordinates (click tracking)."""
         ev = PerformMouseClickEventData(x=x, y=y, source="grid")
-        asyncio.ensure_future(self.event_bus.publish(ev))
+        asyncio.create_task(self.event_bus.publish(ev))
 
     def _execute_grid_pointer_action(
         self,

@@ -125,7 +125,7 @@ class QtSettingsController(QtBaseController):
             key: Dot-separated setting path.
             value: New value for the setting.
         """
-        asyncio.ensure_future(self.update_setting_async(key, value))
+        asyncio.create_task(self.update_setting_async(key, value))
 
     def _llm_downloader(self) -> LLMModelDownloader:
         """Return the LLM downloader, preferring the one owned by the dictation service."""
@@ -166,7 +166,7 @@ class QtSettingsController(QtBaseController):
                 return False, "Dictation service is not available yet."
             return await llm.download_whitelisted_model_cancellable(model_id, cancel_event, _progress)
 
-        fut: Future = asyncio.ensure_future(_run())
+        fut: Future = asyncio.create_task(_run())
 
         def _done(f: Future) -> None:
             try:
@@ -217,29 +217,21 @@ class QtSettingsController(QtBaseController):
         Args:
             settings: Dict of dot-separated setting paths to new values.
         """
-        asyncio.ensure_future(self.update_settings_async(settings))
+        asyncio.create_task(self.update_settings_async(settings))
 
-    async def reset_to_defaults_async(self) -> Tuple[bool, str]:
-        """Reset all settings to defaults asynchronously.
-
-        Returns:
-            Tuple of (success, message).
-        """
+    async def _reset_to_defaults_async(self) -> None:
         try:
-            success, message = await asyncio.to_thread(self.settings_service.reset_to_defaults)
+            success, message = await self.settings_service.reset_to_defaults()
             if success:
                 self.load_settings_async()
             else:
                 self.operation_error.emit(message)
-            return success, message
         except Exception as e:
-            self.logger.error(f"Error resetting settings: {e}", exc_info=True)
+            self.logger.error("Error resetting settings: %s", e, exc_info=True)
             self.operation_error.emit(str(e))
-            return False, str(e)
 
     def reset_to_defaults(self) -> None:
-        """Schedule an async reset to defaults."""
-        asyncio.ensure_future(self.reset_to_defaults_async())
+        asyncio.create_task(self._reset_to_defaults_async())
 
     async def reset_section_settings_async(self, setting_keys: list) -> Tuple[bool, str]:
         """Reset specific settings to defaults asynchronously.
@@ -268,7 +260,7 @@ class QtSettingsController(QtBaseController):
         Args:
             setting_keys: List of dot-separated setting paths to reset.
         """
-        asyncio.ensure_future(self.reset_section_settings_async(setting_keys))
+        asyncio.create_task(self.reset_section_settings_async(setting_keys))
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Return a cached setting value by key.

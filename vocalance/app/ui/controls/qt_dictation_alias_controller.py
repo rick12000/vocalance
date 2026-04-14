@@ -90,7 +90,7 @@ class QtDictationAliasController(QtBaseController):
             self.notify_status(f"Alias '{key}' already exists.", is_error=True)
             return False
 
-        asyncio.ensure_future(self._do_add_alias(key, value))
+        asyncio.create_task(self._do_add_alias(key, value))
         return True
 
     async def _do_add_alias(self, key: str, value: str) -> None:
@@ -126,7 +126,7 @@ class QtDictationAliasController(QtBaseController):
             self.notify_status("Please enter a substitution phrase.", is_error=True)
             return False
 
-        asyncio.ensure_future(self._do_update_alias(key, value))
+        asyncio.create_task(self._do_update_alias(key, value))
         return True
 
     async def _do_update_alias(self, key: str, value: str) -> None:
@@ -156,7 +156,7 @@ class QtDictationAliasController(QtBaseController):
             self.notify_status("Invalid alias key.", is_error=True)
             return False
 
-        asyncio.ensure_future(self._do_delete_alias(key))
+        asyncio.create_task(self._do_delete_alias(key))
         return True
 
     async def _do_delete_alias(self, key: str) -> None:

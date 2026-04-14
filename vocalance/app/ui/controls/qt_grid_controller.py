@@ -99,7 +99,7 @@ class QtGridController(QtBaseController):
         """
         import asyncio
 
-        asyncio.ensure_future(
+        asyncio.create_task(
             self.event_bus.publish(
                 GridStateEvent(
                     state="interaction_success",
@@ -117,7 +117,7 @@ class QtGridController(QtBaseController):
         """
         import asyncio
 
-        asyncio.ensure_future(
+        asyncio.create_task(
             self.event_bus.publish(
                 GridStateEvent(state="interaction_failed", config={"selected_number": selected_number}, message=error_message)
             )

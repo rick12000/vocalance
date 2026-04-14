@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from vocalance.app.config.app_config import GlobalAppConfig, is_whitelisted_llm_model_id
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import SettingsChangedEvent
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
 from vocalance.app.services.storage.storage_models import SettingsData
 from vocalance.app.services.storage.storage_service import StorageService
@@ -11,7 +12,7 @@ from vocalance.app.services.storage.storage_service import StorageService
 logger = logging.getLogger(__name__)
 
 
-class SettingsService:
+class SettingsService(Service):
     """Settings service for configuration overrides with real-time updates.
 
     Manages user-defined settings overrides, builds effective settings from defaults
@@ -80,9 +81,8 @@ class SettingsService:
 
         logger.debug("SettingsService initialized")
 
-    def setup_subscriptions(self) -> None:
-        """Setup event subscriptions for settings updates."""
-        logger.debug("SettingsService subscriptions configured")
+    async def shutdown(self) -> None:
+        pass
 
     async def initialize(self) -> bool:
         """Initialize service and load settings"""
@@ -268,56 +268,18 @@ class SettingsService:
             logger.error(f"Failed to reset setting {setting_path}: {e}")
             return False
 
-    async def reset_to_defaults_async(self) -> tuple:
+    async def reset_to_defaults(self) -> tuple[bool, str]:
         """Reset all user settings to defaults."""
         try:
-            # Clear all user overrides
             self._user_overrides = {}
-
-            # Save to storage
-            settings_data = SettingsData(user_overrides={})
-            success = await self._storage.write(data=settings_data)
-
+            success = await self._storage.write(data=SettingsData(user_overrides={}))
             if success:
-                # Rebuild effective settings (will use all defaults now)
                 self._build_effective_settings()
-
-                logger.info("All settings reset to defaults successfully")
+                logger.info("All settings reset to defaults")
                 return True, "Settings reset to defaults successfully"
-            else:
-                error_msg = "Failed to save reset settings to storage"
-                logger.error(error_msg)
-                return False, error_msg
-
-        except Exception as e:
-            error_msg = f"Failed to reset settings to defaults: {e}"
-            logger.error(error_msg, exc_info=True)
+            error_msg = "Failed to save reset settings to storage"
+            logger.error(error_msg)
             return False, error_msg
-
-    def reset_to_defaults(self) -> tuple:
-        """Reset all user settings to defaults (sync wrapper for thread execution)."""
-        import asyncio
-
-        try:
-            # Get or create event loop
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                # No running loop, create new one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                result = loop.run_until_complete(self.reset_to_defaults_async())
-                loop.close()
-                return result
-            else:
-                # Running loop exists, use run_coroutine_threadsafe
-                coro = self.reset_to_defaults_async()
-                try:
-                    future = asyncio.run_coroutine_threadsafe(coro, loop)
-                    return future.result(timeout=5.0)
-                except RuntimeError:
-                    coro.close()
-                    raise
         except Exception as e:
             error_msg = f"Failed to reset settings to defaults: {e}"
             logger.error(error_msg, exc_info=True)

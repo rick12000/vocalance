@@ -1,51 +1,50 @@
+"""Applies ``SettingsChangedEvent`` payload to ``GlobalAppConfig`` and forwards
+per-setting deltas to registered callbacks.
+
+Callbacks are registered directly (typed callables) rather than by string
+service/method names, which eliminates the fragile string-based dispatch.
+"""
+
+from __future__ import annotations
+
 import inspect
 import logging
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import SettingsChangedEvent
+from vocalance.app.services.base_service import Service
 
 logger = logging.getLogger(__name__)
 
+# Settings that live only in config and need no service callback.
+_CONFIG_ONLY_PATHS = frozenset(
+    {
+        "llm.selected_model_id",
+        "llm.context_length",
+        "llm.max_tokens",
+        "grid.default_rect_count",
+    }
+)
 
-class SettingsUpdateCoordinator:
-    """Apply ``SettingsChangedEvent`` to ``GlobalAppConfig`` and notify registered services."""
+
+class SettingsUpdateCoordinator(Service):
+    """Apply ``SettingsChangedEvent`` to ``GlobalAppConfig`` and notify services.
+
+    Services register typed callbacks for the specific setting paths they care about::
+
+        coordinator.register_callback("markov_predictor.enabled", service.on_enabled_updated)
+
+    The callback receives the new value as its sole argument.
+    """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         self._event_bus = event_bus
         self._config = config
-        self._service_registry: Dict[str, Any] = {}
+        self._callbacks: Dict[str, list[Callable]] = {}
 
-        logger.debug("SettingsUpdateCoordinator initialized")
-
-    def setup_subscriptions(self) -> None:
-        """Subscribe to settings update events"""
-        self._event_bus.subscribe(event_type=SettingsChangedEvent, handler=self._handle_settings_updated)
-        logger.debug("SettingsUpdateCoordinator subscriptions configured")
-
-    def register_service(self, service_name: str, service_instance: Any) -> None:
-        """Register a service instance looked up by name in ``_propagate_to_services``."""
-        self._service_registry[service_name] = service_instance
-        logger.debug(f"Registered service for settings updates: {service_name}")
-
-    async def _handle_settings_updated(self, settings_change: SettingsChangedEvent) -> None:
-        """Handle settings update event and coordinate updates across services"""
-        try:
-            updated_settings = settings_change.updated_settings
-
-            # Update the GlobalAppConfig first (single source of truth)
-            self._update_config(updated_settings=updated_settings)
-
-            # Then propagate to registered services
-            await self._propagate_to_services(updated_settings=updated_settings)
-
-        except Exception as e:
-            logger.error(f"Error coordinating settings update: {e}", exc_info=True)
-
-    def _update_config(self, updated_settings: Dict[str, Any]) -> None:
-        """Update GlobalAppConfig with new values"""
-        category_map = {
+        self._category_map = {
             "markov_predictor": self._config.markov_predictor,
             "sound_recognizer": self._config.sound_recognizer,
             "llm": self._config.llm,
@@ -54,76 +53,48 @@ class SettingsUpdateCoordinator:
             "audio": self._config.audio,
         }
 
-        for setting_path, value in updated_settings.items():
-            try:
-                category, key = setting_path.split(".", 1)
-                config_obj = category_map.get(category)
+        event_bus.subscribe(SettingsChangedEvent, self._handle_settings_updated)
 
+    def register_callback(self, setting_path: str, callback: Callable[[Any], Any]) -> None:
+        """Register a callback to be invoked when ``setting_path`` changes.
+
+        The callback receives the new value as its single argument.  Both sync
+        and async callables are supported.
+        """
+        self._callbacks.setdefault(setting_path, []).append(callback)
+
+    async def _handle_settings_updated(self, event: SettingsChangedEvent) -> None:
+        try:
+            self._apply_to_config(event.updated_settings)
+            await self._dispatch_callbacks(event.updated_settings)
+        except Exception as e:
+            logger.error("Error coordinating settings update: %s", e, exc_info=True)
+
+    def _apply_to_config(self, updated_settings: Dict[str, Any]) -> None:
+        for path, value in updated_settings.items():
+            try:
+                category, key = path.split(".", 1)
+                config_obj = self._category_map.get(category)
                 if config_obj and hasattr(config_obj, key):
                     setattr(config_obj, key, value)
                 else:
-                    logger.warning(f"Unknown setting path: {setting_path}")
-
+                    logger.warning("Unknown setting path: %s", path)
             except Exception as e:
-                logger.error(f"Error updating config for {setting_path}: {e}")
+                logger.error("Error updating config for %s: %s", path, e)
 
-    async def _propagate_to_services(self, updated_settings: Dict[str, Any]) -> None:
-        """Propagate real-time settings to registered services"""
-        propagation_map = {
-            "markov_predictor.enabled": ("markov_predictor", "on_enabled_updated"),
-            "markov_predictor.confidence_threshold": ("markov_predictor", "on_confidence_threshold_updated"),
-            "sound_recognizer.confidence_threshold": ("sound_recognizer", "on_confidence_threshold_updated"),
-            "sound_recognizer.vote_threshold": ("sound_recognizer", "on_vote_threshold_updated"),
-            "vad.command_silent_chunks_for_end": ("audio", "on_command_silent_chunks_updated"),
-        }
-
-        config_only_paths = frozenset(
-            {
-                "llm.selected_model_id",
-                "llm.context_length",
-                "llm.max_tokens",
-            }
-        )
-
-        for setting_path, value in updated_settings.items():
-            # GridService reads directly from config - no callback needed
-            if setting_path == "grid.default_rect_count":
+    async def _dispatch_callbacks(self, updated_settings: Dict[str, Any]) -> None:
+        for path, value in updated_settings.items():
+            if path in _CONFIG_ONLY_PATHS:
                 continue
-            if setting_path in config_only_paths:
-                continue
-
-            service_info = propagation_map.get(setting_path)
-            if service_info:
-                service_name, method_name = service_info
-                service = self._service_registry.get(service_name)
-
-                if service and hasattr(service, method_name):
-                    method = getattr(service, method_name)
-
-                    # Determine argument name based on method name pattern
-                    kwargs = {}
-                    if "threshold" in method_name:
-                        kwargs["threshold"] = value
-                    elif "count" in method_name:
-                        kwargs["count"] = value
-                    elif "chunks" in method_name:
-                        kwargs["chunks"] = value
-
-                    # Call method (async or sync) with correct arguments
-                    is_async = inspect.iscoroutinefunction(method)
-
-                    if kwargs:
-                        if is_async:
-                            await method(**kwargs)
-                        else:
-                            method(**kwargs)
+            for cb in self._callbacks.get(path, []):
+                try:
+                    if inspect.iscoroutinefunction(cb):
+                        await cb(value)
                     else:
-                        # Fallback for methods taking a single positional argument
-                        if is_async:
-                            await method(value)
-                        else:
-                            method(value)
-                else:
-                    logger.warning(f"Service '{service_name}' not registered or method '{method_name}' not found")
-            else:
-                logger.warning(f"No propagation mapping found for real-time setting: {setting_path}")
+                        cb(value)
+                except Exception as e:
+                    logger.error("Callback error for setting %s: %s", path, e, exc_info=True)
+
+    async def shutdown(self) -> None:
+        self._event_bus.unsubscribe(SettingsChangedEvent, self._handle_settings_updated)
+        self._callbacks.clear()

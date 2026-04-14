@@ -357,8 +357,9 @@ def app_config():
 
 @pytest.fixture
 def event_bus():
-    """Create event bus for testing."""
+    """Create a started event bus for testing."""
     bus = EventBus()
+    bus.start()
     return bus
 
 
@@ -366,14 +367,8 @@ def event_bus():
 async def stt_service(event_bus, app_config):
     """Create and initialize STT service."""
     service = SpeechToTextService(event_bus, app_config)
-    await service.initialize_engines()
-    service.setup_subscriptions()
-
-    await event_bus.start_worker()
-
+    await service.initialize()
     yield service
-
-    await event_bus.stop_worker()
 
 
 @pytest.fixture
@@ -388,9 +383,11 @@ def mock_storage_service():
     from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandsData, MarksData
 
     storage = Mock()
+    _store: dict = {}
 
-    # Mock the read method to return appropriate data models
     async def mock_read(model_type):
+        if model_type in _store:
+            return _store[model_type]
         if model_type == MarksData:
             return MarksData(marks={})
         elif model_type == CommandsData:
@@ -399,8 +396,12 @@ def mock_storage_service():
             return CommandHistoryData(history=[])
         return None
 
+    async def mock_write(data):
+        _store[type(data)] = data
+        return True
+
     storage.read = AsyncMock(side_effect=mock_read)
-    storage.write = AsyncMock(return_value=True)
+    storage.write = AsyncMock(side_effect=mock_write)
 
     return storage
 
