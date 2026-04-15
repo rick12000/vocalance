@@ -27,9 +27,9 @@ class SoundMappingDialog(BaseDialog):
         self.controller = controller
         self.selected_command = None
 
-        self._setup_ui()
+        self.setup_ui()
 
-    def _setup_ui(self) -> None:
+    def setup_ui(self) -> None:
         """Build the dialog UI."""
         from PySide6.QtGui import QColor, QPalette
 
@@ -58,12 +58,8 @@ class SoundMappingDialog(BaseDialog):
         current_title = SectionTitle("Current Mapping:")
         current_layout.addWidget(current_title)
 
-        # Get current mapping
-        try:
-            mapped_command = self.controller.get_sound_command_mapping(self.sound_name)
-            mapping_text = mapped_command if mapped_command else "Unmapped"
-        except Exception:
-            mapping_text = "Unmapped"
+        mapped_command = self.controller.get_sound_command_mapping(self.sound_name)
+        mapping_text = mapped_command if mapped_command else "Unmapped"
 
         current_label = SmallLabel(mapping_text, color=theme.config.text.medium)
         current_layout.addWidget(current_label)
@@ -93,7 +89,7 @@ class SoundMappingDialog(BaseDialog):
         self.type_combo.setFont(theme.get_font(size="medium"))
         command_types = self.controller.get_mapping_command_types()
         self.type_combo.addItems(command_types)
-        self.type_combo.currentTextChanged.connect(self._on_type_changed)
+        self.type_combo.currentTextChanged.connect(self.on_type_changed)
         mapping_layout.addWidget(self.type_combo)
 
         # Command Value dropdown - with medium font and color
@@ -109,7 +105,7 @@ class SoundMappingDialog(BaseDialog):
         button_layout.setSpacing(theme.config.spacing.medium)
 
         confirm_btn = PrimaryButton(text="Confirm")
-        confirm_btn.clicked.connect(self._on_confirm)
+        confirm_btn.clicked.connect(self.on_confirm)
         button_layout.addWidget(confirm_btn)
 
         cancel_btn = DangerButton(text="Cancel")
@@ -121,9 +117,9 @@ class SoundMappingDialog(BaseDialog):
         self._main_layout.addWidget(mapping_frame)
 
         # Initialize value dropdown
-        self._on_type_changed(self.type_combo.currentText())
+        self.on_type_changed(self.type_combo.currentText())
 
-    def _on_type_changed(self, selected_type: str) -> None:
+    def on_type_changed(self, selected_type: str) -> None:
         """Handle command type dropdown change."""
         self.value_combo.clear()
 
@@ -141,7 +137,7 @@ class SoundMappingDialog(BaseDialog):
         else:
             self.value_combo.addItem("No options available")
 
-    def _on_confirm(self) -> None:
+    def on_confirm(self) -> None:
         """Handle confirm button click."""
         command_value = self.value_combo.currentText().strip()
 
@@ -171,7 +167,7 @@ class QtSoundsView(QtBaseView):
         self.current_training_sound = None
         self.total_training_samples = 0
 
-        self._setup_ui()
+        self.setup_ui()
         self.logger.debug("QtSoundsView initialized")
 
     def set_controller(self, controller) -> None:
@@ -179,27 +175,25 @@ class QtSoundsView(QtBaseView):
         self.controller = controller
 
         # Connect controller signals
-        self.controller.sounds_loaded.connect(self._on_sounds_loaded)
-        self.controller.training_started.connect(self._on_training_started)
-        self.controller.training_progress.connect(self._on_training_progress)
-        self.controller.training_completed.connect(self._on_training_completed)
-        self.controller.training_error.connect(self._on_training_error)
-        self.controller.operation_error.connect(self._on_error)
+        self.controller.sounds_loaded.connect(self.on_sounds_loaded)
+        self.controller.training_started.connect(self.on_training_started)
+        self.controller.training_progress.connect(self.on_training_progress)
+        self.controller.training_completed.connect(self.on_training_completed)
+        self.controller.training_error.connect(self.on_training_error)
+        self.controller.operation_error.connect(self.on_error)
 
-        # Load initial sounds
         self.logger.info("Loading sounds from controller")
-        self.controller.refresh_sound_list()
         self.controller.on_view_ready()
 
-    def _setup_ui(self) -> None:
+    def setup_ui(self) -> None:
         """Build UI with TwoColumnLayout."""
         self.layout = TwoColumnLayout("Train Sound", "Trained Sounds", self)
         self.main_layout.addWidget(self.layout, stretch=1)
 
-        self._setup_training_form()
-        self._setup_sounds_list_panel()
+        self.setup_training_form()
+        self.setup_sounds_list_panel()
 
-    def _setup_training_form(self) -> None:
+    def setup_training_form(self) -> None:
         """Setup training form in left content area."""
         content = self.layout.left_content
 
@@ -220,7 +214,7 @@ class QtSoundsView(QtBaseView):
 
         # Start training button
         self.start_training_btn = PrimaryButton(text="Record")
-        self.start_training_btn.clicked.connect(self._on_start_training_clicked)
+        self.start_training_btn.clicked.connect(self.on_start_training_clicked)
         content.add(self.start_training_btn)
 
         # Progress bar - minimal, modern aesthetic matching startup window
@@ -252,7 +246,7 @@ class QtSoundsView(QtBaseView):
 
         content.add_stretch()
 
-    def _setup_sounds_list_panel(self) -> None:
+    def setup_sounds_list_panel(self) -> None:
         """Setup sounds list panel in right content area."""
         content = self.layout.right_content
 
@@ -269,20 +263,16 @@ class QtSoundsView(QtBaseView):
 
         # Delete all button
         self.delete_all_btn = DangerButton(text="Reset")
-        self.delete_all_btn.clicked.connect(self._on_delete_all_clicked)
+        self.delete_all_btn.clicked.connect(self.on_delete_all_clicked)
         content.add(self.delete_all_btn)
 
-    def _on_sounds_loaded(self, sounds: List[str]) -> None:
+    def on_sounds_loaded(self, sounds: List[str]) -> None:
         """Handle sounds loaded from controller."""
-        try:
-            self.sounds_list = sounds
-            self._refresh_sounds_list()
-            self.logger.info(f"Sounds loaded: {len(sounds)} total")
-        except Exception as e:
-            self.logger.error(f"Error loading sounds: {e}", exc_info=True)
-            self._show_error(f"Error loading sounds: {e}")
+        self.sounds_list = sounds
+        self.refresh_sounds_list()
+        self.logger.info("Sounds loaded: %s total", len(sounds))
 
-    def _on_training_started(self, sound_name: str, total_samples: int) -> None:
+    def on_training_started(self, sound_name: str, total_samples: int) -> None:
         """Handle training started event."""
         self.current_training_sound = sound_name
         self.total_training_samples = total_samples
@@ -296,7 +286,7 @@ class QtSoundsView(QtBaseView):
         self.samples_spinbox.setEnabled(False)
         self.logger.info(f"Training started: {sound_name}")
 
-    def _on_training_progress(self, sound_name: str, current: int, total: int) -> None:
+    def on_training_progress(self, sound_name: str, current: int, total: int) -> None:
         """Handle training progress event.
 
         Flow:
@@ -329,7 +319,7 @@ class QtSoundsView(QtBaseView):
                 self.progress_bar.setValue(100)
                 self.status_label.setText("Training...")
 
-    def _on_training_completed(self, sound_name: str) -> None:
+    def on_training_completed(self, sound_name: str) -> None:
         """Handle training completed event."""
         self.progress_bar.setVisible(False)
         self.status_label.setVisible(False)
@@ -340,7 +330,7 @@ class QtSoundsView(QtBaseView):
         self.current_training_sound = None
         self.logger.info(f"Training completed: {sound_name}")
 
-    def _on_training_error(self, sound_name: str, error_msg: str) -> None:
+    def on_training_error(self, sound_name: str, error_msg: str) -> None:
         """Handle training error event."""
         self.progress_bar.setVisible(False)
         self.status_label.setText(f"Training failed: {error_msg}")
@@ -351,12 +341,12 @@ class QtSoundsView(QtBaseView):
         self.current_training_sound = None
         self.logger.error(f"Training error for {sound_name}: {error_msg}")
 
-    def _on_error(self, error_message: str) -> None:
+    def on_error(self, error_message: str) -> None:
         """Handle error from controller."""
         self.logger.error(f"Controller error: {error_message}")
-        self._show_error(error_message)
+        self.show_error(error_message)
 
-    def _refresh_sounds_list(self) -> None:
+    def refresh_sounds_list(self) -> None:
         """Refresh the display of trained sounds."""
         # Clear all existing widgets
         while self.sounds_list_layout.count() > 0:
@@ -391,21 +381,21 @@ class QtSoundsView(QtBaseView):
                 # Map button
                 map_btn = PrimaryButton(text="Map")
                 map_btn.setFixedWidth(theme.config.components.button_action_width)
-                map_btn.clicked.connect(lambda checked, s=sound_name: self._on_map_sound(s))
+                map_btn.clicked.connect(lambda checked, s=sound_name: self.on_map_sound(s))
                 item_layout.addWidget(map_btn)
 
                 # Delete button
-                delete_btn = DeleteButton(command=lambda checked, s=sound_name: self._on_delete_sound(s))
+                delete_btn = DeleteButton(command=lambda checked, s=sound_name: self.on_delete_sound(s))
                 item_layout.addWidget(delete_btn)
 
                 self.sounds_list_layout.addWidget(item_widget)
 
         self.sounds_list_layout.addStretch()
 
-    def _on_map_sound(self, sound_name: str) -> None:
+    def on_map_sound(self, sound_name: str) -> None:
         """Handle map button clicked - show mapping dialog."""
         if not self.controller:
-            self._show_error("Controller not initialized.")
+            self.show_error("Controller not initialized.")
             return
 
         dialog = SoundMappingDialog(sound_name, self.controller, self)
@@ -414,7 +404,7 @@ class QtSoundsView(QtBaseView):
                 self.controller.map_sound_to_command(sound_name, dialog.selected_command)
                 self.logger.info(f"Mapped sound '{sound_name}' to '{dialog.selected_command}'")
 
-    def _on_delete_sound(self, sound_name: str) -> None:
+    def on_delete_sound(self, sound_name: str) -> None:
         """Handle delete button clicked."""
         reply = QMessageBox.question(
             self,
@@ -427,26 +417,26 @@ class QtSoundsView(QtBaseView):
             if self.controller:
                 self.controller.delete_individual_sound(sound_name)
 
-    def _on_start_training_clicked(self) -> None:
+    def on_start_training_clicked(self) -> None:
         """Handle start training button click."""
         sound_name = self.sound_name_input.text().strip()
         if not sound_name:
-            self._show_error("Please enter a sound name.")
+            self.show_error("Please enter a sound name.")
             return
 
-        try:
-            num_samples = int(self.samples_spinbox.text().strip())
-            if num_samples < 1 or num_samples > 100:
-                self._show_error("Please enter a number between 1 and 100 for samples.")
-                return
-        except ValueError:
-            self._show_error("Please enter a valid number for samples.")
+        raw_samples = self.samples_spinbox.text().strip()
+        if not raw_samples.isdigit():
+            self.show_error("Please enter a valid number for samples.")
+            return
+        num_samples = int(raw_samples)
+        if num_samples < 1 or num_samples > 100:
+            self.show_error("Please enter a number between 1 and 100 for samples.")
             return
 
         if self.controller:
-            self.controller.start_training(sound_name, num_samples)
+            self.controller.train_sound(sound_name, num_samples)
 
-    def _on_delete_all_clicked(self) -> None:
+    def on_delete_all_clicked(self) -> None:
         """Handle delete all button click."""
         if not self.sounds_list:
             return
@@ -462,7 +452,7 @@ class QtSoundsView(QtBaseView):
             if self.controller:
                 self.controller.delete_all_sounds()
 
-    def _show_error(self, message: str) -> None:
+    def show_error(self, message: str) -> None:
         """Show error message dialog."""
         from vocalance.app.ui.components.dialogs import showerror
 

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
@@ -10,14 +10,7 @@ from vocalance.app.ui.qt_theme import theme
 
 
 def _get_main_window(widget: Optional[QWidget]) -> Optional[QWidget]:
-    """Traverse widget hierarchy to find the main QMainWindow.
-
-    Args:
-        widget: Starting widget to traverse from.
-
-    Returns:
-        The main window widget, or None if not found.
-    """
+    """Return the nearest ``QMainWindow`` ancestor of ``widget``, if any."""
     from PySide6.QtWidgets import QMainWindow
 
     current = widget
@@ -29,17 +22,7 @@ def _get_main_window(widget: Optional[QWidget]) -> Optional[QWidget]:
 
 
 def _center_on_parent(dialog: QDialog, parent: Optional[QWidget] = None) -> None:
-    """Center dialog on parent window (main window if available) or screen.
-
-    Traverses up the widget hierarchy to find the main window for proper centering.
-    This ensures dialogs center on the actual application window, not intermediate
-    widgets, and move with the main window.
-
-    Args:
-        dialog: Dialog to center.
-        parent: Optional parent widget (traversed to find main window).
-    """
-    # Try to find the main window first
+    """Center ``dialog`` on the main window, parent geometry, or the screen."""
     main_window = _get_main_window(parent)
     center_on = main_window if main_window else parent
 
@@ -50,7 +33,6 @@ def _center_on_parent(dialog: QDialog, parent: Optional[QWidget] = None) -> None
         y = parent_rect.y() + (parent_rect.height() - dialog_size.height()) // 2
         dialog.move(x, y)
     else:
-        # Center on screen if no parent found
         screen = dialog.screen()
         if screen:
             screen_geometry = screen.availableGeometry()
@@ -73,19 +55,17 @@ class BaseDialog(QDialog):
         self,
         parent: Optional[QWidget] = None,
         title: str = "",
-        min_width: int = None,
-        min_height: int = None,
-    ):
+        min_width: Optional[int] = None,
+        min_height: Optional[int] = None,
+    ) -> None:
         super().__init__(parent)
 
-        # Set window flags
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
         self.setModal(True)
 
         if title:
             self.setWindowTitle(title)
 
-        # Set minimum dimensions
         if min_width is None:
             min_width = theme.config.components.dialog_width
         if min_height is None:
@@ -94,7 +74,6 @@ class BaseDialog(QDialog):
         self.setMinimumWidth(min_width)
         self.setMinimumHeight(min_height)
 
-        # Setup main layout
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(
             theme.config.container.box_padding,
@@ -104,17 +83,10 @@ class BaseDialog(QDialog):
         )
         self._main_layout.setSpacing(theme.config.container.box_spacing_between)
 
-    def exec(self):
-        """Override exec to center dialog before showing.
-
-        This ensures the dialog is centered on the parent window before
-        it becomes visible and enters its modal event loop.
-        """
-        # Adjust dialog size to content before centering
+    def exec(self) -> int:
+        """Show centered on the main window (or parent), then run the modal loop."""
         self.adjustSize()
-        # Center on parent/main window
         _center_on_parent(self, self.parent())
-        # Call parent exec to show and run modal event loop
         return super().exec()
 
 
@@ -127,7 +99,7 @@ class CommandEditDialog(BaseDialog):
     - Delete custom commands
     """
 
-    def __init__(self, command, parent: Optional[QWidget] = None):
+    def __init__(self, command, parent: Optional[QWidget] = None) -> None:
         """Initialize command edit dialog.
 
         Args:
@@ -148,18 +120,15 @@ class CommandEditDialog(BaseDialog):
 
     def _setup_ui(self) -> None:
         """Build the dialog UI."""
-        # Import Box here to avoid circular imports
         from PySide6.QtGui import QColor, QPalette
 
         from vocalance.app.ui.components.layouts import Box
 
-        # Set dialog background to darkest
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
-        # Description section
         desc_frame = Box()
         desc_title = SectionTitle("Description")
         desc_frame.add(desc_title)
@@ -171,10 +140,8 @@ class CommandEditDialog(BaseDialog):
 
         self._main_layout.addWidget(desc_frame)
 
-        # Edit section
         edit_frame = Box()
 
-        # Format "Edit Command Phrase" as a normal label like in commands view
         edit_title = SmallLabel("Edit Command Phrase:", color=theme.config.text.medium)
         edit_frame.add(edit_title)
 
@@ -189,7 +156,6 @@ class CommandEditDialog(BaseDialog):
 
         self._main_layout.addWidget(edit_frame)
 
-        # Delete section
         delete_frame = Box()
         delete_title = SectionTitle("Delete Command")
         delete_frame.add(delete_title)
@@ -209,7 +175,6 @@ class CommandEditDialog(BaseDialog):
 
         self._main_layout.addWidget(delete_frame)
 
-        # Focus entry field
         self.entry.setFocus()
 
     def _get_command_description(self) -> str:
@@ -217,7 +182,6 @@ class CommandEditDialog(BaseDialog):
         if self.command.long_description:
             return self.command.long_description
 
-        # Fallback to generating description based on action type
         action_descriptions = {
             "hotkey": f"Triggers hotkey: {self.command.action_value or 'Not set'}",
             "key": f"Simulates pressing the key: {self.command.action_value or 'Not set'}",
@@ -265,7 +229,7 @@ class PromptEditDialog(BaseDialog):
     Provides interface to edit prompt name and instructions.
     """
 
-    def __init__(self, prompt_data: Dict[str, Any], parent: Optional[QWidget] = None):
+    def __init__(self, prompt_data: Dict[str, Any], parent: Optional[QWidget] = None) -> None:
         """Initialize prompt edit dialog.
 
         Args:
@@ -292,7 +256,6 @@ class PromptEditDialog(BaseDialog):
 
         from vocalance.app.ui.components.layouts import BaseContainer
 
-        # Set dialog background to darkest
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, QColor(theme.config.shapes.darkest))
         self.setPalette(palette)
@@ -313,7 +276,6 @@ class PromptEditDialog(BaseDialog):
         )
         container_layout.setSpacing(theme.config.spacing.medium)
 
-        # Prompt Title label and input form at top
         title_label = SmallLabel("Prompt Title:", color=theme.config.text.medium)
         container_layout.addWidget(title_label)
 
@@ -321,16 +283,13 @@ class PromptEditDialog(BaseDialog):
         self.title_entry.setText(self.prompt_data.get("name", ""))
         container_layout.addWidget(self.title_entry)
 
-        # Prompt Instructions label (right after title input)
         instructions_label = SmallLabel("Prompt Instructions:", color=theme.config.text.medium)
         container_layout.addWidget(instructions_label)
 
-        # Prompt instructions form - large and stretchable like in the dictation view
         self.prompt_textbox = ExpandableTextArea(placeholder="Enter prompt instructions...")
         self.prompt_textbox.setText(self.prompt_data.get("text", ""))
-        container_layout.addWidget(self.prompt_textbox, 1)  # Add stretch to fill available space
+        container_layout.addWidget(self.prompt_textbox, 1)
 
-        # Buttons at the bottom
         button_layout = QHBoxLayout()
         button_layout.setSpacing(theme.config.spacing.medium)
 
@@ -365,37 +324,21 @@ class PromptEditDialog(BaseDialog):
         self.accept()
 
 
-# =============================================================================
-# Utility Dialog Functions
-# =============================================================================
-
-
 def _create_dialog_base(
     message: str,
     parent: Optional[QWidget] = None,
-    button_configs: Optional[list] = None,
-) -> Optional[bool]:
-    """Base function for creating themed dialogs with configurable buttons.
-
-    Args:
-        message: Dialog message.
-        parent: Parent widget.
-        button_configs: List of (button_text, button_type, callback) tuples.
-
-    Returns:
-        Result from button callback if applicable, None otherwise.
-    """
-    result = [None]
+    button_configs: Optional[list[tuple[str, str, Callable[[], Any]]]] = None,
+) -> Any:
+    """Build a small ``BaseDialog`` with a message and optional button row; return the clicked callback result."""
+    result: list[Any] = [None]
 
     dialog = BaseDialog(parent=parent)
 
-    # Message label
     message_label = BodyLabel(message, align="center")
     message_label.setWordWrap(True)
     message_label.setMaximumWidth(theme.config.components.dialog_message_max_width)
     dialog._main_layout.addWidget(message_label)
 
-    # Button container
     if button_configs:
         button_layout = QHBoxLayout()
         button_layout.setSpacing(theme.config.spacing.medium)

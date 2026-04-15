@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import gc
 import logging
@@ -7,7 +9,7 @@ import shutil
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import librosa
 import numpy as np
@@ -29,6 +31,8 @@ _EMBEDDING_DIM = 5120
 
 
 class SimpleStandardScaler:
+    """Per-feature mean/std scaling used before k-NN on YAMNet embeddings."""
+
     def __init__(self) -> None:
         self.mean: Optional[np.ndarray] = None
         self.std: Optional[np.ndarray] = None
@@ -83,7 +87,13 @@ class AudioPreprocessor:
             try:
                 audio = librosa.resample(y=audio, orig_sr=sr, target_sr=self.target_sr)
             except Exception as e:
-                logger.error(f"Resample failed: sr={sr}, target={self.target_sr}, audio_shape={audio.shape}, error={e}")
+                logger.error(
+                    "Resample failed: sr=%s, target=%s, audio_shape=%s, error=%s",
+                    sr,
+                    self.target_sr,
+                    audio.shape,
+                    e,
+                )
                 raise ValueError(f"Failed to resample audio: {e}")
 
         if not self.skip_silence_trimming:
@@ -97,12 +107,12 @@ class AudioPreprocessor:
             pad_left = pad_total // 2
             pad_right = pad_total - pad_left
             audio = np.pad(audio, (pad_left, pad_right), mode="constant")
-            logger.debug(f"Padded audio symmetrically: {pad_left} left, {pad_right} right")
+            logger.debug("Padded audio symmetrically: %s left, %s right", pad_left, pad_right)
         elif duration > self.max_sound_duration:
             target_samples = int(self.max_sound_duration * self.target_sr)
             start_idx = (len(audio) - target_samples) // 2
             audio = audio[start_idx : start_idx + target_samples]
-            logger.debug(f"Center-cropped audio from sample {start_idx} to {start_idx + target_samples}")
+            logger.debug("Center-cropped audio from sample %s to %s", start_idx, start_idx + target_samples)
 
         peak = np.max(np.abs(audio))
         if peak > 0:
@@ -184,14 +194,14 @@ class SoundRecognizer:
 
             await self._load_model_data_async()
 
-            logger.info(f"SoundRecognizer initialized: {len(self.embeddings)} embeddings")
+            logger.info("SoundRecognizer initialized: %s embeddings", len(self.embeddings))
             return True
 
         except ValueError as e:
-            logger.error(f"Configuration error during initialization: {e}")
+            logger.error("Configuration error during initialization: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Failed to initialize recognizer: {e}", exc_info=True)
+            logger.error("Failed to initialize recognizer: %s", e, exc_info=True)
             return False
 
     def warm_start_esc50_samples(self) -> None:
@@ -200,7 +210,7 @@ class SoundRecognizer:
             self._copy_esc50_samples()
             logger.info("ESC-50 warm-start completed")
         except Exception as e:
-            logger.error(f"Failed to warm-start ESC-50 samples (non-critical): {e}")
+            logger.error("Failed to warm-start ESC-50 samples (non-critical): %s", e)
 
     async def _load_model_data_async(self) -> None:
         try:
@@ -223,14 +233,18 @@ class SoundRecognizer:
 
             unique_sounds = len(set(self.labels))
             if unique_sounds > 0:
-                logger.info(f"Loaded model data: {len(self.embeddings)} embeddings, {unique_sounds} unique sounds")
+                logger.info(
+                    "Loaded model data: %s embeddings, %s unique sounds",
+                    len(self.embeddings),
+                    unique_sounds,
+                )
 
             await self._load_mappings_from_storage()
 
         except FileNotFoundError as e:
-            logger.error(f"Model file not found: {e}")
+            logger.error("Model file not found: %s", e)
         except Exception as e:
-            logger.error(f"Failed to load model data: {e}", exc_info=True)
+            logger.error("Failed to load model data: %s", e, exc_info=True)
             with self._model_lock:
                 self.embeddings = np.empty((0, _EMBEDDING_DIM))
                 self.labels = []
@@ -243,11 +257,11 @@ class SoundRecognizer:
             if mappings_data:
                 with self._model_lock:
                     self.mappings = mappings_data.mappings
-                logger.info(f"Loaded {len(self.mappings)} sound mappings from storage")
+                logger.info("Loaded %s sound mappings from storage", len(self.mappings))
             else:
                 logger.info("No mappings found in storage")
         except Exception as e:
-            logger.warning(f"Failed to load sound mappings from storage: {e}")
+            logger.warning("Failed to load sound mappings from storage: %s", e)
             with self._model_lock:
                 self.mappings = {}
 
@@ -258,10 +272,10 @@ class SoundRecognizer:
                 pickle.dump(labels, f)
             with open(os.path.join(self.model_path, "scaler.joblib"), "wb") as f:
                 pickle.dump(scaler_obj, f)
-            logger.debug(f"Saved model files: {len(embeddings)} embeddings, {len(labels)} labels")
+            logger.debug("Saved model files: %s embeddings, %s labels", len(embeddings), len(labels))
             return True
         except Exception as e:
-            logger.error(f"Failed to save model files: {e}", exc_info=True)
+            logger.error("Failed to save model files: %s", e, exc_info=True)
             return False
 
     async def _save_model_data_async(self) -> bool:
@@ -284,7 +298,7 @@ class SoundRecognizer:
             return await self._storage.write(data=mappings_data)
 
         except Exception as e:
-            logger.error(f"Failed to save model data: {e}", exc_info=True)
+            logger.error("Failed to save model data: %s", e, exc_info=True)
             return False
 
     def _initialize_yamnet_model(self) -> bool:
@@ -302,13 +316,13 @@ class SoundRecognizer:
         except ValueError:
             raise
         except Exception as e:
-            logger.error(f"Failed to initialize YAMNet model: {e}")
+            logger.error("Failed to initialize YAMNet model: %s", e)
             return False
 
     def _copy_yamnet_from_assets(self, assets_path: str, app_path: str) -> bool:
         try:
             if not os.path.exists(assets_path):
-                logger.info(f"YAMNet model not found in assets at {assets_path}")
+                logger.info("YAMNet model not found in assets at %s", assets_path)
                 return False
 
             if os.path.exists(app_path) and self._validate_yamnet_model(app_path):
@@ -319,7 +333,7 @@ class SoundRecognizer:
                 shutil.rmtree(app_path)
 
             shutil.copytree(src=assets_path, dst=app_path)
-            logger.info(f"YAMNet model copied from {assets_path} to {app_path}")
+            logger.info("YAMNet model copied from %s to %s", assets_path, app_path)
 
             if self._validate_yamnet_model(app_path):
                 return True
@@ -328,10 +342,10 @@ class SoundRecognizer:
             return False
 
         except OSError as e:
-            logger.error(f"File system error copying YAMNet model: {e}")
+            logger.error("File system error copying YAMNet model: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Failed to copy YAMNet model from assets: {e}")
+            logger.error("Failed to copy YAMNet model from assets: %s", e)
             return False
 
     def _validate_yamnet_model(self, model_path: str) -> bool:
@@ -353,7 +367,7 @@ class SoundRecognizer:
             return True
 
         except Exception as e:
-            logger.error(f"Error validating YAMNet model: {e}")
+            logger.error("Error validating YAMNet model: %s", e)
             return False
 
     def _copy_esc50_samples(self) -> None:
@@ -377,12 +391,12 @@ class SoundRecognizer:
                 logger.debug("ESC-50 samples already present in app directory")
                 return
 
-            logger.info(f"Copying ESC-50 samples for categories: {needed_categories}")
+            logger.info("Copying ESC-50 samples for categories: %s", needed_categories)
             copied_count = self._copy_categories_from_assets(assets_path=assets_esc50_path, categories=needed_categories)
-            logger.info(f"Successfully copied {copied_count} ESC-50 samples from assets")
+            logger.info("Successfully copied %s ESC-50 samples from assets", copied_count)
 
         except Exception as e:
-            logger.debug(f"Failed to copy ESC-50 samples (non-critical): {e}")
+            logger.debug("Failed to copy ESC-50 samples (non-critical): %s", e)
 
     def _copy_categories_from_assets(self, assets_path: str, categories: list) -> int:
         if not os.path.exists(assets_path):
@@ -393,7 +407,7 @@ class SoundRecognizer:
         for category in categories:
             category_path = os.path.join(assets_path, category)
             if not os.path.exists(category_path):
-                logger.warning(f"Category {category} not found in assets, skipping")
+                logger.warning("Category %s not found in assets, skipping", category)
                 continue
 
             wav_files = [f for f in os.listdir(category_path) if f.endswith(".wav")]
@@ -430,7 +444,7 @@ class SoundRecognizer:
         try:
             scaled_embedding = scaler_obj.transform(embedding.reshape(1, -1))[0]
         except Exception as e:
-            logger.error(f"Failed to scale embedding: {e}")
+            logger.error("Failed to scale embedding: %s", e)
             return None
 
         similarities = np.array([1 - cosine(scaled_embedding, emb) for emb in embeddings_copy])
@@ -441,7 +455,11 @@ class SoundRecognizer:
 
         best_similarity = top_similarities[0]
         if best_similarity < self.confidence_threshold:
-            logger.debug(f"Recognition failed: similarity {best_similarity:.3f} < threshold {self.confidence_threshold}")
+            logger.debug(
+                "Recognition failed: similarity %.3f < threshold %s",
+                best_similarity,
+                self.confidence_threshold,
+            )
             return None
 
         all_votes = Counter(top_labels)
@@ -457,9 +475,14 @@ class SoundRecognizer:
 
         vote_ratio = custom_vote_count / total_votes
 
-        logger.debug(f"Recognition debug: top_labels={top_labels}")
+        logger.debug("Recognition debug: top_labels=%s", top_labels)
         logger.debug(
-            f"All votes: {all_votes}, best custom: {best_custom_label}, votes: {custom_vote_count}/{total_votes}, ratio: {vote_ratio:.3f}"
+            "All votes: %s, best custom: %s, votes: %s/%s, ratio: %.3f",
+            all_votes,
+            best_custom_label,
+            custom_vote_count,
+            total_votes,
+            vote_ratio,
         )
 
         if vote_ratio >= self.vote_threshold:
@@ -467,11 +490,15 @@ class SoundRecognizer:
             confidence = np.mean([top_similarities[i] for i in majority_indices])
 
             logger.info(
-                f"Sound recognized: '{best_custom_label}' (confidence: {confidence:.3f}, votes: {custom_vote_count}/{total_votes})"
+                "Sound recognized: '%s' (confidence: %.3f, votes: %s/%s)",
+                best_custom_label,
+                confidence,
+                custom_vote_count,
+                total_votes,
             )
             return best_custom_label, confidence
 
-        logger.debug(f"Insufficient vote alignment: {vote_ratio:.2f} (need {self.vote_threshold})")
+        logger.debug("Insufficient vote alignment: %.2f (need %s)", vote_ratio, self.vote_threshold)
         return None
 
     def _extract_embedding(self, audio: np.ndarray, sr: int) -> Optional[np.ndarray]:
@@ -497,10 +524,10 @@ class SoundRecognizer:
             return temporal_embedding
 
         except ValueError as e:
-            logger.error(f"Invalid audio for embedding: {e}")
+            logger.error("Invalid audio for embedding: %s", e)
             return None
         except Exception as e:
-            logger.error(f"Failed to extract embedding: {e}")
+            logger.error("Failed to extract embedding: %s", e)
             return None
 
     def _aggregate_temporal_embeddings(self, embeddings: np.ndarray) -> np.ndarray:
@@ -535,11 +562,11 @@ class SoundRecognizer:
             new_embeddings = []
             new_labels = []
 
-            logger.info(f"Training '{label}' with {len(samples)} samples...")
+            logger.info("Training '%s' with %s samples...", label, len(samples))
 
             for i, sample_data in enumerate(samples):
                 if not isinstance(sample_data, tuple) or len(sample_data) != 2:
-                    logger.warning(f"  Sample {i + 1}: invalid format, skipping")
+                    logger.warning("  Sample %s: invalid format, skipping", i + 1)
                     continue
 
                 audio, sr = sample_data
@@ -547,12 +574,12 @@ class SoundRecognizer:
                 if embedding is not None:
                     new_embeddings.append(embedding)
                     new_labels.append(label)
-                    logger.debug(f"  Sample {i + 1}: embedding extracted")
+                    logger.debug("  Sample %s: embedding extracted", i + 1)
                 else:
-                    logger.warning(f"  Sample {i + 1}: failed to extract embedding")
+                    logger.warning("  Sample %s: failed to extract embedding", i + 1)
 
             if not new_embeddings:
-                logger.error(f"No valid embeddings extracted for '{label}'")
+                logger.error("No valid embeddings extracted for '%s'", label)
                 return False
 
             with self._model_lock:
@@ -565,17 +592,17 @@ class SoundRecognizer:
 
                 self.scaler.fit(self.embeddings)
 
-            logger.info(f"Training completed: {len(self.embeddings)} total embeddings")
+            logger.info("Training completed: %s total embeddings", len(self.embeddings))
 
             await self._add_esc50_samples()
 
             return await self._save_model_data_async()
 
         except ValueError as e:
-            logger.error(f"Training input validation failed: {e}")
+            logger.error("Training input validation failed: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Training failed: {e}", exc_info=True)
+            logger.error("Training failed: %s", e, exc_info=True)
             return False
 
     def _extract_esc50_embeddings_sync(self) -> Tuple[List[np.ndarray], List[str]]:
@@ -609,7 +636,7 @@ class SoundRecognizer:
 
             return esc50_embeddings, esc50_labels
         except Exception as e:
-            logger.warning(f"Failed to extract ESC-50 embeddings: {e}")
+            logger.warning("Failed to extract ESC-50 embeddings: %s", e)
             return [], []
 
     async def _add_esc50_samples(self) -> None:
@@ -630,9 +657,9 @@ class SoundRecognizer:
                 self.labels.extend(esc50_labels)
                 self.scaler.fit(self.embeddings)
 
-            logger.info(f"Added {len(esc50_embeddings)} ESC-50 negative examples")
+            logger.info("Added %s ESC-50 negative examples", len(esc50_embeddings))
         except Exception as e:
-            logger.warning(f"Failed to add ESC-50 samples: {e}")
+            logger.warning("Failed to add ESC-50 samples: %s", e)
 
     async def set_mapping(self, sound_label: str, command: str) -> bool:
         if not sound_label or not isinstance(sound_label, str):
@@ -645,9 +672,9 @@ class SoundRecognizer:
 
         success = await self._save_model_data_async()
         if success:
-            logger.info(f"Successfully saved mapping '{sound_label}' -> '{command}' to storage")
+            logger.info("Successfully saved mapping '%s' -> '%s' to storage", sound_label, command)
         else:
-            logger.warning(f"Failed to save mapping '{sound_label}' -> '{command}' to storage")
+            logger.warning("Failed to save mapping '%s' -> '%s' to storage", sound_label, command)
 
         return success
 
@@ -671,7 +698,7 @@ class SoundRecognizer:
                 filepath = os.path.join(self.model_path, filename)
                 if os.path.exists(filepath):
                     os.remove(filepath)
-                    logger.debug(f"Removed model file: {filepath}")
+                    logger.debug("Removed model file: %s", filepath)
 
             try:
                 empty_mappings = SoundMappingsData(mappings={})
@@ -683,17 +710,17 @@ class SoundRecognizer:
                     logger.warning("Failed to clear sound mappings in storage")
                     return False
             except Exception as e:
-                logger.error(f"Error clearing sound mappings: {e}")
+                logger.error("Error clearing sound mappings: %s", e)
                 return False
 
             logger.info("Successfully reset all sounds and mappings")
             return True
 
         except OSError as e:
-            logger.error(f"File system error during reset: {e}")
+            logger.error("File system error during reset: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Failed to reset sounds: {e}", exc_info=True)
+            logger.error("Failed to reset sounds: %s", e, exc_info=True)
             return False
 
     async def delete_sound(self, sound_label: str) -> bool:
@@ -703,13 +730,13 @@ class SoundRecognizer:
 
             with self._model_lock:
                 if sound_label not in self.labels:
-                    logger.warning(f"Sound '{sound_label}' not found in trained sounds")
+                    logger.warning("Sound '%s' not found in trained sounds", sound_label)
                     return False
 
                 indices_to_remove = [i for i, label in enumerate(self.labels) if label == sound_label]
 
                 if not indices_to_remove:
-                    logger.warning(f"No embeddings found for sound '{sound_label}'")
+                    logger.warning("No embeddings found for sound '%s'", sound_label)
                     return False
 
                 mask = np.ones(len(self.embeddings), dtype=bool)
@@ -729,20 +756,24 @@ class SoundRecognizer:
             success = await self._save_model_data_async()
 
             if success:
-                logger.info(f"Successfully deleted sound '{sound_label}' ({len(indices_to_remove)} embeddings removed)")
+                logger.info(
+                    "Successfully deleted sound '%s' (%s embeddings removed)",
+                    sound_label,
+                    len(indices_to_remove),
+                )
             else:
-                logger.error(f"Failed to save model after deleting '{sound_label}'")
+                logger.error("Failed to save model after deleting '%s'", sound_label)
 
             return success
 
         except ValueError as e:
-            logger.error(f"Delete validation failed: {e}")
+            logger.error("Delete validation failed: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Failed to delete sound '{sound_label}': {e}", exc_info=True)
+            logger.error("Failed to delete sound '%s': %s", sound_label, e, exc_info=True)
             return False
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> Dict[str, Any]:
         with self._model_lock:
             custom_sounds = [label for label in self.labels if not label.startswith("esc50_")]
             esc50_sounds = [label for label in self.labels if label.startswith("esc50_")]
@@ -761,22 +792,26 @@ class SoundRecognizer:
     def on_confidence_threshold_updated(self, threshold: float) -> None:
         """Sync instance threshold after settings coordinator updates config."""
         if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
-            logger.warning(f"Invalid confidence threshold: {threshold}")
+            logger.warning("Invalid confidence threshold: %s", threshold)
             return
 
         old_threshold = self.confidence_threshold
         self.confidence_threshold = threshold
-        logger.info(f"Sound recognizer confidence threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
+        logger.info(
+            "Sound recognizer confidence threshold updated: %.3f -> %.3f",
+            old_threshold,
+            threshold,
+        )
 
     def on_vote_threshold_updated(self, threshold: float) -> None:
         """Sync instance vote threshold after settings coordinator updates config."""
         if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
-            logger.warning(f"Invalid vote threshold: {threshold}")
+            logger.warning("Invalid vote threshold: %s", threshold)
             return
 
         old_threshold = self.vote_threshold
         self.vote_threshold = threshold
-        logger.info(f"Sound recognizer vote threshold updated: {old_threshold:.3f} -> {threshold:.3f}")
+        logger.info("Sound recognizer vote threshold updated: %.3f -> %.3f", old_threshold, threshold)
 
     async def shutdown(self) -> None:
         try:
@@ -792,7 +827,7 @@ class SoundRecognizer:
                 except asyncio.TimeoutError:
                     logger.warning("File I/O executor shutdown timed out, forcing shutdown")
                 except Exception as e:
-                    logger.warning(f"Error during executor shutdown: {e}")
+                    logger.warning("Error during executor shutdown: %s", e)
 
             if self.yamnet_model is not None:
                 del self.yamnet_model
@@ -804,7 +839,7 @@ class SoundRecognizer:
                     tf.keras.backend.clear_session()
                     logger.info("TensorFlow Keras session cleared")
                 except Exception as e:
-                    logger.warning(f"Error clearing TensorFlow session: {e}")
+                    logger.warning("Error clearing TensorFlow session: %s", e)
 
             with self._model_lock:
                 if self.embeddings is not None:
@@ -828,4 +863,4 @@ class SoundRecognizer:
             logger.info("SoundRecognizer shutdown complete")
 
         except Exception as e:
-            logger.error(f"Error during shutdown: {e}", exc_info=True)
+            logger.error("Error during shutdown: %s", e, exc_info=True)

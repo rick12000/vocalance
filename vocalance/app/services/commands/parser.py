@@ -1,10 +1,8 @@
-"""Subscribe to recognized text / sounds and publish parsed commands on the event bus."""
-
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, Optional, Type
+from typing import Dict, Optional, Type
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
@@ -30,6 +28,7 @@ from vocalance.app.config.command_types import (
     ResumeCommand,
 )
 from vocalance.app.event_bus import EventBus
+from vocalance.app.events.base_event import BaseEvent
 from vocalance.app.events.command_events import (
     AutomationCommandParsedEvent,
     DictationCommandParsedEvent,
@@ -49,7 +48,7 @@ from vocalance.app.services.commands.utilities.text_command_parse import (
 from vocalance.app.services.pause_state_manager import PauseStateManager
 from vocalance.app.services.storage.storage_service import StorageService
 
-PARSED_EVENT_BY_COMMAND: Dict[Type[BaseCommand], Any] = {
+PARSED_EVENT_BY_COMMAND: Dict[Type[BaseCommand], Type[BaseEvent]] = {
     DictationStartCommand: DictationCommandParsedEvent,
     DictationStopCommand: DictationCommandParsedEvent,
     DictationTypeCommand: DictationCommandParsedEvent,
@@ -109,6 +108,7 @@ class CentralizedCommandParser(Service):
             self.event_bus.unsubscribe(event_type, handler)
 
     async def process_text_input(self, text: str, source: Optional[str] = None) -> None:
+        """Normalize text, apply rate limiting and pause rules, parse, and publish when matched."""
         if not text or not text.strip():
             return
         src = source or "unknown"
@@ -131,6 +131,7 @@ class CentralizedCommandParser(Service):
                 self._last_command_executed_mono = time.monotonic()
 
     async def publish_command_event(self, command: BaseCommand, source: Optional[str]) -> None:
+        """Instantiate the parsed-event type for ``command`` and publish it on the bus."""
         event_cls = PARSED_EVENT_BY_COMMAND.get(type(command))
         if event_cls is None:
             raise ValueError(f"No parsed event registered for command type {type(command).__name__}")

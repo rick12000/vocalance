@@ -1,5 +1,3 @@
-"""Audio byte utilities: RMS front-end, adaptive thresholds, utterance segmentation. No event bus, no asyncio."""
-
 from __future__ import annotations
 
 import threading
@@ -19,7 +17,7 @@ class NoiseFloorEstimate:
 
 
 class AudioProcessor:
-    """DC removal, optional peak normalization, RMS energy, rolling noise floor."""
+    """DC removal, optional peak normalization, RMS energy, and rolling noise-floor estimate."""
 
     DEFAULT_TARGET_PEAK = 0.7
     MIN_PEAK_FOR_NORMALIZATION = 0.001
@@ -40,93 +38,93 @@ class AudioProcessor:
         self.enable_normalization = enable_normalization
         self.target_peak = target_peak
 
-        self._energy_history: deque = deque(maxlen=self.NOISE_FLOOR_WINDOW_SIZE)
-        self._noise_floor = self.NOISE_FLOOR_INITIAL
-        self._noise_floor_stable = False
-        self._bootstrap_count = 0
+        self.energy_history: deque[float] = deque(maxlen=self.NOISE_FLOOR_WINDOW_SIZE)
+        self.noise_floor = self.NOISE_FLOOR_INITIAL
+        self.noise_floor_stable = False
+        self.bootstrap_count = 0
 
-        self._recent_peaks: deque = deque(maxlen=50)
-        self._calibrated_gain = 1.0
+        self.recent_peaks: deque[float] = deque(maxlen=50)
+        self.calibrated_gain = 1.0
 
     def process_chunk(self, audio_bytes: bytes) -> tuple[np.ndarray, float]:
         audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        audio = self._remove_dc_offset(audio)
+        audio = self.remove_dc_offset(audio)
         if self.enable_normalization:
-            audio = self._normalize_peak(audio)
-        energy = self._calculate_rms_energy(audio)
+            audio = self.normalize_peak(audio)
+        energy = self.calculate_rms_energy(audio)
         return audio, energy
 
     def update_noise_floor(self, energy: float, is_likely_speech: bool) -> NoiseFloorEstimate:
-        self._bootstrap_count += 1
+        self.bootstrap_count += 1
 
-        if self._bootstrap_count <= self.BOOTSTRAP_CHUNKS:
-            self._energy_history.append(energy)
+        if self.bootstrap_count <= self.BOOTSTRAP_CHUNKS:
+            self.energy_history.append(energy)
         elif not is_likely_speech:
-            self._energy_history.append(energy)
+            self.energy_history.append(energy)
 
-        if len(self._energy_history) >= self.MIN_SAMPLES_FOR_STABLE:
-            self._noise_floor = float(np.percentile(list(self._energy_history), self.NOISE_FLOOR_PERCENTILE))
-            self._noise_floor_stable = True
-        elif len(self._energy_history) > 0:
-            self._noise_floor = float(np.percentile(list(self._energy_history), self.NOISE_FLOOR_PERCENTILE))
-            self._noise_floor_stable = False
+        if len(self.energy_history) >= self.MIN_SAMPLES_FOR_STABLE:
+            self.noise_floor = float(np.percentile(list(self.energy_history), self.NOISE_FLOOR_PERCENTILE))
+            self.noise_floor_stable = True
+        elif len(self.energy_history) > 0:
+            self.noise_floor = float(np.percentile(list(self.energy_history), self.NOISE_FLOOR_PERCENTILE))
+            self.noise_floor_stable = False
 
         return NoiseFloorEstimate(
-            value=self._noise_floor,
-            sample_count=len(self._energy_history),
-            is_stable=self._noise_floor_stable,
+            value=self.noise_floor,
+            sample_count=len(self.energy_history),
+            is_stable=self.noise_floor_stable,
         )
 
     def get_noise_floor(self) -> NoiseFloorEstimate:
         return NoiseFloorEstimate(
-            value=self._noise_floor,
-            sample_count=len(self._energy_history),
-            is_stable=self._noise_floor_stable,
+            value=self.noise_floor,
+            sample_count=len(self.energy_history),
+            is_stable=self.noise_floor_stable,
         )
 
     def get_adaptive_threshold(self, base_multiplier: float = 3.0) -> float:
-        return self._noise_floor * base_multiplier
+        return self.noise_floor * base_multiplier
 
     def is_above_noise_floor(self, energy: float, multiplier: float = 2.0) -> bool:
-        return energy > self._noise_floor * multiplier
+        return energy > self.noise_floor * multiplier
 
     def reset(self) -> None:
-        self._energy_history.clear()
-        self._noise_floor = self.NOISE_FLOOR_INITIAL
-        self._noise_floor_stable = False
-        self._bootstrap_count = 0
-        self._recent_peaks.clear()
-        self._calibrated_gain = 1.0
+        self.energy_history.clear()
+        self.noise_floor = self.NOISE_FLOOR_INITIAL
+        self.noise_floor_stable = False
+        self.bootstrap_count = 0
+        self.recent_peaks.clear()
+        self.calibrated_gain = 1.0
 
-    def _remove_dc_offset(self, audio: np.ndarray) -> np.ndarray:
+    def remove_dc_offset(self, audio: np.ndarray) -> np.ndarray:
         return audio - np.mean(audio)
 
-    def _normalize_peak(self, audio: np.ndarray) -> np.ndarray:
+    def normalize_peak(self, audio: np.ndarray) -> np.ndarray:
         peak = np.max(np.abs(audio))
 
         if peak > self.MIN_PEAK_FOR_NORMALIZATION:
-            self._recent_peaks.append(peak)
+            self.recent_peaks.append(float(peak))
 
-        if len(self._recent_peaks) > 0:
-            reference_peak = float(np.percentile(list(self._recent_peaks), 90))
+        if len(self.recent_peaks) > 0:
+            reference_peak = float(np.percentile(list(self.recent_peaks), 90))
             if reference_peak > self.MIN_PEAK_FOR_NORMALIZATION:
                 target_gain = self.target_peak / reference_peak
-                if target_gain < self._calibrated_gain:
-                    self._calibrated_gain = 0.7 * self._calibrated_gain + 0.3 * target_gain
+                if target_gain < self.calibrated_gain:
+                    self.calibrated_gain = 0.7 * self.calibrated_gain + 0.3 * target_gain
                 else:
-                    self._calibrated_gain = 0.98 * self._calibrated_gain + 0.02 * target_gain
-                self._calibrated_gain = max(0.5, min(5.0, self._calibrated_gain))
+                    self.calibrated_gain = 0.98 * self.calibrated_gain + 0.02 * target_gain
+                self.calibrated_gain = max(0.5, min(5.0, self.calibrated_gain))
 
-        return audio * self._calibrated_gain
+        return audio * self.calibrated_gain
 
-    def _calculate_rms_energy(self, audio: np.ndarray) -> float:
+    def calculate_rms_energy(self, audio: np.ndarray) -> float:
         if len(audio) == 0:
             return 0.0
         return float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
 
 
 class AdaptiveVADThreshold:
-    """Speech / silence thresholds derived from the noise floor."""
+    """Derives speech and silence energy thresholds from the noise floor."""
 
     def __init__(
         self,
@@ -140,31 +138,31 @@ class AdaptiveVADThreshold:
         self.min_threshold = min_threshold
         self.max_threshold = max_threshold
 
-        self._speech_threshold = min_threshold * speech_multiplier
-        self._silence_threshold = min_threshold * silence_multiplier
+        self.speech_threshold_value = min_threshold * speech_multiplier
+        self.silence_threshold_value = min_threshold * silence_multiplier
 
     def update(self, noise_floor: float) -> tuple[float, float]:
         speech = noise_floor * self.speech_multiplier
         silence = noise_floor * self.silence_multiplier
 
-        self._speech_threshold = max(self.min_threshold, min(self.max_threshold, speech))
-        self._silence_threshold = max(self.min_threshold * 0.5, min(self.max_threshold * 0.5, silence))
+        self.speech_threshold_value = max(self.min_threshold, min(self.max_threshold, speech))
+        self.silence_threshold_value = max(self.min_threshold * 0.5, min(self.max_threshold * 0.5, silence))
 
-        return self._speech_threshold, self._silence_threshold
+        return self.speech_threshold_value, self.silence_threshold_value
 
     @property
     def speech_threshold(self) -> float:
-        return self._speech_threshold
+        return self.speech_threshold_value
 
     @property
     def silence_threshold(self) -> float:
-        return self._silence_threshold
+        return self.silence_threshold_value
 
     def is_speech(self, energy: float) -> bool:
-        return energy > self._speech_threshold
+        return energy > self.speech_threshold_value
 
     def is_silence(self, energy: float) -> bool:
-        return energy < self._silence_threshold
+        return energy < self.silence_threshold_value
 
 
 class Onset(BaseModel):
@@ -196,7 +194,7 @@ class SegmentConfig:
 
 
 class UtteranceSegmenter:
-    """Stateful VAD over mono PCM chunks; returns ``Onset`` / ``Clip`` hits only."""
+    """Stateful VAD over mono PCM chunks; yields ``Onset`` or ``Clip`` hits."""
 
     def __init__(self, segment_config: SegmentConfig, analyzer: AudioProcessor, sample_rate: int) -> None:
         self.config = segment_config

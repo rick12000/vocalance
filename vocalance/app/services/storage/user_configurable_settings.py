@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Dict, FrozenSet, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -6,6 +8,8 @@ from vocalance.app.config.app_config import GlobalAppConfig
 
 
 class UserConfigurableField(BaseModel):
+    """Metadata for one user-editable setting (path, UI label, LLM session invalidation)."""
+
     model_config = ConfigDict(frozen=True)
 
     path: str = Field(description="Dot path, e.g. llm.max_tokens")

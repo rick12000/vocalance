@@ -1,5 +1,3 @@
-"""Layout widgets split into ``layout_core`` and ``layout_composites``."""
-
 from vocalance.app.ui.components.layout_composites import (
     CollapsibleSection,
     FormField,

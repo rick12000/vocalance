@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import copy
 import logging
@@ -35,7 +37,7 @@ class RuntimeConfigurationStore(Service):
         event_bus.subscribe(RuntimeConfigRequestEvent, self._handle_runtime_config_request)
 
     async def _handle_runtime_config_request(self, event: RuntimeConfigRequestEvent) -> None:
-        op = event.op
+        op: str = event.op
         if op == "get_effective":
             all_settings = self.get_effective_settings()
             await self.event_bus.publish(RuntimeConfigResponseEvent(op="effective_snapshot", all_settings=all_settings))
@@ -57,10 +59,12 @@ class RuntimeConfigurationStore(Service):
                 await self.reset_setting(setting_key)
 
     def register_listener(self, order: int, name: str, listener: ConfigurationListener) -> None:
+        """Register an async callback invoked after overrides change (sorted by ``order`` then ``name``)."""
         self.listeners.append((order, name, listener))
         self.listeners.sort(key=lambda t: (t[0], t[1]))
 
     def current(self) -> GlobalAppConfig:
+        """Return the live merged ``GlobalAppConfig`` instance."""
         return self.config
 
     async def shutdown(self) -> None:

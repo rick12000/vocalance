@@ -30,87 +30,70 @@ class QtSoundController(QtBaseController):
     sound_mapping_updated = Signal(str, str)
     operation_error = Signal(str)
 
-    def __init__(
-        self,
-        event_bus: EventBus,
-        config: GlobalAppConfig,
-    ) -> None:
-        super().__init__(
-            event_bus=event_bus,
-            logger=logging.getLogger("QtSoundController"),
-        )
-
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
+        super().__init__(event_bus=event_bus, logger=logging.getLogger("QtSoundController"))
         self.config = config
+        self.available_sounds: List[str] = []
+        self.sound_mappings_cache: Dict[str, str] = {}
+        self.marks_cache: List[str] = []
+        self.event_bus.subscribe(SoundListUpdatedEvent, self.on_sound_list_updated)
+        self.event_bus.subscribe(SoundMappingsResponseEvent, self.on_sound_mappings_response)
+        self.event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self.on_sound_mapping_updated)
+        self.event_bus.subscribe(SoundTrainingInitiatedEvent, self.on_training_initiated)
+        self.event_bus.subscribe(SoundTrainingProgressEvent, self.on_training_progress)
+        self.event_bus.subscribe(SoundTrainingCompleteEvent, self.on_training_complete)
+        self.event_bus.subscribe(SoundTrainingFailedEvent, self.on_training_failed)
+        self.event_bus.subscribe(MarksChangedEventData, self.on_marks_changed)
 
-        self.available_sounds = []
-        self._sound_mappings_cache = {}
-        self._marks_cache = []
-
-        self.event_bus.subscribe(SoundListUpdatedEvent, self._on_sound_list_updated)
-        self.event_bus.subscribe(SoundMappingsResponseEvent, self._on_sound_mappings_response)
-        self.event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self._on_sound_mapping_updated)
-        self.event_bus.subscribe(SoundTrainingInitiatedEvent, self._on_training_initiated)
-        self.event_bus.subscribe(SoundTrainingProgressEvent, self._on_training_progress)
-        self.event_bus.subscribe(SoundTrainingCompleteEvent, self._on_training_complete)
-        self.event_bus.subscribe(SoundTrainingFailedEvent, self._on_training_failed)
-        self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
+    def sound_op(self, op: str, **kwargs: object) -> None:
+        asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op=op, **kwargs)))
 
     def on_view_ready(self) -> None:
-        asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op="refresh_snapshots")))
+        self.refresh_snapshots()
         asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="refresh_list")))
 
-    def _on_marks_changed(self, snapshot: MarksChangedEventData) -> None:
-        self._marks_cache = list(snapshot.marks.keys()) if snapshot.marks else []
+    def refresh_snapshots(self) -> None:
+        self.sound_op(op="refresh_snapshots")
 
-    def _on_sound_list_updated(self, list_update: SoundListUpdatedEvent) -> None:
+    def on_marks_changed(self, snapshot: MarksChangedEventData) -> None:
+        self.marks_cache = list(snapshot.marks.keys()) if snapshot.marks else []
+
+    def on_sound_list_updated(self, list_update: SoundListUpdatedEvent) -> None:
         self.available_sounds = list_update.sounds
         self.sounds_loaded.emit(self.available_sounds)
 
-    def _on_sound_mappings_response(self, mappings_snapshot: SoundMappingsResponseEvent) -> None:
-        self._update_sound_mappings_cache(mappings_snapshot.mappings)
+    def on_sound_mappings_response(self, mappings_snapshot: SoundMappingsResponseEvent) -> None:
+        self.sound_mappings_cache.update(mappings_snapshot.mappings)
 
-    def _on_sound_mapping_updated(self, mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
+    def on_sound_mapping_updated(self, mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
         if mapping_update.success:
-            self._sound_mappings_cache[mapping_update.sound_label] = mapping_update.command_phrase
+            self.sound_mappings_cache[mapping_update.sound_label] = mapping_update.command_phrase
             self.sound_mapping_updated.emit(mapping_update.sound_label, mapping_update.command_phrase)
 
-    def _on_training_initiated(self, initiated: SoundTrainingInitiatedEvent) -> None:
+    def on_training_initiated(self, initiated: SoundTrainingInitiatedEvent) -> None:
         self.training_started.emit(initiated.sound_name, initiated.total_samples)
 
-    def _on_training_progress(self, progress: SoundTrainingProgressEvent) -> None:
+    def on_training_progress(self, progress: SoundTrainingProgressEvent) -> None:
         self.training_progress.emit(progress.label, progress.current_sample, progress.total_samples)
 
-    def _on_training_complete(self, complete: SoundTrainingCompleteEvent) -> None:
-        asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op="refresh_snapshots")))
+    def on_training_complete(self, complete: SoundTrainingCompleteEvent) -> None:
+        self.refresh_snapshots()
         self.training_completed.emit(complete.sound_name)
 
-    def _on_training_failed(self, failed: SoundTrainingFailedEvent) -> None:
+    def on_training_failed(self, failed: SoundTrainingFailedEvent) -> None:
         self.training_error.emit(failed.sound_name, failed.reason)
 
     def delete_individual_sound(self, sound_label: str) -> None:
-        asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op="delete", sound_label=sound_label)))
+        self.sound_op(op="delete", sound_label=sound_label)
 
     def delete_all_sounds(self) -> None:
-        asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op="reset_all")))
+        self.sound_op(op="reset_all")
 
     def train_sound(self, sound_name: str, num_samples: int) -> None:
-        asyncio.create_task(
-            self.event_bus.publish(SoundUiOperationEvent(op="train", sound_name=sound_name, num_samples=num_samples))
-        )
-
-    def start_training(self, sound_name: str, num_samples: int) -> None:
-        self.train_sound(sound_name, num_samples)
+        self.sound_op(op="train", sound_name=sound_name, num_samples=num_samples)
 
     def map_sound_to_command(self, sound_label: str, command_phrase: str) -> None:
-        asyncio.create_task(
-            self.event_bus.publish(SoundUiOperationEvent(op="map", sound_label=sound_label, command_phrase=command_phrase))
-        )
-
-    def refresh_sound_list(self) -> None:
-        asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op="refresh_snapshots")))
-
-    def refresh_sound_mappings(self) -> None:
-        asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op="refresh_snapshots")))
+        self.sound_op(op="map", sound_label=sound_label, command_phrase=command_phrase)
 
     def get_available_sounds(self) -> List[str]:
         return self.available_sounds
@@ -119,46 +102,31 @@ class QtSoundController(QtBaseController):
         return 5
 
     def get_sound_command_mapping(self, sound: str) -> Optional[str]:
-        return self._sound_mappings_cache.get(sound)
-
-    def _update_sound_mappings_cache(self, mappings: Dict[str, str]) -> None:
-        self._sound_mappings_cache.update(mappings)
+        return self.sound_mappings_cache.get(sound)
 
     def get_available_exact_match_commands(self) -> List[str]:
-        try:
-            return sorted(list(set(AutomationCommandRegistry.get_command_phrases())))
-        except Exception as e:
-            self.logger.error(f"Error getting exact match commands: {e}")
-            return []
+        return sorted(set(AutomationCommandRegistry.get_command_phrases()))
 
     def get_available_mark_names(self) -> List[str]:
-        return self._marks_cache.copy()
+        return self.marks_cache.copy()
 
     def get_grid_trigger_words(self) -> List[str]:
-        try:
-            return [
-                self.config.grid.show_grid_phrase,
-                self.config.grid.hover_grid_phrase,
-                self.config.grid.drag_grid_phrase,
-            ]
-        except Exception as e:
-            self.logger.error(f"Error getting grid trigger words: {e}")
-            return []
+        return [
+            self.config.grid.show_grid_phrase,
+            self.config.grid.hover_grid_phrase,
+            self.config.grid.drag_grid_phrase,
+        ]
 
     def get_mapping_command_types(self) -> List[str]:
         return ["Commands", "Marks", "Grid"]
 
     def cleanup(self) -> None:
-        try:
-            self.event_bus.unsubscribe(SoundListUpdatedEvent, self._on_sound_list_updated)
-            self.event_bus.unsubscribe(SoundMappingsResponseEvent, self._on_sound_mappings_response)
-            self.event_bus.unsubscribe(SoundToCommandMappingUpdatedEvent, self._on_sound_mapping_updated)
-            self.event_bus.unsubscribe(SoundTrainingInitiatedEvent, self._on_training_initiated)
-            self.event_bus.unsubscribe(SoundTrainingProgressEvent, self._on_training_progress)
-            self.event_bus.unsubscribe(SoundTrainingCompleteEvent, self._on_training_complete)
-            self.event_bus.unsubscribe(SoundTrainingFailedEvent, self._on_training_failed)
-            self.event_bus.unsubscribe(MarksChangedEventData, self._on_marks_changed)
-        except Exception as e:
-            self.logger.warning(f"Error during cleanup: {e}")
-
+        self.event_bus.unsubscribe(SoundListUpdatedEvent, self.on_sound_list_updated)
+        self.event_bus.unsubscribe(SoundMappingsResponseEvent, self.on_sound_mappings_response)
+        self.event_bus.unsubscribe(SoundToCommandMappingUpdatedEvent, self.on_sound_mapping_updated)
+        self.event_bus.unsubscribe(SoundTrainingInitiatedEvent, self.on_training_initiated)
+        self.event_bus.unsubscribe(SoundTrainingProgressEvent, self.on_training_progress)
+        self.event_bus.unsubscribe(SoundTrainingCompleteEvent, self.on_training_complete)
+        self.event_bus.unsubscribe(SoundTrainingFailedEvent, self.on_training_failed)
+        self.event_bus.unsubscribe(MarksChangedEventData, self.on_marks_changed)
         super().cleanup()

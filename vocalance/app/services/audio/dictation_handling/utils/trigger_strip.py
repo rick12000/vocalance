@@ -21,7 +21,7 @@ def strip_config_phrases_case_insensitive(text: str, phrases: tuple[str, ...]) -
 def strip_dictation_triggers(text: str, cfg: DictationConfig) -> str:
     if not text:
         return ""
-    trigger_phrases = (
+    trigger_phrases: tuple[str, ...] = (
         cfg.start_trigger,
         cfg.stop_trigger,
         cfg.type_trigger,
@@ -30,8 +30,8 @@ def strip_dictation_triggers(text: str, cfg: DictationConfig) -> str:
         cfg.hidden_start_trigger,
         cfg.amend_start_trigger,
     )
-    stripped = strip_config_phrases_case_insensitive(text, trigger_phrases)
-    modifier_phrases = (
+    stripped: str = strip_config_phrases_case_insensitive(text, trigger_phrases)
+    modifier_phrases: tuple[str, ...] = (
         cfg.modifier_upper_phrase,
         cfg.modifier_capitals_phrase,
         cfg.modifier_camel_phrase,

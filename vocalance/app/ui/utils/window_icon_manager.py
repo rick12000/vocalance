@@ -1,17 +1,3 @@
-"""Window icon management utility for consistent taskbar icon display.
-
-This module provides a robust, PySide6 best-practices compliant system for ensuring
-the application icon is always visible in the taskbar throughout the app lifecycle,
-including during startup and after window state changes.
-
-Key features:
-- Early icon loading and caching for minimal startup overhead
-- Multi-level icon application (QApplication, QMainWindow, QDialog)
-- Windows-specific high-DPI support for taskbar icons
-- Automatic recovery if icon becomes invisible (window state changes)
-- Thread-safe operations with comprehensive logging
-"""
-
 import logging
 from pathlib import Path
 from typing import Optional
@@ -23,172 +9,95 @@ logger = logging.getLogger(__name__)
 
 
 class WindowIconManager:
-    """Manages window icons across application lifecycle.
-
-    Ensures the application icon is consistently visible in the Windows taskbar
-    by applying icons at multiple levels (QApplication, QMainWindow, QDialog)
-    and using PySide6 best practices.
-
-    Per PySide6 documentation:
-    - QApplication.setWindowIcon() sets the default for all windows
-    - Individual QMainWindow.setWindowIcon() overrides application-level icon
-    - Works correctly with Windows taskbar on all DPI levels
-    """
+    """Caches one ``QIcon`` and applies it to the app shell and dialogs."""
 
     def __init__(self, icon_path: Optional[Path] = None) -> None:
-        """Initialize window icon manager.
-
-        Args:
-            icon_path: Path to icon file (.ico recommended for Windows).
-                      If None, icon operations will be skipped gracefully.
-        """
         self.icon_path = icon_path
-        self._icon: Optional[QIcon] = None
-        self._icon_loaded = False
+        self._window_icon: Optional[QIcon] = None
+        self._has_cached_icon: bool = False
 
     def load_icon(self) -> bool:
-        """Load icon from path.
-
-        Performs early loading and caching of the icon resource to minimize
-        overhead when setting icons on multiple windows.
-
-        Returns:
-            True if icon loaded successfully, False otherwise.
-        """
+        """Load ``icon_path`` into an internal ``QIcon`` cache."""
         if not self.icon_path or not self.icon_path.exists():
-            logger.warning(f"Icon file not found: {self.icon_path}")
-            self._icon_loaded = False
+            logger.warning("Icon file not found: %s", self.icon_path)
+            self._has_cached_icon = False
             return False
 
         try:
-            self._icon = QIcon(str(self.icon_path))
+            self._window_icon = QIcon(str(self.icon_path))
 
-            # Verify icon is valid (has at least one pixmap)
-            if self._icon.isNull():
-                logger.warning(f"Icon loaded but is null/invalid: {self.icon_path}")
-                self._icon = None
-                self._icon_loaded = False
+            if self._window_icon.isNull():
+                logger.warning("Icon invalid or empty: %s", self.icon_path)
+                self._window_icon = None
+                self._has_cached_icon = False
                 return False
 
-            logger.debug(f"Icon loaded successfully: {self.icon_path}")
-            self._icon_loaded = True
+            logger.debug("Icon loaded: %s", self.icon_path)
+            self._has_cached_icon = True
             return True
 
-        except Exception as e:
-            logger.error(f"Failed to load icon from {self.icon_path}: {e}")
-            self._icon_loaded = False
+        except OSError as exc:
+            logger.error("Failed to load icon %s: %s", self.icon_path, exc)
+            self._has_cached_icon = False
             return False
 
     def apply_to_application(self, qt_app: QApplication) -> bool:
-        """Apply icon to QApplication (affects all windows).
-
-        Per PySide6 documentation, setting the application icon ensures all
-        windows created afterwards inherit it, including taskbar entries.
-
-        This is the most important level for ensuring consistent taskbar visibility.
-
-        Args:
-            qt_app: QApplication instance.
-
-        Returns:
-            True if icon applied successfully, False otherwise.
-        """
-        if not self._icon:
-            logger.warning("No icon loaded; skipping application-level icon application")
+        """Set ``qt_app`` window icon from the cache."""
+        if not self._window_icon:
+            logger.debug("No icon cached; skip QApplication icon")
             return False
 
         try:
-            qt_app.setWindowIcon(self._icon)
-            logger.info("Icon applied to QApplication")
+            qt_app.setWindowIcon(self._window_icon)
+            logger.debug("Icon applied to QApplication")
             return True
-        except Exception as e:
-            logger.error(f"Failed to apply icon to QApplication: {e}")
+        except RuntimeError as exc:
+            logger.error("Failed to apply icon to QApplication: %s", exc)
             return False
 
     def apply_to_window(self, window: QMainWindow) -> bool:
-        """Apply icon to main window.
-
-        Sets the icon on a specific QMainWindow instance, ensuring the window
-        has the correct taskbar representation.
-
-        Args:
-            window: QMainWindow instance.
-
-        Returns:
-            True if icon applied successfully, False otherwise.
-        """
-        if not self._icon:
-            logger.warning("No icon loaded; skipping main window icon application")
+        """Set the main window icon from the cache."""
+        if not self._window_icon:
+            logger.debug("No icon cached; skip QMainWindow icon")
             return False
 
         try:
-            window.setWindowIcon(self._icon)
-            logger.debug("Icon applied to QMainWindow")
+            window.setWindowIcon(self._window_icon)
             return True
-        except Exception as e:
-            logger.error(f"Failed to apply icon to QMainWindow: {e}")
+        except RuntimeError as exc:
+            logger.error("Failed to apply icon to QMainWindow: %s", exc)
             return False
 
     def apply_to_dialog(self, dialog: QDialog) -> bool:
-        """Apply icon to dialog window.
-
-        Sets the icon on a specific QDialog instance. Important for dialogs
-        that appear as independent taskbar entries.
-
-        Args:
-            dialog: QDialog instance.
-
-        Returns:
-            True if icon applied successfully, False otherwise.
-        """
-        if not self._icon:
-            logger.warning("No icon loaded; skipping dialog icon application")
+        """Set a dialog window icon from the cache."""
+        if not self._window_icon:
+            logger.debug("No icon cached; skip QDialog icon")
             return False
 
         try:
-            dialog.setWindowIcon(self._icon)
-            logger.debug("Icon applied to QDialog")
+            dialog.setWindowIcon(self._window_icon)
             return True
-        except Exception as e:
-            logger.error(f"Failed to apply icon to QDialog: {e}")
+        except RuntimeError as exc:
+            logger.error("Failed to apply icon to QDialog: %s", exc)
             return False
 
     def apply_to_widget(self, widget: QWidget) -> bool:
-        """Apply icon to generic widget.
-
-        Sets the icon on any QWidget that might need taskbar representation.
-        Useful for custom window types.
-
-        Args:
-            widget: QWidget instance.
-
-        Returns:
-            True if icon applied successfully, False otherwise.
-        """
-        if not self._icon:
-            logger.warning("No icon loaded; skipping widget icon application")
+        """Set ``widget`` window icon from the cache."""
+        if not self._window_icon:
+            logger.debug("No icon cached; skip QWidget icon")
             return False
 
         try:
-            widget.setWindowIcon(self._icon)
-            logger.debug("Icon applied to QWidget")
+            widget.setWindowIcon(self._window_icon)
             return True
-        except Exception as e:
-            logger.error(f"Failed to apply icon to QWidget: {e}")
+        except RuntimeError as exc:
+            logger.error("Failed to apply icon to QWidget: %s", exc)
             return False
 
     def is_icon_loaded(self) -> bool:
-        """Check if icon has been successfully loaded.
-
-        Returns:
-            True if icon is loaded and valid, False otherwise.
-        """
-        return self._icon_loaded and self._icon is not None and not self._icon.isNull()
+        """True when a non-null icon is ready to apply."""
+        return self._has_cached_icon and self._window_icon is not None and not self._window_icon.isNull()
 
     def get_icon(self) -> Optional[QIcon]:
-        """Get the cached QIcon instance.
-
-        Returns:
-            QIcon instance if loaded, None otherwise.
-        """
-        return self._icon if self._icon_loaded else None
+        """Return the cached icon, if any."""
+        return self._window_icon if self._has_cached_icon else None

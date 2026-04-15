@@ -1,5 +1,3 @@
-"""Offline parsing: normalized speech text and action maps to command parse results."""
-
 from __future__ import annotations
 
 from typing import Dict, List, Union
@@ -59,6 +57,7 @@ class CommandParserTriggers(BaseModel):
 
 
 def build_triggers_from_config(config: GlobalAppConfig) -> CommandParserTriggers:
+    """Build frozen trigger strings from the live ``GlobalAppConfig`` subsections."""
     g = config.grid
     m = config.mark.triggers
     d = config.dictation
@@ -82,6 +81,7 @@ def build_triggers_from_config(config: GlobalAppConfig) -> CommandParserTriggers
 
 
 def parse_system_control(normalized_text: str) -> ParseResultType:
+    """Match global pause/resume phrases."""
     if normalized_text == "pause":
         return PauseCommand()
     if normalized_text == "resume":
@@ -90,6 +90,7 @@ def parse_system_control(normalized_text: str) -> ParseResultType:
 
 
 def parse_dictation(normalized_text: str, triggers: CommandParserTriggers) -> ParseResultType:
+    """Match dictation mode start/stop and variant triggers."""
     if normalized_text == triggers.dictation_start_trigger:
         return DictationStartCommand()
     if normalized_text == triggers.dictation_stop_trigger:
@@ -108,6 +109,7 @@ def parse_dictation(normalized_text: str, triggers: CommandParserTriggers) -> Pa
 
 
 def parse_mark_commands(normalized_text: str, triggers: CommandParserTriggers) -> ParseResultType:
+    """Parse mark create/delete/visualize/reset/cancel from ``normalized_text``."""
     words = normalized_text.split()
     if not words:
         return NoMatchResult()
@@ -136,6 +138,7 @@ def parse_mark_commands(normalized_text: str, triggers: CommandParserTriggers) -
 
 
 def grid_show_from_phrase(normalized_text: str, phrase: str, click_mode: str) -> Union[GridShowCommand, ErrorResult, None]:
+    """Parse ``grid show`` variants with optional rectangle count for ``click_mode``."""
     if not normalized_text.startswith(phrase):
         return None
     if normalized_text == phrase:
@@ -152,6 +155,7 @@ def grid_show_from_phrase(normalized_text: str, phrase: str, click_mode: str) ->
 def parse_grid_commands(
     normalized_text: str, triggers: CommandParserTriggers, action_map: Dict[str, AutomationCommand]
 ) -> ParseResultType:
+    """Resolve grid overlay show/hover/drag and numeric cell selection without stealing automation prefixes."""
     words = normalized_text.split()
     if not words:
         return NoMatchResult()
@@ -176,6 +180,7 @@ def parse_grid_commands(
 
 
 def parse_automation_commands(normalized_text: str, action_map: Dict[str, AutomationCommand]) -> ParseResultType:
+    """Match stored exact or parameterized automation phrases."""
     words = normalized_text.split()
     if not words:
         return NoMatchResult()
@@ -216,6 +221,7 @@ def parse_automation_commands(normalized_text: str, action_map: Dict[str, Automa
 
 
 def parse_mark_execute_fallback(normalized_text: str) -> ParseResultType:
+    """Treat a single-token phrase as ``MarkExecuteCommand`` when nothing else matched."""
     words = normalized_text.split()
     if len(words) == 1:
         return MarkExecuteCommand(label=normalized_text)

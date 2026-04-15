@@ -9,6 +9,7 @@ from vocalance.app.services.storage.storage_service import StorageService
 
 
 def command_with_phrase_override(commands_data: CommandsData, template: AutomationCommand) -> AutomationCommand:
+    """Return ``template`` with ``command_key`` replaced when a phrase override exists."""
     key = commands_data.phrase_overrides.get(template.command_key, template.command_key)
     if key == template.command_key:
         return template
@@ -24,6 +25,7 @@ def command_with_phrase_override(commands_data: CommandsData, template: Automati
 
 
 def build_command_projection(commands_data: CommandsData) -> Tuple[Dict[str, AutomationCommand], List[AutomationCommand]]:
+    """Build normalized action map and UI-ready command list (customs plus registry defaults)."""
     action_map: Dict[str, AutomationCommand] = dict(commands_data.custom_commands)
 
     registry_defaults = AutomationCommandRegistry.get_default_commands()
@@ -48,6 +50,7 @@ def build_command_projection(commands_data: CommandsData) -> Tuple[Dict[str, Aut
 
 
 async def load_action_map(storage: StorageService) -> Dict[str, AutomationCommand]:
+    """Load ``CommandsData`` from storage and return the normalized phrase → command map."""
     commands_data = await storage.read(model_type=CommandsData)
     action_map, _ = build_command_projection(commands_data)
     return action_map

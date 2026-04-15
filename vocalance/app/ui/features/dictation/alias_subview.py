@@ -37,10 +37,9 @@ class AliasEditDialog(BaseDialog):
         self.result_saved = False
         self.new_value = None
 
-        self._setup_ui()
+        self.setup_dialog_ui()
 
-    def _setup_ui(self) -> None:
-        """Build the dialog UI."""
+    def setup_dialog_ui(self) -> None:
         from PySide6.QtGui import QColor, QPalette
 
         # Set dialog background to darkest
@@ -78,7 +77,7 @@ class AliasEditDialog(BaseDialog):
         button_layout.setSpacing(theme.config.spacing.medium)
 
         save_btn = PrimaryButton(text="Save Changes")
-        save_btn.clicked.connect(self._on_save)
+        save_btn.clicked.connect(self.on_save)
         button_layout.addWidget(save_btn)
 
         cancel_btn = PrimaryButton(text="Cancel")
@@ -90,8 +89,7 @@ class AliasEditDialog(BaseDialog):
         # Focus entry field
         self.value_entry.setFocus()
 
-    def _on_save(self) -> None:
-        """Handle save button click."""
+    def on_save(self) -> None:
         new_value = self.value_entry.text().strip()
 
         if not new_value:
@@ -120,24 +118,20 @@ class QtDictationAliasSubView(QWidget):
         self.controller = None
         self.aliases: Dict[str, str] = {}
 
-        self._setup_ui()
+        self.setup_ui()
         self.logger.debug("QtDictationAliasSubView initialized")
 
     def set_controller(self, controller) -> None:
-        """Set the controller and connect signals."""
         self.controller = controller
 
-        # Connect controller signals
-        self.controller.aliases_loaded.connect(self._on_aliases_loaded)
-        self.controller.operation_error.connect(self._on_error)
-        self.controller.status_updated.connect(self._on_status_updated)
+        self.controller.aliases_loaded.connect(self.on_aliases_loaded)
+        self.controller.operation_error.connect(self.on_error)
+        self.controller.status_updated.connect(self.on_status_updated)
 
-        # Load initial aliases
         self.logger.info("Loading aliases from controller")
         self.controller.refresh_aliases()
 
-    def _setup_ui(self) -> None:
-        """Build UI with TwoColumnLayout."""
+    def setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -147,11 +141,10 @@ class QtDictationAliasSubView(QWidget):
         main_layout.addWidget(self.layout_widget)
 
         # Setup panels
-        self._setup_add_alias_form()
-        self._setup_manage_aliases_panel()
+        self.setup_add_alias_form()
+        self.setup_manage_aliases_panel()
 
-    def _setup_add_alias_form(self) -> None:
-        """Setup add alias form in left content area."""
+    def setup_add_alias_form(self) -> None:
         content = self.layout_widget.left_content
 
         # Activation phrase input
@@ -170,13 +163,12 @@ class QtDictationAliasSubView(QWidget):
 
         # Add button
         self.add_alias_btn = PrimaryButton(text="Add Alias")
-        self.add_alias_btn.clicked.connect(self._on_add_alias_clicked)
+        self.add_alias_btn.clicked.connect(self.on_add_alias_clicked)
         content.add(self.add_alias_btn)
 
         content.add_stretch()
 
-    def _setup_manage_aliases_panel(self) -> None:
-        """Setup manage aliases panel in right content area."""
+    def setup_manage_aliases_panel(self) -> None:
         content = self.layout_widget.right_content
 
         # Aliases list widget
@@ -190,27 +182,19 @@ class QtDictationAliasSubView(QWidget):
         scroll_area.content_layout.addWidget(self.aliases_list_widget)
         content.add(scroll_area, stretch=1)
 
-    def _on_aliases_loaded(self, aliases: Dict[str, str]) -> None:
-        """Handle aliases loaded from controller."""
-        try:
-            self.aliases = aliases
-            self._display_aliases(aliases)
-            self.logger.info(f"Aliases loaded: {len(aliases)} total")
-        except Exception as e:
-            self.logger.error(f"Error loading aliases: {e}", exc_info=True)
-            self._show_error(f"Error loading aliases: {e}")
+    def on_aliases_loaded(self, aliases: Dict[str, str]) -> None:
+        self.aliases = aliases
+        self.display_aliases(aliases)
+        self.logger.info("Aliases loaded: %s total", len(aliases))
 
-    def _on_status_updated(self, message: str, is_error: bool) -> None:
-        """Handle status updates from controller."""
+    def on_status_updated(self, message: str, is_error: bool) -> None:
         if is_error:
-            self._show_error(message)
+            self.show_error(message)
 
-    def _on_error(self, error_msg: str) -> None:
-        """Handle error from controller."""
-        self._show_error(error_msg)
+    def on_error(self, error_msg: str) -> None:
+        self.show_error(error_msg)
 
-    def _display_aliases(self, aliases: Dict[str, str]) -> None:
-        """Display aliases in the list."""
+    def display_aliases(self, aliases: Dict[str, str]) -> None:
         # Clear existing items
         while self.aliases_list_layout.count():
             item = self.aliases_list_layout.takeAt(0)
@@ -226,12 +210,11 @@ class QtDictationAliasSubView(QWidget):
             # Sort aliases alphabetically by key
             for key in sorted(aliases.keys()):
                 value = aliases[key]
-                self._create_alias_item(key, value)
+                self.create_alias_item(key, value)
 
         self.aliases_list_layout.addStretch()
 
-    def _create_alias_item(self, key: str, value: str) -> None:
-        """Create an alias list item with key, edit, and delete buttons."""
+    def create_alias_item(self, key: str, value: str) -> None:
         # Create item widget
         item_widget = TransparentWidget()
         item_layout = QHBoxLayout(item_widget)
@@ -250,17 +233,16 @@ class QtDictationAliasSubView(QWidget):
         # Edit button
         edit_btn = PrimaryButton(text="Edit")
         edit_btn.setFixedWidth(theme.config.components.button_action_width - 10)
-        edit_btn.clicked.connect(lambda checked, k=key, v=value: self._on_edit_alias(k, v))
+        edit_btn.clicked.connect(lambda checked, k=key, v=value: self.on_edit_alias(k, v))
         item_layout.addWidget(edit_btn)
 
         # Delete button
-        delete_btn = DeleteButton(command=lambda checked, k=key: self._on_delete_alias(k))
+        delete_btn = DeleteButton(command=lambda checked, k=key: self.on_delete_alias(k))
         item_layout.addWidget(delete_btn)
 
         self.aliases_list_layout.insertWidget(self.aliases_list_layout.count() - 1, item_widget)
 
-    def _on_add_alias_clicked(self) -> None:
-        """Handle add alias button clicked."""
+    def on_add_alias_clicked(self) -> None:
         key = self.key_entry.text().strip()
         value = self.value_entry.text().strip()
 
@@ -280,10 +262,9 @@ class QtDictationAliasSubView(QWidget):
             self.key_entry.clear()
             self.value_entry.clear()
 
-    def _on_edit_alias(self, key: str, value: str) -> None:
-        """Handle edit button clicked - show edit dialog."""
+    def on_edit_alias(self, key: str, value: str) -> None:
         if not self.controller:
-            self._show_error("Controller not initialized.")
+            self.show_error("Controller not initialized.")
             return
 
         dialog = AliasEditDialog(key, value, self)
@@ -292,11 +273,9 @@ class QtDictationAliasSubView(QWidget):
                 self.controller.update_alias(key, dialog.new_value)
                 self.logger.info(f"Edited alias: {key}")
 
-    def _on_delete_alias(self, key: str) -> None:
-        """Handle delete button clicked."""
+    def on_delete_alias(self, key: str) -> None:
         if self.controller:
             self.controller.delete_alias(key)
 
-    def _show_error(self, message: str) -> None:
-        """Show error message dialog."""
+    def show_error(self, message: str) -> None:
         QMessageBox.critical(self, "Error", message)

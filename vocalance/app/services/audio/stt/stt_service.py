@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import gc
 import logging
@@ -49,9 +51,10 @@ class SpeechToTextService(Service):
         event_bus.subscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)
 
     async def initialize(self) -> bool:
+        """Load Vosk and Moonshine on a worker thread."""
         stt_cfg = self._config.stt
 
-        def _load_engines() -> tuple:
+        def _load_engines() -> tuple[VoskSTT, MoonshineSTT]:
             vosk = VoskSTT(
                 model_path=self._config.asset_paths.get_vosk_model_path(),
                 sample_rate=stt_cfg.sample_rate,

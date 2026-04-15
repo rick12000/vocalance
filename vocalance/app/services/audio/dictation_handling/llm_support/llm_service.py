@@ -28,7 +28,7 @@ _AMEND_SYSTEM_BASE = (
 
 
 class LLMService:
-    """llama.cpp CPU inference: load GGUF per request, unload after."""
+    """Loads a GGUF model with llama.cpp for CPU inference and unloads when idle."""
 
     def __init__(
         self,
@@ -38,7 +38,7 @@ class LLMService:
     ) -> None:
         self.event_bus = event_bus
         self.config = config
-        self._gui_event_loop = gui_event_loop
+        self.gui_event_loop = gui_event_loop
         self.llm: Optional[Llama] = None
         self.model_loaded = False
         self.model_downloader = LLMModelDownloader(config)
@@ -46,12 +46,12 @@ class LLMService:
         self.n_threads = config.llm.n_threads if config.llm.n_threads else max(4, min(int(cpu_count * 0.75), 12))
         self.n_threads_batch = config.llm.n_threads_batch if config.llm.n_threads_batch else self.n_threads
         self.request_lock = asyncio.Lock()
-        self._download_cancel_events: Dict[str, threading.Event] = {}
-        self._active_download_request_id: Optional[str] = None
-        event_bus.subscribe(LlmUiRequestEvent, self._handle_llm_ui_request)
+        self.download_cancel_events: Dict[str, threading.Event] = {}
+        self.active_download_request_id: Optional[str] = None
+        event_bus.subscribe(LlmUiRequestEvent, self.handle_llm_ui_request)
 
-    def _download_progress_cb(self, request_id: str) -> Optional[Callable[[str], None]]:
-        if self._gui_event_loop is None or self._gui_event_loop.is_closed():
+    def download_progress_callback(self, request_id: str) -> Optional[Callable[[str], None]]:
+        if self.gui_event_loop is None or self.gui_event_loop.is_closed():
             return None
 
         def cb(message: str) -> None:
@@ -60,35 +60,36 @@ class LLMService:
                     LlmUiNotificationEvent(kind="download_progress", request_id=request_id, message=message)
                 )
 
-            schedule_on_loop(self._gui_event_loop, pub())
+            schedule_on_loop(self.gui_event_loop, pub())
 
         return cb
 
-    async def _handle_llm_ui_request(self, event: LlmUiRequestEvent) -> None:
+    async def handle_llm_ui_request(self, event: LlmUiRequestEvent) -> None:
         op = event.op
         if op == "refresh_bundle_status":
             status = {a.id: self.is_whitelisted_bundle_on_disk(a.id) for a in self.config.local_llm_allowlist.artifacts}
             await self.event_bus.publish(LlmUiNotificationEvent(kind="bundle_status", status=status))
         elif op == "start_download":
             cancel = threading.Event()
-            self._download_cancel_events[event.request_id] = cancel
-            self._active_download_request_id = event.request_id
-            progress_cb = self._download_progress_cb(event.request_id)
+            self.download_cancel_events[event.request_id] = cancel
+            self.active_download_request_id = event.request_id
+            progress_cb = self.download_progress_callback(event.request_id)
             try:
                 ok, msg = await self.download_whitelisted_model_cancellable(event.model_id, cancel, progress_cb)
-            except Exception as e:
-                ok, msg = False, str(e)
+            except Exception:
+                logger.exception("Whitelisted model download failed")
+                ok, msg = False, "Download failed"
             await self.event_bus.publish(
                 LlmUiNotificationEvent(kind="download_finished", request_id=event.request_id, ok=ok, message=msg)
             )
-            self._download_cancel_events.pop(event.request_id, None)
-            if self._active_download_request_id == event.request_id:
-                self._active_download_request_id = None
+            self.download_cancel_events.pop(event.request_id, None)
+            if self.active_download_request_id == event.request_id:
+                self.active_download_request_id = None
         elif op == "cancel_download":
-            rid = event.request_id or self._active_download_request_id
+            rid = event.request_id or self.active_download_request_id
             if not rid:
                 return
-            ev = self._download_cancel_events.get(rid)
+            ev = self.download_cancel_events.get(rid)
             if ev is not None:
                 ev.set()
 
@@ -305,7 +306,7 @@ class LLMService:
                     break
                 yield token
         except asyncio.TimeoutError:
-            pass
+            logger.debug("LLM token stream timed out waiting for next token")
         finally:
             await executor_task
 
@@ -319,5 +320,5 @@ class LLMService:
         return self.model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(LlmUiRequestEvent, self._handle_llm_ui_request)
+        self.event_bus.unsubscribe(LlmUiRequestEvent, self.handle_llm_ui_request)
         await self.dispose_loaded_model()

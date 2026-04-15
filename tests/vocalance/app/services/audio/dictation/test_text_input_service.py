@@ -1,8 +1,3 @@
-"""Unit tests for DictationTextInput and helper functions.
-
-Tests text input handling, clipboard operations, and dictation text processing.
-"""
-
 import asyncio
 from unittest.mock import Mock, patch
 

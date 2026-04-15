@@ -1,5 +1,3 @@
-"""Tests for dictation coordinator helpers used with voice modifiers (explicit expectations)."""
-
 import asyncio
 from collections.abc import Iterator
 from typing import Optional

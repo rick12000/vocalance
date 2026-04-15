@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -30,8 +32,8 @@ class LLMModelDownloader:
         self._temp_dir = os.path.join(config.storage.user_data_root, "llm_models_temp")
         os.makedirs(self._models_dir, exist_ok=True)
         os.makedirs(self._temp_dir, exist_ok=True)
-        logger.debug(f"LLM models directory: {self._models_dir}")
-        logger.debug(f"LLM temp directory: {self._temp_dir}")
+        logger.debug("LLM models directory: %s", self._models_dir)
+        logger.debug("LLM temp directory: %s", self._temp_dir)
 
     def get_models_directory(self) -> str:
         return self._models_dir
@@ -54,7 +56,7 @@ class LLMModelDownloader:
                 try:
                     os.remove(final_path)
                 except OSError as e:
-                    logger.warning(f"Could not remove {final_path}: {e}")
+                    logger.warning("Could not remove %s: %s", final_path, e)
             self._scrub_temp_dirs_for_filename(fn)
 
     def _scrub_temp_dirs_for_filename(self, fn: str) -> None:
@@ -64,7 +66,7 @@ class LLMModelDownloader:
                 try:
                     shutil.rmtree(temp_dir)
                 except OSError as e:
-                    logger.warning(f"Could not remove temp dir {temp_dir}: {e}")
+                    logger.warning("Could not remove temp dir %s: %s", temp_dir, e)
 
     def revert_partial_bundle(self, filenames: Sequence[str], had_on_disk_before: Dict[str, bool]) -> None:
         """Remove only files that were not present before a download attempt; scrub temp dirs for all parts."""
@@ -76,7 +78,7 @@ class LLMModelDownloader:
                 try:
                     os.remove(final_path)
                 except OSError as e:
-                    logger.warning(f"Could not revert {final_path}: {e}")
+                    logger.warning("Could not revert %s: %s", final_path, e)
         for fn in filenames:
             self._scrub_temp_dirs_for_filename(fn)
 
@@ -117,7 +119,7 @@ class LLMModelDownloader:
                     with open(partial_path, "wb") as out:
                         for chunk in response.iter_bytes(chunk_size=_CHUNK_BYTES):
                             if cancel_event.is_set():
-                                logger.info(f"Download cancelled: {filename}")
+                                logger.info("Download cancelled: %s", filename)
                                 return None
                             if chunk:
                                 out.write(chunk)
@@ -141,7 +143,7 @@ class LLMModelDownloader:
             return final_path
 
         except Exception as e:
-            logger.error(f"Stream download failed: {e}", exc_info=True)
+            logger.error("Stream download failed: %s", e, exc_info=True)
             if os.path.isdir(stream_temp_root):
                 shutil.rmtree(stream_temp_root, ignore_errors=True)
             if os.path.exists(final_path) and os.path.getsize(final_path) == 0:
@@ -182,7 +184,7 @@ class LLMModelDownloader:
             return final_path
 
         except Exception as e:
-            logger.error(f"Download failed: {e}", exc_info=True)
+            logger.error("Download failed: %s", e, exc_info=True)
             self._cleanup_failed_download(temp_download_dir, final_path)
             return None
 
@@ -191,13 +193,13 @@ class LLMModelDownloader:
             try:
                 shutil.rmtree(temp_dir)
             except Exception as e:
-                logger.error(f"Error cleaning temp directory: {e}")
+                logger.error("Error cleaning temp directory: %s", e)
 
         if os.path.exists(final_path) and os.path.getsize(final_path) == 0:
             try:
                 os.remove(final_path)
             except Exception as e:
-                logger.error(f"Error removing empty file: {e}")
+                logger.error("Error removing empty file: %s", e)
 
     async def download_model(
         self,
@@ -209,9 +211,10 @@ class LLMModelDownloader:
         cancel_event: Optional[threading.Event] = None,
         progress_message_cb: Optional[Callable[[str], None]] = None,
     ) -> Optional[str]:
+        """Download a single GGUF with optional cancel/progress hooks and hub retries."""
         if not force_download and self.model_exists(filename):
             model_path = self.get_model_path(filename)
-            logger.info(f"Model already exists: {filename}")
+            logger.info("Model already exists: %s", filename)
             return model_path
 
         with self._download_lock:
@@ -226,25 +229,25 @@ class LLMModelDownloader:
 
             for attempt in range(1, max_retries + 1):
                 try:
-                    logger.info(f"Downloading model {filename} from {repo_id} (attempt {attempt}/{max_retries})...")
+                    logger.info("Downloading model %s from %s (attempt %s/%s)...", filename, repo_id, attempt, max_retries)
                     downloaded_path = await loop.run_in_executor(self._executor, self._sync_download_atomic, repo_id, filename)
 
                     if downloaded_path:
-                        logger.info(f"Model downloaded successfully: {filename}")
+                        logger.info("Model downloaded successfully: %s", filename)
                         return downloaded_path
 
-                    logger.error(f"Download failed (attempt {attempt}/{max_retries})")
+                    logger.error("Download failed (attempt %s/%s)", attempt, max_retries)
                     if attempt < max_retries:
-                        logger.info(f"Retrying in {retry_delay_seconds} seconds...")
+                        logger.info("Retrying in %s seconds...", retry_delay_seconds)
                         await asyncio.sleep(retry_delay_seconds)
 
                 except Exception as e:
-                    logger.error(f"Download error (attempt {attempt}/{max_retries}): {e}", exc_info=True)
+                    logger.error("Download error (attempt %s/%s): %s", attempt, max_retries, e, exc_info=True)
                     if attempt < max_retries:
-                        logger.info(f"Retrying in {retry_delay_seconds} seconds...")
+                        logger.info("Retrying in %s seconds...", retry_delay_seconds)
                         await asyncio.sleep(retry_delay_seconds)
 
-            logger.error(f"Failed to download model after {max_retries} attempts")
+            logger.error("Failed to download model after %s attempts", max_retries)
             return None
 
     async def download_model_bundle(
@@ -292,6 +295,6 @@ class LLMModelDownloader:
             status["total_size_mb"] = round(status["total_size_mb"], 2)
 
         except Exception as e:
-            logger.error(f"Error getting download status: {e}")
+            logger.error("Error getting download status: %s", e)
 
         return status

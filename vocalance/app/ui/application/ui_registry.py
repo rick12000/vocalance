@@ -29,8 +29,6 @@ if TYPE_CHECKING:
 
 
 class UiRegistry:
-    """Constructs UI controllers, overlay views, and tab content widgets."""
-
     def __init__(
         self,
         event_bus: EventBus,
@@ -57,11 +55,7 @@ class UiRegistry:
         self.dictation_alias_controller = QtDictationAliasController(event_bus) if s.dictation else None
         self.settings_controller = QtSettingsController(event_bus, config) if s.runtime_config else None
 
-        self.dictation_popup_controller: Optional[QtDictationPopupController] = None
-        try:
-            self.dictation_popup_controller = QtDictationPopupController(event_bus)
-        except Exception as e:
-            logger.warning("Could not initialize dictation popup controller: %s", e)
+        self.dictation_popup_controller: Optional[QtDictationPopupController] = QtDictationPopupController(event_bus)
 
         self.mark_view: Optional[QtMarkView] = None
         self.grid_view: Optional[QtGridView] = None
@@ -69,52 +63,46 @@ class UiRegistry:
 
     def _init_overlays(self) -> None:
         s = self.services
-        try:
-            if self.marks_controller and s.mark:
-                self.mark_view = QtMarkView(config=self.config)
-                self.mark_view.bind_controller(self.marks_controller)
-                self.marks_controller.set_view(self.mark_view)
-            if self.grid_controller and s.grid:
-                self.grid_view = QtGridView(self.event_bus, self.config, s.gui_event_loop)
-                self.grid_controller.set_view(self.grid_view)
-        except Exception as e:
-            self.logger.error("Error initializing overlay views: %s", e, exc_info=True)
+        if self.marks_controller and s.mark:
+            self.mark_view = QtMarkView(config=self.config)
+            self.mark_view.bind_controller(self.marks_controller)
+            self.marks_controller.set_view(self.mark_view)
+        if self.grid_controller and s.grid:
+            self.grid_view = QtGridView(self.event_bus, self.config, s.gui_event_loop)
+            self.grid_controller.set_view(self.grid_view)
 
     def create_tab_widget(self, tab_name: str) -> QWidget:
-        try:
-            if tab_name == "Marks":
-                view = QtMarksView()
-                if self.marks_controller:
-                    view.set_controller(self.marks_controller)
-                return view
-            if tab_name == "Sounds":
-                view = QtSoundsView()
-                if self.sound_controller:
-                    view.set_controller(self.sound_controller)
-                return view
-            if tab_name == "Commands":
-                view = QtCommandsView()
-                if self.commands_controller:
-                    view.set_controller(self.commands_controller)
-                return view
-            if tab_name == "Dictation":
-                view = QtDictationView()
-                if self.dictation_controller:
-                    view.set_controller(self.dictation_controller)
-                if self.dictation_alias_controller:
-                    view.set_alias_controller(self.dictation_alias_controller)
-                return view
-            if tab_name == "Settings":
-                view = QtSettingsView()
-                if self.settings_controller:
-                    view.set_controller(self.settings_controller)
-                return view
-        except Exception as e:
-            self.logger.error("Error creating view for %s: %s", tab_name, e, exc_info=True)
+        if tab_name == "Marks":
+            view = QtMarksView()
+            if self.marks_controller:
+                view.set_controller(self.marks_controller)
+            return view
+        if tab_name == "Sounds":
+            view = QtSoundsView()
+            if self.sound_controller:
+                view.set_controller(self.sound_controller)
+            return view
+        if tab_name == "Commands":
+            view = QtCommandsView()
+            if self.commands_controller:
+                view.set_controller(self.commands_controller)
+            return view
+        if tab_name == "Dictation":
+            view = QtDictationView()
+            if self.dictation_controller:
+                view.set_controller(self.dictation_controller)
+            if self.dictation_alias_controller:
+                view.set_alias_controller(self.dictation_alias_controller)
+            return view
+        if tab_name == "Settings":
+            view = QtSettingsView()
+            if self.settings_controller:
+                view.set_controller(self.settings_controller)
+            return view
 
         placeholder = QWidget()
         layout = QVBoxLayout(placeholder)
-        label = LargeLabel(f"{tab_name} View\n(Fallback – check logs)")
+        label = LargeLabel(f"Unknown tab: {tab_name}")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
         return placeholder

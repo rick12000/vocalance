@@ -1,5 +1,3 @@
-"""Persisted custom commands and phrase overrides; validates against protected terms."""
-
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
@@ -20,6 +18,7 @@ from vocalance.app.services.storage.storage_service import StorageService
 
 
 def registry_phrase_for_normalized_phrase(commands_data: CommandsData, normalized_phrase: str) -> Optional[str]:
+    """Resolve the registry or override original phrase for a normalized key, if any."""
     for original, override in commands_data.phrase_overrides.items():
         if override.lower().strip() == normalized_phrase:
             return original
@@ -44,7 +43,7 @@ class CommandManagementService(Service):
         event_bus.subscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
 
     async def _handle_command_ui_operation(self, event: CommandUiOperationEvent) -> None:
-        op = event.op
+        op: str = event.op
         if op == "add_hotkey":
             command = ExactMatchCommand(
                 command_key=event.command_phrase,
@@ -74,6 +73,7 @@ class CommandManagementService(Service):
         self.event_bus.unsubscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
 
     async def validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
+        """Return an error message if ``command_phrase`` is invalid or collides; otherwise None."""
         is_valid, error_msg = await self.protected_terms_validator.validate_term(
             term=command_phrase, exclude_term=exclude_phrase or None
         )
@@ -91,11 +91,13 @@ class CommandManagementService(Service):
         return None
 
     async def get_command_mappings(self) -> List[AutomationCommand]:
+        """Return merged registry and custom commands with phrase overrides applied."""
         commands_data = await self.storage.read(model_type=CommandsData)
         return build_command_projection(commands_data)[1]
 
     async def add_command(self, command: AutomationCommand) -> Tuple[bool, str]:
-        phrase = command.command_key.lower().strip()
+        """Persist a custom command after validation; emits validation errors on the bus when blocked."""
+        phrase: str = command.command_key.lower().strip()
         err = await self.validate_command_phrase(phrase)
         if err:
             await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=phrase))
@@ -107,13 +109,14 @@ class CommandManagementService(Service):
         if await self.storage.write(data=commands_data):
             await self.publish_mappings_updated(True, f"Added custom command: {phrase}")
             return True, ""
-        err = "Failed to store custom command"
+        err: str = "Failed to store custom command"
         await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=phrase))
         return False, err
 
     async def update_command_phrase(self, old_phrase: str, new_phrase: str) -> Tuple[bool, str]:
-        old_norm = old_phrase.lower().strip()
-        new_norm = new_phrase.lower().strip()
+        """Rename a custom phrase or set a registry phrase override."""
+        old_norm: str = old_phrase.lower().strip()
+        new_norm: str = new_phrase.lower().strip()
 
         err = await self.validate_command_phrase(new_norm, exclude_phrase=old_phrase)
         if err:
@@ -122,6 +125,7 @@ class CommandManagementService(Service):
 
         commands_data = await self.storage.read(model_type=CommandsData)
 
+        success: bool
         if old_norm in commands_data.custom_commands:
             obj = commands_data.custom_commands[old_norm]
             obj.command_key = new_norm
@@ -146,7 +150,8 @@ class CommandManagementService(Service):
         return False, err
 
     async def delete_command(self, command: AutomationCommand) -> Tuple[bool, str]:
-        phrase = command.command_key.lower().strip()
+        """Remove a custom command phrase from storage when present."""
+        phrase: str = command.command_key.lower().strip()
         commands_data = await self.storage.read(model_type=CommandsData)
         if phrase in commands_data.custom_commands:
             del commands_data.custom_commands[phrase]
@@ -162,6 +167,7 @@ class CommandManagementService(Service):
         return False, err
 
     async def reset_to_defaults(self) -> Tuple[bool, str]:
+        """Replace stored commands with defaults and broadcast."""
         if await self.storage.write(data=CommandsData()):
             await self.publish_mappings_updated(True, "Reset commands to defaults")
             return True, ""
@@ -170,6 +176,7 @@ class CommandManagementService(Service):
         return False, err
 
     async def publish_mappings_updated(self, success: bool, message: str) -> None:
+        """Publish the current command list for UI and other subscribers."""
         current = await self.get_command_mappings()
         await self.event_bus.publish(
             CommandMappingsUpdatedEvent(

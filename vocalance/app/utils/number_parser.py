@@ -1,10 +1,3 @@
-"""Spoken and numeric text parsing: one pipeline for commands, dictation, and inline replacement.
-
-Homophone mapping (e.g. *to* → *two*, *won* → *one*) is **on by default** for command recognition.
-Dictation passes ``apply_homophones=False`` into :func:`replace_spoken_numbers_in_text` to avoid
-rewriting ordinary words.
-"""
-
 import re
 from typing import Dict, List, Optional, Set, Tuple
 

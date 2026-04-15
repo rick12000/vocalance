@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import asyncio
 import time
 from collections import deque
-from typing import Optional
+from typing import Deque, Optional, Tuple
 
 
 class DuplicateTextFilter:
-    """Drop near-duplicate STT strings within a short time window (asyncio lock)."""
+    """Drop near-duplicate STT strings within a short time window using an asyncio lock."""
 
     def __init__(self, cache_size: int = 5, duplicate_threshold_ms: float = 300) -> None:
-        self._text_cache: deque = deque(maxlen=cache_size)
+        self._text_cache: Deque[Tuple[float, str]] = deque(maxlen=cache_size)
         self._duplicate_threshold_ms: float = duplicate_threshold_ms
         self._last_recognized_text: str = ""
         self._last_text_time: float = 0.0

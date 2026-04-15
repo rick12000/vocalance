@@ -1,5 +1,3 @@
-"""Dictation sessions: Moonshine ingress thread, modifiers, LLM handoff, text output."""
-
 from __future__ import annotations
 
 import asyncio
@@ -96,8 +94,6 @@ def substitute_alias_placeholders(text: str, alias_map: dict[str, str]) -> str:
 
 
 class DictationSegmentPipeline:
-    """Trigger strip, alias placeholders, and postprocess for dictated segments."""
-
     def __init__(self, dictation_config: DictationConfig, alias_service: DictationAliasService) -> None:
         self.dictation_config = dictation_config
         self.alias_service = alias_service
@@ -139,8 +135,6 @@ class DictationSegmentPipeline:
 
 
 class DictationMoonshineController:
-    """Moonshine stream lifecycle, PCM ingress, and streaming finalized-line accumulation."""
-
     def __init__(self, coordinator: DictationCoordinator) -> None:
         self.coordinator = coordinator
         self.moonshine_session = None
@@ -348,8 +342,6 @@ class DictationMoonshineController:
 
 
 class DictationLlmRuntime:
-    """LLM dictation handoff: completion/failure handling and session cleanup (tokens go via bus from LLMService)."""
-
     def __init__(self, coordinator: DictationCoordinator) -> None:
         self.coordinator = coordinator
 
@@ -403,8 +395,6 @@ class DictationLlmRuntime:
 
 
 class DictationCoordinator(Service):
-    """Owns dictation modes, Moonshine streaming, modifiers, LLM and paste/typing paths (``RLock`` on state)."""
-
     def __init__(
         self,
         event_bus: EventBus,
@@ -455,21 +445,10 @@ class DictationCoordinator(Service):
         return self.active_mode != DictationMode.INACTIVE
 
     def feed_moonshine_audio_chunk(self, audio_bytes: bytes, sample_rate: int) -> None:
-        """Hot path from the audio recorder thread: feed PCM to Moonshine synchronously."""
         self.moonshine.feed_moonshine_audio_chunk(audio_bytes, sample_rate)
 
     def set_state(self, new_state: DictationState) -> None:
-        """Thread-safe state setter with validation.
-
-        Must be called with state_lock held to ensure atomic transitions.
-        Validates transition against ``VALID_DICTATION_STATE_TRANSITIONS``.
-
-        Args:
-            new_state: Target DictationState to transition to.
-
-        Raises:
-            ValueError: If transition is not valid for current state.
-        """
+        """Set ``current_state`` after validating transition (caller must hold ``state_lock``)."""
         old_state = self.current_state
 
         if new_state not in VALID_DICTATION_STATE_TRANSITIONS[old_state]:
@@ -480,11 +459,6 @@ class DictationCoordinator(Service):
         self.current_state = new_state
 
     async def initialize(self) -> bool:
-        """Initialize all dictation services concurrently.
-
-        Returns:
-            True if all services initialized successfully, False otherwise.
-        """
         text_init_result = self.text_service.initialize()
         llm_init_result = self.llm_service.initialize()
         results = await asyncio.gather(
@@ -510,7 +484,6 @@ class DictationCoordinator(Service):
         return self.alias_service
 
     async def handle_dictation_modifier_phrase(self, modifier_phrase: DictationModifierPhraseEvent) -> None:
-        """Apply a Vosk-side modifier phrase: toggle off if repeated, else switch, publish UI state, suppress Moonshine."""
         with self.state_lock:
             session = self.current_session
             if not session or self.current_state != DictationState.RECORDING:

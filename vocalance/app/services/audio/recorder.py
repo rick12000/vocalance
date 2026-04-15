@@ -14,13 +14,7 @@ from vocalance.app.events.core_events import AudioDeviceErrorEvent
 
 
 class AudioRecorder:
-    """PortAudio capture: one input stream, chunks forwarded to ``on_audio_chunk`` on ``loop``.
-
-    PortAudio invokes ``portaudio_callback`` on its own thread. Every handoff to Python code that
-    must run on the application ``asyncio`` loop uses ``loop.call_soon_threadsafe``. Call
-    ``start`` / ``stop`` from the same integration context as the rest of the app (the Qt
-    bootstrap passes the GUI loop into ``AudioService``, which passes it here).
-    """
+    """Single PortAudio input stream; forwards PCM chunks to ``on_audio_chunk`` on the asyncio loop."""
 
     def __init__(
         self,
@@ -45,6 +39,8 @@ class AudioRecorder:
         self.recording = False
         self.stream: Optional[sd.InputStream] = None
         self.capture_state_lock = threading.Lock()
+        self._inflight_deliveries = 0
+        self._inflight_lock = threading.Lock()
 
     def portaudio_callback(
         self,
@@ -54,7 +50,7 @@ class AudioRecorder:
         status: Optional[Any],
     ) -> None:
         if status:
-            self.logger.warning("Input stream status: %s", status)
+            self.logger.debug("Input stream status: %s", status)
 
         with self.capture_state_lock:
             active = self.recording
@@ -62,10 +58,22 @@ class AudioRecorder:
         if active:
             audio_bytes = indata.tobytes()
             timestamp = time.time()
+
+            def deliver() -> None:
+                try:
+                    self.on_audio_chunk(audio_bytes, timestamp)
+                finally:
+                    with self._inflight_lock:
+                        self._inflight_deliveries -= 1
+
+            with self._inflight_lock:
+                self._inflight_deliveries += 1
             try:
-                self.loop.call_soon_threadsafe(self.on_audio_chunk, audio_bytes, timestamp)
+                self.loop.call_soon_threadsafe(deliver)
             except RuntimeError as e:
-                self.logger.error("Could not schedule audio chunk (loop may be closed): %s", e, exc_info=True)
+                self.logger.error("Could not schedule audio chunk: %s", e)
+                with self._inflight_lock:
+                    self._inflight_deliveries -= 1
 
     def schedule_device_error_publish_on_loop(self, message: str) -> None:
         async def publish() -> None:
@@ -74,7 +82,7 @@ class AudioRecorder:
         try:
             self.loop.create_task(publish())
         except RuntimeError as e:
-            self.logger.error("Could not schedule device error publish: %s", e, exc_info=True)
+            self.logger.error("Could not schedule device error publish: %s", e)
 
     def open_input_stream(self) -> bool:
         try:
@@ -95,14 +103,10 @@ class AudioRecorder:
                     if name:
                         self.launch_input_device_name = str(name)
                 except Exception as e:
-                    self.logger.warning(
-                        "Could not query default input device name (message text may be generic): %s",
-                        e,
-                        exc_info=True,
-                    )
+                    self.logger.debug("Could not query default input device name: %s", e)
             return True
         except Exception as e:
-            self.logger.error("Failed to open audio input stream: %s", e, exc_info=True)
+            self.logger.error("Failed to open audio input stream: %s", e)
             self.close_stream_resources()
             return False
 
@@ -112,7 +116,7 @@ class AudioRecorder:
             try:
                 self.loop.call_soon_threadsafe(self.schedule_device_error_publish_on_loop, error_message)
             except RuntimeError as e:
-                self.logger.error("Could not schedule device error (loop may be closed): %s", e, exc_info=True)
+                self.logger.error("Could not schedule device error: %s", e)
 
     def close_stream_resources(self) -> None:
         stream = self.stream
@@ -122,7 +126,7 @@ class AudioRecorder:
                     stream.stop()
                 stream.close()
             except Exception as e:
-                self.logger.warning("Error while closing audio stream: %s", e, exc_info=True)
+                self.logger.warning("Error while closing audio stream: %s", e)
             finally:
                 self.stream = None
 
@@ -148,6 +152,26 @@ class AudioRecorder:
 
         if was_recording:
             self.close_stream_resources()
+
+    async def wait_deliveries_drained(self, timeout_s: float = 3.0) -> None:
+        """Wait until chunk callbacks scheduled before ``stop`` have run on ``loop``."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        poll_s = 0.02
+        while True:
+            with self._inflight_lock:
+                if self._inflight_deliveries <= 0:
+                    return
+            if loop.time() >= deadline:
+                with self._inflight_lock:
+                    remaining = self._inflight_deliveries
+                self.logger.warning(
+                    "Timed out after %.1fs waiting for %s in-flight audio deliveries to finish",
+                    timeout_s,
+                    remaining,
+                )
+                return
+            await asyncio.sleep(poll_s)
 
     def is_recording(self) -> bool:
         with self.capture_state_lock:

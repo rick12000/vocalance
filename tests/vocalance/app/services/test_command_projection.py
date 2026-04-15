@@ -1,5 +1,3 @@
-"""Tests for command projection and loading the parser action map from storage."""
-
 from unittest.mock import AsyncMock, Mock
 
 import pytest

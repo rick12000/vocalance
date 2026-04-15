@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import gc
 import json
@@ -21,6 +23,7 @@ class VoskSTT:
         self._recognizer_lock = asyncio.Lock()
 
     def recognize_sync(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
+        """Run Vosk on one chunk synchronously; returns final text or empty string."""
         if not audio_bytes:
             return ""
 
@@ -30,10 +33,12 @@ class VoskSTT:
         return result.get("text", "")
 
     async def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
+        """Thread-off ``recognize_sync`` behind the internal recognizer lock."""
         async with self._recognizer_lock:
             return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
 
     async def shutdown(self) -> None:
+        """Release the Kaldi recognizer and model under lock, then collect."""
         async with self._recognizer_lock:
             if getattr(self, "_recognizer", None) is not None:
                 del self._recognizer

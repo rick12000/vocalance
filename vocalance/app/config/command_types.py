@@ -166,9 +166,9 @@ class AutomationCommand(BaseCommand):
         Returns:
             Short description string suitable for UI display.
         """
-        return self.short_description if self.short_description else self._generate_short_description()
+        return self.short_description if self.short_description else self.generate_short_description()
 
-    def _generate_short_description(self) -> str:
+    def generate_short_description(self) -> str:
         """Generate a fallback short description from action type.
 
         Maps action_type to a human-readable category label when no explicit

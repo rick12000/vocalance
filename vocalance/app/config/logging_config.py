@@ -19,16 +19,16 @@ def get_cache_directory() -> str:
     Returns:
         Absolute path to cache directory, created if it doesn't exist.
     """
-    current_dir = Path(__file__).resolve().parent
-    max_iterations = 10
+    current_dir: Path = Path(__file__).resolve().parent
+    max_iterations: int = 10
 
     for _ in range(max_iterations):
         if (current_dir / "pyproject.toml").exists():
-            cache_dir = current_dir / "cache"
+            cache_dir: Path = current_dir / "cache"
             cache_dir.mkdir(exist_ok=True)
             return str(cache_dir)
 
-        parent = current_dir.parent
+        parent: Path = current_dir.parent
         if parent == current_dir:
             break
         current_dir = parent
@@ -83,7 +83,7 @@ class LoggingConfigModel(BaseModel):
     )
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s", description="Log message format")
     enable_logs: bool = Field(
-        default=False,
+        default=True,
         description="Enable logging to stdout and disk under cache/logs. When false: no log output (privacy-first).",
     )
 
@@ -98,9 +98,9 @@ def setup_logging(config: Any) -> None:
     Args:
         config: Logging configuration object with enable_logs, level, and format attributes.
     """
-    enable_logs = getattr(config, "enable_logs", False)
-    level = config.level.upper() if hasattr(config, "level") else "INFO"
-    log_format = config.format if hasattr(config, "format") else "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    enable_logs: bool = bool(getattr(config, "enable_logs", False))
+    level: str = config.level.upper() if hasattr(config, "level") else "INFO"
+    log_format: str = config.format if hasattr(config, "format") else "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     if not enable_logs:
         logging.basicConfig(level=logging.CRITICAL + 1, handlers=[logging.NullHandler()], force=True)
@@ -117,6 +117,3 @@ def setup_logging(config: Any) -> None:
     handlers.append(file_handler)
 
     logging.basicConfig(level=level, format=log_format, handlers=handlers, force=True)
-
-    logger_instance = logging.getLogger(__name__)
-    logger_instance.debug(f"Logging configured: level={level}, file={log_file_path}")

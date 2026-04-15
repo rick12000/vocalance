@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import threading
 from collections import deque
@@ -22,12 +24,12 @@ class QtDictationPopupView(QMainWindow):
     """
 
     # Signals for thread-safe text updates
-    _signal_partial_text = Signal(str, str)  # text, segment_id
-    _signal_final_text = Signal(str, str)  # text, segment_id
-    _signal_llm_token = Signal(str)  # token
-    _signal_audio_level = Signal(float)  # audio level
-    _signal_show_llm_processing = Signal()  # Signal to show LLM processing on main thread
-    _signal_modifier_banner = Signal(str, bool)  # display_label, active
+    partial_text_signal = Signal(str, str)  # text, segment_id
+    final_text_signal = Signal(str, str)  # text, segment_id
+    llm_token_signal = Signal(str)  # token
+    audio_level_signal = Signal(float)  # audio level
+    show_llm_processing_signal = Signal()  # Signal to show LLM processing on main thread
+    modifier_banner_signal = Signal(str, bool)  # display_label, active
 
     # Window sizes (determined by the sound wave widget)
     SIMPLE_WIDTH = 60  # Exact fit for sound wave widget
@@ -47,46 +49,47 @@ class QtDictationPopupView(QMainWindow):
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Thread safety
-        self._ui_lock = threading.RLock()
+        self.ui_lock = threading.RLock()
 
         # Token buffering for smooth updates
-        self._token_buffer = deque()
-        self._last_flush_time = 0
-        self._flush_interval_ms = 16  # ~60 FPS
-        self._pending_flush = False
+        self.token_buffer = deque()
+        self.last_flush_time = 0
+        self.flush_interval_ms = 16  # ~60 FPS
+        self.pending_flush = False
 
         self.current_mode: Optional[str] = None
 
         # Border color state (for stop word indication)
-        self._border_is_orange = False
+        self.border_is_orange = False
 
         # Animation properties
-        self._animation_in = None
-        self._animation_out = None
-        self._opacity_animation_in = None
-        self._opacity_animation_out = None
-        self._final_position = None
-        self._target_geometry = None
-        self._animation_duration_ms = 400  # Animation duration in milliseconds
+        self.animation_in = None
+        self.animation_out = None
+        self.opacity_animation_in = None
+        self.opacity_animation_out = None
+        self.final_position = None
+        self.target_geometry = None
+        self.animation_duration_ms = 400  # Animation duration in milliseconds
+        self.partial_segments: dict[str, tuple[int, int]] = {}
 
         # Setup window
-        self._setup_window()
-        self._create_ui()
-        self._apply_styling()
+        self.setup_window()
+        self.create_ui()
+        self.apply_styling()
 
         # Connect signals for thread-safe updates
-        self._signal_partial_text.connect(self._do_display_partial_text)
-        self._signal_final_text.connect(self._do_display_final_text)
-        self._signal_llm_token.connect(self._do_append_llm_token)
-        self._signal_audio_level.connect(self._do_update_audio_level)
-        self._signal_show_llm_processing.connect(self._do_show_llm_processing, Qt.ConnectionType.QueuedConnection)
-        self._signal_modifier_banner.connect(self._do_set_modifier_banner, Qt.ConnectionType.QueuedConnection)
+        self.partial_text_signal.connect(self.do_display_partial_text)
+        self.final_text_signal.connect(self.do_display_final_text)
+        self.llm_token_signal.connect(self.do_append_llm_token)
+        self.audio_level_signal.connect(self.do_update_audio_level)
+        self.show_llm_processing_signal.connect(self.do_show_llm_processing, Qt.ConnectionType.QueuedConnection)
+        self.modifier_banner_signal.connect(self.do_set_modifier_banner, Qt.ConnectionType.QueuedConnection)
 
-        self._modifier_fade_anim: Optional[QPropertyAnimation] = None
+        self.modifier_fade_anim: Optional[QPropertyAnimation] = None
 
         self.logger.info("QtDictationPopupView initialized")
 
-    def _setup_window(self) -> None:
+    def setup_window(self) -> None:
         """Configure window properties."""
         self.setWindowTitle("Dictation")
         self.setWindowFlags(
@@ -104,7 +107,7 @@ class QtDictationPopupView(QMainWindow):
         border_width = 3
 
         # Use orange border if stop word detected, otherwise use gradient
-        if self._border_is_orange:
+        if self.border_is_orange:
             # Solid orange border
             painter.setBrush(QColor(theme.config.shapes.orange))
             painter.setPen(Qt.PenStyle.NoPen)
@@ -126,15 +129,15 @@ class QtDictationPopupView(QMainWindow):
         painter.setBrush(QColor(theme.config.shapes.darkest))
         painter.drawRoundedRect(inner_rect, 12, 12)
 
-    def _modifier_status_accent_color(self) -> str:
+    def modifier_status_accent_color(self) -> str:
         gc = theme.config.text.gradient_colors
         return gc[1] if len(gc) > 1 else gc[0]
 
-    def _configure_reserved_modifier_status_label(self, label: QLabel) -> None:
+    def configure_reserved_modifier_status_label(self, label: QLabel) -> None:
         """Fixed-width slot to the right of dictation titles; opacity fades text without layout shift."""
         label.setFont(theme.get_font(size="medium", weight="semibold", display=False))
         pal = label.palette()
-        pal.setColor(QPalette.ColorRole.WindowText, QColor(self._modifier_status_accent_color()))
+        pal.setColor(QPalette.ColorRole.WindowText, QColor(self.modifier_status_accent_color()))
         label.setPalette(pal)
         label.setMinimumWidth(200)
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -144,7 +147,7 @@ class QtDictationPopupView(QMainWindow):
         eff.setOpacity(0.0)
         label.setGraphicsEffect(eff)
 
-    def _create_ui(self) -> None:
+    def create_ui(self) -> None:
         """Create UI elements."""
         # Main widget
         main_widget = QWidget()
@@ -199,7 +202,7 @@ class QtDictationPopupView(QMainWindow):
         self.dictation_column_label.setMinimumWidth(120)
         dtr_layout.addWidget(self.dictation_column_label, 0, Qt.AlignmentFlag.AlignLeft)
         self.dictation_modifier_status = QLabel("")
-        self._configure_reserved_modifier_status_label(self.dictation_modifier_status)
+        self.configure_reserved_modifier_status_label(self.dictation_modifier_status)
         dtr_layout.addWidget(self.dictation_modifier_status, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         dictation_layout.addWidget(self.dictation_title_row)
 
@@ -272,7 +275,7 @@ class QtDictationPopupView(QMainWindow):
         self.visual_column_label.setMinimumWidth(120)
         vtr_layout.addWidget(self.visual_column_label, 0, Qt.AlignmentFlag.AlignLeft)
         self.visual_modifier_status = QLabel("")
-        self._configure_reserved_modifier_status_label(self.visual_modifier_status)
+        self.configure_reserved_modifier_status_label(self.visual_modifier_status)
         vtr_layout.addWidget(self.visual_modifier_status, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         visual_layout.addWidget(self.visual_title_row)
 
@@ -284,7 +287,7 @@ class QtDictationPopupView(QMainWindow):
         self.visual_widget.setVisible(False)
         main_layout.addWidget(self.visual_widget, 1)
 
-    def _apply_styling(self) -> None:
+    def apply_styling(self) -> None:
         """Apply QSS styling.
 
         Note: Window background/border is handled in paintEvent, not QSS.
@@ -300,147 +303,145 @@ class QtDictationPopupView(QMainWindow):
     @Slot()
     def set_border_orange(self) -> None:
         """Set border to orange (stop word detected) - thread-safe."""
-        QMetaObject.invokeMethod(self, "_do_set_border_orange", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_set_border_orange", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
-    def _do_set_border_orange(self) -> None:
+    def do_set_border_orange(self) -> None:
         """Internal set border orange - MUST run on main Qt thread."""
-        with self._ui_lock:
-            self._border_is_orange = True
+        with self.ui_lock:
+            self.border_is_orange = True
             self.update()  # Trigger repaint
 
     @Slot()
     def reset_border_color(self) -> None:
         """Reset border to gradient color - thread-safe."""
-        QMetaObject.invokeMethod(self, "_do_reset_border_color", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_reset_border_color", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
-    def _do_reset_border_color(self) -> None:
+    def do_reset_border_color(self) -> None:
         """Internal reset border color - MUST run on main Qt thread."""
-        with self._ui_lock:
-            self._border_is_orange = False
+        with self.ui_lock:
+            self.border_is_orange = False
             self.update()  # Trigger repaint
 
     @Slot()
     def show_simple_listening(self) -> None:
         """Show simple listening indicator - thread-safe."""
-        QMetaObject.invokeMethod(self, "_do_show_simple", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_show_simple", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
-    def _do_show_simple(self) -> None:
+    def do_show_simple(self) -> None:
         """Internal show simple - MUST run on main Qt thread."""
-        with self._ui_lock:
-            self._hide_all_modes()
-            self._border_is_orange = False  # Reset border color for new session
+        with self.ui_lock:
+            self.hide_all_modes()
+            self.border_is_orange = False  # Reset border color for new session
             self.simple_widget.setVisible(True)
             self.current_mode = "simple"
-            self._position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
-            self._show_window_with_animation()
+            self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
+            self.show_window_with_animation()
             # Animation runs automatically in widget
 
     @Slot()
     def show_smart_dictation(self) -> None:
         """Show smart dictation (dictation + LLM output) - thread-safe."""
-        QMetaObject.invokeMethod(self, "_do_show_smart", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_show_smart", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
     def show_amend_dictation(self) -> None:
         """Show amend mode: left = spoken instructions, right = LLM output (same layout as smart)."""
-        QMetaObject.invokeMethod(self, "_do_show_amend", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_show_amend", Qt.ConnectionType.QueuedConnection)
 
-    def _apply_dual_pane_layout(self, mode: str, left_column_title: str) -> None:
+    def apply_dual_pane_layout(self, mode: str, left_column_title: str) -> None:
         """Apply the dual-pane window layout on the Qt main thread (via calling slots)."""
-        with self._ui_lock:
-            self._hide_all_modes()
-            self._border_is_orange = False
+        with self.ui_lock:
+            self.hide_all_modes()
+            self.border_is_orange = False
             self.current_mode = mode
             self.dictation_column_label.setText(left_column_title)
             self.smart_widget.setVisible(True)
-            self._clear_smart_content()
-            self._position_window(self.SMART_WIDTH, self.SMART_HEIGHT, "center_left")
-            self._show_window_with_animation()
+            self.clear_smart_content()
+            self.position_window(self.SMART_WIDTH, self.SMART_HEIGHT, "center_left")
+            self.show_window_with_animation()
             self.logger.info(f"Dual-pane dictation shown, mode={self.current_mode}")
 
     @Slot()
-    def _do_show_smart(self) -> None:
+    def do_show_smart(self) -> None:
         """Internal show smart - MUST run on main Qt thread."""
-        self._apply_dual_pane_layout("smart", "Dictation")
+        self.apply_dual_pane_layout("smart", "Dictation")
 
     @Slot()
-    def _do_show_amend(self) -> None:
+    def do_show_amend(self) -> None:
         """Internal show amend mode; must run on the Qt main thread."""
-        self._apply_dual_pane_layout("amend", "Prompt")
+        self.apply_dual_pane_layout("amend", "Prompt")
 
     @Slot()
     def show_visual_dictation(self) -> None:
         """Show visual dictation (single pane) - thread-safe."""
-        QMetaObject.invokeMethod(self, "_do_show_visual", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_show_visual", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
     def show_llm_processing(self) -> None:
         """Show LLM processing mode (keep smart layout, just update label) - thread-safe."""
         # Use QMetaObject.invokeMethod with QueuedConnection to marshal to main Qt thread
-        QMetaObject.invokeMethod(self, "_do_show_llm_processing", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_show_llm_processing", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
-    def _do_show_visual(self) -> None:
+    def do_show_visual(self) -> None:
         """Internal show visual - MUST run on main Qt thread."""
-        with self._ui_lock:
-            self._hide_all_modes()
-            self._border_is_orange = False  # Reset border color for new session
+        with self.ui_lock:
+            self.hide_all_modes()
+            self.border_is_orange = False  # Reset border color for new session
             self.current_mode = "visual"
             self.visual_widget.setVisible(True)
-            self._clear_visual_content()
-            self._position_window(self.VISUAL_WIDTH, self.VISUAL_HEIGHT, "center_left")
-            self._show_window_with_animation()
+            self.clear_visual_content()
+            self.position_window(self.VISUAL_WIDTH, self.VISUAL_HEIGHT, "center_left")
+            self.show_window_with_animation()
             self.logger.info(f"Visual dictation window shown, mode={self.current_mode}")
 
     @Slot()
-    def _do_show_llm_processing(self) -> None:
+    def do_show_llm_processing(self) -> None:
         """Internal show LLM processing - MUST run on main Qt thread."""
         # Keep smart widget visible, just update the status
         # This is called after dictation stops and before LLM processing starts
         if self.current_mode in self.DUAL_PANE_MODES:
             self.llm_label.setText("Processing...")
             # Start spinner when LLM processing begins
-            if hasattr(self, "llm_spinner"):
-                self.llm_spinner.start()
+            self.llm_spinner.start()
             self.logger.debug("Switched to LLM processing mode with spinner")
 
     @Slot()
     def hide_popup(self) -> None:
         """Hide the popup - thread-safe."""
-        QMetaObject.invokeMethod(self, "_do_hide_popup", Qt.ConnectionType.QueuedConnection)
+        QMetaObject.invokeMethod(self, "do_hide_popup", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
-    def _do_hide_popup(self) -> None:
+    def do_hide_popup(self) -> None:
         """Internal hide popup - MUST run on main Qt thread."""
-        with self._ui_lock:
+        with self.ui_lock:
             # Stop spinner when hiding popup
-            if hasattr(self, "llm_spinner"):
-                self.llm_spinner.stop()
-            self._reset_reserved_modifier_slot(self.dictation_modifier_status)
-            self._reset_reserved_modifier_slot(self.visual_modifier_status)
-            self._hide_window_with_animation()
+            self.llm_spinner.stop()
+            self.reset_reserved_modifier_slot(self.dictation_modifier_status)
+            self.reset_reserved_modifier_slot(self.visual_modifier_status)
+            self.hide_window_with_animation()
             self.current_mode = None
 
     def update_audio_level(self, level: float) -> None:
         """Update audio level for visualization - thread-safe."""
-        self._signal_audio_level.emit(level)
+        self.audio_level_signal.emit(level)
 
     @Slot(float)
-    def _do_update_audio_level(self, level: float) -> None:
+    def do_update_audio_level(self, level: float) -> None:
         """Internal update audio level - MUST run on main Qt thread."""
-        if self.current_mode == "simple" and hasattr(self, "sound_wave_widget"):
+        if self.current_mode == "simple":
             self.sound_wave_widget.update_level(level)
 
     def append_dictation_text(self, text: str) -> None:
         """Append text to dictation box - thread-safe."""
         self.logger.debug(f"append_dictation_text called with: '{text[:50]}...' (mode={self.current_mode})")
         # Use QTimer.singleShot for thread-safe GUI update
-        QTimer.singleShot(0, lambda: self._do_append_dictation_text(text))
+        QTimer.singleShot(0, lambda: self.do_append_dictation_text(text))
 
-    def _do_append_dictation_text(self, text: str) -> None:
+    def do_append_dictation_text(self, text: str) -> None:
         """Internal append dictation text - MUST run on main Qt thread."""
         self.logger.debug(f"_do_append_dictation_text executing: mode={self.current_mode}, text='{text[:50]}...'")
         if self.current_mode in self.DUAL_PANE_MODES:
@@ -471,10 +472,10 @@ class QtDictationPopupView(QMainWindow):
         """
         self.logger.info(f"display_partial_text CALLED: text='{text}', segment_id={segment_id}, mode={self.current_mode}")
         # Emit signal - Qt will automatically marshal to main thread
-        self._signal_partial_text.emit(text, segment_id)
+        self.partial_text_signal.emit(text, segment_id)
 
     @Slot(str, str)
-    def _do_display_partial_text(self, text: str, segment_id: str) -> None:
+    def do_display_partial_text(self, text: str, segment_id: str) -> None:
         """Internal display partial text - MUST run on main Qt thread.
 
         Connected to _signal_partial_text for automatic thread marshalling.
@@ -494,16 +495,12 @@ class QtDictationPopupView(QMainWindow):
             self.logger.error("No text box for current mode; partial text ignored (mode=%s)", self.current_mode)
             return
 
-        # Replace any previous partial segment so only one tentative block is shown.
-        if not hasattr(self, "_partial_segments"):
-            self._partial_segments = {}
-
         # Get document length for bounds checking
         doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
 
         # Remove all existing partial text segments
-        for old_segment_id in list(self._partial_segments.keys()):
-            old_start, old_end = self._partial_segments[old_segment_id]
+        for old_segment_id in list(self.partial_segments.keys()):
+            old_start, old_end = self.partial_segments[old_segment_id]
 
             # Validate positions are within document bounds
             if old_start < 0 or old_end > doc_length or old_start >= old_end:
@@ -519,7 +516,7 @@ class QtDictationPopupView(QMainWindow):
             self.logger.debug(f"Removed old partial segment {old_segment_id} at pos {old_start}-{old_end}")
 
         # Clear the dictionary
-        self._partial_segments.clear()
+        self.partial_segments.clear()
 
         # Now insert new partial text at end with MEDIUM color formatting
         cursor = text_box.textCursor()
@@ -540,7 +537,7 @@ class QtDictationPopupView(QMainWindow):
         end_pos = cursor.position()
 
         # Store this segment's position for removal when final text arrives
-        self._partial_segments[segment_id] = (start_pos, end_pos)
+        self.partial_segments[segment_id] = (start_pos, end_pos)
 
         text_box.setTextCursor(cursor)
         text_box.ensureCursorVisible()
@@ -559,10 +556,10 @@ class QtDictationPopupView(QMainWindow):
         """
         self.logger.info(f"display_final_text CALLED: text='{text}', segment_id={segment_id}, mode={self.current_mode}")
         # Emit signal - Qt will automatically marshal to main thread
-        self._signal_final_text.emit(text, segment_id)
+        self.final_text_signal.emit(text, segment_id)
 
     @Slot(str, str)
-    def _do_display_final_text(self, text: str, segment_id: str) -> None:
+    def do_display_final_text(self, text: str, segment_id: str) -> None:
         """Internal display final text - MUST run on main Qt thread.
 
         Connected to _signal_final_text for automatic thread marshalling.
@@ -583,8 +580,8 @@ class QtDictationPopupView(QMainWindow):
             return
 
         # Remove partial text for this segment before inserting the final text.
-        if hasattr(self, "_partial_segments") and segment_id in self._partial_segments:
-            start_pos, end_pos = self._partial_segments[segment_id]
+        if segment_id in self.partial_segments:
+            start_pos, end_pos = self.partial_segments[segment_id]
             doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
 
             # Validate positions are within document bounds
@@ -599,7 +596,7 @@ class QtDictationPopupView(QMainWindow):
                     f"Skipping invalid partial segment {segment_id}: pos {start_pos}-{end_pos} (doc_length={doc_length})"
                 )
 
-            del self._partial_segments[segment_id]
+            del self.partial_segments[segment_id]
 
         # Insert final text at end with light color formatting (stable/permanent)
         cursor = text_box.textCursor()
@@ -634,10 +631,10 @@ class QtDictationPopupView(QMainWindow):
         """
         self.logger.debug(f"append_llm_token CALLED: token='{token}', mode={self.current_mode}")
         # Emit signal - Qt will automatically marshal to main thread
-        self._signal_llm_token.emit(token)
+        self.llm_token_signal.emit(token)
 
     @Slot(str)
-    def _do_append_llm_token(self, token: str) -> None:
+    def do_append_llm_token(self, token: str) -> None:
         """Internal append LLM token - MUST run on main Qt thread.
 
         Connected to _signal_llm_token for automatic thread marshalling.
@@ -650,48 +647,48 @@ class QtDictationPopupView(QMainWindow):
             return
 
         # Buffer the token
-        with self._ui_lock:
-            self._token_buffer.append(token)
+        with self.ui_lock:
+            self.token_buffer.append(token)
 
             # Schedule flush if buffer has enough tokens and no flush pending
-            if len(self._token_buffer) >= 3 and not self._pending_flush:
-                self._pending_flush = True
+            if len(self.token_buffer) >= 3 and not self.pending_flush:
+                self.pending_flush = True
                 # Safe to use QTimer.singleShot here - we're on the main Qt thread
-                QTimer.singleShot(1, self._flush_token_buffer)
-                self.logger.debug(f"Scheduled token buffer flush ({len(self._token_buffer)} tokens buffered)")
+                QTimer.singleShot(1, self.flush_token_buffer)
+                self.logger.debug(f"Scheduled token buffer flush ({len(self.token_buffer)} tokens buffered)")
 
-    def _flush_token_buffer(self) -> None:
+    def flush_token_buffer(self) -> None:
         """Flush buffered tokens to LLM output box with color formatting.
 
         Must be called from main Qt thread only (scheduled via QTimer.singleShot).
         Only the last token is shown in medium color (fading effect).
         All other historical tokens are shown in lightest color.
         """
-        self.logger.debug(f"_flush_token_buffer CALLED: mode={self.current_mode}, buffer_size={len(self._token_buffer)}")
+        self.logger.debug(f"_flush_token_buffer CALLED: mode={self.current_mode}, buffer_size={len(self.token_buffer)}")
 
         if self.current_mode not in self.DUAL_PANE_MODES:
-            with self._ui_lock:
-                self._token_buffer.clear()
-                self._pending_flush = False
+            with self.ui_lock:
+                self.token_buffer.clear()
+                self.pending_flush = False
             self.logger.warning(f"_flush_token_buffer aborted - wrong mode: {self.current_mode}")
             return
 
         # Get batched tokens
-        with self._ui_lock:
-            if not self._token_buffer:
-                self._pending_flush = False
+        with self.ui_lock:
+            if not self.token_buffer:
+                self.pending_flush = False
                 self.logger.debug("_flush_token_buffer: no tokens to flush")
                 return
 
-            batched = "".join(self._token_buffer)
-            token_count = len(self._token_buffer)
-            self._token_buffer.clear()
+            batched = "".join(self.token_buffer)
+            token_count = len(self.token_buffer)
+            self.token_buffer.clear()
 
         # Insert into LLM box
         if not self.llm_box:
             self.logger.error("_flush_token_buffer: llm_box is None!")
-            with self._ui_lock:
-                self._pending_flush = False
+            with self.ui_lock:
+                self.pending_flush = False
             return
 
         # Get the full text with new tokens appended
@@ -732,8 +729,8 @@ class QtDictationPopupView(QMainWindow):
 
         self.logger.debug(f"_flush_token_buffer: flushed {token_count} tokens ('{batched[:50]}...')")
 
-        with self._ui_lock:
-            self._pending_flush = False
+        with self.ui_lock:
+            self.pending_flush = False
 
     def update_llm_status(self, status: str) -> None:
         """Update LLM output label status and manage spinner.
@@ -743,20 +740,18 @@ class QtDictationPopupView(QMainWindow):
         """
         if self.current_mode in self.DUAL_PANE_MODES:
             self.llm_label.setText(status)
-            # Stop spinner when LLM completes
-            if hasattr(self, "llm_spinner"):
-                if status in ("Complete!", "AI Output", "Error"):
-                    self.llm_spinner.stop()
-                elif status == "Processing...":
-                    self.llm_spinner.start()
+            if status in ("Complete!", "AI Output", "Error"):
+                self.llm_spinner.stop()
+            elif status == "Processing...":
+                self.llm_spinner.start()
 
     # Internal methods
 
     def set_modifier_banner(self, display_label: str, active: bool) -> None:
         """Show or hide modifier status with fade (thread-safe)."""
-        self._signal_modifier_banner.emit(display_label, active)
+        self.modifier_banner_signal.emit(display_label, active)
 
-    def _fade_modifier_label_opacity(
+    def fade_modifier_label_opacity(
         self,
         label: QLabel,
         end: float,
@@ -766,36 +761,36 @@ class QtDictationPopupView(QMainWindow):
         if not isinstance(eff, QGraphicsOpacityEffect):
             return
         anim = QPropertyAnimation(eff, b"opacity", label)
-        anim.setDuration(self._animation_duration_ms if end > 0.5 else max(150, self._animation_duration_ms // 2))
+        anim.setDuration(self.animation_duration_ms if end > 0.5 else max(150, self.animation_duration_ms // 2))
         anim.setStartValue(eff.opacity())
         anim.setEndValue(end)
         anim.setEasingCurve(QEasingCurve.Type.OutCubic if end > eff.opacity() else QEasingCurve.Type.InCubic)
         if on_finished is not None:
             anim.finished.connect(on_finished)
         anim.start()
-        self._modifier_fade_anim = anim
+        self.modifier_fade_anim = anim
 
-    def _reset_reserved_modifier_slot(self, label: QLabel) -> None:
+    def reset_reserved_modifier_slot(self, label: QLabel) -> None:
         label.setText("")
         eff = label.graphicsEffect()
         if isinstance(eff, QGraphicsOpacityEffect):
             eff.setOpacity(0.0)
 
     @Slot(str, bool)
-    def _do_set_modifier_banner(self, display_label: str, active: bool) -> None:
+    def do_set_modifier_banner(self, display_label: str, active: bool) -> None:
         """Show or clear the modifier label on smart/amend/visual layouts; no-op for wave-only modes."""
-        if self._modifier_fade_anim and self._modifier_fade_anim.state() == QPropertyAnimation.State.Running:
-            self._modifier_fade_anim.stop()
+        if self.modifier_fade_anim and self.modifier_fade_anim.state() == QPropertyAnimation.State.Running:
+            self.modifier_fade_anim.stop()
 
         reserved_slots = (self.dictation_modifier_status, self.visual_modifier_status)
 
         if not active:
             for lbl in reserved_slots:
-                self._reset_reserved_modifier_slot(lbl)
+                self.reset_reserved_modifier_slot(lbl)
             return
 
         for lbl in reserved_slots:
-            self._reset_reserved_modifier_slot(lbl)
+            self.reset_reserved_modifier_slot(lbl)
 
         if not display_label.strip():
             return
@@ -812,32 +807,30 @@ class QtDictationPopupView(QMainWindow):
 
         eff = cast(QGraphicsOpacityEffect, chip.graphicsEffect())
         eff.setOpacity(0.0)
-        self._fade_modifier_label_opacity(chip, 1.0)
+        self.fade_modifier_label_opacity(chip, 1.0)
 
-    def _hide_all_modes(self) -> None:
+    def hide_all_modes(self) -> None:
         """Hide all mode widgets."""
         self.simple_widget.setVisible(False)
         self.smart_widget.setVisible(False)
         self.visual_widget.setVisible(False)
-        self._reset_reserved_modifier_slot(self.dictation_modifier_status)
-        self._reset_reserved_modifier_slot(self.visual_modifier_status)
+        self.reset_reserved_modifier_slot(self.dictation_modifier_status)
+        self.reset_reserved_modifier_slot(self.visual_modifier_status)
 
-    def _clear_smart_content(self) -> None:
+    def clear_smart_content(self) -> None:
         """Clear smart mode content."""
         self.dictation_box.clear()
         self.llm_box.clear()
         self.llm_label.setText("AI Output")
-        # Ensure spinner is hidden when clearing
-        if hasattr(self, "llm_spinner"):
-            self.llm_spinner.stop()
-        with self._ui_lock:
-            self._token_buffer.clear()
+        self.llm_spinner.stop()
+        with self.ui_lock:
+            self.token_buffer.clear()
 
-    def _clear_visual_content(self) -> None:
+    def clear_visual_content(self) -> None:
         """Clear visual mode content."""
         self.visual_dictation_box.clear()
 
-    def _show_window(self) -> None:
+    def show_window(self) -> None:
         """Show the window at top level (matches legacy behavior)."""
         if not self.isVisible():
             self.show()
@@ -845,23 +838,21 @@ class QtDictationPopupView(QMainWindow):
             # Don't call activateWindow() or setFocus() to prevent stealing focus from user's current task
             self.logger.debug(f"Dictation popup shown in {self.current_mode} mode")
 
-    def _show_window_with_animation(self) -> None:
+    def show_window_with_animation(self) -> None:
         """Show window with slide-up and fade-in animation."""
         # Cancel any existing animations
-        if self._animation_in and self._animation_in.state() == QPropertyAnimation.State.Running:
-            self._animation_in.stop()
-        if self._animation_out and self._animation_out.state() == QPropertyAnimation.State.Running:
-            self._animation_out.stop()
+        if self.animation_in and self.animation_in.state() == QPropertyAnimation.State.Running:
+            self.animation_in.stop()
+        if self.animation_out and self.animation_out.state() == QPropertyAnimation.State.Running:
+            self.animation_out.stop()
 
-        # Use stored target geometry from _position_window
-        if not hasattr(self, "_target_geometry") or self._target_geometry is None:
-            # Fallback: just show without animation
+        if self.target_geometry is None:
             self.logger.warning("No target geometry stored, showing without animation")
-            self._show_window()
+            self.show_window()
             return
 
-        target_geom = self._target_geometry
-        self._final_position = (target_geom.x(), target_geom.y())
+        target_geom = self.target_geometry
+        self.final_position = (target_geom.x(), target_geom.y())
 
         # Calculate starting position: below the bottom of the screen
         from PySide6.QtCore import QRect
@@ -870,8 +861,7 @@ class QtDictationPopupView(QMainWindow):
         primary_screen = QApplication.primaryScreen()
         if primary_screen:
             screen_geom = primary_screen.availableGeometry()
-            # Start position: window completely below visible screen
-            start_y = screen_geom.height() + 20  # 20px below screen for smooth entry
+            start_y = screen_geom.y() + screen_geom.height() + 20
             start_geom = QRect(target_geom.x(), start_y, target_geom.width(), target_geom.height())
         else:
             # Fallback
@@ -889,36 +879,36 @@ class QtDictationPopupView(QMainWindow):
         self.logger.info(f"Animation: starting y={start_geom.y()}, target y={target_geom.y()}, mode={self.current_mode}")
 
         # Create position animation (Y coordinate)
-        self._animation_in = QPropertyAnimation(self, b"geometry")
-        self._animation_in.setDuration(self._animation_duration_ms)
-        self._animation_in.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._animation_in.setStartValue(start_geom)
-        self._animation_in.setEndValue(target_geom)
+        self.animation_in = QPropertyAnimation(self, b"geometry")
+        self.animation_in.setDuration(self.animation_duration_ms)
+        self.animation_in.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation_in.setStartValue(start_geom)
+        self.animation_in.setEndValue(target_geom)
 
         # Create opacity animation (fade in) - store as instance variable to prevent garbage collection
-        self._opacity_animation_in = QPropertyAnimation(self, b"windowOpacity")
-        self._opacity_animation_in.setDuration(self._animation_duration_ms)
-        self._opacity_animation_in.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._opacity_animation_in.setStartValue(0.0)
-        self._opacity_animation_in.setEndValue(1.0)
+        self.opacity_animation_in = QPropertyAnimation(self, b"windowOpacity")
+        self.opacity_animation_in.setDuration(self.animation_duration_ms)
+        self.opacity_animation_in.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.opacity_animation_in.setStartValue(0.0)
+        self.opacity_animation_in.setEndValue(1.0)
 
         # Start both animations
-        self._animation_in.start()
-        self._opacity_animation_in.start()
+        self.animation_in.start()
+        self.opacity_animation_in.start()
 
         self.logger.info(f"Slide-up and fade-in animation started for {self.current_mode} mode")
 
-    def _hide_window_with_animation(self) -> None:
+    def hide_window_with_animation(self) -> None:
         """Hide window with slide-down and fade-out animation."""
         # Cancel any existing animations
-        if self._animation_in and self._animation_in.state() == QPropertyAnimation.State.Running:
-            self._animation_in.stop()
-        if self._animation_out and self._animation_out.state() == QPropertyAnimation.State.Running:
-            self._animation_out.stop()
-        if self._opacity_animation_in and self._opacity_animation_in.state() == QPropertyAnimation.State.Running:
-            self._opacity_animation_in.stop()
-        if self._opacity_animation_out and self._opacity_animation_out.state() == QPropertyAnimation.State.Running:
-            self._opacity_animation_out.stop()
+        if self.animation_in and self.animation_in.state() == QPropertyAnimation.State.Running:
+            self.animation_in.stop()
+        if self.animation_out and self.animation_out.state() == QPropertyAnimation.State.Running:
+            self.animation_out.stop()
+        if self.opacity_animation_in and self.opacity_animation_in.state() == QPropertyAnimation.State.Running:
+            self.opacity_animation_in.stop()
+        if self.opacity_animation_out and self.opacity_animation_out.state() == QPropertyAnimation.State.Running:
+            self.opacity_animation_out.stop()
 
         if not self.isVisible():
             self.logger.debug("Window not visible, skipping hide animation")
@@ -934,7 +924,7 @@ class QtDictationPopupView(QMainWindow):
         primary_screen = QApplication.primaryScreen()
         if primary_screen:
             screen_geom = primary_screen.availableGeometry()
-            end_y = screen_geom.height() + 20  # 20px below screen for smooth exit
+            end_y = screen_geom.y() + screen_geom.height() + 20
             end_geom = QRect(current_geom.x(), end_y, current_geom.width(), current_geom.height())
         else:
             end_geom = current_geom
@@ -942,43 +932,43 @@ class QtDictationPopupView(QMainWindow):
         self.logger.info(f"Window hiding from y={current_geom.y()} to y={end_geom.y()}, opacity={self.windowOpacity()}")
 
         # Create position animation (slide down)
-        self._animation_out = QPropertyAnimation(self, b"geometry")
-        self._animation_out.setDuration(self._animation_duration_ms)
-        self._animation_out.setEasingCurve(QEasingCurve.Type.InCubic)
-        self._animation_out.setStartValue(current_geom)
-        self._animation_out.setEndValue(end_geom)
+        self.animation_out = QPropertyAnimation(self, b"geometry")
+        self.animation_out.setDuration(self.animation_duration_ms)
+        self.animation_out.setEasingCurve(QEasingCurve.Type.InCubic)
+        self.animation_out.setStartValue(current_geom)
+        self.animation_out.setEndValue(end_geom)
 
         # Create opacity animation (fade out) - store as instance variable
-        self._opacity_animation_out = QPropertyAnimation(self, b"windowOpacity")
-        self._opacity_animation_out.setDuration(self._animation_duration_ms)
-        self._opacity_animation_out.setEasingCurve(QEasingCurve.Type.InCubic)
-        self._opacity_animation_out.setStartValue(self.windowOpacity())  # Use current opacity, not assuming 1.0
-        self._opacity_animation_out.setEndValue(0.0)
+        self.opacity_animation_out = QPropertyAnimation(self, b"windowOpacity")
+        self.opacity_animation_out.setDuration(self.animation_duration_ms)
+        self.opacity_animation_out.setEasingCurve(QEasingCurve.Type.InCubic)
+        self.opacity_animation_out.setStartValue(self.windowOpacity())  # Use current opacity, not assuming 1.0
+        self.opacity_animation_out.setEndValue(0.0)
 
         # Connect finish signal to actually hide the window
-        self._animation_out.finished.connect(self._on_animation_finished)
+        self.animation_out.finished.connect(self.on_animation_finished)
 
         # Start both animations
-        self._animation_out.start()
-        self._opacity_animation_out.start()
+        self.animation_out.start()
+        self.opacity_animation_out.start()
 
         self.logger.info("Slide-down and fade-out animation started")
 
-    def _on_animation_finished(self) -> None:
+    def on_animation_finished(self) -> None:
         """Called when hide animation finishes."""
         self.hide()
         self.setWindowOpacity(1.0)  # Reset opacity for next show
 
         # Disconnect to prevent duplicate calls
         try:
-            if self._animation_out:
-                self._animation_out.finished.disconnect(self._on_animation_finished)
+            if self.animation_out:
+                self.animation_out.finished.disconnect(self.on_animation_finished)
         except RuntimeError:
             pass  # Already disconnected or no connection
 
         self.logger.info("Hide animation finished, window hidden")
 
-    def _position_window(self, width: int, height: int, position_type: str = "center_left") -> None:
+    def position_window(self, width: int, height: int, position_type: str = "center_left") -> None:
         """Calculate and store target window position for animation."""
         # Get primary screen for positioning
         from PySide6.QtCore import QRect
@@ -988,27 +978,30 @@ class QtDictationPopupView(QMainWindow):
 
         if not primary_screen:
             # Fallback positioning
-            self._target_geometry = QRect(100, 100, width, height)
+            self.target_geometry = QRect(100, 100, width, height)
             self.logger.warning("No screen available for positioning, using fallback")
             return
 
         # Use available geometry (excludes taskbar) for positioning calculations
         screen_geom = primary_screen.availableGeometry()
 
+        sx = screen_geom.x()
+        sy = screen_geom.y()
+        sw = screen_geom.width()
+        sh = screen_geom.height()
+
         if position_type == "bottom_left":
-            # Position at bottom-left of screen (matches legacy)
-            x = self.WINDOW_MARGIN_X
-            y = screen_geom.height() - height - self.WINDOW_MARGIN_Y
+            x = sx + self.WINDOW_MARGIN_X
+            y = sy + sh - height - self.WINDOW_MARGIN_Y
         elif position_type == "center_left":
-            # Position at center-left of screen (matches legacy)
-            x = self.WINDOW_MARGIN_X
-            y = (screen_geom.height() - height) // 2
-        else:  # center
-            x = (screen_geom.width() - width) // 2
-            y = (screen_geom.height() - height) // 2
+            x = sx + self.WINDOW_MARGIN_X
+            y = sy + (sh - height) // 2
+        else:
+            x = sx + (sw - width) // 2
+            y = sy + (sh - height) // 2
 
         # Store target geometry for animation system (don't set yet - let animation handle it)
-        self._target_geometry = QRect(x, y, width, height)
+        self.target_geometry = QRect(x, y, width, height)
         self.logger.debug(f"Target position calculated: ({x}, {y}) with size ({width}, {height}), type={position_type}")
 
     def keyPressEvent(self, key_event: QKeyEvent) -> None:

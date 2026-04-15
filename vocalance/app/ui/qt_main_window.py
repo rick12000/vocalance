@@ -24,11 +24,7 @@ if TYPE_CHECKING:
 
 
 class VocalanceMainWindow(QMainWindow):
-    """Main application window.
-
-    Receives the fully-initialised ``Services`` container at construction and
-    wires up all controllers immediately.  No deferred service injection.
-    """
+    """Application shell: sidebar, stacked tab content, and header."""
 
     def __init__(
         self,
@@ -44,7 +40,7 @@ class VocalanceMainWindow(QMainWindow):
         self.event_bus = event_bus
         self.logger = logger
         self.config = config
-        self._services = services
+        self._service_container = services
         self.icon_manager = icon_manager
         self._shutdown_coordinator = shutdown_coordinator
 
@@ -53,25 +49,23 @@ class VocalanceMainWindow(QMainWindow):
         self.asset_cache = QtAssetCache(asset_paths_config=self.config.asset_paths)
         self.logo_service = QtLogoService(self.asset_cache)
 
-        self._view_cache: dict[str, QWidget] = {}
-        self._current_view: Optional[QWidget] = None
+        self._tab_views: dict[str, QWidget] = {}
+        self._active_tab_view: Optional[QWidget] = None
 
-        self._registry = UiRegistry(
+        self._ui_registry = UiRegistry(
             event_bus=self.event_bus,
             logger=self.logger,
             config=self.config,
-            services=self._services,
+            services=self._service_container,
             main_window=self,
         )
-        self._attach_registry_attributes()
+        self._bind_registry_controllers()
 
-        self._setup_window()
-        self._build_ui()
+        self._configure_window()
+        self._build_main_layout()
 
-        self.logger.debug("VocalanceMainWindow initialized")
-
-    def _attach_registry_attributes(self) -> None:
-        r = self._registry
+    def _bind_registry_controllers(self) -> None:
+        r = self._ui_registry
         self.system_controller = r.system_controller
         self.marks_controller = r.marks_controller
         self.grid_controller = r.grid_controller
@@ -84,7 +78,7 @@ class VocalanceMainWindow(QMainWindow):
         self.mark_view = r.mark_view
         self.grid_view = r.grid_view
 
-    def _setup_window(self) -> None:
+    def _configure_window(self) -> None:
         self.setWindowTitle("Vocalance")
         self.resize(
             theme.config.components.main_window_width,
@@ -106,21 +100,17 @@ class VocalanceMainWindow(QMainWindow):
             if icon_path and icon_path.exists():
                 self.setWindowIcon(QIcon(str(icon_path)))
 
-    # ------------------------------------------------------------------
-    # UI construction
-    # ------------------------------------------------------------------
-
-    def _build_ui(self) -> None:
+    def _build_main_layout(self) -> None:
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        self._create_sidebar()
+        self._build_sidebar()
         main_layout.addWidget(self.sidebar_frame)
 
-        self._create_sidebar_separator()
+        self._build_sidebar_separator()
         main_layout.addWidget(self.sidebar_separator)
 
         right_panel_wrapper = QWidget()
@@ -143,10 +133,10 @@ class VocalanceMainWindow(QMainWindow):
         )
         content_frame_layout.setSpacing(theme.config.spacing.small)
 
-        self._create_header()
+        self._build_header()
         self.content_border_frame.add(self.header_frame)
 
-        self._create_content_area()
+        self._build_content_stack()
         self.content_border_frame.add(self.content_widget, stretch=1)
 
         right_wrapper_layout.addWidget(self.content_border_frame, stretch=1)
@@ -154,21 +144,21 @@ class VocalanceMainWindow(QMainWindow):
 
         self.show_tab("Commands")
 
-    def _create_sidebar(self) -> None:
+    def _build_sidebar(self) -> None:
         self.sidebar_frame = ExpandableSidebar()
         self.sidebar_button_manager = self.sidebar_frame.manager
 
-        self._create_sidebar_buttons()
+        self._build_sidebar_buttons()
         self.sidebar_frame.add_widget(self.buttons_widget)
         self.sidebar_frame.add_stretch()
-        self._create_sidebar_logo()
+        self._build_sidebar_logo()
         self.sidebar_frame.add_widget(self.sidebar_logo_frame)
 
         if self.sidebar_buttons:
             first_button = list(self.sidebar_buttons.values())[0]
             self.sidebar_button_manager.select(first_button)
 
-    def _create_sidebar_buttons(self) -> None:
+    def _build_sidebar_buttons(self) -> None:
         from vocalance.app.ui.utils.qt_icon_utils import load_sidebar_icon
 
         self.buttons_widget = TransparentBox()
@@ -203,7 +193,7 @@ class VocalanceMainWindow(QMainWindow):
             self.sidebar_buttons[tab_name] = btn
             self.sidebar_button_manager.add(btn)
 
-    def _create_sidebar_logo(self) -> None:
+    def _build_sidebar_logo(self) -> None:
         logo_frame = TransparentBox(layout="horizontal")
         logo_layout = logo_frame.layout()
         logo_layout.setContentsMargins(0, theme.config.sidebar.logo_padding_top, 0, theme.config.sidebar.logo_padding_bottom)
@@ -236,7 +226,7 @@ class VocalanceMainWindow(QMainWindow):
 
         self.sidebar_logo_frame = logo_frame
 
-    def _create_sidebar_separator(self) -> None:
+    def _build_sidebar_separator(self) -> None:
         self.sidebar_separator = QFrame()
         self.sidebar_separator.setFrameShape(QFrame.Shape.NoFrame)
         self.sidebar_separator.setFixedWidth(theme.config.sidebar.border_width)
@@ -247,7 +237,7 @@ class VocalanceMainWindow(QMainWindow):
         sep_palette.setColor(QPalette.ColorRole.Window, line)
         self.sidebar_separator.setPalette(sep_palette)
 
-    def _create_header(self) -> None:
+    def _build_header(self) -> None:
         self.header_frame = QWidget()
         self.header_frame.setAutoFillBackground(False)
         outer_layout = QVBoxLayout(self.header_frame)
@@ -280,7 +270,7 @@ class VocalanceMainWindow(QMainWindow):
         title_layout.addStretch()
 
         header_layout.addWidget(title_container, stretch=1)
-        self._create_header_icon_button()
+        self._build_header_documentation_button()
         header_layout.addWidget(
             self.header_icon_button,
             alignment=Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignCenter,
@@ -289,7 +279,7 @@ class VocalanceMainWindow(QMainWindow):
         self.header_inner = header_inner
         outer_layout.addWidget(header_inner)
 
-    def _create_header_icon_button(self) -> None:
+    def _build_header_documentation_button(self) -> None:
         from vocalance.app.ui.utils.qt_icon_utils import load_sidebar_icon
 
         icon_pixmap = load_sidebar_icon(
@@ -304,12 +294,12 @@ class VocalanceMainWindow(QMainWindow):
             icon_size=theme.config.header.icon_size,
             text_icon_spacing=theme.config.header.text_icon_spacing,
         )
-        self.header_icon_button.clicked.connect(self._on_documentation_clicked)
+        self.header_icon_button.clicked.connect(self._open_documentation_url)
 
-    def _on_documentation_clicked(self) -> None:
+    def _open_documentation_url(self) -> None:
         QDesktopServices.openUrl(QUrl("https://www.vocalance.com/instructions.html"))
 
-    def _create_content_area(self) -> None:
+    def _build_content_stack(self) -> None:
         self.content_widget = TransparentBox()
         content_layout = self.content_widget.layout()
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -317,7 +307,7 @@ class VocalanceMainWindow(QMainWindow):
         self.stacked_widget = QStackedWidget()
         content_layout.addWidget(self.stacked_widget)
 
-    def _set_header_subtitle(self, text: str) -> None:
+    def _sync_header_subtitle(self, text: str) -> None:
         if not self.header_subtitle:
             self.header_subtitle = BodyLabel(text=text)
             title_container_widget = self.header_inner.layout().itemAt(0).widget()
@@ -326,11 +316,7 @@ class VocalanceMainWindow(QMainWindow):
         else:
             self.header_subtitle.setText(text)
 
-    # ------------------------------------------------------------------
-    # Tab management
-    # ------------------------------------------------------------------
-
-    _TAB_SUBTITLES = {
+    TAB_SUBTITLES = {
         "Sounds": "Use custom sounds to control your computer",
         "Marks": "Pinpoint important locations on your screen",
         "Commands": "Manage voice commands and their actions",
@@ -339,45 +325,38 @@ class VocalanceMainWindow(QMainWindow):
     }
 
     def show_tab(self, tab_name: str) -> None:
+        """Switch the stacked content to ``tab_name`` and refresh the header."""
         self.current_tab = tab_name
         self.header_label.setText(tab_name)
-        subtitle = self._TAB_SUBTITLES.get(tab_name)
+        subtitle = self.TAB_SUBTITLES.get(tab_name)
         if subtitle:
-            self._set_header_subtitle(subtitle)
+            self._sync_header_subtitle(subtitle)
 
-        cached = self._view_cache.get(tab_name)
+        cached = self._tab_views.get(tab_name)
 
         if cached is None:
-            view = self._registry.create_tab_widget(tab_name)
-            self._view_cache[tab_name] = view
-            self._current_view = view
+            view = self._ui_registry.create_tab_widget(tab_name)
+            self._tab_views[tab_name] = view
+            self._active_tab_view = view
             self.stacked_widget.addWidget(view)
             self.stacked_widget.setCurrentWidget(view)
         else:
-            self._current_view = cached
+            self._active_tab_view = cached
             self.stacked_widget.setCurrentWidget(cached)
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
     def closeEvent(self, close_event: QCloseEvent) -> None:
-        self.logger.info("Main window close event")
-        self._cleanup_controllers()
+        self.logger.debug("Main window close event")
+        self._dispose_tab_views()
         close_event.accept()
         if self._shutdown_coordinator:
             self._shutdown_coordinator.request_shutdown(reason="User closed main window", source="main_window_close_event")
 
-    def _cleanup_controllers(self) -> None:
-        view_items = list(self._view_cache.items())
-        self._view_cache.clear()
-        self._current_view = None
+    def _dispose_tab_views(self) -> None:
+        view_items = list(self._tab_views.items())
+        self._tab_views.clear()
+        self._active_tab_view = None
 
-        for view_name, view in view_items:
-            try:
-                if hasattr(view, "deleteLater"):
-                    view.deleteLater()
-            except Exception as e:
-                self.logger.debug("Error deleting cached view %s: %s", view_name, e)
+        for _view_name, view in view_items:
+            view.deleteLater()
 
-        self._registry.cleanup_controllers()
+        self._ui_registry.cleanup_controllers()

@@ -9,23 +9,23 @@ logger = logging.getLogger(__name__)
 
 
 class PauseStateManager(Service):
-    """Tracks application pause/resume state."""
+    """Tracks whether the application is paused or resumed."""
 
     def __init__(self, event_bus: EventBus) -> None:
-        self._event_bus = event_bus
-        self._is_paused = False
-        event_bus.subscribe(SystemControlCommandParsedEvent, self._handle)
+        self.event_bus = event_bus
+        self.pause_active: bool = False
+        event_bus.subscribe(SystemControlCommandParsedEvent, self.handle_system_control_command)
 
-    async def _handle(self, event: SystemControlCommandParsedEvent) -> None:
+    async def handle_system_control_command(self, event: SystemControlCommandParsedEvent) -> None:
         if isinstance(event.command, PauseCommand):
-            self._is_paused = True
-            logger.info("Application paused")
+            self.pause_active = True
+            logger.debug("Application paused")
         elif isinstance(event.command, ResumeCommand):
-            self._is_paused = False
-            logger.info("Application resumed")
+            self.pause_active = False
+            logger.debug("Application resumed")
 
     def is_paused(self) -> bool:
-        return self._is_paused
+        return self.pause_active
 
     async def shutdown(self) -> None:
-        self._event_bus.unsubscribe(SystemControlCommandParsedEvent, self._handle)
+        self.event_bus.unsubscribe(SystemControlCommandParsedEvent, self.handle_system_control_command)

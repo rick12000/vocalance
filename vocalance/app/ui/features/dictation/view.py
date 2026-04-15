@@ -24,18 +24,18 @@ class TabButton(QPushButton):
 
     def __init__(self, text: str, parent: Optional[QWidget] = None):
         super().__init__(text, parent)
-        self._selected = False
+        self.chosen = False
         self.setMinimumHeight(32)
         self.setMinimumWidth(90)
 
         # Set font directly - use display font with medium size
         self.setFont(theme.get_font(size="medium", weight="semibold", display=True))
 
-        self._apply_style()
+        self.apply_style()
 
-    def _apply_style(self) -> None:
+    def apply_style(self) -> None:
         """Apply styling based on selection state - pill-shaped buttons."""
-        if self._selected:
+        if self.chosen:
             # Selected state: dark background with full styling
             self.setStyleSheet(
                 f"""
@@ -71,12 +71,12 @@ class TabButton(QPushButton):
 
     def set_selected(self, selected: bool) -> None:
         """Set the selection state of the button."""
-        self._selected = selected
-        self._apply_style()
+        self.chosen = selected
+        self.apply_style()
 
     def is_selected(self) -> bool:
         """Check if the button is selected."""
-        return self._selected
+        return self.chosen
 
 
 class QtPromptsSubView(QWidget):
@@ -95,24 +95,20 @@ class QtPromptsSubView(QWidget):
         self.current_prompt_id = None
         self.prompt_radio_buttons = {}
 
-        self._setup_ui()
+        self.setup_ui()
 
     def set_controller(self, controller) -> None:
-        """Set the controller and connect signals."""
         self.controller = controller
 
-        # Connect controller signals
-        self.controller.prompts_loaded.connect(self._on_prompts_loaded)
-        self.controller.current_prompt_updated.connect(self._on_current_prompt_updated)
-        self.controller.operation_error.connect(self._on_error)
-        self.controller.status_updated.connect(self._on_status_updated)
+        self.controller.prompts_loaded.connect(self.on_prompts_loaded)
+        self.controller.current_prompt_updated.connect(self.on_current_prompt_updated)
+        self.controller.operation_error.connect(self.on_error)
+        self.controller.status_updated.connect(self.on_status_updated)
 
-        # Load initial prompts
         self.logger.info("Loading prompts from controller")
         self.controller.refresh_prompts()
 
-    def _setup_ui(self) -> None:
-        """Build UI with TwoColumnLayout."""
+    def setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -122,11 +118,10 @@ class QtPromptsSubView(QWidget):
         main_layout.addWidget(self.layout_widget)
 
         # Setup panels
-        self._setup_add_prompt_form()
-        self._setup_manage_prompts_panel()
+        self.setup_add_prompt_form()
+        self.setup_manage_prompts_panel()
 
-    def _setup_add_prompt_form(self) -> None:
-        """Setup add prompt form in left content area."""
+    def setup_add_prompt_form(self) -> None:
         content = self.layout_widget.left_content
 
         # Prompt title input
@@ -145,13 +140,12 @@ class QtPromptsSubView(QWidget):
 
         # Add button
         self.add_prompt_btn = PrimaryButton(text="Add Prompt")
-        self.add_prompt_btn.clicked.connect(self._on_add_prompt_clicked)
+        self.add_prompt_btn.clicked.connect(self.on_add_prompt_clicked)
         content.add(self.add_prompt_btn)
 
         content.add_stretch()
 
-    def _setup_manage_prompts_panel(self) -> None:
-        """Setup manage prompts panel in right content area."""
+    def setup_manage_prompts_panel(self) -> None:
         content = self.layout_widget.right_content
 
         # Prompts list widget
@@ -165,38 +159,26 @@ class QtPromptsSubView(QWidget):
         scroll_area.content_layout.addWidget(self.prompts_list_widget)
         content.add(scroll_area, stretch=1)
 
-    def _on_prompts_loaded(self, prompts: List[Dict[str, Any]]) -> None:
-        """Handle prompts loaded from controller."""
-        try:
-            self.prompts_list = prompts
-            self.current_prompt_id = self.controller.get_current_prompt_id() if self.controller else None
-            self._display_prompts(prompts)
-            self.logger.info(f"Prompts loaded: {len(prompts)} total")
-        except Exception as e:
-            self.logger.error(f"Error loading prompts: {e}", exc_info=True)
-            self._show_error(f"Error loading prompts: {e}")
+    def on_prompts_loaded(self, prompts: List[Dict[str, Any]]) -> None:
+        self.prompts_list = prompts
+        self.current_prompt_id = self.controller.get_current_prompt_id() if self.controller else None
+        self.display_prompts(prompts)
+        self.logger.info("Prompts loaded: %s total", len(prompts))
 
-    def _on_current_prompt_updated(self, prompt_id: str) -> None:
-        """Handle current prompt updated event."""
-        try:
-            self.current_prompt_id = prompt_id
-            if prompt_id in self.prompt_radio_buttons:
-                self.prompt_radio_buttons[prompt_id].setChecked(True)
-            self.logger.info(f"Current prompt updated: {prompt_id}")
-        except Exception as e:
-            self.logger.error(f"Error handling current prompt updated: {e}", exc_info=True)
+    def on_current_prompt_updated(self, prompt_id: str) -> None:
+        self.current_prompt_id = prompt_id
+        if prompt_id in self.prompt_radio_buttons:
+            self.prompt_radio_buttons[prompt_id].setChecked(True)
+        self.logger.info("Current prompt updated: %s", prompt_id)
 
-    def _on_status_updated(self, message: str, is_error: bool) -> None:
-        """Handle status updates from controller."""
+    def on_status_updated(self, message: str, is_error: bool) -> None:
         if is_error:
-            self._show_error(message)
+            self.show_error(message)
 
-    def _on_error(self, error_msg: str) -> None:
-        """Handle error from controller."""
-        self._show_error(error_msg)
+    def on_error(self, error_msg: str) -> None:
+        self.show_error(error_msg)
 
-    def _display_prompts(self, prompts: List[Dict[str, Any]]) -> None:
-        """Display prompts with radio buttons, edit, and delete buttons."""
+    def display_prompts(self, prompts: List[Dict[str, Any]]) -> None:
         # Clear existing items
         while self.prompts_list_layout.count():
             item = self.prompts_list_layout.takeAt(0)
@@ -210,12 +192,11 @@ class QtPromptsSubView(QWidget):
             self.prompts_list_layout.addWidget(empty_label)
         else:
             for prompt in prompts:
-                self._create_prompt_item(prompt)
+                self.create_prompt_item(prompt)
 
         self.prompts_list_layout.addStretch()
 
-    def _create_prompt_item(self, prompt_data: Dict[str, Any]) -> None:
-        """Create a prompt list item with radio, name, edit, and delete buttons."""
+    def create_prompt_item(self, prompt_data: Dict[str, Any]) -> None:
         # Create item widget
         item_widget = TransparentWidget()
         item_widget.setProperty("itemType", "list_item")
@@ -233,7 +214,7 @@ class QtPromptsSubView(QWidget):
         prompt_id = prompt_data.get("id", "")
         is_current = prompt_data.get("is_current", False) or (prompt_id == self.current_prompt_id)
         radio.setChecked(is_current)
-        radio.toggled.connect(lambda checked, pid=prompt_id: self._on_radio_selected(pid, checked))
+        radio.toggled.connect(lambda checked, pid=prompt_id: self.on_radio_selected(pid, checked))
         self.prompt_radio_buttons[prompt_id] = radio
         item_layout.addWidget(radio)
 
@@ -244,26 +225,24 @@ class QtPromptsSubView(QWidget):
         # Edit button
         edit_btn = PrimaryButton(text="Edit")
         edit_btn.setFixedWidth(theme.config.components.button_action_width - 10)
-        edit_btn.clicked.connect(lambda checked, p=prompt_data: self._on_edit_prompt(p))
+        edit_btn.clicked.connect(lambda checked, p=prompt_data: self.on_edit_prompt(p))
         item_layout.addWidget(edit_btn)
 
         # Delete button
         is_default = prompt_data.get("is_default", False)
         delete_btn = DeleteButton(
-            command=lambda checked, pid=prompt_data.get("id"): self._on_delete_prompt(pid) if not is_default else None
+            command=lambda checked, pid=prompt_data.get("id"): self.on_delete_prompt(pid) if not is_default else None
         )
         delete_btn.setEnabled(not is_default)
         item_layout.addWidget(delete_btn)
 
         self.prompts_list_layout.insertWidget(self.prompts_list_layout.count() - 1, item_widget)
 
-    def _on_radio_selected(self, prompt_id: str, checked: bool) -> None:
-        """Handle radio button selection."""
+    def on_radio_selected(self, prompt_id: str, checked: bool) -> None:
         if checked and self.controller:
             self.controller.select_prompt(prompt_id)
 
-    def _on_add_prompt_clicked(self) -> None:
-        """Handle add prompt button clicked."""
+    def on_add_prompt_clicked(self) -> None:
         title = self.title_entry.text().strip()
         prompt_text = self.prompt_textbox.text().strip()
 
@@ -283,14 +262,13 @@ class QtPromptsSubView(QWidget):
             self.title_entry.clear()
             self.prompt_textbox.clear()
 
-    def _on_edit_prompt(self, prompt_data: Dict[str, Any]) -> None:
-        """Handle edit button clicked - show edit dialog."""
+    def on_edit_prompt(self, prompt_data: Dict[str, Any]) -> None:
         if prompt_data.get("is_default", False):
             QMessageBox.information(self, "Cannot Edit Default Prompt", "The default prompt cannot be edited.")
             return
 
         if not self.controller:
-            self._show_error("Controller not initialized.")
+            self.show_error("Controller not initialized.")
             return
 
         dialog = PromptEditDialog(prompt_data, self)
@@ -299,8 +277,7 @@ class QtPromptsSubView(QWidget):
                 self.controller.edit_prompt(prompt_data["id"], dialog.new_name, dialog.new_text)
                 self.logger.info(f"Edited prompt: {prompt_data['id']}")
 
-    def _on_delete_prompt(self, prompt_id: str) -> None:
-        """Handle delete button clicked."""
+    def on_delete_prompt(self, prompt_id: str) -> None:
         if self.controller and self.controller.is_default_prompt(prompt_id):
             QMessageBox.information(self, "Cannot Delete Default Prompt", "The default prompt cannot be deleted.")
             return
@@ -308,8 +285,7 @@ class QtPromptsSubView(QWidget):
         if self.controller:
             self.controller.delete_prompt(prompt_id)
 
-    def _show_error(self, message: str) -> None:
-        """Show error message dialog."""
+    def show_error(self, message: str) -> None:
         QMessageBox.critical(self, "Error", message)
 
 
@@ -331,9 +307,9 @@ class QtDictationView(QWidget):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.dictation_controller = None
         self.alias_controller = None
-        self._tab_buttons: Dict[str, TabButton] = {}
+        self.tab_buttons: Dict[str, TabButton] = {}
 
-        self._setup_ui()
+        self.setup_main_ui()
         self.logger.debug("QtDictationView initialized")
 
     def set_controller(self, controller) -> None:
@@ -346,14 +322,13 @@ class QtDictationView(QWidget):
         self.alias_controller = controller
         self.aliases_sub_view.set_controller(controller)
 
-    def _setup_ui(self) -> None:
-        """Build UI with horizontal menu and stacked sub-views."""
+    def setup_main_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         # Horizontal menu row
-        self._setup_tab_menu()
+        self.setup_tab_menu()
         main_layout.addWidget(self.tab_menu_widget)
 
         # Add spacing after the tab menu
@@ -372,10 +347,9 @@ class QtDictationView(QWidget):
         self.stacked_widget.addWidget(self.aliases_sub_view)
 
         # Select first tab by default
-        self._select_tab("Prompts")
+        self.select_tab("Prompts")
 
-    def _setup_tab_menu(self) -> None:
-        """Setup horizontal pill-shaped tab menu with outer pill container."""
+    def setup_tab_menu(self) -> None:
         # Create a wrapper for centering
         wrapper = TransparentBox(layout="horizontal", spacing=0)
         wrapper_layout = wrapper.layout()
@@ -404,8 +378,8 @@ class QtDictationView(QWidget):
 
         for tab_name in tabs:
             btn = TabButton(tab_name)
-            btn.clicked.connect(lambda checked, name=tab_name: self._select_tab(name))
-            self._tab_buttons[tab_name] = btn
+            btn.clicked.connect(lambda checked, name=tab_name: self.select_tab(name))
+            self.tab_buttons[tab_name] = btn
             outer_layout.addWidget(btn)
 
         # Add outer container to wrapper (centered)
@@ -416,10 +390,8 @@ class QtDictationView(QWidget):
         # Store wrapper as the main menu widget
         self.tab_menu_widget = wrapper
 
-    def _select_tab(self, tab_name: str) -> None:
-        """Select a tab and show corresponding sub-view."""
-        # Update button states
-        for name, btn in self._tab_buttons.items():
+    def select_tab(self, tab_name: str) -> None:
+        for name, btn in self.tab_buttons.items():
             btn.set_selected(name == tab_name)
 
         # Show corresponding sub-view
@@ -430,6 +402,5 @@ class QtDictationView(QWidget):
 
         self.logger.debug(f"Selected tab: {tab_name}")
 
-    def _show_error(self, message: str) -> None:
-        """Show error message dialog."""
+    def show_main_error(self, message: str) -> None:
         QMessageBox.critical(self, "Error", message)

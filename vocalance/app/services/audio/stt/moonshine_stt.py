@@ -1,5 +1,3 @@
-"""Moonshine Voice STT for dictation (streaming + batch)."""
-
 from __future__ import annotations
 
 import asyncio

@@ -34,35 +34,28 @@ def transform_monochrome_icon(
         PIL Image object or None if transformation fails
     """
     try:
-        # Open and convert to RGBA
         img = Image.open(image_path).convert("RGBA")
         pixels = img.load()
 
-        # Parse color
         if color.startswith("#"):
             color = color[1:]
         r = int(color[0:2], 16)
         g = int(color[2:4], 16)
         b = int(color[4:6], 16)
 
-        # Transform pixels
         for y in range(img.size[1]):
             for x in range(img.size[0]):
                 pixel = pixels[x, y]
                 if force_all_pixels:
-                    # Apply color to all pixels regardless of original color
                     pixels[x, y] = (r, g, b, pixel[3])
                 else:
-                    # Only color non-transparent black/white pixels
-                    if pixel[3] > 0:  # Not transparent
-                        # Check if pixel is dark (monochrome)
+                    if pixel[3] > 0:
                         brightness = (pixel[0] + pixel[1] + pixel[2]) / 3
-                        if brightness < 128:  # Dark pixel, apply color
+                        if brightness < 128:
                             pixels[x, y] = (r, g, b, pixel[3])
-                        else:  # Light pixel, keep as white or transparent
+                        else:
                             pixels[x, y] = (255, 255, 255, pixel[3])
 
-        # Resize
         if preserve_aspect_ratio:
             img.thumbnail(size, Image.Resampling.LANCZOS)
         else:
@@ -70,8 +63,8 @@ def transform_monochrome_icon(
 
         return img
 
-    except Exception as e:
-        logger.error(f"Failed to transform monochrome icon {image_path}: {e}")
+    except (OSError, ValueError) as exc:
+        logger.error("Failed to transform monochrome icon %s: %s", image_path, exc)
         return None
 
 
@@ -96,7 +89,6 @@ class QtAssetCache:
         self._setup_assets_path()
 
     def _setup_assets_path(self) -> None:
-        """Set up the path to UI assets."""
         self._assets_path = Path(self._asset_paths_config.logo_dir)
 
     def get_assets_path(self) -> Optional[Path]:
@@ -141,7 +133,6 @@ class QtAssetCache:
                 return None
 
             if high_dpi and size:
-                # Load at high-DPI with proper device pixel ratio
                 pixmap = load_pixmap_high_dpi(
                     image_path,
                     logical_size=size,
@@ -149,12 +140,10 @@ class QtAssetCache:
                     preserve_aspect_ratio=True,
                 )
             elif high_dpi:
-                # Load high-DPI without specific size constraint
                 pixmap = QPixmap(str(image_path))
                 if not pixmap.isNull():
                     pixmap.setDevicePixelRatio(device_pixel_ratio)
             else:
-                # Standard DPI loading
                 pixmap = QPixmap(str(image_path))
                 if pixmap.isNull():
                     logger.warning(f"Failed to load pixmap from {image_path}")
@@ -175,11 +164,11 @@ class QtAssetCache:
             with self._cache_lock:
                 self._pixmap_cache[cache_key] = pixmap
 
-            logger.debug(f"Loaded and cached pixmap: {filename} (high_dpi={high_dpi})")
+            logger.debug("Loaded pixmap %s (high_dpi=%s)", filename, high_dpi)
             return pixmap
 
-        except Exception as e:
-            logger.error(f"Failed to load pixmap {filename}: {e}")
+        except (OSError, ValueError) as exc:
+            logger.error("Failed to load pixmap %s: %s", filename, exc)
             return None
 
     def load_icon(
@@ -211,7 +200,7 @@ class QtAssetCache:
         with self._cache_lock:
             self._icon_cache[cache_key] = icon
 
-        logger.debug(f"Loaded and cached icon: {filename}")
+        logger.debug("Loaded icon %s", filename)
         return icon
 
     def get_icon_path(self) -> Optional[Path]:
@@ -265,24 +254,22 @@ class QtAssetCache:
                 logger.warning(f"Image file not found: {image_path}")
                 return None
 
-            # Use PIL transformation then convert to QPixmap
             pil_image = transform_monochrome_icon(str(image_path), color, size if size is not None else (100, 100))
 
             if pil_image is None:
-                logger.error(f"Failed to recolor image {filename}")
+                logger.error("Failed to recolor image %s", filename)
                 return None
 
-            # Convert PIL image to QPixmap
-            pixmap = self._pil_to_pixmap(pil_image)
+            pixmap = self._pixmap_from_pil(pil_image)
 
             with self._cache_lock:
                 self._pixmap_cache[cache_key] = pixmap
 
-            logger.info(f"Loaded and cached colored pixmap: {filename} with color {color}")
+            logger.debug("Cached colored pixmap %s", filename)
             return pixmap
 
-        except Exception as e:
-            logger.error(f"Failed to load and recolor image {filename}: {e}")
+        except (OSError, ValueError) as exc:
+            logger.error("Failed to load and recolor image %s: %s", filename, exc)
             return None
 
     def load_logo_pixmap(
@@ -307,22 +294,19 @@ class QtAssetCache:
         if device_pixel_ratio is None:
             device_pixel_ratio = get_device_pixel_ratio()
 
-        # Get logo properties from theme
         logo_props = theme.config.icon_properties
 
         if not self._assets_path:
             logger.error("Assets path not available for logo.")
             return None
 
-        # Determine filename and whether to apply monochrome
         if logo_type == "icon":
-            filename = "grey_icon_full_size.png"  # Default icon
+            filename = "grey_icon_full_size.png"
             apply_monochrome = False
         else:
-            filename = "grey_icon_full_size.png"  # Default full logo
+            filename = "grey_icon_full_size.png"
             apply_monochrome = False
 
-        # Check if logo properties exist in theme
         if logo_props:
             if logo_type == "icon":
                 filename = logo_props.icon_logo_filename
@@ -338,11 +322,9 @@ class QtAssetCache:
 
         try:
             if apply_monochrome:
-                # Use PIL transform then convert to QPixmap
                 color = logo_props.color if logo_props else theme.config.shapes.medium
 
                 if size is not None:
-                    # Scale to physical pixels for high-DPI
                     physical_size = (int(size[0] * device_pixel_ratio), int(size[1] * device_pixel_ratio))
                     pil_image = transform_monochrome_icon(
                         str(logo_path),
@@ -352,7 +334,6 @@ class QtAssetCache:
                         preserve_aspect_ratio=True,
                     )
                 else:
-                    # Scale constraint to physical pixels
                     physical_constraint = int(max_dimension * device_pixel_ratio)
                     constraint_size = (physical_constraint, physical_constraint)
                     pil_image = transform_monochrome_icon(
@@ -367,12 +348,11 @@ class QtAssetCache:
                     logger.error(f"Failed to transform logo {filename}")
                     return None
 
-                pixmap = self._pil_to_pixmap(pil_image)
+                pixmap = self._pixmap_from_pil(pil_image)
                 if pixmap:
                     pixmap.setDevicePixelRatio(device_pixel_ratio)
                 return pixmap
             else:
-                # Load using high-DPI aware method
                 if size is not None:
                     pixmap = load_pixmap_high_dpi(
                         logo_path,
@@ -388,27 +368,18 @@ class QtAssetCache:
                         preserve_aspect_ratio=True,
                     )
                 else:
-                    # Load without scaling, but set device pixel ratio
                     pixmap = QPixmap(str(logo_path))
                     if not pixmap.isNull():
                         pixmap.setDevicePixelRatio(device_pixel_ratio)
 
                 return pixmap
 
-        except Exception as e:
-            logger.error(f"Failed to load logo {filename}: {e}")
+        except (OSError, ValueError) as exc:
+            logger.error("Failed to load logo %s: %s", filename, exc)
             return None
 
-    def _pil_to_pixmap(self, pil_image: Image.Image) -> QPixmap:
-        """Convert PIL Image to QPixmap.
-
-        Args:
-            pil_image: PIL Image object.
-
-        Returns:
-            QPixmap object.
-        """
-        # Convert PIL image to bytes
+    def _pixmap_from_pil(self, pil_image: Image.Image) -> QPixmap:
+        """Convert a PIL ``RGBA`` image to a ``QPixmap``."""
         if pil_image.mode != "RGBA":
             pil_image = pil_image.convert("RGBA")
 

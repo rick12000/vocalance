@@ -179,7 +179,7 @@ async def test_pause_state_manager_initial_state(pause_state_manager):
 @pytest.mark.asyncio
 async def test_pause_state_toggle(pause_state_manager):
     """Test pause state can be toggled."""
-    event_bus = pause_state_manager._event_bus
+    event_bus = pause_state_manager.event_bus
 
     # Initially not paused
     assert pause_state_manager.is_paused() is False

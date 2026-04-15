@@ -2,7 +2,8 @@ from pydantic import BaseModel
 
 
 class BaseEvent(BaseModel):
-    """Base class for all application events.
+    """Root model for event-bus payloads.
 
-    All events published through the EventBus must inherit from this class.
+    Subclasses define typed fields for each domain event; handlers subscribe
+    using the concrete event type.
     """

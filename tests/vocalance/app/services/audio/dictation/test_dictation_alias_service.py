@@ -1,8 +1,3 @@
-"""Unit tests for DictationAliasService.
-
-Tests CRUD operations for dictation alias mappings and the alias substitution logic.
-"""
-
 import asyncio
 from unittest.mock import AsyncMock, Mock
 

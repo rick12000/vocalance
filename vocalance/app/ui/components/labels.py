@@ -7,6 +7,16 @@ from PySide6.QtWidgets import QLabel, QWidget
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_gradient_text import GradientDirection, GradientTextMixin
 
+_LABEL_ALIGN: dict[Literal["left", "center", "right"], Qt.AlignmentFlag] = {
+    "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+    "center": Qt.AlignmentFlag.AlignCenter,
+    "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+}
+
+
+def _label_alignment(align: Literal["left", "center", "right"]) -> Qt.AlignmentFlag:
+    return _LABEL_ALIGN.get(align, Qt.AlignmentFlag.AlignLeft)
+
 
 class TitleLabel(GradientTextMixin, QLabel):
     """Large bold title label with gradient text. xxlarge size, bold weight.
@@ -24,35 +34,21 @@ class TitleLabel(GradientTextMixin, QLabel):
         color: Optional[str] = None,
         use_gradient: bool = True,
     ):
-        # Initialize mixin first, then QLabel
         super().__init__(text, parent)
 
-        # Apply font (use Alata display font for title)
         self.setFont(theme.get_font(size="xxlarge", weight="bold", display=True))
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
 
-        # Enable gradient by default (unless color override is provided)
         if use_gradient and color is None:
             self.enable_gradient(colors=theme.config.text.title_gradient, direction=GradientDirection.DIAGONAL)
         else:
-            # Apply solid color via palette (gradient is disabled by default in mixin)
             final_color = color if color else theme.config.text.lightest
             palette = self.palette()
             palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
             self.setPalette(palette)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
 class SubtitleLabel(QLabel):
@@ -67,28 +63,16 @@ class SubtitleLabel(QLabel):
     ):
         super().__init__(text, parent)
 
-        # Apply font (use Alata display font for subtitle)
         self.setFont(theme.get_font(size="large", weight="semibold", display=True))
 
-        # Apply color via palette
         final_color = color if color else theme.config.text.light
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
         self.setPalette(palette)
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
 class BodyLabel(QLabel):
@@ -103,28 +87,16 @@ class BodyLabel(QLabel):
     ):
         super().__init__(text, parent)
 
-        # Apply font
         self.setFont(theme.get_font(size="medium", weight="regular"))
 
-        # Apply color via palette
         final_color = color if color else theme.config.text.light
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
         self.setPalette(palette)
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
 class SmallLabel(QLabel):
@@ -143,28 +115,16 @@ class SmallLabel(QLabel):
     ):
         super().__init__(text, parent)
 
-        # Apply font
         self.setFont(theme.get_font(size="medium", weight="regular"))
 
-        # Apply color via palette
         final_color = color if color else theme.config.text.light
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
         self.setPalette(palette)
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
 class GroupHeaderLabel(QLabel):
@@ -179,28 +139,16 @@ class GroupHeaderLabel(QLabel):
     ):
         super().__init__(text, parent)
 
-        # Apply font
         self.setFont(theme.get_font(size="medium", weight="semibold"))
 
-        # Apply color via palette
         final_color = color if color else theme.config.text.light
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
         self.setPalette(palette)
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
 class BoxTitleLabel(GradientTextMixin, QLabel):
@@ -222,32 +170,19 @@ class BoxTitleLabel(GradientTextMixin, QLabel):
         # Initialize mixin first, then QLabel
         super().__init__(text, parent)
 
-        # Apply font (use Alata display font for box title)
         self.setFont(theme.get_font(size="large", weight="semibold", display=True))
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
 
-        # Enable gradient by default (unless color override is provided)
         if use_gradient and color is None:
             self.enable_gradient(colors=theme.config.text.title_gradient, direction=GradientDirection.DIAGONAL)
         else:
-            # Apply solid color via palette (gradient is disabled by default in mixin)
             final_color = color if color else theme.config.text.lightest
             palette = self.palette()
             palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
             self.setPalette(palette)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
 class SectionTitle(QLabel):
@@ -266,28 +201,16 @@ class SectionTitle(QLabel):
     ):
         super().__init__(text, parent)
 
-        # Apply font (use Alata display font for section titles)
         self.setFont(theme.get_font(size="moderate", weight="semibold", display=True))
 
-        # Apply color via palette
         final_color = color if color else theme.config.text.light
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
         self.setPalette(palette)
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))
 
 
 class LargeLabel(QLabel):
@@ -302,25 +225,13 @@ class LargeLabel(QLabel):
     ):
         super().__init__(text, parent)
 
-        # Apply font
         self.setFont(theme.get_font(size="large", weight="regular"))
 
-        # Apply color via palette
         final_color = color if color else theme.config.text.light
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.WindowText, QColor(final_color))
         self.setPalette(palette)
 
-        # Set alignment
-        self._apply_alignment(align)
+        self.setAlignment(_label_alignment(align))
 
-        # Transparent background
         self.setAutoFillBackground(False)
-
-    def _apply_alignment(self, align: Literal["left", "center", "right"]) -> None:
-        align_map = {
-            "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "center": Qt.AlignmentFlag.AlignCenter,
-            "right": Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-        }
-        self.setAlignment(align_map.get(align, Qt.AlignmentFlag.AlignLeft))

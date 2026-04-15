@@ -1,10 +1,10 @@
 from typing import Optional
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPalette, QPixmap
+from PySide6.QtGui import QColor, QMouseEvent, QPalette, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
-from vocalance.app.ui.components.icon_widget import IconWidget
+from vocalance.app.ui.components.icon_widget import IconWidget, tint_pixmap
 from vocalance.app.ui.components.labels import BodyLabel
 from vocalance.app.ui.qt_theme import theme
 
@@ -29,7 +29,6 @@ class HeaderIconButton(QWidget):
         super().__init__(parent)
 
         self._text_content = text
-        self._hovered = False
         self._default_icon = icon_pixmap
         self._text_icon_spacing = text_icon_spacing if text_icon_spacing is not None else theme.config.spacing.medium
 
@@ -74,7 +73,7 @@ class HeaderIconButton(QWidget):
         layout.addWidget(self.spacer)
 
         if icon_pixmap:
-            colored_icon = self._color_pixmap(icon_pixmap, self._icon_color)
+            colored_icon = tint_pixmap(icon_pixmap, self._icon_color)
 
             self.icon_widget = IconWidget(colored_icon, self._icon_size)
             layout.addWidget(self.icon_widget, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -89,14 +88,6 @@ class HeaderIconButton(QWidget):
         self._spacer_anim = QPropertyAnimation(self.spacer, b"maximumWidth")
         self._spacer_anim.setDuration(260)
         self._spacer_anim.setEasingCurve(QEasingCurve.Type.OutQuart)
-
-    def _color_pixmap(self, pixmap: QPixmap, color: str) -> QPixmap:
-        result = pixmap.copy()
-        painter = QPainter(result)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        painter.fillRect(result.rect(), QColor(color))
-        painter.end()
-        return result
 
     def _animate_expansion(self, expand: bool) -> None:
         if expand:
@@ -120,12 +111,10 @@ class HeaderIconButton(QWidget):
             self._spacer_anim.start()
 
     def enterEvent(self, enter_event: QEvent) -> None:
-        self._hovered = True
         self._animate_expansion(True)
         super().enterEvent(enter_event)
 
     def leaveEvent(self, leave_event: QEvent) -> None:
-        self._hovered = False
         self._animate_expansion(False)
         super().leaveEvent(leave_event)
 

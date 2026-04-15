@@ -1,8 +1,3 @@
-"""Unit tests for AgenticPromptService.
-
-Tests prompt management, CRUD operations, and event publishing.
-"""
-
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 

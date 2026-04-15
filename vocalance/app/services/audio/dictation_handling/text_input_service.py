@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class DictationTextInput:
-    """Clipboard and keyboard text injection for dictation (no event bus; uses an injected asyncio loop)."""
+    """Injects dictation text via clipboard or keyboard using the given asyncio loop."""
 
     def __init__(self, config: DictationConfig, loop: asyncio.AbstractEventLoop) -> None:
         self.config = config
@@ -39,7 +39,7 @@ class DictationTextInput:
 
     def capture_selection_via_copy(self) -> str:
         with self.clipboard_lock:
-            original = None
+            original: str | None = None
             original_read_ok = False
             try:
                 original = pyperclip.paste()
@@ -51,7 +51,7 @@ class DictationTextInput:
             pyautogui.hotkey("ctrl", "c")
             time.sleep(max(0.05, self.config.clipboard_paste_delay_post))
 
-            captured = ""
+            captured: str = ""
             try:
                 captured = pyperclip.paste() or ""
             except (pyperclip.PyperclipException, OSError) as e:
@@ -74,13 +74,13 @@ class DictationTextInput:
         if not text:
             return False
 
-        cleaned_text = clean_dictation_text(text=text, add_trailing_space=add_trailing_space)
+        cleaned_text: str = clean_dictation_text(text=text, add_trailing_space=add_trailing_space)
         if not cleaned_text:
             return False
 
         if not skip_prose_segment_join_rules:
             if self.last_text and should_remove_previous_period(self.last_text, cleaned_text):
-                trailing_whitespace_count = get_trailing_whitespace_count(self.last_text)
+                trailing_whitespace_count: int = get_trailing_whitespace_count(self.last_text)
                 await self.backspace(1 + trailing_whitespace_count)
                 cleaned_text = " " + cleaned_text
 
@@ -88,23 +88,18 @@ class DictationTextInput:
                 cleaned_text = lowercase_first_letter(cleaned_text)
 
         if self.config.use_clipboard:
-            success = await self.loop.run_in_executor(None, self.paste_clipboard, cleaned_text)
+            success: bool = await self.loop.run_in_executor(None, self.paste_clipboard, cleaned_text)
         else:
             success = await self.loop.run_in_executor(None, self.type_text, cleaned_text)
 
         if success:
-            logger.debug(
-                "Input text: '%s%s'",
-                cleaned_text[:50],
-                "..." if len(cleaned_text) > 50 else "",
-            )
             self.last_text = cleaned_text
 
         return success
 
     def paste_clipboard(self, text: str) -> bool:
         with self.clipboard_lock:
-            original = None
+            original: str | None = None
             original_read_success = False
             try:
                 original = pyperclip.paste()
@@ -136,7 +131,7 @@ class DictationTextInput:
             max_verify_attempts = 2
             while verify_attempts < max_verify_attempts:
                 try:
-                    clipboard_content = pyperclip.paste()
+                    clipboard_content: str = pyperclip.paste()
                     if clipboard_content == text:
                         break
                     verify_attempts += 1
@@ -199,4 +194,4 @@ class DictationTextInput:
         return True
 
     def shutdown(self) -> None:
-        logger.info("DictationTextInput shutdown complete")
+        pass

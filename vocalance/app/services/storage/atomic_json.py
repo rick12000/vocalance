@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -9,14 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 class JsonReadError(Exception):
-    pass
+    """Raised when a JSON file cannot be read or decoded."""
 
 
 class JsonWriteError(Exception):
-    pass
+    """Raised when atomic JSON write fails after staging."""
 
 
 def read_json_dict(path: Path) -> Dict[str, Any]:
+    """Read UTF-8 JSON object from ``path`` into a dict."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -29,6 +32,7 @@ def read_json_dict(path: Path) -> Dict[str, Any]:
 
 
 def write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
+    """Write ``data`` to ``path`` via a temp file, optional backup, and atomic replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
     staging_path = path.with_suffix(f".tmp.{uuid.uuid4().hex}")
     try:

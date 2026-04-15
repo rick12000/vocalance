@@ -19,8 +19,8 @@ def get_device_pixel_ratio() -> float:
         app = QApplication.instance()
         if app and app.primaryScreen():
             return app.primaryScreen().devicePixelRatio()
-    except Exception as e:
-        logger.warning(f"Could not determine device pixel ratio: {e}")
+    except RuntimeError as exc:
+        logger.debug("Device pixel ratio unavailable: %s", exc)
 
     return 1.0
 
@@ -136,16 +136,17 @@ def load_pixmap_high_dpi(
         qpixmap.setDevicePixelRatio(device_pixel_ratio)
 
         logger.debug(
-            f"Loaded high-DPI pixmap: {image_path} "
-            f"(physical: {qpixmap.width()}x{qpixmap.height()}, "
-            f"logical: {int(qpixmap.width() / device_pixel_ratio)}x{int(qpixmap.height() / device_pixel_ratio)}, "
-            f"DPR: {device_pixel_ratio})"
+            "High-DPI pixmap %s physical=%sx%s dpr=%s",
+            image_path,
+            qpixmap.width(),
+            qpixmap.height(),
+            device_pixel_ratio,
         )
 
         return qpixmap
 
-    except Exception as e:
-        logger.error(f"Failed to load high-DPI pixmap {image_path}: {e}")
+    except (OSError, ValueError) as exc:
+        logger.error("Failed to load high-DPI pixmap %s: %s", image_path, exc)
         return None
 
 
@@ -159,20 +160,16 @@ def pil_to_qpixmap(pil_image: Image.Image) -> Optional[QPixmap]:
         QPixmap or None if conversion failed.
     """
     try:
-        # Ensure image is in RGBA mode
         if pil_image.mode != "RGBA":
             pil_image = pil_image.convert("RGBA")
 
-        # Get image data
         data = pil_image.tobytes("raw", "RGBA")
         width, height = pil_image.size
 
-        # Create QImage from raw data
         qimage = QImage(data, width, height, width * 4, QImage.Format.Format_RGBA8888)
 
-        # Convert to QPixmap
         return QPixmap.fromImage(qimage)
 
-    except Exception as e:
-        logger.error(f"Failed to convert PIL image to QPixmap: {e}")
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.error("Failed to convert PIL image to QPixmap: %s", exc)
         return None

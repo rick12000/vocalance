@@ -4,7 +4,7 @@ import re
 
 from vocalance.app.events.dictation_events import DictationModifierId
 
-_MODIFIER_DISPLAY: dict[str, str] = {
+MODIFIER_DISPLAY: dict[str, str] = {
     "upper": "Upper",
     "capitals": "Capitals",
     "camel": "Camel",
@@ -17,10 +17,10 @@ _MODIFIER_DISPLAY: dict[str, str] = {
 
 
 def modifier_display_label(modifier_id: DictationModifierId) -> str:
-    return _MODIFIER_DISPLAY.get(modifier_id, modifier_id)
+    return MODIFIER_DISPLAY.get(modifier_id, modifier_id)
 
 
-def _title_each_word(text: str) -> str:
+def title_each_word(text: str) -> str:
     def cap_word(w: str) -> str:
         if not w:
             return w
@@ -29,7 +29,7 @@ def _title_each_word(text: str) -> str:
     return " ".join(cap_word(p) for p in text.split())
 
 
-def _words_for_camel_snake(text: str) -> list[str]:
+def words_for_camel_snake(text: str) -> list[str]:
     s = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     s = re.sub(r"[_]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -38,8 +38,8 @@ def _words_for_camel_snake(text: str) -> list[str]:
     return [w for w in s.split() if w]
 
 
-def _to_camel_case(text: str) -> str:
-    words = _words_for_camel_snake(text)
+def to_camel_case(text: str) -> str:
+    words = words_for_camel_snake(text)
     if not words:
         return ""
     parts: list[str] = []
@@ -54,30 +54,30 @@ def _to_camel_case(text: str) -> str:
     return "".join(parts)
 
 
-def _to_snake_case(text: str) -> str:
-    words = _words_for_camel_snake(text)
+def to_snake_case(text: str) -> str:
+    words = words_for_camel_snake(text)
     return "_".join(w.lower() for w in words if w)
 
 
-def _to_kebab_case(text: str) -> str:
-    words = _words_for_camel_snake(text)
+def to_kebab_case(text: str) -> str:
+    words = words_for_camel_snake(text)
     return "-".join(w.lower() for w in words if w)
 
 
-def _apply_strip_modifier(text: str) -> str:
+def apply_strip_modifier(text: str) -> str:
     if not text:
         return text
     s = re.sub(r"[^\w\s]", "", text, flags=re.UNICODE)
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _apply_diminish_modifier(text: str) -> str:
+def apply_diminish_modifier(text: str) -> str:
     if not text:
         return text
     return text.lower()
 
 
-_SPELLING_PUNCT_PHRASES: list[tuple[str, str]] = sorted(
+SPELLING_PUNCT_PHRASES: list[tuple[str, str]] = sorted(
     [
         ("hash tag", "#"),
         ("hashtag", "#"),
@@ -157,7 +157,7 @@ _SPELLING_PUNCT_PHRASES: list[tuple[str, str]] = sorted(
 )
 
 
-def _apply_spelling_modifier(text: str) -> str:
+def apply_spelling_modifier(text: str) -> str:
     if not text:
         return text
 
@@ -172,7 +172,7 @@ def _apply_spelling_modifier(text: str) -> str:
     while i < len(words):
         rest = " ".join(words[i:])
         matched = False
-        for phrase, sym in _SPELLING_PUNCT_PHRASES:
+        for phrase, sym in SPELLING_PUNCT_PHRASES:
             plen = len(phrase.split())
             if rest == phrase or rest.startswith(phrase + " "):
                 tokens.append(sym)
@@ -183,12 +183,12 @@ def _apply_spelling_modifier(text: str) -> str:
             tokens.append(words[i])
             i += 1
 
-    s = _join_spelling_tokens(tokens)
+    s = join_spelling_tokens(tokens)
     s = re.sub(r"\s+", " ", s).strip()
-    return _apply_sentence_casing_after_punct(s)
+    return apply_sentence_casing_after_punct(s)
 
 
-def _join_spelling_tokens(parts: list[str]) -> str:
+def join_spelling_tokens(parts: list[str]) -> str:
     if not parts:
         return ""
     result = ""
@@ -211,7 +211,7 @@ def _join_spelling_tokens(parts: list[str]) -> str:
     return result
 
 
-def _apply_sentence_casing_after_punct(text: str) -> str:
+def apply_sentence_casing_after_punct(text: str) -> str:
     if not text:
         return text
     chars = list(text)
@@ -235,21 +235,21 @@ def apply_modifier_transform(text: str, active_modifiers: set[DictationModifierI
         return text
 
     if "spelling" in active_modifiers:
-        text = _apply_spelling_modifier(text)
+        text = apply_spelling_modifier(text)
     if "strip" in active_modifiers:
-        text = _apply_strip_modifier(text)
+        text = apply_strip_modifier(text)
 
     if "diminish" in active_modifiers:
-        text = _apply_diminish_modifier(text)
+        text = apply_diminish_modifier(text)
     if "upper" in active_modifiers:
-        text = _title_each_word(text)
+        text = title_each_word(text)
     if "capitals" in active_modifiers:
         text = text.upper()
     if "camel" in active_modifiers:
-        text = _to_camel_case(text)
+        text = to_camel_case(text)
     if "snake" in active_modifiers:
-        text = _to_snake_case(text)
+        text = to_snake_case(text)
     if "kebab" in active_modifiers:
-        text = _to_kebab_case(text)
+        text = to_kebab_case(text)
 
     return text

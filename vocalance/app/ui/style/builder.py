@@ -8,7 +8,7 @@ _STYLE_DIR = Path(__file__).resolve().parent
 _QSS_ORDER = ("base.qss", "native_controls.qss", "scrollable.qss")
 
 
-def _token_map(theme: "ThemeManager") -> dict[str, str]:
+def collect_theme_tokens(theme: "ThemeManager") -> dict[str, str]:
     c = theme.config
     return {
         "FONT_PRIMARY": c.font_family_primary,
@@ -27,7 +27,7 @@ def _token_map(theme: "ThemeManager") -> dict[str, str]:
     }
 
 
-def _apply_tokens(qss: str, tokens: dict[str, str]) -> str:
+def inject_tokens_into_qss(qss: str, tokens: dict[str, str]) -> str:
     out = qss
     for key, value in tokens.items():
         out = out.replace("{{" + key + "}}", value)
@@ -35,16 +35,16 @@ def _apply_tokens(qss: str, tokens: dict[str, str]) -> str:
 
 
 def build_app_stylesheet(theme: "ThemeManager") -> str:
-    """Concatenate packaged QSS partials and inject theme tokens."""
-    tokens = _token_map(theme)
+    """Concatenate packaged QSS partials and substitute ``{{TOKEN}}`` placeholders."""
+    tokens = collect_theme_tokens(theme)
     chunks: list[str] = []
     qss_dir = _STYLE_DIR / "qss"
     for name in _QSS_ORDER:
         path = qss_dir / name
         if path.is_file():
             raw = path.read_text(encoding="utf-8")
-            chunks.append(_apply_tokens(raw, tokens))
+            chunks.append(inject_tokens_into_qss(raw, tokens))
     legacy = Path(__file__).resolve().parent.parent / "styles.qss"
     if legacy.is_file():
-        chunks.append(_apply_tokens(legacy.read_text(encoding="utf-8"), tokens))
+        chunks.append(inject_tokens_into_qss(legacy.read_text(encoding="utf-8"), tokens))
     return "\n\n".join(part.strip() for part in chunks if part.strip())

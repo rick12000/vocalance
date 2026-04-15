@@ -1,8 +1,3 @@
-"""Unit tests for DictationCoordinator core functionality.
-
-Tests state machine, mode transitions, initialization, and event handling.
-"""
-
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 

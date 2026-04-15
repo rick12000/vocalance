@@ -20,7 +20,7 @@ async def automation_service(event_bus, app_config):
 async def test_exact_match_hotkey_execution(mock_hotkey, automation_service):
     """Test execution of exact match hotkey command."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -48,7 +48,7 @@ async def test_exact_match_hotkey_execution(mock_hotkey, automation_service):
 async def test_key_press_execution(mock_press, automation_service):
     """Test execution of key press command."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -76,7 +76,7 @@ async def test_key_press_execution(mock_press, automation_service):
 async def test_click_execution(mock_click, automation_service):
     """Test execution of click command."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -104,7 +104,7 @@ async def test_click_execution(mock_click, automation_service):
 async def test_parameterized_command_execution(mock_hotkey, automation_service):
     """Test execution of parameterized command with count."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -133,7 +133,7 @@ async def test_parameterized_command_execution(mock_hotkey, automation_service):
 async def test_cooldown_enforcement(mock_hotkey, automation_service):
     """Test that cooldown prevents rapid command re-execution."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -164,10 +164,10 @@ async def test_cooldown_enforcement(mock_hotkey, automation_service):
 async def test_cooldown_expiration(mock_hotkey, automation_service, app_config):
     """Test that commands execute after cooldown expires."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     app_config.automation_cooldown_seconds = 0.1
-    service._app_config = app_config
+    service.config = app_config
 
     captured_events = []
 
@@ -199,7 +199,7 @@ async def test_cooldown_expiration(mock_hotkey, automation_service, app_config):
 async def test_invalid_repeat_count_rejected(automation_service):
     """Test that invalid repeat counts are rejected."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -226,7 +226,7 @@ async def test_invalid_repeat_count_rejected(automation_service):
 async def test_command_mappings_update_clears_cooldowns(mock_hotkey, automation_service):
     """Test that command mapping updates clear cooldown timers."""
     service = automation_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
 

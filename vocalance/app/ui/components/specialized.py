@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
@@ -44,34 +44,27 @@ class ExpandableSidebar(QFrame):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
-        # Transparent background
         self.setAutoFillBackground(False)
         self.setFrameShape(QFrame.Shape.NoFrame)
 
-        # Width configuration
         self.collapsed_width = theme.config.sidebar.collapsed_width
         self.expanded_width = theme.config.sidebar.expanded_width
         self.setFixedWidth(self.collapsed_width)
 
-        # Enable mouse tracking
         self.setMouseTracking(True)
 
-        # Layout
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, theme.config.sidebar.padding_top, 0, 0)
         self._layout.setSpacing(0)
 
-        # Manager for button selection
         self.manager = SidebarButtonManager()
 
-        # Setup animations
         self._anim_min = QPropertyAnimation(self, b"minimumWidth")
         self._anim_max = QPropertyAnimation(self, b"maximumWidth")
         for anim in (self._anim_min, self._anim_max):
             anim.setDuration(theme.config.sidebar.animation_duration)
             anim.setEasingCurve(QEasingCurve.Type.OutQuart)
 
-        # Track animation progress
         self._anim_min.valueChanged.connect(self._on_width_changed)
         self._anim_min.finished.connect(self._on_animation_finished)
         self._expanding = False
@@ -107,37 +100,29 @@ class ExpandableSidebar(QFrame):
         self._anim_max.setEndValue(target_width)
 
         if expand:
-            # Show text immediately but transparent
             self.manager.set_expanded(True)
             self.manager.set_text_opacity(0.0)
 
         self._anim_min.start()
         self._anim_max.start()
 
-        # Update button text visibility is handled in _on_animation_finished for collapse
-
-    def _on_width_changed(self, value: Any) -> None:
+    def _on_width_changed(self, value: object) -> None:
         """Handle width animation progress."""
         current_width = int(value)
 
-        # Calculate progress
         total_delta = self.expanded_width - self.collapsed_width
         if total_delta <= 0:
             return
 
         progress = (current_width - self.collapsed_width) / total_delta
-        # Clamp progress
         progress = max(0.0, min(1.0, progress))
 
-        # Update opacity
         self.manager.set_text_opacity(progress)
 
     def _on_animation_finished(self) -> None:
         """Handle animation completion."""
         if not self._expanding:
-            # If collapsed, hide text completely
             self.manager.set_expanded(False)
             self.manager.set_text_opacity(0.0)
         else:
-            # Ensure fully visible
             self.manager.set_text_opacity(1.0)

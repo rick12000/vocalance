@@ -1,4 +1,3 @@
-"""Simple unit tests for pause state manager without heavy dependencies."""
 import asyncio
 
 import pytest

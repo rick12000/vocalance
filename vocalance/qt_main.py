@@ -1,16 +1,5 @@
-"""Application entry point.
-
-Boot sequence:
-    1. Construct all services (subscriptions are registered in ``__init__``).
-    2. Call ``event_bus.start(gui_loop)`` — flushes any queued events and enables live dispatch.
-    3. Run async initialization on each service (storage reads, heavy imports).
-    4. Start audio capture.
-    5. Show main window.
-    6. Await shutdown signal.
-    7. Tear down in dependency order.
-"""
-
 import asyncio
+import importlib.util
 import logging
 import os
 import signal
@@ -18,7 +7,8 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from types import FrameType
+from typing import List, Optional
 
 import PySide6.QtAsyncio as QtAsyncio
 from PySide6.QtCore import QTimer
@@ -53,7 +43,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Services:
-    """Holds every service once constructed. All fields are set before consumers run."""
+    """Container for all application services after construction.
+
+    Attributes:
+        storage: Persistent storage facade.
+        gui_event_loop: Asyncio loop bound to the Qt GUI thread.
+        background_tasks: Fire-and-forget tasks owned by startup (e.g. model warmups).
+    """
 
     storage: StorageService
     gui_event_loop: asyncio.AbstractEventLoop
@@ -70,14 +66,15 @@ class Services:
     pause_state_manager: PauseStateManager
     centralized_parser: CentralizedCommandParser
     dictation: DictationCoordinator
-    _background_tasks: list = field(default_factory=list, repr=False)
+    background_tasks: List[asyncio.Task] = field(default_factory=list, repr=False)
 
 
-def _construct_services(
+def construct_services(
     event_bus: EventBus,
     config: GlobalAppConfig,
     gui_loop: asyncio.AbstractEventLoop,
 ) -> Services:
+    """Build the default service graph and wire configuration listeners."""
     storage = StorageService(config=config)
     runtime_config = RuntimeConfigurationStore(event_bus=event_bus, config=config, storage=storage)
     validator = ProtectedTermsValidator(config=config, storage=storage)
@@ -156,22 +153,23 @@ def _construct_services(
     )
 
 
-def _moonshine_model_cache_ready() -> bool:
-    try:
-        from moonshine_voice.download_file import get_cache_dir
-    except ImportError as e:
-        logger.warning("Moonshine import check failed: %s", e)
+def moonshine_model_cache_ready() -> bool:
+    """Return True if the Moonshine cache directory exists and is non-empty."""
+    if importlib.util.find_spec("moonshine_voice.download_file") is None:
         return False
-    cache = get_cache_dir()
-    return cache.is_dir() and any(cache.iterdir())
+    from moonshine_voice.download_file import get_cache_dir
+
+    cache_dir = get_cache_dir()
+    return cache_dir.is_dir() and any(cache_dir.iterdir())
 
 
-async def _initialize_services(
+async def initialize_services(
     services: Services,
     config: GlobalAppConfig,
     shutdown_coordinator: ShutdownCoordinator,
     progress_tracker: StartupProgressTracker,
 ) -> None:
+    """Run staged startup: storage, audio stack, STT, dictation, and LLM assets."""
     progress_tracker.start_step(step_name="Initializing storage...")
     progress_tracker.update_status_animated(status="Loading user settings")
     await services.runtime_config.initialize()
@@ -179,13 +177,13 @@ async def _initialize_services(
     await services.click_tracker.initialize()
     await services.centralized_parser.initialize()
     progress_tracker.complete_step()
-    _check_cancellation(shutdown_coordinator)
+    check_initialization_cancelled(shutdown_coordinator)
 
     progress_tracker.start_step(step_name="Starting audio processing...")
     progress_tracker.update_sub_step(sub_step_name="Loading sound recognition model...")
 
     yamnet_path = os.path.join(config.storage.sound_model_dir, "yamnet")
-    yamnet_ready = (
+    yamnet_ready: bool = (
         os.path.exists(yamnet_path)
         and os.path.exists(os.path.join(yamnet_path, "saved_model.pb"))
         and os.path.exists(os.path.join(yamnet_path, "variables"))
@@ -196,19 +194,19 @@ async def _initialize_services(
         else "Loading YAMNet model. This should take 1-2 minutes on first use."
     )
     await services.sound_service.initialize()
-    services._background_tasks.append(
+    services.background_tasks.append(
         asyncio.create_task(asyncio.to_thread(services.sound_service.recognizer.warm_start_esc50_samples))
     )
-    _check_cancellation(shutdown_coordinator)
+    check_initialization_cancelled(shutdown_coordinator)
 
-    model_exists = _moonshine_model_cache_ready()
+    model_exists = moonshine_model_cache_ready()
     progress_tracker.update_status_animated(
         status="Initializing speech-to-text"
         if model_exists
         else "Fetching Moonshine STT model. This may take several minutes on first use."
     )
     await services.stt.initialize()
-    _check_cancellation(shutdown_coordinator)
+    check_initialization_cancelled(shutdown_coordinator)
 
     progress_tracker.update_sub_step(sub_step_name="Preparing dictation system...")
     allow = config.local_llm_allowlist
@@ -226,33 +224,40 @@ async def _initialize_services(
     progress_tracker.update_sub_step(sub_step_name="Initializing dictation", progress=0.55)
     if not await services.dictation.initialize():
         raise RuntimeError("Critical dictation initialization failed")
-    _check_cancellation(shutdown_coordinator)
+    check_initialization_cancelled(shutdown_coordinator)
 
     progress_tracker.complete_step()
 
 
-def _check_cancellation(coordinator: ShutdownCoordinator) -> None:
+def check_initialization_cancelled(coordinator: ShutdownCoordinator) -> None:
+    """Raise ``CancelledError`` if shutdown was requested during startup."""
     if coordinator.is_shutdown_requested():
         raise asyncio.CancelledError("Initialization cancelled")
 
 
-def _validate_critical_assets(config: GlobalAppConfig) -> bool:
+def validate_critical_assets(config: GlobalAppConfig) -> bool:
+    """Return False if required on-disk assets (e.g. Vosk) are missing."""
     vosk_path = config.asset_paths.get_vosk_model_path()
     if not os.path.exists(vosk_path):
-        logger.critical("Vosk model not found: %s – download from https://alphacephei.com/vosk/models", vosk_path)
+        logger.critical(
+            "Vosk model not found: %s – download from https://alphacephei.com/vosk/models",
+            vosk_path,
+        )
         return False
     return True
 
 
-def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> QTimer:
+def setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> QTimer:
+    """Register SIGINT/SIGTERM handlers and a Qt timer that forwards them to ``ShutdownCoordinator``."""
     shutdown_event = threading.Event()
 
-    def _handler(signum, _frame):
+    def on_os_signal(signum: int, frame: Optional[FrameType]) -> None:
+        del frame
         logger.info("Received signal %s – initiating graceful shutdown", signum)
         shutdown_event.set()
 
-    signal.signal(signal.SIGINT, _handler)
-    signal.signal(signal.SIGTERM, _handler)
+    signal.signal(signal.SIGINT, on_os_signal)
+    signal.signal(signal.SIGTERM, on_os_signal)
 
     timer = QTimer()
     timer.timeout.connect(
@@ -264,14 +269,18 @@ def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> QTimer:
     return timer
 
 
-async def _cancel_background_tasks(tasks: list) -> None:
+async def cancel_background_tasks(tasks: List[asyncio.Task]) -> None:
+    """Cancel tracked background tasks and log failures from ``gather``."""
     if not tasks:
         return
-    for t in tasks:
-        if not t.done():
-            t.cancel()
+    for task in tasks:
+        if not task.done():
+            task.cancel()
     try:
-        results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=2.0)
+        results: List[object | BaseException] = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=2.0,
+        )
     except asyncio.TimeoutError:
         logger.warning("Background tasks did not settle within 2s after cancellation")
         tasks.clear()
@@ -284,11 +293,12 @@ async def _cancel_background_tasks(tasks: list) -> None:
     tasks.clear()
 
 
-async def _cleanup_services(services: Services, event_bus: EventBus) -> None:
-    await _cancel_background_tasks(services._background_tasks)
+async def cleanup_services(services: Services, event_bus: EventBus) -> None:
+    """Tear down services in dependency order and shut down the event bus."""
+    await cancel_background_tasks(services.background_tasks)
 
     services.audio.stop_processing()
-    await asyncio.sleep(0.3)
+    await services.audio.wait_for_capture_pipeline_idle()
 
     shutdown_order = [
         services.mark,
@@ -306,7 +316,7 @@ async def _cleanup_services(services: Services, event_bus: EventBus) -> None:
         services.validator,
         services.storage,
     ]
-    errors: list[Exception] = []
+    errors: List[Exception] = []
     for svc in shutdown_order:
         try:
             await svc.shutdown()
@@ -321,7 +331,7 @@ async def _cleanup_services(services: Services, event_bus: EventBus) -> None:
         raise ExceptionGroup("One or more services failed during shutdown", errors)
 
 
-async def _abort_startup(
+async def abort_startup(
     startup_window: StartupWindow,
     message: str,
     delay_s: float,
@@ -329,17 +339,19 @@ async def _abort_startup(
     event_bus: Optional[EventBus],
     qt_app: QApplication,
 ) -> None:
+    """Show ``message``, optionally run cleanup, and quit the application."""
     startup_window.update_progress(0.0, message, animate=False)
     await asyncio.sleep(delay_s)
     startup_window.close()
     try:
         if services is not None and event_bus is not None:
-            await _cleanup_services(services, event_bus)
+            await cleanup_services(services, event_bus)
     finally:
         qt_app.quit()
 
 
 async def main() -> None:
+    """QtAsyncio entry: configure logging, run startup, then block until shutdown."""
     logging.getLogger("numba").setLevel(logging.WARNING)
 
     event_bus: Optional[EventBus] = None
@@ -349,7 +361,7 @@ async def main() -> None:
         raise RuntimeError("QApplication instance is missing; create it before calling main()")
 
     shutdown_coordinator = ShutdownCoordinator(asyncio.get_running_loop())
-    _setup_signal_handlers(shutdown_coordinator)
+    setup_signal_handlers(shutdown_coordinator)
 
     try:
         AppInfoConfig()
@@ -379,7 +391,7 @@ async def main() -> None:
         )
         startup_window.show()
 
-        if not _validate_critical_assets(config):
+        if not validate_critical_assets(config):
             startup_window.update_progress(0.0, "Critical assets missing. Please check logs.", animate=False)
             await asyncio.sleep(3)
             startup_window.close()
@@ -388,12 +400,12 @@ async def main() -> None:
 
         event_bus = EventBus()
         gui_loop = asyncio.get_running_loop()
-        services = _construct_services(event_bus, config, gui_loop)
+        services = construct_services(event_bus, config, gui_loop)
 
         event_bus.start(gui_loop)
 
         progress_tracker = StartupProgressTracker(startup_window=startup_window, total_steps=2)
-        init_task = asyncio.create_task(_initialize_services(services, config, shutdown_coordinator, progress_tracker))
+        init_task = asyncio.create_task(initialize_services(services, config, shutdown_coordinator, progress_tracker))
         shutdown_coordinator.register_initialization_task(init_task)
 
         try:
@@ -401,7 +413,7 @@ async def main() -> None:
             shutdown_coordinator.unregister_initialization_task()
         except asyncio.CancelledError:
             logger.info("Initialization cancelled")
-            await _abort_startup(
+            await abort_startup(
                 startup_window,
                 "Startup cancelled by user",
                 1.0,
@@ -412,7 +424,7 @@ async def main() -> None:
             return
         except RuntimeError as e:
             logger.critical("Critical initialization error: %s", e)
-            await _abort_startup(
+            await abort_startup(
                 startup_window,
                 "Initialization failed. Please check your internet connection and try again.",
                 3.0,
@@ -444,7 +456,7 @@ async def main() -> None:
         await shutdown_coordinator.wait()
         logger.info("Shutdown signal received, cleaning up...")
 
-        await _cleanup_services(services=services, event_bus=event_bus)
+        await cleanup_services(services=services, event_bus=event_bus)
         logger.info("Application shutdown complete")
 
     except ExceptionGroup as eg:
@@ -454,12 +466,12 @@ async def main() -> None:
         logger.exception("Unexpected error during application run")
         raise
     finally:
-        q = QApplication.instance()
-        if q is not None:
-            q.quit()
+        app_instance = QApplication.instance()
+        if app_instance is not None:
+            app_instance.quit()
 
 
 if __name__ == "__main__":
-    _qt_app = QApplication(sys.argv)
-    _qt_app.setStyle("Fusion")
+    qt_application = QApplication(sys.argv)
+    qt_application.setStyle("Fusion")
     QtAsyncio.run(main(), keep_running=False)

@@ -1,10 +1,10 @@
 from typing import Optional
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPalette, QPixmap
+from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPalette, QPixmap
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QWidget
 
-from vocalance.app.ui.components.icon_widget import IconWidget
+from vocalance.app.ui.components.icon_widget import IconWidget, tint_pixmap
 from vocalance.app.ui.components.labels import BodyLabel
 from vocalance.app.ui.qt_theme import theme
 
@@ -31,15 +31,6 @@ class SidebarButton(QWidget):
         self._expanded = False
         self._hovered = False
         self._default_icon = icon_pixmap
-
-        self._bg_color_default = "transparent"
-        self._bg_color_hover = theme.config.shapes.accent
-        self._bg_color_selected = theme.config.shapes.accent
-        self._text_color_default = theme.config.shapes.accent
-        self._text_color_hover = theme.config.blue.blue_1
-        self._text_color_selected = theme.config.blue.blue_1
-
-        self._border_radius = theme.config.radius.small
 
         self._icon_area_width = theme.config.sidebar.collapsed_width
         self._button_padding_v = 3
@@ -111,22 +102,11 @@ class SidebarButton(QWidget):
         if self.icon_widget and self._default_icon:
             if self._hovered or self._selected:
                 icon_color = theme.config.blue.blue_2
-                colored_pixmap = self._color_pixmap(self._default_icon, icon_color)
-                self.icon_widget.set_pixmap(colored_pixmap)
+                self.icon_widget.set_pixmap(tint_pixmap(self._default_icon, icon_color))
             else:
                 self.icon_widget.set_pixmap(self._default_icon)
 
         self.update()
-
-    def _color_pixmap(self, pixmap: QPixmap, color: str) -> QPixmap:
-        result = pixmap.copy()
-
-        painter = QPainter(result)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        painter.fillRect(result.rect(), QColor(color))
-        painter.end()
-
-        return result
 
     def set_selected(self, selected: bool) -> None:
         self._selected = selected

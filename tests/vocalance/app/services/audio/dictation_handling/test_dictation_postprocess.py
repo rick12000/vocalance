@@ -1,5 +1,3 @@
-"""Unit tests for dictation post-processing and voice modifiers (explicit expected strings)."""
-
 from typing import Optional
 
 import pytest

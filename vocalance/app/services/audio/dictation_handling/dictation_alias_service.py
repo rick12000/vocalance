@@ -16,7 +16,7 @@ ALIAS_FLAG_WORD = "insert"
 
 
 class DictationAliasService:
-    """CRUD and substitution for dictation aliases (activation phrase → text). Thread-safe."""
+    """Persists dictation aliases and applies phrase substitution; thread-safe."""
 
     def __init__(
         self,
@@ -29,9 +29,9 @@ class DictationAliasService:
         self.event_loop = event_loop
         self.alias_lock = threading.RLock()
         self.aliases: Dict[str, str] = {}
-        event_bus.subscribe(DictationAliasUiOperationEvent, self._handle_alias_ui_operation)
+        event_bus.subscribe(DictationAliasUiOperationEvent, self.handle_alias_ui_operation)
 
-    async def _handle_alias_ui_operation(self, event: DictationAliasUiOperationEvent) -> None:
+    async def handle_alias_ui_operation(self, event: DictationAliasUiOperationEvent) -> None:
         op = event.op
         if op == "add":
             await self.add_alias(event.key, event.value)
@@ -50,20 +50,19 @@ class DictationAliasService:
     async def load_aliases(self) -> None:
         try:
             data = await self.storage.read(DictationAliasData)
-            with self.alias_lock:
-                self.aliases = dict(data.aliases)
-        except Exception as e:
-            logger.error("Error loading aliases: %s", e, exc_info=True)
-            with self.alias_lock:
-                self.aliases = {}
+        except Exception:
+            logger.exception("Error loading dictation aliases from storage")
+            return
+        with self.alias_lock:
+            self.aliases = dict(data.aliases)
 
     async def save_aliases(self) -> bool:
         try:
             with self.alias_lock:
                 data = DictationAliasData(aliases=dict(self.aliases))
             return await self.storage.write(data)
-        except Exception as e:
-            logger.error("Error saving aliases: %s", e, exc_info=True)
+        except Exception:
+            logger.exception("Error saving dictation aliases")
             return False
 
     def publish_alias_list_updated(self) -> None:
@@ -146,7 +145,7 @@ class DictationAliasService:
         alias_map: dict[str, str] = {}
         counter = [0]
 
-        def replace_match(match: re.Match) -> str:
+        def replace_match(match: re.Match[str]) -> str:
             matched_key = match.group(1).lower()
             substitution = aliases_copy.get(matched_key, match.group(0))
             placeholder = f"vocalancealias{counter[0]}"
@@ -169,12 +168,12 @@ class DictationAliasService:
             return text
         pattern = rf"\b{ALIAS_FLAG_WORD}\s+({'|'.join(escaped_keys)})\b"
 
-        def replace_match(match: re.Match) -> str:
+        def replace_match(match: re.Match[str]) -> str:
             matched_key = match.group(1).lower()
             return aliases_copy.get(matched_key, match.group(0))
 
         return re.sub(pattern, replace_match, text, flags=re.IGNORECASE)
 
     async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(DictationAliasUiOperationEvent, self._handle_alias_ui_operation)
+        self.event_bus.unsubscribe(DictationAliasUiOperationEvent, self.handle_alias_ui_operation)
         await self.save_aliases()

@@ -1,8 +1,18 @@
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPaintEvent, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPixmap
 from PySide6.QtWidgets import QWidget
+
+
+def tint_pixmap(pixmap: QPixmap, color: str) -> QPixmap:
+    """Return a copy of ``pixmap`` recolored to ``color`` (composition source-in)."""
+    result = pixmap.copy()
+    painter = QPainter(result)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(result.rect(), QColor(color))
+    painter.end()
+    return result
 
 
 class IconWidget(QWidget):

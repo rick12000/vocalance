@@ -326,10 +326,10 @@ class ScrollableContainer(QFrame):
         self.content_layout.setSpacing(theme.config.container.content_vertical_spacing)
         self.scroll_area.setWidget(self.content_widget)
 
-    def add(self, widget: QWidget, stretch: int = 0):
+    def add(self, widget: QWidget, stretch: int = 0) -> None:
         """Add widget to scrollable content."""
         self.content_layout.addWidget(widget, stretch)
 
-    def add_stretch(self, stretch: int = 1):
+    def add_stretch(self, stretch: int = 1) -> None:
         """Add stretch to content."""
         self.content_layout.addStretch(stretch)

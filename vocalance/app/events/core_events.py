@@ -41,7 +41,6 @@ class MouseClickEvent(BaseEvent):
     source: Optional[str] = "unknown"
 
 
-# Keep the old name as an alias so existing consumers don't break before migration
 PerformMouseClickEventData = MouseClickEvent
 
 

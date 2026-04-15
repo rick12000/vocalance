@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -8,7 +10,7 @@ from typing import Any, Dict, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
-from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.config.app_config import GlobalAppConfig, StorageConfig
 from vocalance.app.services.storage.atomic_json import JsonReadError, JsonWriteError, read_json_dict, write_json_atomic
 from vocalance.app.services.storage.storage_models import (
     AgenticPromptsData,
@@ -174,5 +176,5 @@ class StorageService:
             logger.error("Error during StorageService shutdown: %s", e, exc_info=True)
 
     @property
-    def storage_config(self):
+    def storage_config(self) -> StorageConfig:
         return self.config.storage

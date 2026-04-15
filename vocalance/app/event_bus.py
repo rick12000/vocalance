@@ -1,19 +1,3 @@
-"""Central event bus.
-
-Design:
-- Services subscribe in their ``__init__``.  No deferred ``setup_subscriptions`` step.
-- The bus starts in a *paused* state.  Events published before ``start(loop)`` are queued
-  and flushed in order once the bus is started on ``loop``.  This eliminates the bootstrapping
-  race between "services not yet subscribed" and "events published during init".
-- Handlers may be either ``async def`` or plain ``def``.  Async handlers are awaited;
-  sync handlers are called directly.  Both are correct; use whichever is honest for
-  the implementation (async for I/O-bound service handlers, sync for UI signal emitters).
-- Dispatch is direct: the handler set for each event type is pre-computed at
-  subscribe-time (exact type stored in a dict), not re-scanned on every publish.
-  Inheritance is supported via ``publish`` iterating the MRO.
-- Thread-safe subscribe/unsubscribe from any thread.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -28,57 +12,77 @@ logger = logging.getLogger(__name__)
 
 
 class EventBus:
-    """Publish-subscribe bus with deferred start, MRO-based dispatch, and sync/async handlers."""
+    """Publish-subscribe bus with deferred start, MRO-based dispatch, and sync/async handlers.
+
+    Handlers run on the asyncio loop passed to ``start``. One failing handler is logged
+    and does not prevent other handlers from running. After ``shutdown``, ``publish`` is
+    a no-op and the bus cannot be restarted.
+    """
 
     def __init__(self) -> None:
-        self._subscribers: Dict[Type[BaseEvent], List[Callable[..., Any]]] = defaultdict(list)
-        self._lock = threading.Lock()
-        self._started = False
-        self._queue: List[BaseEvent] = []
+        self.subscribers: Dict[Type[BaseEvent], List[Callable[..., Any]]] = defaultdict(list)
+        self.bus_lock = threading.Lock()
+        self.started = False
+        self.closed = False
+        self.pending_events: List[BaseEvent] = []
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Flush queued events and begin live dispatch on ``loop``.
 
         Call once, after all services have subscribed. ``loop`` must already be
         running so queued flushes and later ``publish`` calls use one coherent loop.
+
+        Args:
+            loop: The running asyncio event loop used for dispatch.
+
+        Raises:
+            RuntimeError: If ``loop`` is not running.
         """
         if not loop.is_running():
             raise RuntimeError("EventBus.start requires a running asyncio event loop.")
 
-        with self._lock:
-            if self._started:
+        with self.bus_lock:
+            if self.closed:
+                raise RuntimeError("EventBus cannot be started after shutdown.")
+            if self.started:
                 return
-            self._started = True
-            queued = list(self._queue)
-            self._queue.clear()
+            self.started = True
+            queued: List[BaseEvent] = list(self.pending_events)
+            self.pending_events.clear()
 
         if queued:
-            loop.create_task(self._flush(queued))
+            loop.create_task(self.flush_pending_events(queued))
 
-    async def _flush(self, events: List[BaseEvent]) -> None:
+    async def flush_pending_events(self, events: List[BaseEvent]) -> None:
+        """Dispatch a batch of events that were queued before ``start``."""
         for event in events:
-            await self._dispatch(event)
+            await self.dispatch_event(event)
 
     async def shutdown(self) -> None:
-        with self._lock:
-            self._started = False
-            self._subscribers.clear()
-            self._queue.clear()
+        """Stop accepting publishes and clear subscribers and queues."""
+        with self.bus_lock:
+            self.closed = True
+            self.started = False
+            self.subscribers.clear()
+            self.pending_events.clear()
 
     async def publish(self, event: BaseEvent) -> None:
-        with self._lock:
-            if not self._started:
-                self._queue.append(event)
+        """Publish ``event`` to subscribers, queue if not started, or no-op if shut down."""
+        with self.bus_lock:
+            if self.closed:
+                return
+            if not self.started:
+                self.pending_events.append(event)
                 return
 
-        await self._dispatch(event)
+        await self.dispatch_event(event)
 
-    async def _dispatch(self, event: BaseEvent) -> None:
+    async def dispatch_event(self, event: BaseEvent) -> None:
         handlers: List[Callable[..., Any]] = []
-        with self._lock:
+        with self.bus_lock:
             for cls in type(event).__mro__:
-                if cls in self._subscribers:
-                    handlers.extend(self._subscribers[cls])
+                if cls in self.subscribers:
+                    handlers.extend(self.subscribers[cls])
 
         for handler in handlers:
             try:
@@ -90,11 +94,17 @@ class EventBus:
                 logger.error("Handler %s failed for %s", handler, type(event).__name__, exc_info=True)
 
     def subscribe(self, event_type: Type[BaseEvent], handler: Callable[..., Any]) -> None:
-        with self._lock:
-            self._subscribers[event_type].append(handler)
+        """Register ``handler`` for exact ``event_type`` (and MRO dispatch on publish)."""
+        with self.bus_lock:
+            if self.closed:
+                return
+            self.subscribers[event_type].append(handler)
 
     def unsubscribe(self, event_type: Type[BaseEvent], handler: Callable[..., Any]) -> None:
-        with self._lock:
-            subscribers = self._subscribers.get(event_type)
-            if subscribers and handler in subscribers:
-                subscribers.remove(handler)
+        """Remove ``handler`` from ``event_type`` if present."""
+        with self.bus_lock:
+            if self.closed:
+                return
+            subs = self.subscribers.get(event_type)
+            if subs and handler in subs:
+                subs.remove(handler)

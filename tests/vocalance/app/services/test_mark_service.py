@@ -27,7 +27,7 @@ async def mark_service(event_bus, app_config, mock_storage_service, mock_protect
 async def test_mark_create_command(mock_move, mark_service):
     """Test creating a new mark at cursor position."""
     service = mark_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -51,10 +51,12 @@ async def test_mark_create_command(mock_move, mark_service):
 async def test_reserved_label_rejection(mark_service, mock_protected_terms_validator):
     """Test that reserved labels cannot be used for marks."""
     service = mark_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
-    # Make validator reject "show grid"
-    mock_protected_terms_validator.validate_term.return_value = (False, "'show grid' is a protected term and cannot be used")
+    mock_protected_terms_validator.validate_term.return_value = (
+        False,
+        "'show grid' is a protected term and cannot be used",
+    )
 
     captured_events = []
 

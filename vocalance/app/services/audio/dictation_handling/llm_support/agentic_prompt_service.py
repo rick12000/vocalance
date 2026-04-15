@@ -20,7 +20,7 @@ _DEFAULT_PROMPT = (
 
 
 class AgenticPromptService:
-    """CRUD and selection for agentic LLM prompts, persisted through ``StorageService``."""
+    """CRUD and current selection for agentic prompts persisted via ``StorageService``."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
         self.event_bus = event_bus
@@ -30,9 +30,9 @@ class AgenticPromptService:
         self.prompts: Dict[str, AgenticPrompt] = {}
         self.current_prompt_id: Optional[str] = None
         self.default_prompt_text = _DEFAULT_PROMPT
-        event_bus.subscribe(AgenticPromptUiOperationEvent, self._handle_agentic_ui_operation)
+        event_bus.subscribe(AgenticPromptUiOperationEvent, self.handle_agentic_prompt_ui_operation)
 
-    async def _handle_agentic_ui_operation(self, event: AgenticPromptUiOperationEvent) -> None:
+    async def handle_agentic_prompt_ui_operation(self, event: AgenticPromptUiOperationEvent) -> None:
         op = event.op
         if op == "add":
             await self.add_prompt(event.prompt_text, event.name)
@@ -160,5 +160,5 @@ class AgenticPromptService:
         await self.event_bus.publish(AgenticPromptListUpdatedEvent(prompts=[p.model_dump() for p in self.prompts.values()]))
 
     async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(AgenticPromptUiOperationEvent, self._handle_agentic_ui_operation)
+        self.event_bus.unsubscribe(AgenticPromptUiOperationEvent, self.handle_agentic_prompt_ui_operation)
         await self.save_prompts()

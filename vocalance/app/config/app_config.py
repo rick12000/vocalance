@@ -1,8 +1,9 @@
 import logging
 import os
 import sys
+from functools import cached_property
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -35,6 +36,14 @@ class AudioDeviceCaptureMessages(BaseModel):
     )
 
     def message_for_launch_device(self, launch_device_name: Optional[str]) -> str:
+        """Return the user-visible mic-unavailable message for a launch device name.
+
+        Args:
+            launch_device_name: Device name captured at launch, if known.
+
+        Returns:
+            Formatted named-device message, or the generic unknown-device message.
+        """
         if launch_device_name:
             return self.mic_unavailable_named_device.format(device_name=launch_device_name)
         return self.mic_unavailable_unknown_device
@@ -161,7 +170,7 @@ class STTConfig(BaseModel):
 
     @field_validator("moonshine_model_arch", mode="before")
     @classmethod
-    def _default_moonshine_arch_if_empty(cls, v: object) -> object:
+    def default_moonshine_arch_if_empty(cls, v: object) -> object:
         if v is None or (isinstance(v, str) and not v.strip()):
             return "medium-streaming"
         return v
@@ -488,7 +497,7 @@ class LLMConfig(BaseModel):
 
     @field_validator("selected_model_id")
     @classmethod
-    def _validate_selected_model_id(cls, v: str) -> str:
+    def validate_selected_model_id(cls, v: str) -> str:
         if not _LOCAL_LLM_ALLOWLIST.has_id(v):
             raise ValueError(f"selected_model_id must be a built-in LLM id, got {v!r}")
         return v
@@ -511,7 +520,6 @@ class VADConfig(BaseModel):
 
     noise_floor_estimation: bool = Field(default=True, description="Enable automatic noise floor estimation.")
 
-    # Audio normalization settings
     enable_audio_normalization: bool = Field(
         default=True,
         description="Enable audio preprocessing (DC offset removal, peak normalization) for microphone-robust VAD.",
@@ -618,16 +626,12 @@ class AssetPathsConfig(BaseModel):
     logos, icons, fonts, ML models, and audio samples.
     """
 
-    def __init__(self, **data: any) -> None:
-        """Initialize asset paths configuration and resolve assets root directory.
+    @cached_property
+    def assets_root(self) -> Optional[Path]:
+        """Root directory containing ``assets`` (dev tree or PyInstaller bundle)."""
+        return self.resolve_assets_root()
 
-        Args:
-            **data: Arbitrary keyword arguments passed to Pydantic BaseModel.
-        """
-        super().__init__(**data)
-        self._assets_root: Optional[Path] = self._get_assets_root()
-
-    def _get_assets_root(self) -> Optional[Path]:
+    def resolve_assets_root(self) -> Optional[Path]:
         """Get the assets root directory adaptively for dev or bundled execution.
 
         Checks for PyInstaller bundle (_MEIPASS) first, then falls back to development
@@ -641,7 +645,6 @@ class AssetPathsConfig(BaseModel):
             assets_path: Path = bundle_dir / "vocalance" / "app" / "assets"
 
             if assets_path.exists():
-                logging.debug(f"Found assets in PyInstaller bundle: {assets_path}")
                 return assets_path
             else:
                 logging.warning(f"Assets not found in bundle at: {assets_path}")
@@ -651,7 +654,6 @@ class AssetPathsConfig(BaseModel):
             assets_path: Path = vocalance_app_dir / "assets"
 
             if assets_path.exists():
-                logging.debug(f"Found assets in dev mode: {assets_path}")
                 return assets_path
 
         return None
@@ -663,8 +665,8 @@ class AssetPathsConfig(BaseModel):
         Returns:
             Path to logo directory or None.
         """
-        if self._assets_root:
-            return str(self._assets_root / "logo")
+        if self.assets_root:
+            return str(self.assets_root / "logo")
         return None
 
     @property
@@ -674,8 +676,8 @@ class AssetPathsConfig(BaseModel):
         Returns:
             Path to icons directory or None.
         """
-        if self._assets_root:
-            return str(self._assets_root / "icons")
+        if self.assets_root:
+            return str(self.assets_root / "icons")
         return None
 
     @property
@@ -685,8 +687,8 @@ class AssetPathsConfig(BaseModel):
         Returns:
             Path to base fonts directory or None.
         """
-        if self._assets_root:
-            return str(self._assets_root / "fonts")
+        if self.assets_root:
+            return str(self.assets_root / "fonts")
         return None
 
     @property
@@ -696,8 +698,8 @@ class AssetPathsConfig(BaseModel):
         Returns:
             Path to Vosk model directory or None.
         """
-        if self._assets_root:
-            return str(self._assets_root / "vosk-model-small-en-us-0.15")
+        if self.assets_root:
+            return str(self.assets_root / "vosk-model-small-en-us-0.15")
         return None
 
     @property
@@ -707,8 +709,8 @@ class AssetPathsConfig(BaseModel):
         Returns:
             Path to YAMNet model directory or None.
         """
-        if self._assets_root:
-            return str(self._assets_root / "sound_processing" / "yamnet")
+        if self.assets_root:
+            return str(self.assets_root / "sound_processing" / "yamnet")
         return None
 
     @property
@@ -718,8 +720,8 @@ class AssetPathsConfig(BaseModel):
         Returns:
             Path to ESC-50 samples directory or None.
         """
-        if self._assets_root:
-            return str(self._assets_root / "sound_processing" / "esc50")
+        if self.assets_root:
+            return str(self.assets_root / "sound_processing" / "esc50")
         return None
 
     @property
@@ -768,7 +770,6 @@ class AssetPathsConfig(BaseModel):
         path = self.vosk_model_path
         if path:
             return path
-        # Fallback for cases where assets root is not properly set
         return "vocalance/app/assets/vosk-model-small-en-us-0.15"
 
 
@@ -829,16 +830,16 @@ class GlobalAppConfig(BaseModel):
     protected_terms_validator: ProtectedTermsValidatorConfig = ProtectedTermsValidatorConfig()
     automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
 
-    def __init__(self, **data: any) -> None:
+    def __init__(self, **data: Any) -> None:
         """Initialize global configuration and create storage directory structure.
 
         Args:
             **data: Arbitrary keyword arguments passed to Pydantic for config overrides.
         """
         super().__init__(**data)
-        self._setup_storage_paths()
+        self.setup_storage_paths()
 
-    def _setup_storage_paths(self) -> None:
+    def setup_storage_paths(self) -> None:
         """Setup storage directory paths and create directories if they don't exist.
 
         Constructs absolute paths for all storage subdirectories, creates them using
@@ -930,8 +931,7 @@ def load_app_config(config_path: Optional[str] = None, app_info: Optional[AppInf
     Returns:
         Loaded GlobalAppConfig instance with overrides applied, or default instance on failure.
     """
-    actual_config_path = config_path or get_config_path(app_info=app_info)
-    logger.debug(f"Loading application configuration from: {actual_config_path}")
+    actual_config_path: str = config_path or get_config_path(app_info=app_info)
 
     try:
         with open(actual_config_path, "r") as f:

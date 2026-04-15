@@ -17,7 +17,7 @@ from vocalance.app.services.base_service import Service
 
 
 class AudioService(Service):
-    """Capture, dictation feed, level meter, and segment-hit publishing on the event bus."""
+    """Captures microphone audio, feeds dictation, meters levels, and publishes segment events."""
 
     def __init__(
         self,
@@ -126,6 +126,10 @@ class AudioService(Service):
 
     def stop_processing(self) -> None:
         self.recorder.stop()
+
+    async def wait_for_capture_pipeline_idle(self, timeout_s: float = 3.0) -> None:
+        if self.recorder is not None:
+            await self.recorder.wait_deliveries_drained(timeout_s)
 
     def on_command_silent_chunks_updated(self, chunks: int) -> None:
         self.command_segmenter.set_silence_tail(chunks)

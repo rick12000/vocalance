@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import threading
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def click_point_in_rect(click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
+    """Return True if ``click`` has integer x/y inside the axis-aligned rectangle."""
     try:
         click_x, click_y = click.get("x", 0), click.get("y", 0)
         return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
@@ -23,6 +26,7 @@ def click_point_in_rect(click: Dict[str, Any], rect_x: int, rect_y: int, rect_w:
 
 
 def rects_with_click_counts(rect_definitions: List[Dict[str, Any]], all_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach per-rectangle click counts using spatial bucketing for performance."""
     if not rect_definitions:
         return []
     if not all_clicks:
@@ -35,7 +39,7 @@ def rects_with_click_counts(rect_definitions: List[Dict[str, Any]], all_clicks: 
     except (KeyError, TypeError, ValueError):
         return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
 
-    click_buckets: Dict[tuple, List[Dict[str, Any]]] = {}
+    click_buckets: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
     for click in all_clicks:
         try:
             click_x = click.get("x", 0)
@@ -69,10 +73,11 @@ def rects_with_click_counts(rect_definitions: List[Dict[str, Any]], all_clicks: 
 
 
 def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sort rectangles by descending click count, then position and id for stability."""
     if not rect_details_with_clicks:
         return []
 
-    def sort_key(rect: Dict[str, Any]) -> tuple:
+    def sort_key(rect: Dict[str, Any]) -> tuple[float, float, float, int]:
         clicks = rect.get("clicks", 0)
         if not isinstance(clicks, (int, float)):
             clicks = 0
@@ -116,6 +121,7 @@ class ClickTrackerService(Service):
         self._gui_loop.call_soon_threadsafe(fn)
 
     async def initialize(self) -> bool:
+        """Hydrate click history from storage; failures are logged but do not block startup."""
         try:
             clicks_data = await self._storage.read(model_type=GridClicksData)
             with self._lock:

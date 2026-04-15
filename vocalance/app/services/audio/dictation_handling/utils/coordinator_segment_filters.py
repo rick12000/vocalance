@@ -29,14 +29,14 @@ def is_isolated_stt_noise_fragment(text: str) -> bool:
 def is_likely_hallucination_fragment(text: str, prev_text: str = "") -> bool:
     if not text or len(text) < 3:
         return False
-    words = text.split()
+    words: list[str] = text.split()
     if len(words) > 10:
-        last_words = words[-10:]
-        unique_words = set(last_words)
+        last_words: list[str] = words[-10:]
+        unique_words: set[str] = set(last_words)
         if len(unique_words) <= 2 and all(len(w) <= 2 for w in unique_words):
             return True
     if prev_text and not any(ord(c) > 127 for c in prev_text):
-        ascii_count = sum(1 for c in text if ord(c) < 128)
+        ascii_count: int = sum(1 for c in text if ord(c) < 128)
         if len(text) > 10 and ascii_count < len(text) * 0.3:
             return True
     return False

@@ -10,7 +10,7 @@ from vocalance.app.services.audio.dictation_handling.utils.modifier_postprocess 
 def apply_dictation_postprocess(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
     if not text:
         return text
-    result = apply_base_postprocess(text)
+    result: str = apply_base_postprocess(text)
     if not active_modifiers:
         return result
     return apply_modifier_transform(result, active_modifiers)
@@ -19,8 +19,8 @@ def apply_dictation_postprocess(text: str, active_modifiers: Optional[set[Dictat
 def apply_dictation_postprocess_partial(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
     if not text:
         return text
-    result = apply_base_postprocess(text)
+    result: str = apply_base_postprocess(text)
     if not active_modifiers or active_modifiers == {"spelling"}:
         return result
-    partial_mods = active_modifiers - {"spelling"}
+    partial_mods: set[DictationModifierId] = active_modifiers - {"spelling"}
     return apply_modifier_transform(result, partial_mods)

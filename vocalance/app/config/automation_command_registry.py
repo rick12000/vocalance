@@ -4,12 +4,7 @@ from vocalance.app.config.command_types import AutomationCommand, ExactMatchComm
 
 
 class AutomationCommandRegistry:
-    """Registry for default automation commands with lookup and query utilities.
-
-    Provides a comprehensive set of default voice-activated automation commands organized
-    by functional groups (editing, navigation, IDE operations, etc.). Supports exact match
-    lookups, command key retrieval, and validation of protected terms through helper methods.
-    """
+    """Built-in voice automation commands and helpers for lookup and protected phrases."""
 
     DEFAULT_COMMANDS: List[AutomationCommand] = [
         ExactMatchCommand(
