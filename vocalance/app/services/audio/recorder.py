@@ -2,181 +2,153 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
+import numpy as np
 import sounddevice as sd
+from numpy.typing import NDArray
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDeviceErrorEvent
 
-_MIC_LOST_MESSAGE = (
-    "The default microphone that was in use when Vocalance started is no longer available "
-    "or could not be opened.\n\n"
-    "Please reconnect your microphone or fix your system audio settings, then "
-    "completely quit and restart Vocalance."
-)
-
-
-def _disconnect_user_message(launch_device_name: Optional[str]) -> str:
-    if launch_device_name:
-        return (
-            f"The microphone that was in use when Vocalance started ({launch_device_name}) is no longer "
-            "available or could not be opened.\n\n"
-            "Please reconnect your microphone or fix your system audio settings, then "
-            "completely quit and restart Vocalance."
-        )
-    return _MIC_LOST_MESSAGE
-
 
 class AudioRecorder:
-    """Continuous audio chunk recorder using the host default input device.
+    """PortAudio capture: one input stream, chunks forwarded to ``on_audio_chunk`` on ``loop``.
 
-    Always uses PortAudio's default input device (``device=None``) — the system default
-    at stream creation time. There is no in-app device switching; if capture fails
-    after startup, the user is notified to restart the application.
+    PortAudio invokes ``portaudio_callback`` on its own thread. Every handoff to Python code that
+    must run on the application ``asyncio`` loop uses ``loop.call_soon_threadsafe``. Call
+    ``start`` / ``stop`` from the same integration context as the rest of the app (the Qt
+    bootstrap passes the GUI loop into ``AudioService``, which passes it here).
     """
 
     def __init__(
         self,
         app_config: GlobalAppConfig,
+        loop: asyncio.AbstractEventLoop,
         event_bus: EventBus,
-        on_audio_chunk: Optional[Callable[[bytes, float], None]] = None,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        on_audio_chunk: Callable[[bytes, float], None],
     ) -> None:
-        self.logger = logging.getLogger(f"{self.__class__.__name__}")
-        self.app_config = app_config
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.loop = loop
         self.event_bus = event_bus
         self.on_audio_chunk = on_audio_chunk
-        self.loop = loop
-        if not self.loop:
-            try:
-                self.loop = asyncio.get_running_loop()
-            except RuntimeError:
-                pass
+        self.app_config = app_config
 
-        self.sample_rate = app_config.audio.sample_rate
-        self.chunk_size = int(self.sample_rate * 0.03)
-        self._device_error_shown = False
-        self._launch_input_device_name: Optional[str] = None
+        self.sample_rate: int = int(app_config.audio.sample_rate)
+        chunk_seconds = float(app_config.audio.capture_chunk_duration_seconds)
+        self.chunk_size: int = int(self.sample_rate * chunk_seconds)
 
-        self._is_recording: bool = False
-        self._is_active: bool = True
-        self._stream: Optional[sd.InputStream] = None
-        self._lock = threading.Lock()
+        self.device_error_already_published = False
+        self.launch_input_device_name: Optional[str] = None
 
-        self.logger.debug(
-            f"AudioRecorder initialized: chunk_size={self.chunk_size} samples (30ms), sample_rate={self.sample_rate}Hz"
-        )
+        self.recording = False
+        self.stream: Optional[sd.InputStream] = None
+        self.capture_state_lock = threading.Lock()
 
-    def _record_launch_device_name(self) -> None:
-        """Cache the default input device name after a successful stream open."""
-        if self._launch_input_device_name is not None:
-            return
-        try:
-            info = sd.query_devices(kind="input")
-            name = info.get("name") if isinstance(info, dict) else None
-            if name:
-                self._launch_input_device_name = str(name)
-                self.logger.info(f"Recording using default input at launch: {self._launch_input_device_name}")
-        except Exception as e:
-            self.logger.debug(f"Could not query default input device name: {e}")
-
-    def _audio_callback(self, indata, frames, time_info, status) -> None:
+    def portaudio_callback(
+        self,
+        indata: NDArray[np.int16],
+        frames: int,
+        time_info: Any,
+        status: Optional[Any],
+    ) -> None:
         if status:
-            self.logger.warning(f"Audio stream status: {status}")
+            self.logger.warning("Input stream status: %s", status)
 
-        with self._lock:
-            if not self._is_recording or not self._is_active:
-                return
+        with self.capture_state_lock:
+            active = self.recording
 
-        if self.on_audio_chunk:
+        if active:
             audio_bytes = indata.tobytes()
             timestamp = time.time()
-            if self.loop:
+            try:
                 self.loop.call_soon_threadsafe(self.on_audio_chunk, audio_bytes, timestamp)
-            else:
-                self.on_audio_chunk(audio_bytes, timestamp)
+            except RuntimeError as e:
+                self.logger.error("Could not schedule audio chunk (loop may be closed): %s", e, exc_info=True)
 
-    def _create_stream(self) -> bool:
-        """Create and start input stream on the host default input device."""
+    def schedule_device_error_publish_on_loop(self, message: str) -> None:
+        async def publish() -> None:
+            await self.event_bus.publish(AudioDeviceErrorEvent(error_message=message))
+
         try:
-            self._stream = sd.InputStream(
+            self.loop.create_task(publish())
+        except RuntimeError as e:
+            self.logger.error("Could not schedule device error publish: %s", e, exc_info=True)
+
+    def open_input_stream(self) -> bool:
+        try:
+            stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 blocksize=self.chunk_size,
                 channels=1,
                 dtype="int16",
                 device=None,
-                callback=self._audio_callback,
+                callback=self.portaudio_callback,
             )
-            self._stream.start()
-
-            self._record_launch_device_name()
-            self.logger.info("Using host default input device for capture")
+            stream.start()
+            self.stream = stream
+            if self.launch_input_device_name is None:
+                try:
+                    info = sd.query_devices(kind="input")
+                    name = info.get("name") if isinstance(info, dict) else None
+                    if name:
+                        self.launch_input_device_name = str(name)
+                except Exception as e:
+                    self.logger.warning(
+                        "Could not query default input device name (message text may be generic): %s",
+                        e,
+                        exc_info=True,
+                    )
             return True
-
         except Exception as e:
-            self.logger.error(f"Failed to create audio stream: {e}")
-            self._cleanup_stream()
+            self.logger.error("Failed to open audio input stream: %s", e, exc_info=True)
+            self.close_stream_resources()
             return False
 
-    def _publish_device_error(self, error_message: str) -> None:
-        if self._device_error_shown:
-            return
-
-        self._device_error_shown = True
-
-        async def do_publish():
+    def publish_device_error_once(self, error_message: str) -> None:
+        if not self.device_error_already_published:
+            self.device_error_already_published = True
             try:
-                device_error = AudioDeviceErrorEvent(error_message=error_message)
-                await self.event_bus.publish(device_error)
-            except Exception as e:
-                self.logger.error(f"Failed to publish device error event: {e}")
+                self.loop.call_soon_threadsafe(self.schedule_device_error_publish_on_loop, error_message)
+            except RuntimeError as e:
+                self.logger.error("Could not schedule device error (loop may be closed): %s", e, exc_info=True)
 
-        try:
-            self.loop.call_soon_threadsafe(lambda: asyncio.create_task(do_publish()))
-        except RuntimeError:
-            asyncio.run(do_publish())
-
-    def _cleanup_stream(self) -> None:
-        if self._stream:
+    def close_stream_resources(self) -> None:
+        stream = self.stream
+        if stream is not None:
             try:
-                if hasattr(self._stream, "active") and self._stream.active:
-                    self._stream.stop()
-                self._stream.close()
+                if stream.active:
+                    stream.stop()
+                stream.close()
             except Exception as e:
-                self.logger.debug(f"Error cleaning up audio stream: {e}")
+                self.logger.warning("Error while closing audio stream: %s", e, exc_info=True)
             finally:
-                self._stream = None
+                self.stream = None
 
     def start(self) -> None:
-        with self._lock:
-            if self._is_recording:
-                return
-            self._is_recording = True
+        with self.capture_state_lock:
+            already_recording = self.recording
+            if not already_recording:
+                self.recording = True
 
-        if not self._create_stream():
-            self.logger.error("Failed to create initial audio stream")
-            self._publish_device_error(_disconnect_user_message(self._launch_input_device_name))
-            with self._lock:
-                self._is_recording = False
+        if not already_recording:
+            stream_ok = self.open_input_stream()
+            if not stream_ok:
+                self.logger.error("Audio capture could not be started")
+                msg = self.app_config.audio.device_capture_messages.message_for_launch_device(self.launch_input_device_name)
+                self.publish_device_error_once(msg)
+                with self.capture_state_lock:
+                    self.recording = False
 
     def stop(self) -> None:
-        with self._lock:
-            if not self._is_recording:
-                return
-            self._is_recording = False
+        with self.capture_state_lock:
+            was_recording = self.recording
+            self.recording = False
 
-        self._cleanup_stream()
-
-    def set_active(self, active: bool) -> None:
-        with self._lock:
-            self._is_active = active
+        if was_recording:
+            self.close_stream_resources()
 
     def is_recording(self) -> bool:
-        with self._lock:
-            return self._is_recording
-
-    def is_active(self) -> bool:
-        with self._lock:
-            return self._is_active
+        with self.capture_state_lock:
+            return self.recording

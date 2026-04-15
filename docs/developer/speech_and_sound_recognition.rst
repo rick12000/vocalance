@@ -246,4 +246,4 @@ Recognized text and sound events now flow into the command parser, which determi
 
     - ``CustomSoundRecognizedEvent`` → ``CentralizedCommandParser`` → Map to ``click`` → Execute
 
-The command parsing pipeline, including Markov chain prediction and deduplication, is covered in :doc:`command_parsing`.
+The command parsing pipeline, including deduplication, is covered in :doc:`command_parsing`.

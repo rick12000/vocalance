@@ -208,7 +208,7 @@ Initialization Stages
 
 **Stage 2 - Storage Services**: StorageService (provides to others), then in parallel: SettingsService, CommandManagementService, MarkService, ClickTrackerService.
 
-**Stage 3 - Audio Services**: AudioService (base audio capture), then in parallel: SoundService, SpeechToTextService, CentralizedCommandParser, DictationCoordinator (loads LLM model), MarkovCommandService.
+**Stage 3 - Audio Services**: AudioService (base audio capture), then in parallel: SoundService, SpeechToTextService, CentralizedCommandParser, DictationCoordinator (loads LLM model).
 
 **Stage 4 - UI Components**: QtAssetCache and FontService, then VocalanceMainWindow (main window).
 

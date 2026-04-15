@@ -1,13 +1,18 @@
+"""Audio byte utilities: RMS front-end, adaptive thresholds, utterance segmentation. No event bus, no asyncio."""
+
+from __future__ import annotations
+
+import threading
 from collections import deque
 from dataclasses import dataclass
+from typing import Union
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict
 
 
 @dataclass
 class NoiseFloorEstimate:
-    """RMS noise floor estimate from recent chunks."""
-
     value: float
     sample_count: int
     is_stable: bool
@@ -50,9 +55,6 @@ class AudioProcessor:
             audio = self._normalize_peak(audio)
         energy = self._calculate_rms_energy(audio)
         return audio, energy
-
-    def calculate_energy(self, audio_bytes: bytes) -> float:
-        return self.process_chunk(audio_bytes)[1]
 
     def update_noise_floor(self, energy: float, is_likely_speech: bool) -> NoiseFloorEstimate:
         self._bootstrap_count += 1
@@ -163,3 +165,120 @@ class AdaptiveVADThreshold:
 
     def is_silence(self, energy: float) -> bool:
         return energy < self._silence_threshold
+
+
+class Onset(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    ts: float
+
+
+class Clip(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    pcm_bytes: bytes
+    sample_rate: int
+
+
+SegmentHit = Union[Onset, Clip]
+
+
+@dataclass
+class SegmentConfig:
+    speech_multiplier: float
+    silence_multiplier: float
+    min_threshold: float
+    max_threshold: float
+    silent_chunks_for_end: int
+    pre_roll_chunks: int
+    min_duration_chunks: int
+    max_duration_chunks: int
+    min_peak_ratio: float = 0.0
+    emit_onset: bool = False
+
+
+class UtteranceSegmenter:
+    """Stateful VAD over mono PCM chunks; returns ``Onset`` / ``Clip`` hits only."""
+
+    def __init__(self, segment_config: SegmentConfig, analyzer: AudioProcessor, sample_rate: int) -> None:
+        self.config = segment_config
+        self.analyzer = analyzer
+        self.sample_rate = sample_rate
+        self.energy_gate = AdaptiveVADThreshold(
+            speech_multiplier=segment_config.speech_multiplier,
+            silence_multiplier=segment_config.silence_multiplier,
+            min_threshold=segment_config.min_threshold,
+            max_threshold=segment_config.max_threshold,
+        )
+        self.pre_roll: list[np.ndarray] = []
+        self.segment_buffer: list[np.ndarray] = []
+        self.capturing = False
+        self.silence_streak = 0
+        self.onset_pending = True
+        self.peak_energy = 0.0
+        self.state_lock = threading.Lock()
+
+    def feed_pcm_chunk(self, pcm_bytes: bytes, ts: float, skip_scoring: bool = False) -> list[SegmentHit]:
+        float_chunk, rms_energy = self.analyzer.process_chunk(pcm_bytes)
+        with self.state_lock:
+            if skip_scoring:
+                self.reset_state()
+                return []
+            return self.advance_from_chunk(float_chunk, rms_energy, ts)
+
+    def advance_from_chunk(self, float_chunk: np.ndarray, rms_energy: float, ts: float) -> list[SegmentHit]:
+        hits: list[SegmentHit] = []
+        likely_speech = rms_energy > self.energy_gate.speech_threshold
+        noise = self.analyzer.update_noise_floor(rms_energy, likely_speech)
+        if noise.is_stable:
+            self.energy_gate.update(noise.value)
+
+        if not self.capturing:
+            self.pre_roll.append(float_chunk)
+            if len(self.pre_roll) > self.config.pre_roll_chunks:
+                self.pre_roll.pop(0)
+            if self.energy_gate.is_speech(rms_energy):
+                self.capturing = True
+                self.peak_energy = rms_energy
+                self.segment_buffer.extend(self.pre_roll)
+                self.segment_buffer.append(float_chunk)
+                self.silence_streak = 0
+                if self.config.emit_onset and self.onset_pending:
+                    hits.append(Onset(ts=ts))
+                    self.onset_pending = False
+        else:
+            self.segment_buffer.append(float_chunk)
+            if rms_energy > self.peak_energy:
+                self.peak_energy = rms_energy
+            if self.energy_gate.is_silence(rms_energy):
+                self.silence_streak += 1
+                if self.silence_streak >= self.config.silent_chunks_for_end:
+                    hits.extend(self.finalize_clip_if_ready())
+            else:
+                self.silence_streak = 0
+            if len(self.segment_buffer) >= self.config.max_duration_chunks:
+                hits.extend(self.finalize_clip_if_ready())
+        return hits
+
+    def finalize_clip_if_ready(self) -> list[Clip]:
+        if len(self.segment_buffer) < self.config.min_duration_chunks:
+            self.reset_state()
+            return []
+        limits = self.config
+        if limits.min_peak_ratio > 0 and self.peak_energy < self.energy_gate.speech_threshold * limits.min_peak_ratio:
+            self.reset_state()
+            return []
+        raw = np.concatenate(self.segment_buffer)
+        pcm_bytes = (np.clip(raw, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+        self.reset_state()
+        return [Clip(pcm_bytes=pcm_bytes, sample_rate=self.sample_rate)]
+
+    def reset_state(self) -> None:
+        self.segment_buffer.clear()
+        self.pre_roll.clear()
+        self.capturing = False
+        self.silence_streak = 0
+        self.onset_pending = True
+        self.peak_energy = 0.0
+
+    def set_silence_tail(self, chunks: int) -> None:
+        with self.state_lock:
+            self.config.silent_chunks_for_end = chunks

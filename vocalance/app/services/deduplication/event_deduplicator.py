@@ -13,12 +13,12 @@ class DeduplicationEntry:
     """Represents a command event in deduplication history."""
 
     text: str
-    source: str  # "vosk", "markov", "sound", etc.
+    source: str
     timestamp: float  # milliseconds
 
 
 class EventDeduplicator:
-    """Unified deduplicator for command events (Vosk, sound, Markov).
+    """Unified deduplicator for command events from STT and sound sources.
 
     Maintains a time-windowed history of commands and checks new events against it.
     Uses exact text matching within the window, plus similarity checking for longer texts.
@@ -56,7 +56,7 @@ class EventDeduplicator:
 
         Args:
             text: Command text to check.
-            source: Source of command ("vosk", "markov", "sound", etc.).
+            source: Source of command (for example ``"stt"`` or ``"sound"``).
             current_time: Current timestamp in seconds (auto-generated if None).
 
         Returns:

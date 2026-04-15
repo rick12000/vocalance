@@ -13,7 +13,6 @@ from pydantic import BaseModel, ValidationError
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.services.storage.storage_models import (
     AgenticPromptsData,
-    CommandHistoryData,
     CommandsData,
     DictationAliasData,
     GridClicksData,
@@ -75,7 +74,6 @@ class StorageService:
             GridClicksData: os.path.join(config.storage.click_tracker_dir, "click_history.json"),
             AgenticPromptsData: os.path.join(config.storage.user_data_root, "dictation", "agentic_prompts.json"),
             SoundMappingsData: os.path.join(config.storage.sound_model_dir, "sound_mappings.json"),
-            CommandHistoryData: os.path.join(config.storage.command_history_dir, "command_history.json"),
             DictationAliasData: os.path.join(config.storage.user_data_root, "dictation", "aliases.json"),
         }
 

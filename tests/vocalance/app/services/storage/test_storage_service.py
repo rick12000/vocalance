@@ -29,7 +29,6 @@ def app_config(temp_storage_dir):
     config.storage.settings_dir = str(temp_path / "settings")
     config.storage.click_tracker_dir = str(temp_path / "click_tracker")
     config.storage.sound_model_dir = str(temp_path / "sound_model")
-    config.storage.command_history_dir = str(temp_path / "command_history")
 
     return config
 
@@ -65,41 +64,32 @@ async def test_read_nonexistent_file_returns_default(storage_service):
     # Clear cache to ensure we're not reading cached data
     storage_service.clear_cache()
 
-    # Use a model type that definitely doesn't have existing data
-    from vocalance.app.services.storage.storage_models import CommandHistoryData
-
-    # Delete the file if it exists to test default behavior
-    path = storage_service._get_path(CommandHistoryData)
+    path = storage_service._get_path(SettingsData)
     if path.exists():
         path.unlink()
 
-    data = await storage_service.read(model_type=CommandHistoryData)
+    data = await storage_service.read(model_type=SettingsData)
 
-    assert isinstance(data, CommandHistoryData)
-    assert len(data.history) == 0
+    assert isinstance(data, SettingsData)
+    assert data.user_overrides == {}
 
 
 @pytest.mark.asyncio
 async def test_write_and_read_data(storage_service):
     """Test writing and reading data."""
-    from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
+    marks_data = MarksData(marks={"a": {"x": 1, "y": 2}})
 
-    # Create data - use CommandHistoryData to avoid conflicts with existing marks
-    history_entry = CommandHistoryEntry(command="test_command", timestamp=1000.0, success=True, metadata={})
-    history_data = CommandHistoryData(history=[history_entry])
-
-    # Write
-    success = await storage_service.write(data=history_data)
+    success = await storage_service.write(data=marks_data)
     assert success is True
 
     # Clear cache to force disk read
     storage_service.clear_cache()
 
     # Read back
-    read_data = await storage_service.read(model_type=CommandHistoryData)
-    assert isinstance(read_data, CommandHistoryData)
-    assert len(read_data.history) == 1
-    assert read_data.history[0].command == "test_command"
+    read_data = await storage_service.read(model_type=MarksData)
+    assert isinstance(read_data, MarksData)
+    assert read_data.marks["a"].x == 1
+    assert read_data.marks["a"].y == 2
 
 
 @pytest.mark.asyncio
@@ -257,16 +247,12 @@ async def test_concurrent_reads(storage_service):
 @pytest.mark.asyncio
 async def test_concurrent_writes(storage_service):
     """Test concurrent writes are thread-safe."""
-    from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandHistoryEntry
 
-    async def write_history(cmd_id: int):
-        entry = CommandHistoryEntry(command=f"cmd_{cmd_id}", timestamp=1000.0 + cmd_id, success=True, metadata={})
-        history_data = CommandHistoryData(history=[entry])
-        return await storage_service.write(data=history_data)
+    async def write_marks(cmd_id: int):
+        marks_data = MarksData(marks={f"k{cmd_id}": {"x": cmd_id, "y": cmd_id}})
+        return await storage_service.write(data=marks_data)
 
-    # Perform concurrent writes - note: last write wins for same model type
-    # This tests thread safety, not that all data persists
-    tasks = [write_history(i) for i in range(5)]
+    tasks = [write_marks(i) for i in range(5)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # At least some writes should succeed (race condition is expected)

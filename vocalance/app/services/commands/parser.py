@@ -42,16 +42,10 @@ from vocalance.app.events.command_events import (
     MarkCommandParsedEvent,
     SystemControlCommandParsedEvent,
 )
-from vocalance.app.events.core_events import (
-    CommandTextRecognizedEvent,
-    CustomSoundRecognizedEvent,
-    MarkovPredictionEvent,
-    MarkovPredictionFeedbackEvent,
-)
+from vocalance.app.events.core_events import CommandTextRecognizedEvent, CustomSoundRecognizedEvent
 from vocalance.app.events.sound_events import SoundMappingsResponseEvent, SoundToCommandMappingUpdatedEvent
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
-from vocalance.app.services.commands.history import CommandHistoryManager
 from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
 from vocalance.app.services.pause_state_manager import PauseStateManager
 from vocalance.app.utils.number_parser import parse_number
@@ -89,16 +83,13 @@ class CentralizedCommandParser(Service):
         event_bus: EventBus,
         app_config: GlobalAppConfig,
         action_map_provider: CommandActionMapProvider,
-        history_manager: CommandHistoryManager,
         deduplicator: Optional[EventDeduplicator] = None,
         pause_state_manager: Optional[PauseStateManager] = None,
     ) -> None:
         self._event_bus = event_bus
         self._app_config = app_config
         self._action_map_provider = action_map_provider
-        self._history_manager = history_manager
         self._sound_to_command_mapping: Dict[str, str] = {}
-        self._pending_markov_prediction: Optional[str] = None
         self._pause_state_manager = pause_state_manager
         self._load_trigger_strings()
         self._deduplicator = deduplicator or EventDeduplicator(window_ms=app_config.command_parser.duplicate_detection_window_ms)
@@ -107,7 +98,6 @@ class CentralizedCommandParser(Service):
         event_bus.subscribe(CustomSoundRecognizedEvent, self._handle_custom_sound_recognized)
         event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated)
         event_bus.subscribe(SoundMappingsResponseEvent, self._handle_sound_mappings_response)
-        event_bus.subscribe(MarkovPredictionEvent, self._handle_markov_prediction)
 
     def _load_trigger_strings(self) -> None:
         g = self._app_config.grid
@@ -130,12 +120,7 @@ class CentralizedCommandParser(Service):
         self._dictation_amend_trigger = d.amend_start_trigger.lower()
 
     async def initialize(self) -> bool:
-        try:
-            await self._history_manager.initialize()
-            return True
-        except Exception as e:
-            logger.error("Error initializing command parser: %s", e, exc_info=True)
-            return False
+        return True
 
     async def shutdown(self) -> None:
         for event_type, handler in [
@@ -143,14 +128,12 @@ class CentralizedCommandParser(Service):
             (CustomSoundRecognizedEvent, self._handle_custom_sound_recognized),
             (SoundToCommandMappingUpdatedEvent, self._handle_sound_mapping_updated),
             (SoundMappingsResponseEvent, self._handle_sound_mappings_response),
-            (MarkovPredictionEvent, self._handle_markov_prediction),
         ]:
             self._event_bus.unsubscribe(event_type, handler)
-        await self._history_manager.shutdown()
 
-    async def _process_text_input(self, text: str, source: Optional[str] = None, *, record_history: bool = False) -> None:
+    async def _process_text_input(self, text: str, source: Optional[str] = None) -> None:
         src = source or "unknown"
-        if source != "markov" and self._deduplicator.should_deduplicate(text, source=src):
+        if self._deduplicator.should_deduplicate(text, source=src):
             return
 
         parsed = await self._parse_text(text)
@@ -160,9 +143,6 @@ class CentralizedCommandParser(Service):
                 if self._pause_state_manager.is_paused():
                     logger.debug("Application paused — ignoring command: %s", text)
                     return
-
-            if record_history and not isinstance(parsed, (PauseCommand, ResumeCommand)):
-                await self._history_manager.record_command(command=text, source=src)
 
             await self._publish_command_event(parsed, source)
             self._deduplicator.record_event(text, source=src)
@@ -335,18 +315,7 @@ class CentralizedCommandParser(Service):
 
     async def _handle_command_text_recognized(self, text_recognized: CommandTextRecognizedEvent) -> None:
         text = text_recognized.text
-        if self._pending_markov_prediction is not None:
-            await self._send_markov_feedback(
-                predicted=self._pending_markov_prediction,
-                actual=text,
-                was_correct=self._pending_markov_prediction.lower() == text.lower(),
-                source="stt",
-            )
-            self._pending_markov_prediction = None
-            return
-
-        await self._send_markov_feedback(predicted=None, actual=text, was_correct=True, source="stt")
-        await self._process_text_input(text=text, source="stt", record_history=True)
+        await self._process_text_input(text=text, source="stt")
 
     async def _handle_custom_sound_recognized(self, sound_recognized: CustomSoundRecognizedEvent) -> None:
         phrase = sound_recognized.mapped_command or self._sound_to_command_mapping.get(sound_recognized.label)
@@ -354,39 +323,10 @@ class CentralizedCommandParser(Service):
             logger.warning("No command mapping found for sound: %s", sound_recognized.label)
             return
 
-        if self._pending_markov_prediction is not None:
-            await self._send_markov_feedback(
-                predicted=self._pending_markov_prediction,
-                actual=phrase,
-                was_correct=self._pending_markov_prediction.lower() == phrase.lower(),
-                source="sound",
-            )
-            self._pending_markov_prediction = None
-            return
-
-        await self._send_markov_feedback(predicted=None, actual=phrase, was_correct=True, source="sound")
-        await self._process_text_input(text=phrase, source="sound", record_history=True)
+        await self._process_text_input(text=phrase, source="sound")
 
     async def _handle_sound_mapping_updated(self, mapping_update: SoundToCommandMappingUpdatedEvent) -> None:
         self._sound_to_command_mapping[mapping_update.sound_label] = mapping_update.command_phrase
 
     async def _handle_sound_mappings_response(self, mappings_snapshot: SoundMappingsResponseEvent) -> None:
         self._sound_to_command_mapping = mappings_snapshot.mappings
-
-    async def _handle_markov_prediction(self, prediction: MarkovPredictionEvent) -> None:
-        self._pending_markov_prediction = prediction.predicted_command
-        await self._process_text_input(text=prediction.predicted_command, source="markov", record_history=False)
-
-    async def _send_markov_feedback(self, predicted: Optional[str], actual: str, was_correct: bool, source: str) -> None:
-        predicted_for_event = predicted if predicted is not None else actual
-        await self._event_bus.publish(
-            MarkovPredictionFeedbackEvent(
-                predicted_command=predicted_for_event,
-                actual_command=actual,
-                was_correct=was_correct,
-                source=source,
-            )
-        )
-        if predicted is not None:
-            status = "correct" if was_correct else "incorrect"
-            logger.info("Markov prediction %s: predicted %r, actual %r (%s)", status, predicted, actual, source)

@@ -1,6 +1,7 @@
 import logging
 
 from vocalance.app.event_bus import EventBus
+from vocalance.app.events.core_events import MicLevelMeterPcmChunkEvent
 from vocalance.app.events.dictation_events import (
     DictationModifierStateChangedEvent,
     DictationSessionEvent,
@@ -63,6 +64,8 @@ class QtDictationPopupController:
             # Stop word detection event
             self.event_bus.subscribe(DictationStopWordDetectedEvent, self._on_stop_word_detected)
             self.event_bus.subscribe(DictationModifierStateChangedEvent, self._on_modifier_state_changed)
+
+            self.event_bus.subscribe(MicLevelMeterPcmChunkEvent, self._on_mic_level_meter_pcm_chunk)
 
             self.logger.debug("Dictation popup event subscriptions configured")
         except Exception as e:
@@ -260,8 +263,11 @@ class QtDictationPopupController:
         except Exception as e:
             self.logger.error(f"Error handling stop word detection: {e}", exc_info=True)
 
+    async def _on_mic_level_meter_pcm_chunk(self, event: MicLevelMeterPcmChunkEvent) -> None:
+        self.feed_audio_chunk_for_level_meter(event.audio_chunk)
+
     def feed_audio_chunk_for_level_meter(self, audio_chunk: bytes) -> None:
-        """Drive the simple-mode level meter from raw PCM (called from the audio VAD worker thread)."""
+        """Drive the simple-mode level meter from raw PCM (via ``MicLevelMeterPcmChunkEvent`` on the bus)."""
         if not self.popup_view.isVisible() or self.popup_view.current_mode != "simple":
             return
 
@@ -284,6 +290,10 @@ class QtDictationPopupController:
 
     def cleanup(self) -> None:
         """Clean up controller resources."""
+        try:
+            self.event_bus.unsubscribe(MicLevelMeterPcmChunkEvent, self._on_mic_level_meter_pcm_chunk)
+        except Exception as e:
+            self.logger.debug("Mic level meter unsubscribe: %s", e)
         try:
             self.popup_view.hide_popup()
             self.logger.debug("Dictation popup controller cleaned up")

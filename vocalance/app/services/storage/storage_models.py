@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from vocalance.app.config.command_types import AutomationCommand
 
@@ -35,15 +35,6 @@ class AgenticPrompt(BaseModel):
     name: str
     created_at: str
     is_default: bool = False
-
-
-class CommandHistoryEntry(BaseModel):
-    """Command execution history entry."""
-
-    command: str
-    timestamp: float
-    success: Optional[bool] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MarksData(StorageData):
@@ -86,20 +77,6 @@ class SoundMappingsData(StorageData):
     """Storage model for sound recognition mappings."""
 
     mappings: Dict[str, str] = Field(default_factory=dict, description="Map of sound name to action/command")
-
-
-class CommandHistoryData(StorageData):
-    """Storage model for command execution history."""
-
-    history: List[CommandHistoryEntry] = Field(default_factory=list, description="Historical command execution records")
-
-    @field_validator("history")
-    @classmethod
-    def validate_history_limit(cls, v: List[CommandHistoryEntry]) -> List[CommandHistoryEntry]:
-        max_entries = 10000
-        if len(v) > max_entries:
-            return v[-max_entries:]
-        return v
 
 
 class DictationAliasData(StorageData):

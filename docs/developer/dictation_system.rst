@@ -161,7 +161,6 @@ System Awareness During Dictation
 
 When dictation starts, the coordinator broadcasts ``DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=...)`` which:
 
-- **Disables Markov predictions** (prevents false command predictions)
 - **Disables sound recognition** (prevents sound-mapped commands)
 - **Narrows command-path recognition** to the stop phrase and configured modifier phrases (see ``SpeechToTextService``)
 
@@ -591,7 +590,6 @@ While dictating, the system monitors for stop triggers. The command listener con
 
 - Filter STT output to only recognize stop trigger words
 - Disable sound recognition
-- Disable Markov predictions
 
 When dictation stops, ``DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")`` re-enables all systems.
 
@@ -714,7 +712,6 @@ After dictation text is output:
 
 - **UI updates** reflect dictation status (active/inactive)
 - **Command recognition** resumes full operation
-- **Markov predictions** resume suggesting next commands
 - **Sound recognition** resumes listening for sound-mapped commands
 - **System returns** to idle state waiting for next voice input
 

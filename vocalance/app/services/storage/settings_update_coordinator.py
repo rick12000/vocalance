@@ -32,9 +32,7 @@ _CONFIG_ONLY_PATHS = frozenset(
 class SettingsUpdateCoordinator(Service):
     """Apply ``SettingsChangedEvent`` to ``GlobalAppConfig`` and notify services.
 
-    Services register typed callbacks for the specific setting paths they care about::
-
-        coordinator.register_callback("markov_predictor.enabled", service.on_enabled_updated)
+    Services register typed callbacks for the specific setting paths they care about.
 
     The callback receives the new value as its sole argument.
     """
@@ -45,7 +43,6 @@ class SettingsUpdateCoordinator(Service):
         self._callbacks: Dict[str, list[Callable]] = {}
 
         self._category_map = {
-            "markov_predictor": self._config.markov_predictor,
             "sound_recognizer": self._config.sound_recognizer,
             "llm": self._config.llm,
             "grid": self._config.grid,

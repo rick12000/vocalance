@@ -12,6 +12,34 @@ from vocalance.app.config.logging_config import LoggingConfigModel
 logger = logging.getLogger(__name__)
 
 
+class AudioDeviceCaptureMessages(BaseModel):
+    """User-visible copy when the default input device cannot be opened."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    mic_unavailable_unknown_device: str = Field(
+        default=(
+            "The default microphone that was in use when Vocalance started is no longer available "
+            "or could not be opened.\n\n"
+            "Please reconnect your microphone or fix your system audio settings, then "
+            "completely quit and restart Vocalance."
+        )
+    )
+    mic_unavailable_named_device: str = Field(
+        default=(
+            "The microphone that was in use when Vocalance started ({device_name}) is no longer "
+            "available or could not be opened.\n\n"
+            "Please reconnect your microphone or fix your system audio settings, then "
+            "completely quit and restart Vocalance."
+        )
+    )
+
+    def message_for_launch_device(self, launch_device_name: Optional[str]) -> str:
+        if launch_device_name:
+            return self.mic_unavailable_named_device.format(device_name=launch_device_name)
+        return self.mic_unavailable_unknown_device
+
+
 class AudioConfig(BaseModel):
     """Configuration for audio capture settings and chunk sizing.
 
@@ -26,6 +54,13 @@ class AudioConfig(BaseModel):
     dtype: Literal["int16", "float32", "int32"] = Field(
         "int16", description="Data type of audio samples (e.g., 'int16', 'float32')."
     )
+    capture_chunk_duration_seconds: float = Field(
+        default=0.03,
+        ge=0.01,
+        le=0.2,
+        description="PortAudio input block duration in seconds (chunk length for capture callback).",
+    )
+    device_capture_messages: AudioDeviceCaptureMessages = Field(default_factory=AudioDeviceCaptureMessages)
 
 
 class MoonshineStreamingConfig(BaseModel):
@@ -504,45 +539,11 @@ class VADConfig(BaseModel):
     noise_floor_percentile: int = Field(default=50, description="Percentile for noise floor calculation (50=median, more robust)")
 
 
-class MarkovPredictorConfig(BaseModel):
-    """Configuration for Markov chain command predictor with backoff."""
-
-    enabled: bool = Field(default=False, description="Enable Markov chain command prediction")
-
-    confidence_threshold: float = Field(default=0.85, description="Minimum probability threshold for prediction (0.0-1.0)")
-
-    training_window_commands: Dict[int, int] = Field(
-        default_factory=lambda: {2: 500, 3: 1000, 4: 1500},
-        description="Number of recent commands to train on per order {order: count}",
-    )
-
-    training_window_days: Dict[int, int] = Field(
-        default_factory=lambda: {2: 7, 3: 21, 4: 60},
-        description="Number of days of command history to train on per order {order: days}",
-    )
-
-    max_order: int = Field(default=4, description="Maximum order of Markov chain (backoff from this)")
-
-    min_order: int = Field(default=2, description="Minimum order of Markov chain (backoff to this)")
-
-    min_command_frequency: Dict[int, int] = Field(
-        default_factory=lambda: {2: 15, 3: 10, 4: 10}, description="Minimum transition frequency per order {order: min_count}"
-    )
-
-    incorrect_prediction_cooldown: int = Field(
-        default=2, description="Number of commands to skip Markov after incorrect prediction"
-    )
-
-    prediction_cooldown_seconds: float = Field(
-        default=0.05, description="Minimum time in seconds between consecutive Markov predictions to prevent spam"
-    )
-
-
 class CommandParserConfig(BaseModel):
     """Configuration for centralized command parser behavior."""
 
     duplicate_detection_window_ms: float = Field(
-        default=600, description="Time window in milliseconds for command deduplication across Vosk, sound, and Markov sources"
+        default=600, description="Time window in milliseconds for command deduplication across STT and sound sources"
     )
 
 
@@ -747,8 +748,8 @@ class StorageConfig(BaseModel):
     """Configuration for persistent storage paths and caching behavior.
 
     Defines subdirectory names and full paths for all user data storage including
-    sound models/samples, marks, click tracking history, settings, LLM models, and
-    command history. Paths are initialized automatically in GlobalAppConfig.__init__.
+    sound models/samples, marks, click tracking history, settings, and LLM models.
+    Paths are initialized automatically in GlobalAppConfig.__init__.
     """
 
     sound_model_subdir: str = "sound_models"
@@ -758,10 +759,8 @@ class StorageConfig(BaseModel):
     settings_subdir: str = "settings"
     llm_models_subdir: str = "llm_models"
     external_non_target_sounds_subdir: str = "external_non_target_sounds"
-    command_history_subdir: str = "command_history"
     marks_filename: str = "marks.json"
     click_history_filename: str = "click_history.json"
-    command_history_filename: str = "command_history.json"
     sound_model_dir: Optional[str] = None
     sound_samples_dir: Optional[str] = None
     external_non_target_sounds_dir: Optional[str] = None
@@ -770,7 +769,6 @@ class StorageConfig(BaseModel):
     marks_dir: Optional[str] = None
     llm_models_dir: Optional[str] = None
     click_tracker_dir: Optional[str] = None
-    command_history_dir: Optional[str] = None
     cache_ttl_seconds: float = Field(
         default=300.0, description="Cache time-to-live in seconds for storage service read operations"
     )
@@ -798,7 +796,6 @@ class GlobalAppConfig(BaseModel):
     audio: AudioConfig = AudioConfig()
     dictation: DictationConfig = DictationConfig()
     llm: LLMConfig = LLMConfig()
-    markov_predictor: MarkovPredictorConfig = MarkovPredictorConfig()
     command_parser: CommandParserConfig = CommandParserConfig()
     automation_service: AutomationServiceConfig = AutomationServiceConfig()
     protected_terms_validator: ProtectedTermsValidatorConfig = ProtectedTermsValidatorConfig()
@@ -830,7 +827,6 @@ class GlobalAppConfig(BaseModel):
         marks_dir = os.path.join(user_data_root, storage.marks_subdir)
         click_tracker_dir = os.path.join(user_data_root, storage.click_tracker_subdir)
         llm_models_dir = os.path.join(user_data_root, storage.llm_models_subdir)
-        command_history_dir = os.path.join(user_data_root, storage.command_history_subdir)
 
         for d in [
             sound_model_dir,
@@ -840,7 +836,6 @@ class GlobalAppConfig(BaseModel):
             marks_dir,
             click_tracker_dir,
             llm_models_dir,
-            command_history_dir,
         ]:
             os.makedirs(d, exist_ok=True)
 
@@ -852,7 +847,6 @@ class GlobalAppConfig(BaseModel):
         storage.marks_dir = marks_dir
         storage.click_tracker_dir = click_tracker_dir
         storage.llm_models_dir = llm_models_dir
-        storage.command_history_dir = command_history_dir
 
     @property
     def local_llm_allowlist(self) -> LocalLLMAllowList:

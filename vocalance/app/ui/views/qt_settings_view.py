@@ -134,10 +134,6 @@ class QtSettingsView(QWidget):
             "Grid Settings": [
                 ("grid", "default_rect_count", "Default Cell Count"),
             ],
-            "Markov Chain Settings": [
-                ("markov_predictor", "enabled", "Enable"),
-                ("markov_predictor", "confidence_threshold", "Prediction Confidence"),
-            ],
             "Sound Recognizer Settings": [
                 ("sound_recognizer", "confidence_threshold", "Confidence Threshold"),
                 ("sound_recognizer", "vote_threshold", "Vote Threshold"),
@@ -586,9 +582,6 @@ class QtSettingsView(QWidget):
             "llm.max_tokens": int,
             # Grid Settings
             "grid.default_rect_count": int,
-            # Markov Chain Settings
-            "markov_predictor.enabled": bool,
-            "markov_predictor.confidence_threshold": float,
             # Sound Recognizer Settings
             "sound_recognizer.confidence_threshold": float,
             "sound_recognizer.vote_threshold": float,

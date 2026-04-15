@@ -27,13 +27,12 @@ from vocalance.app.services.commands.parser import CentralizedCommandParser
 
 
 @pytest_asyncio.fixture
-async def command_parser(event_bus, app_config, mock_action_map_provider, mock_command_history_manager):
+async def command_parser(event_bus, app_config, mock_action_map_provider):
     """Create command parser with mocked dependencies."""
     parser = CentralizedCommandParser(
         event_bus=event_bus,
         app_config=app_config,
         action_map_provider=mock_action_map_provider,
-        history_manager=mock_command_history_manager,
     )
     await parser.initialize()
     yield parser

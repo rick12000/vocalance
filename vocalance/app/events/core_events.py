@@ -45,23 +45,6 @@ class MouseClickEvent(BaseEvent):
 PerformMouseClickEventData = MouseClickEvent
 
 
-class MarkovPredictionEvent(BaseEvent):
-    """Published when Markov chain predicts a command."""
-
-    predicted_command: str = Field(description="The predicted command text")
-    confidence: float = Field(description="Confidence probability (0.0-1.0)")
-    audio_id: int = Field(description="ID of the audio bytes that triggered this prediction")
-
-
-class MarkovPredictionFeedbackEvent(BaseEvent):
-    """Feedback about Markov prediction accuracy."""
-
-    predicted_command: str = Field(description="The command that was predicted")
-    actual_command: str = Field(description="The command that was actually recognized")
-    was_correct: bool = Field(description="True if prediction matched actual command")
-    source: str = Field(description="Source of actual command: 'stt' or 'sound'")
-
-
 class SettingsChangedEvent(BaseEvent):
     """Event published when runtime settings are changed."""
 
@@ -93,3 +76,9 @@ class AudioDeviceErrorEvent(BaseEvent):
     """Event published when the default input device is lost or capture fails."""
 
     error_message: str = Field(description="User-facing message for the warning dialog")
+
+
+class MicLevelMeterPcmChunkEvent(BaseEvent):
+    """Mono int16 PCM chunk for UI level metering (dictation popup simple mode)."""
+
+    audio_chunk: bytes = Field(description="Raw PCM bytes, mono int16, host sample rate")

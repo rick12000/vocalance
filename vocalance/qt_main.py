@@ -33,9 +33,7 @@ from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service imp
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.automation_service import AutomationService
 from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
-from vocalance.app.services.commands.history import CommandHistoryManager
 from vocalance.app.services.commands.management import CommandManagementService
-from vocalance.app.services.commands.markov import MarkovCommandService
 from vocalance.app.services.commands.parser import CentralizedCommandParser
 from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
 from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
@@ -82,8 +80,6 @@ class Services:
     pause_state_manager: PauseStateManager
     centralized_parser: CentralizedCommandParser
     dictation: DictationCoordinator
-    markov_predictor: MarkovCommandService
-    # Background tasks spawned during init (warm-starts, etc.)
     _background_tasks: list = field(default_factory=list, repr=False)
 
 
@@ -122,25 +118,27 @@ def _construct_services(
         action_map_provider=action_map_provider,
     )
 
-    audio = AudioService(event_bus=event_bus, config=config, main_event_loop=gui_loop)
+    dictation = DictationCoordinator(event_bus=event_bus, config=config, storage=storage, gui_event_loop=gui_loop)
+
+    audio = AudioService(
+        event_bus=event_bus,
+        config=config,
+        main_event_loop=gui_loop,
+        dictation=dictation,
+    )
     sound_service = SoundService(event_bus=event_bus, config=config, storage=storage)
     stt = SpeechToTextService(event_bus=event_bus, config=config)
 
     pause_manager = PauseStateManager(event_bus=event_bus)
-    history_manager = CommandHistoryManager(storage=storage, protected_terms_validator=validator)
     parser = CentralizedCommandParser(
         event_bus=event_bus,
         app_config=config,
         action_map_provider=action_map_provider,
-        history_manager=history_manager,
         deduplicator=EventDeduplicator(window_ms=config.command_parser.duplicate_detection_window_ms),
         pause_state_manager=pause_manager,
     )
 
-    dictation = DictationCoordinator(event_bus=event_bus, config=config, storage=storage, gui_event_loop=gui_loop)
-    markov = MarkovCommandService(event_bus=event_bus, config=config, storage=storage)
-
-    _register_settings_callbacks(settings_coordinator, sound_service, audio, markov)
+    _register_settings_callbacks(settings_coordinator, sound_service, audio)
 
     return Services(
         storage=storage,
@@ -159,7 +157,6 @@ def _construct_services(
         pause_state_manager=pause_manager,
         centralized_parser=parser,
         dictation=dictation,
-        markov_predictor=markov,
     )
 
 
@@ -167,11 +164,8 @@ def _register_settings_callbacks(
     coordinator: SettingsUpdateCoordinator,
     sound_service: SoundService,
     audio: AudioService,
-    markov: MarkovCommandService,
 ) -> None:
     reg = coordinator.register_callback
-    reg("markov_predictor.enabled", markov.on_enabled_updated)
-    reg("markov_predictor.confidence_threshold", markov.on_confidence_threshold_updated)
     reg("sound_recognizer.confidence_threshold", sound_service.on_confidence_threshold_updated)
     reg("sound_recognizer.vote_threshold", sound_service.on_vote_threshold_updated)
     reg("vad.command_silent_chunks_for_end", audio.on_command_silent_chunks_updated)
@@ -251,11 +245,8 @@ async def _initialize_services(
     if not await services.dictation.initialize():
         raise RuntimeError("Critical dictation initialization failed")
     services.dictation.set_stt_service(services.stt)
-    services.audio.set_dictation_chunk_callback(services.dictation.feed_moonshine_audio_chunk)
     _check_cancellation(shutdown_coordinator)
 
-    progress_tracker.update_status_animated(status="Initializing command predictor")
-    await services.markov_predictor.initialize()
     progress_tracker.complete_step()
 
 
@@ -325,7 +316,6 @@ async def _cleanup_services(services: Services, event_bus: EventBus) -> None:
         services.automation,
         services.stt,
         services.dictation,
-        services.markov_predictor,
         services.click_tracker,
         services.settings_coordinator,
         services.audio,

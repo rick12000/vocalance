@@ -38,14 +38,10 @@ class SettingsService(Service):
         "sound_recognizer.vote_threshold",
         "vad.energy_threshold",
         "vad.command_silent_chunks_for_end",
-        "markov_predictor.enabled",
-        "markov_predictor.confidence_threshold",
     }
 
     # Settings that update in real-time (default is restart required)
     REAL_TIME_SETTINGS = {
-        "markov_predictor.enabled",
-        "markov_predictor.confidence_threshold",
         "sound_recognizer.confidence_threshold",
         "sound_recognizer.vote_threshold",
         "grid.default_rect_count",
@@ -139,10 +135,6 @@ class SettingsService(Service):
                 },
                 "audio": {
                     "sample_rate": self._get_default_value("audio.sample_rate"),
-                },
-                "markov_predictor": {
-                    "enabled": self._get_default_value("markov_predictor.enabled"),
-                    "confidence_threshold": self._get_default_value("markov_predictor.confidence_threshold"),
                 },
             }
 
@@ -298,10 +290,6 @@ class SettingsService(Service):
             "sound_recognizer.vote_threshold": lambda v: isinstance(v, (int, float))
             and not isinstance(v, bool)
             and 0.0 <= float(v) <= 1.0,
-            "markov_predictor.enabled": lambda v: isinstance(v, bool),
-            "markov_predictor.confidence_threshold": lambda v: isinstance(v, (int, float))
-            and not isinstance(v, bool)
-            and 0.0 <= float(v) <= 1.0,
             "vad.energy_threshold": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 < float(v) <= 1.0,
             "vad.command_silent_chunks_for_end": lambda v: type(v) is int and 1 <= v <= 1000,
         }
@@ -315,14 +303,7 @@ class SettingsService(Service):
 
     def _get_default_value(self, setting_path: str) -> Any:
         """Get default value for a setting from Pydantic field definitions"""
-        from vocalance.app.config.app_config import (
-            AudioConfig,
-            GridConfig,
-            LLMConfig,
-            MarkovPredictorConfig,
-            SoundRecognizerConfig,
-            VADConfig,
-        )
+        from vocalance.app.config.app_config import AudioConfig, GridConfig, LLMConfig, SoundRecognizerConfig, VADConfig
 
         category, key = setting_path.split(".", 1)
 
@@ -330,7 +311,6 @@ class SettingsService(Service):
             "llm": LLMConfig,
             "grid": GridConfig,
             "sound_recognizer": SoundRecognizerConfig,
-            "markov_predictor": MarkovPredictorConfig,
             "vad": VADConfig,
             "audio": AudioConfig,
         }

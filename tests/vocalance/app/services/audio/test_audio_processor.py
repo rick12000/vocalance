@@ -3,7 +3,11 @@
 import numpy as np
 import pytest
 
-from vocalance.app.services.audio.audio_processor import AdaptiveVADThreshold, AudioProcessor, NoiseFloorEstimate
+from vocalance.app.services.audio.audio_utils import AdaptiveVADThreshold, AudioProcessor, NoiseFloorEstimate
+
+
+def _rms_energy(processor: AudioProcessor, audio_bytes: bytes) -> float:
+    return processor.process_chunk(audio_bytes)[1]
 
 
 class TestAudioProcessor:
@@ -41,17 +45,15 @@ class TestAudioProcessor:
         assert len(audio) == 800  # Same number of samples
         assert 0.0 <= energy <= 1.0
 
-    def test_calculate_energy_returns_float(self, processor, speech_bytes):
-        """Test that calculate_energy returns a float."""
-        energy = processor.calculate_energy(speech_bytes)
+    def test_process_chunk_energy_returns_float(self, processor, speech_bytes):
+        energy = _rms_energy(processor, speech_bytes)
 
         assert isinstance(energy, float)
         assert 0.0 <= energy <= 1.0
 
     def test_silence_has_lower_energy_than_speech(self, processor, silence_bytes, speech_bytes):
-        """Test that silence has lower energy than speech."""
-        silence_energy = processor.calculate_energy(silence_bytes)
-        speech_energy = processor.calculate_energy(speech_bytes)
+        silence_energy = _rms_energy(processor, silence_bytes)
+        speech_energy = _rms_energy(processor, speech_bytes)
 
         assert silence_energy < speech_energy
 
@@ -81,7 +83,7 @@ class TestAudioProcessor:
 
         # Process silence samples (not speech)
         for _ in range(25):
-            energy = processor.calculate_energy(silence_bytes)
+            energy = _rms_energy(processor, silence_bytes)
             processor.update_noise_floor(energy, is_likely_speech=False)
 
         final_estimate = processor.get_noise_floor()
@@ -97,7 +99,7 @@ class TestAudioProcessor:
         """
         # First, complete the bootstrap period with silence samples
         for _ in range(processor.BOOTSTRAP_CHUNKS + 5):
-            energy = processor.calculate_energy(silence_bytes)
+            energy = _rms_energy(processor, silence_bytes)
             processor.update_noise_floor(energy, is_likely_speech=False)
 
         # Record count after bootstrap
@@ -105,7 +107,7 @@ class TestAudioProcessor:
 
         # Process speech samples (should be ignored after bootstrap)
         for _ in range(10):
-            energy = processor.calculate_energy(speech_bytes)
+            energy = _rms_energy(processor, speech_bytes)
             processor.update_noise_floor(energy, is_likely_speech=True)
 
         final_count = processor.get_noise_floor().sample_count
@@ -117,7 +119,7 @@ class TestAudioProcessor:
         """Test that adaptive threshold is based on noise floor."""
         # Build up noise floor estimate
         for _ in range(25):
-            energy = processor.calculate_energy(silence_bytes)
+            energy = _rms_energy(processor, silence_bytes)
             processor.update_noise_floor(energy, is_likely_speech=False)
 
         noise_floor = processor.get_noise_floor().value
@@ -129,11 +131,11 @@ class TestAudioProcessor:
         """Test is_above_noise_floor detection."""
         # Build up noise floor estimate with silence
         for _ in range(25):
-            energy = processor.calculate_energy(silence_bytes)
+            energy = _rms_energy(processor, silence_bytes)
             processor.update_noise_floor(energy, is_likely_speech=False)
 
-        processor.calculate_energy(silence_bytes)
-        speech_energy = processor.calculate_energy(speech_bytes)
+        _rms_energy(processor, silence_bytes)
+        speech_energy = _rms_energy(processor, speech_bytes)
 
         # Silence should not be significantly above noise floor
         # Speech should be significantly above noise floor
@@ -143,7 +145,7 @@ class TestAudioProcessor:
         """Test that reset clears all state."""
         # Build up some state
         for _ in range(25):
-            energy = processor.calculate_energy(silence_bytes)
+            energy = _rms_energy(processor, silence_bytes)
             processor.update_noise_floor(energy, is_likely_speech=False)
 
         assert processor.get_noise_floor().sample_count > 0

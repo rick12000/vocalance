@@ -380,7 +380,7 @@ def command_audio_bytes():
 @pytest.fixture
 def mock_storage_service():
     """Mock unified storage service for testing."""
-    from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandsData, MarksData
+    from vocalance.app.services.storage.storage_models import CommandsData, MarksData
 
     storage = Mock()
     _store: dict = {}
@@ -392,8 +392,6 @@ def mock_storage_service():
             return MarksData(marks={})
         elif model_type == CommandsData:
             return CommandsData(custom_commands={}, phrase_overrides={})
-        elif model_type == CommandHistoryData:
-            return CommandHistoryData(history=[])
         return None
 
     async def mock_write(data):
@@ -428,7 +426,6 @@ def isolated_storage_config():
         config.storage.settings_dir = str(temp_path / "settings")
         config.storage.click_tracker_dir = str(temp_path / "click_tracker")
         config.storage.sound_model_dir = str(temp_path / "sound_model")
-        config.storage.command_history_dir = str(temp_path / "command_history")
 
         # Verify no production paths leaked through
         production_indicators = ["AppData", "Roaming", "vocalance_voice_assistant_data"]
@@ -438,7 +435,6 @@ def isolated_storage_config():
             "settings_dir",
             "click_tracker_dir",
             "sound_model_dir",
-            "command_history_dir",
         ]:
             path_value = getattr(config.storage, path_attr)
             for indicator in production_indicators:
@@ -600,15 +596,3 @@ def mock_action_map_provider():
 
     provider.get_action_map = AsyncMock(side_effect=mock_get_action_map)
     return provider
-
-
-@pytest.fixture
-def mock_command_history_manager():
-    """Mock CommandHistoryManager for testing."""
-    manager = Mock()
-    manager.initialize = AsyncMock(return_value=True)
-    manager.record_command = AsyncMock()
-    manager.get_recent_history = AsyncMock(return_value=[])
-    manager.get_full_history = AsyncMock(return_value=[])
-    manager.shutdown = AsyncMock(return_value=True)
-    return manager

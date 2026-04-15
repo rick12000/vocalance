@@ -400,7 +400,6 @@ After command execution completes:
 
 - **Status events** are published so the UI displays results
 - **Dictation commands** follow a separate path through the DictationCoordinator
-- **Command history** records successful executions for Markov prediction
 - **System returns** to idle state waiting for the next command
 
 The specialized dictation system, which operates independently from command execution, is covered in :doc:`dictation_system`.
