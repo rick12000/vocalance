@@ -221,26 +221,18 @@ class ThemeManager:
         self._loaded_fonts = set()
         self._stylesheet: str = ""
 
-    def load_stylesheet(self, qss_path: str = None) -> str:
-        """Load the centralized QSS stylesheet.
+    def load_stylesheet(self, qss_path: str | None = None) -> str:
+        """Build the application stylesheet from packaged QSS partials and theme tokens.
 
-        Args:
-            qss_path: Optional path to QSS file. If None, uses default location.
-
-        Returns:
-            The loaded stylesheet content.
+        Optional ``qss_path`` appends an additional file after the built stylesheet.
         """
-        if qss_path is None:
-            # Default location is alongside this module
-            qss_path = Path(__file__).parent / "styles.qss"
-        else:
-            qss_path = Path(qss_path)
+        from vocalance.app.ui.style.builder import build_app_stylesheet
 
-        if qss_path.exists():
-            self._stylesheet = qss_path.read_text(encoding="utf-8")
-        else:
-            self._stylesheet = ""
-
+        self._stylesheet = build_app_stylesheet(self)
+        if qss_path is not None:
+            extra = Path(qss_path)
+            if extra.is_file():
+                self._stylesheet = self._stylesheet + "\n" + extra.read_text(encoding="utf-8")
         return self._stylesheet
 
     def apply_stylesheet(self, app) -> None:

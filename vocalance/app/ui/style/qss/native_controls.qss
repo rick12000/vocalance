@@ -1,0 +1,89 @@
+QComboBox {
+    background-color: {{SHAPES_DARK}};
+    color: {{TEXT_LIGHT}};
+    border: 1px solid {{SHAPES_LIGHT}};
+    border-radius: {{RADIUS_SMALL}}px;
+    padding: {{SPACING_SMALL}}px;
+    min-height: 1.2em;
+}
+
+QComboBox:hover {
+    border-color: {{SHAPES_LIGHTEST}};
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 1.2em;
+}
+
+QComboBox QAbstractItemView {
+    background-color: {{SHAPES_DARKEST}};
+    color: {{TEXT_LIGHT}};
+    selection-background-color: {{SHAPES_MEDIUM}};
+    border: 1px solid {{SHAPES_MEDIUM}};
+    outline: 0;
+}
+
+QProgressBar {
+    border: 1px solid {{SHAPES_MEDIUM}};
+    border-radius: {{RADIUS_SMALL}}px;
+    background-color: {{SHAPES_DARK}};
+    text-align: center;
+    color: {{TEXT_LIGHT}};
+    min-height: 0.6em;
+}
+
+QProgressBar::chunk {
+    background-color: {{BLUE_2}};
+    border-radius: {{RADIUS_SMALL}}px;
+}
+
+QProgressBar#StartupProgressBar {
+    border: none;
+    border-radius: 1px;
+    background-color: {{SHAPES_DARK}};
+    min-height: 0px;
+    max-height: 2px;
+    padding: 0px;
+}
+
+QProgressBar#StartupProgressBar::chunk {
+    background-color: {{BLUE_2}};
+    border-radius: 1px;
+}
+
+QScrollBar:vertical {
+    background: {{SHAPES_DARKEST}};
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: {{SHAPES_MEDIUM}};
+    min-height: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+QScrollBar:horizontal {
+    background: {{SHAPES_DARKEST}};
+    height: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background: {{SHAPES_MEDIUM}};
+    min-width: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0;
+}

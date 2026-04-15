@@ -9,15 +9,17 @@ from vocalance.app.events.dictation_events import (
     DictationStopWordDetectedEvent,
     FinalDictationTextEvent,
     LLMProcessingCompletedEvent,
+    LLMProcessingFailedEvent,
     LLMProcessingReadyEvent,
     LLMProcessingStartedEvent,
     LLMTokenGeneratedEvent,
     PartialDictationTextEvent,
 )
-from vocalance.app.ui.views.qt_dictation_popup_view import QtDictationPopupView
+from vocalance.app.ui.controls.qt_base_controller import QtBaseController
+from vocalance.app.ui.features.dictation.popup_view import QtDictationPopupView
 
 
-class QtDictationPopupController:
+class QtDictationPopupController(QtBaseController):
     """Controller for dictation popup window.
 
     Manages:
@@ -33,11 +35,10 @@ class QtDictationPopupController:
         Args:
             event_bus: Event bus for pub/sub.
         """
-        self.event_bus = event_bus
-        self.logger = logging.getLogger(self.__class__.__name__)
+        super().__init__(event_bus=event_bus, logger=logging.getLogger(self.__class__.__name__))
 
-        # Create popup view
         self.popup_view = QtDictationPopupView()
+        self.llm_stream_session_id: str | None = None
 
         # Subscribe to dictation events
         self._subscribe_to_events()
@@ -59,6 +60,7 @@ class QtDictationPopupController:
             # LLM processing events (for smart mode)
             self.event_bus.subscribe(LLMProcessingStartedEvent, self._on_llm_started)
             self.event_bus.subscribe(LLMProcessingCompletedEvent, self._on_llm_completed)
+            self.event_bus.subscribe(LLMProcessingFailedEvent, self._on_llm_failed)
             self.event_bus.subscribe(LLMTokenGeneratedEvent, self._on_llm_token)
 
             # Stop word detection event
@@ -215,6 +217,7 @@ class QtDictationPopupController:
         self.on_llm_status_changed("Processing...")
 
         session_id = started.session_id or "default"
+        self.llm_stream_session_id = session_id
         ready_event = LLMProcessingReadyEvent(session_id=session_id)
         await self.event_bus.publish(ready_event)
         self.logger.debug(f"Published LLMProcessingReadyEvent for session {session_id}")
@@ -222,14 +225,20 @@ class QtDictationPopupController:
     def _on_llm_token(self, token_event: LLMTokenGeneratedEvent) -> None:
         """Append one token to the LLM output pane."""
         try:
+            if self.llm_stream_session_id is None or token_event.session_id != self.llm_stream_session_id:
+                return
             token = token_event.token
             if token:
                 self.on_llm_token(token)
         except Exception as e:
             self.logger.error(f"Error handling LLM token: {e}", exc_info=True)
 
+    def _on_llm_failed(self, _failed: LLMProcessingFailedEvent) -> None:
+        self.llm_stream_session_id = None
+
     def _on_llm_completed(self, _llm_completion: LLMProcessingCompletedEvent) -> None:
         """Show completion briefly, then hide the popup."""
+        self.llm_stream_session_id = None
         self.on_llm_status_changed("Complete!")
         # Hide popup after brief delay to show completion
         # Use QTimer instead of asyncio.sleep to avoid blocking event loop
@@ -299,3 +308,4 @@ class QtDictationPopupController:
             self.logger.debug("Dictation popup controller cleaned up")
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")
+        super().cleanup()

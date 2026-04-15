@@ -116,8 +116,7 @@ class QtGridView(QWidget):
         self.max_font_size = theme.config.fonts.large
         self.default_font_size = theme.config.fonts.small  # Base font size for proportionality calculation
 
-        # Controller callback
-        self.controller_callback = None
+        self._controller = None
 
         # Screen dimensions will be set dynamically when grid is shown
         self.screen_width = 1920
@@ -125,9 +124,9 @@ class QtGridView(QWidget):
 
         self.logger.info("QtGridView initialized")
 
-    def set_controller_callback(self, callback) -> None:
-        """Set the controller callback."""
-        self.controller_callback = callback
+    def bind_controller(self, controller) -> None:
+        """Attach the grid controller for selection result callbacks."""
+        self._controller = controller
 
     def _calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Calculate click counts from click tracker service synchronously.
@@ -757,13 +756,13 @@ class QtGridView(QWidget):
 
                 self.logger.info(f"Action '{click_mode}' performed at ({center_x}, {center_y})")
 
-                if self.controller_callback:
-                    self.controller_callback.on_grid_selection_success(selected_number, center_x, center_y)
+                if self._controller:
+                    self._controller.on_grid_selection_success(selected_number, center_x, center_y)
 
             except Exception as e:
                 self.logger.error(f"Error performing action: {e}", exc_info=True)
-                if self.controller_callback:
-                    self.controller_callback.on_grid_selection_failed(selected_number, str(e))
+                if self._controller:
+                    self._controller.on_grid_selection_failed(selected_number, str(e))
 
         # Use threading.Timer for cross-thread compatibility
         action_thread = threading.Timer(0.001, perform_action)  # Start almost immediately but in background

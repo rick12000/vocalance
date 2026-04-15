@@ -64,7 +64,7 @@ async def test_initialize_creates_default_prompt(mock_event_bus, mock_config, mo
     assert result is True
     assert service.current_prompt_id is not None
     assert len(service.prompts) == 1
-    default_prompt = service._get_default_prompt()
+    default_prompt = service.get_default_prompt()
     assert default_prompt is not None
     assert default_prompt.is_default is True
 
@@ -142,7 +142,7 @@ async def test_delete_prompt_nonexistent_fails(agentic_service):
 @pytest.mark.asyncio
 async def test_delete_prompt_fails_if_is_default(agentic_service):
     """Test that deleting default prompt fails."""
-    default_prompt = agentic_service._get_default_prompt()
+    default_prompt = agentic_service.get_default_prompt()
 
     result = await agentic_service.delete_prompt(default_prompt.id)
 
@@ -204,7 +204,7 @@ async def test_get_current_prompt(agentic_service):
 @pytest.mark.asyncio
 async def test_default_prompt_text_correct(agentic_service):
     """Test that default prompt has expected text."""
-    default_prompt = agentic_service._get_default_prompt()
+    default_prompt = agentic_service.get_default_prompt()
 
     assert default_prompt is not None
     assert "grammar" in default_prompt.text.lower()
@@ -252,7 +252,7 @@ async def test_default_prompt_persistence(mock_event_bus, mock_config, mock_stor
     )
     await service1.initialize()
 
-    assert service1._get_default_prompt() is not None
+    assert service1.get_default_prompt() is not None
 
 
 @pytest.mark.asyncio

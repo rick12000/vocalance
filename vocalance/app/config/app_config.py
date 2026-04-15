@@ -299,6 +299,19 @@ class DictationConfig(BaseModel):
 
     type_dictation_silence_timeout: float = 0.1
 
+    moonshine_modifier_suppress_sec: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=10.0,
+        description="After a modifier phrase, drop Moonshine partial/final output for this many seconds",
+    )
+    type_silence_monitor_max_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Safety cap for TYPE dictation silence watcher (seconds)",
+    )
+
     pyautogui_pause: float = Field(default=0.01, description="Global pause interval between pyautogui operations (seconds)")
     clipboard_paste_delay_pre: float = Field(default=0.05, description="Delay before clipboard paste operation (seconds)")
     clipboard_paste_delay_post: float = Field(default=0.1, description="Delay after clipboard paste operation (seconds)")

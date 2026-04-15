@@ -4,13 +4,13 @@ import logging
 import multiprocessing
 import os
 import threading
-from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 from llama_cpp import Llama
 
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfig, LocalLLMArtifact, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent
+from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 
 logger = logging.getLogger(__name__)
@@ -32,19 +32,14 @@ class LLMService:
         self.event_bus = event_bus
         self.config = config
         self.llm: Optional[Llama] = None
-        self._model_loaded = False
-
+        self.model_loaded = False
         self.model_downloader = LLMModelDownloader(config)
-
         cpu_count = multiprocessing.cpu_count()
         self.n_threads = config.llm.n_threads if config.llm.n_threads else max(4, min(int(cpu_count * 0.75), 12))
         self.n_threads_batch = config.llm.n_threads_batch if config.llm.n_threads_batch else self.n_threads
+        self.request_lock = asyncio.Lock()
 
-        self._request_lock = asyncio.Lock()
-
-        logger.debug("LLMService initialized")
-
-    def _active_spec(self) -> Optional[LocalLLMArtifact]:
+    def active_spec(self) -> Optional[LocalLLMArtifact]:
         spec = get_whitelisted_llm_model(self.config.llm.selected_model_id)
         if spec:
             return spec
@@ -53,48 +48,40 @@ class LLMService:
     def initialize(self) -> bool:
         return True
 
-    def _load_model(self, model_path: str) -> Optional[Llama]:
-        try:
-            cfg = self.config.llm
-            model = Llama(
-                model_path=model_path,
-                n_ctx=cfg.context_length,
-                n_threads=self.n_threads,
-                n_threads_batch=self.n_threads_batch,
-                n_batch=cfg.n_batch,
-                n_gpu_layers=0,
-                flash_attn=cfg.flash_attn,
-                use_mmap=True,
-                use_mlock=cfg.use_mlock,
-                chat_format="chatml",
-                seed=-1,
-                type_k=cfg.type_k,
-                type_v=cfg.type_v,
-                verbose=cfg.verbose,
-            )
-            logger.info("Model loaded successfully")
-            return model
-        except Exception as e:
-            logger.error(f"Model load error: {e}", exc_info=True)
-            return None
+    def load_model(self, model_path: str) -> Llama:
+        cfg = self.config.llm
+        return Llama(
+            model_path=model_path,
+            n_ctx=cfg.context_length,
+            n_threads=self.n_threads,
+            n_threads_batch=self.n_threads_batch,
+            n_batch=cfg.n_batch,
+            n_gpu_layers=0,
+            flash_attn=cfg.flash_attn,
+            use_mmap=True,
+            use_mlock=cfg.use_mlock,
+            chat_format="chatml",
+            seed=-1,
+            type_k=cfg.type_k,
+            type_v=cfg.type_v,
+            verbose=cfg.verbose,
+        )
 
-    async def _dispose_loaded_model(self) -> None:
+    async def dispose_loaded_model(self) -> None:
         if not self.llm:
-            self._model_loaded = False
+            self.model_loaded = False
             return
+        llm_ref = self.llm
+        self.llm = None
+        self.model_loaded = False
         try:
             async with asyncio.timeout(5.0):
-                loop = asyncio.get_event_loop()
-                if hasattr(self.llm, "close"):
-                    await loop.run_in_executor(None, self.llm.close)
+                loop = asyncio.get_running_loop()
+                if hasattr(llm_ref, "close"):
+                    await loop.run_in_executor(None, llm_ref.close)
         except asyncio.TimeoutError:
             logger.warning("LLM close timed out after 5s")
-        except Exception as e:
-            logger.warning(f"Error closing LLM model: {e}")
-        finally:
-            self.llm = None
-            self._model_loaded = False
-            gc.collect()
+        gc.collect()
 
     def is_whitelisted_bundle_on_disk(self, model_id: str) -> bool:
         spec = get_whitelisted_llm_model(model_id)
@@ -130,92 +117,83 @@ class LLMService:
                 return True, f"Downloaded: {spec.label}"
             self.model_downloader.revert_partial_bundle(fns, had_before)
             return False, f"Download failed for {spec.label}"
-        except Exception as e:
-            logger.error(f"LLM download error: {e}", exc_info=True)
+        except Exception:
             self.model_downloader.revert_partial_bundle(fns, had_before)
-            return False, str(e)
+            raise
 
-    async def _run_chat_completion(
+    async def run_chat_completion(
         self,
         messages: List[Dict[str, str]],
         fallback_text: str,
         agentic_prompt: str,
-        token_callback: Optional[Callable[[str], Awaitable[None]]],
+        stream_session_id: Optional[str],
     ) -> Optional[str]:
-        """Run one completion, emit bus events, return final text."""
-        async with self._request_lock:
-            spec = self._active_spec()
+        async with self.request_lock:
+            spec = self.active_spec()
             if not spec:
-                logger.error("No valid whitelisted LLM configuration")
-                await self._publish_failed("Invalid LLM configuration", fallback_text)
+                await self.emit_failed("Invalid LLM configuration", fallback_text)
                 return fallback_text.strip()
 
             if not self.model_downloader.model_bundle_complete(spec.gguf_filenames):
                 msg = "LLM model files missing. Download the selected model in Settings."
-                logger.error(msg)
-                await self._publish_failed(msg, fallback_text)
+                await self.emit_failed(msg, fallback_text)
                 return fallback_text.strip()
 
             model_path = self.model_downloader.get_model_path(spec.load_path_filename)
             if not os.path.exists(model_path) or os.path.getsize(model_path) <= 0:
-                await self._publish_failed("LLM model file missing or empty", fallback_text)
+                await self.emit_failed("LLM model file missing or empty", fallback_text)
                 return fallback_text.strip()
 
-            loop = asyncio.get_event_loop()
-            self.llm = await loop.run_in_executor(None, self._load_model, model_path)
-            if not self.llm:
-                self._model_loaded = False
-                await self._publish_failed("LLM failed to load", fallback_text)
-                return fallback_text.strip()
-
-            self._model_loaded = True
+            loop = asyncio.get_running_loop()
             try:
-                full_text = []
-                async for token in self._generate_streaming(messages):
+                self.llm = await loop.run_in_executor(None, self.load_model, model_path)
+            except Exception as e:
+                await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
+                return fallback_text.strip()
+
+            self.model_loaded = True
+            try:
+                full_text: List[str] = []
+                async for token in self.generate_streaming(messages):
                     full_text.append(token)
-                    if token_callback:
-                        try:
-                            await token_callback(token)
-                        except Exception as e:
-                            logger.error(f"Token callback error: {e}", exc_info=True)
+                    if stream_session_id:
+                        await self.event_bus.publish(LLMTokenGeneratedEvent(token=token, session_id=stream_session_id))
 
                 result = "".join(full_text).strip()
                 final_result = result if result else fallback_text.strip()
-                await self._publish_completed(final_result, agentic_prompt)
+                await self.emit_completed(final_result, agentic_prompt)
                 return final_result
             except Exception as e:
-                logger.error(f"Processing error: {e}", exc_info=True)
-                await self._publish_failed(str(e), fallback_text)
+                await self.emit_failed(str(e), fallback_text)
                 return fallback_text.strip()
             finally:
-                await self._dispose_loaded_model()
+                await self.dispose_loaded_model()
 
-    async def process_dictation_streaming(
-        self, raw_text: str, agentic_prompt: str, token_callback: Optional[Callable[[str], Awaitable[None]]] = None
-    ) -> Optional[str]:
-        messages = self._build_messages(agentic_prompt, raw_text)
-        return await self._run_chat_completion(messages, raw_text, agentic_prompt, token_callback)
+    async def process_dictation_streaming(self, raw_text: str, agentic_prompt: str, stream_session_id: str) -> Optional[str]:
+        messages = self.build_messages(agentic_prompt, raw_text)
+        return await self.run_chat_completion(messages, raw_text, agentic_prompt, stream_session_id)
 
     async def process_dictation(self, raw_text: str, agentic_prompt: str) -> Optional[str]:
-        return await self.process_dictation_streaming(raw_text, agentic_prompt, None)
+        messages = self.build_messages(agentic_prompt, raw_text)
+        return await self.run_chat_completion(messages, raw_text, agentic_prompt, None)
 
     async def process_amend_streaming(
         self,
         clipboard_text: str,
         spoken_prompt: str,
         agentic_prompt: str,
-        token_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+        stream_session_id: str,
     ) -> Optional[str]:
-        messages = self._build_amend_messages(agentic_prompt, clipboard_text, spoken_prompt)
-        return await self._run_chat_completion(messages, spoken_prompt, agentic_prompt, token_callback)
+        messages = self.build_amend_messages(agentic_prompt, clipboard_text, spoken_prompt)
+        return await self.run_chat_completion(messages, spoken_prompt, agentic_prompt, stream_session_id)
 
-    def _build_messages(self, agentic_prompt: str, raw_text: str) -> List[Dict[str, str]]:
+    def build_messages(self, agentic_prompt: str, raw_text: str) -> List[Dict[str, str]]:
         return [
             {"role": "system", "content": f"{agentic_prompt}"},
             {"role": "user", "content": raw_text},
         ]
 
-    def _build_amend_messages(self, agentic_prompt: str, clipboard_text: str, spoken_prompt: str) -> List[Dict[str, str]]:
+    def build_amend_messages(self, agentic_prompt: str, clipboard_text: str, spoken_prompt: str) -> List[Dict[str, str]]:
         extra = (agentic_prompt or "").strip()
         system_content = _AMEND_SYSTEM_BASE if not extra else f"{_AMEND_SYSTEM_BASE}\n\n{extra}"
         user_content = (
@@ -231,90 +209,61 @@ class LLMService:
             {"role": "user", "content": user_content},
         ]
 
-    async def _generate_streaming(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+    async def generate_streaming(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+        cfg = self.config.llm
+        loop = asyncio.get_running_loop()
+        token_queue: asyncio.Queue[Optional[str]] = asyncio.Queue(maxsize=50)
+
+        if not self.llm:
+            return
+
+        llm_ref = self.llm
+
+        def sync_generate() -> None:
+            stream = llm_ref.create_chat_completion(
+                messages=messages,
+                max_tokens=cfg.max_tokens,
+                temperature=cfg.temperature,
+                top_p=cfg.top_p,
+                top_k=cfg.top_k,
+                min_p=cfg.min_p,
+                repeat_penalty=cfg.repeat_penalty,
+                frequency_penalty=cfg.frequency_penalty,
+                mirostat_mode=cfg.mirostat_mode,
+                mirostat_tau=cfg.mirostat_tau,
+                mirostat_eta=cfg.mirostat_eta,
+                stop=[],
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk and chunk.get("choices"):
+                    delta = chunk["choices"][0].get("delta", {})
+                    token = delta.get("content", "")
+                    if token:
+                        loop.call_soon_threadsafe(token_queue.put_nowait, token)
+            loop.call_soon_threadsafe(token_queue.put_nowait, None)
+
+        executor_task = loop.run_in_executor(None, sync_generate)
+
         try:
-            cfg = self.config.llm
-            loop = asyncio.get_running_loop()
-            token_queue = asyncio.Queue(maxsize=50)
+            while True:
+                token = await asyncio.wait_for(token_queue.get(), timeout=cfg.generation_timeout_sec)
+                if token is None:
+                    break
+                yield token
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            await executor_task
 
-            if not self.llm:
-                return
+    async def emit_completed(self, processed_text: str, agentic_prompt: str) -> None:
+        await self.event_bus.publish(LLMProcessingCompletedEvent(processed_text=processed_text, agentic_prompt=agentic_prompt))
 
-            llm_ref = self.llm
-
-            def sync_generate():
-                try:
-                    stream = llm_ref.create_chat_completion(
-                        messages=messages,
-                        max_tokens=cfg.max_tokens,
-                        temperature=cfg.temperature,
-                        top_p=cfg.top_p,
-                        top_k=cfg.top_k,
-                        min_p=cfg.min_p,
-                        repeat_penalty=cfg.repeat_penalty,
-                        frequency_penalty=cfg.frequency_penalty,
-                        mirostat_mode=cfg.mirostat_mode,
-                        mirostat_tau=cfg.mirostat_tau,
-                        mirostat_eta=cfg.mirostat_eta,
-                        stop=[],
-                        stream=True,
-                    )
-
-                    token_count = 0
-                    for chunk in stream:
-                        if chunk and chunk.get("choices"):
-                            delta = chunk["choices"][0].get("delta", {})
-                            token = delta.get("content", "")
-                            if token:
-                                token_count += 1
-                                if token_count <= 5 or token_count % 10 == 0:
-                                    logger.debug(f"LLM generated token #{token_count}: '{token}'")
-                                loop.call_soon_threadsafe(token_queue.put_nowait, token)
-                    logger.info(f"LLM generation completed: {token_count} tokens generated")
-                    loop.call_soon_threadsafe(token_queue.put_nowait, None)
-
-                except Exception as e:
-                    logger.error(f"Generation error: {e}", exc_info=True)
-                    loop.call_soon_threadsafe(token_queue.put_nowait, None)
-
-            executor_task = loop.run_in_executor(None, sync_generate)
-
-            try:
-                callback_count = 0
-                while True:
-                    token = await asyncio.wait_for(token_queue.get(), timeout=cfg.generation_timeout_sec)
-                    if token is None:
-                        logger.debug(f"Token stream ended (received {callback_count} tokens)")
-                        break
-
-                    callback_count += 1
-                    yield token
-
-                await executor_task
-
-            except asyncio.TimeoutError:
-                logger.warning(f"Timeout after {cfg.generation_timeout_sec}s")
-
-        except Exception as e:
-            logger.error(f"Generation error: {e}", exc_info=True)
-
-    async def _publish_completed(self, processed_text: str, agentic_prompt: str) -> None:
-        completion = LLMProcessingCompletedEvent(processed_text=processed_text, agentic_prompt=agentic_prompt)
-        await self.event_bus.publish(completion)
-
-    async def _publish_failed(self, error_message: str, original_text: str) -> None:
-        failure = LLMProcessingFailedEvent(error_message=error_message, original_text=original_text)
-        await self.event_bus.publish(failure)
+    async def emit_failed(self, error_message: str, original_text: str) -> None:
+        await self.event_bus.publish(LLMProcessingFailedEvent(error_message=error_message, original_text=original_text))
 
     def is_ready(self) -> bool:
-        return self._model_loaded and self.llm is not None
+        return self.model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
-        try:
-            logger.info("LLM service shutting down")
-            await self._dispose_loaded_model()
-            for _ in range(2):
-                gc.collect()
-            logger.info("LLM service shutdown complete")
-        except Exception as e:
-            logger.error(f"Shutdown error: {e}", exc_info=True)
+        await self.dispose_loaded_model()

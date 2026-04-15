@@ -60,6 +60,7 @@ class LLMTokenGeneratedEvent(BaseEvent):
     """Event fired when a token is generated during LLM streaming."""
 
     token: str = Field(description="The generated token from LLM streaming")
+    session_id: str = Field(description="Matches LLMProcessingStartedEvent.session_id for UI correlation")
 
 
 class SmartDictationRemoveCharactersEvent(BaseEvent):

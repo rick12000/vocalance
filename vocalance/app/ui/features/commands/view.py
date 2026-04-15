@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 from PySide6.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.config.command_types import AutomationCommand
+from vocalance.app.ui.application.base_view import QtBaseView
 from vocalance.app.ui.components.buttons import ChangeButton, DangerButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import CommandEditDialog
 from vocalance.app.ui.components.inputs import TextInput
@@ -16,7 +17,6 @@ from vocalance.app.ui.components.layouts import (
     TwoColumnLayout,
 )
 from vocalance.app.ui.qt_theme import theme
-from vocalance.app.ui.views.qt_base_view import QtBaseView
 
 
 class QtCommandsView(QtBaseView):

@@ -3,6 +3,7 @@
 Tests CRUD operations for dictation alias mappings and the alias substitution logic.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -34,7 +35,7 @@ async def alias_service(mock_event_bus, mock_storage):
     service = DictationAliasService(
         event_bus=mock_event_bus,
         storage=mock_storage,
-        event_loop=None,
+        event_loop=asyncio.get_running_loop(),
     )
     await service.initialize()
     return service
@@ -49,7 +50,7 @@ async def test_initialize_loads_aliases(mock_event_bus, mock_storage):
     service = DictationAliasService(
         event_bus=mock_event_bus,
         storage=mock_storage,
-        event_loop=None,
+        event_loop=asyncio.get_running_loop(),
     )
     result = await service.initialize()
 

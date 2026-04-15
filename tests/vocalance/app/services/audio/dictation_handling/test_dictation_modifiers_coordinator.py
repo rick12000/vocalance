@@ -1,5 +1,7 @@
 """Tests for dictation coordinator helpers used with voice modifiers (explicit expectations)."""
 
+import asyncio
+from collections.abc import Iterator
 from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -7,17 +9,24 @@ import pytest
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator, DictationMode
+from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
+from vocalance.app.services.audio.dictation_handling.types import DictationMode
+from vocalance.app.services.audio.dictation_handling.utils.coordinator_segment_filters import (
+    dictation_segment_input_options,
+    is_isolated_stt_noise_fragment,
+)
+from vocalance.app.services.audio.dictation_handling.utils.trigger_strip import strip_config_phrases_case_insensitive
 
 
 @pytest.fixture
-def coordinator_minimal() -> DictationCoordinator:
+def coordinator_minimal() -> Iterator[DictationCoordinator]:
     """Coordinator with real config; heavy services mocked."""
+    loop = asyncio.new_event_loop()
     bus = Mock()
     bus.subscribe = Mock()
     bus.publish = AsyncMock()
     storage = Mock()
-    with patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.TextInputService"), patch(
+    with patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationTextInput"), patch(
         "vocalance.app.services.audio.dictation_handling.dictation_coordinator.LLMService"
     ), patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.AgenticPromptService"), patch(
         "vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationAliasService"
@@ -26,10 +35,15 @@ def coordinator_minimal() -> DictationCoordinator:
             event_bus=bus,
             config=GlobalAppConfig(),
             storage=storage,
+            gui_event_loop=loop,
+            stt_service=Mock(),
         )
     coord.alias_service = Mock()
     coord.alias_service.apply_substitutions = lambda t: t
-    return coord
+    try:
+        yield coord
+    finally:
+        loop.close()
 
 
 @pytest.mark.parametrize(
@@ -51,7 +65,7 @@ def test_dictation_segment_input_options(
     expected_skip_join: bool,
 ) -> None:
     modifiers_set = {modifier} if modifier else set()
-    add, skip = DictationCoordinator._dictation_segment_input_options(mode, modifiers_set)
+    add, skip = dictation_segment_input_options(mode, modifiers_set)
     assert add is expected_add_trailing
     assert skip is expected_skip_join
 
@@ -65,26 +79,26 @@ def test_dictation_segment_input_options(
     ],
 )
 def test_clean_text_strips_default_modifier_phrases(coordinator_minimal: DictationCoordinator, raw: str, expected: str) -> None:
-    assert coordinator_minimal._clean_text(raw) == expected
+    assert coordinator_minimal.clean_text(raw) == expected
 
 
 def test_clean_text_strips_stop_trigger_as_whole_word_only(coordinator_minimal: DictationCoordinator) -> None:
     """Stop trigger defaults to ``amber`` (DictationConfig), not the substring of unrelated words."""
     stop = coordinator_minimal.config.dictation.stop_trigger
     assert stop == "amber"
-    assert coordinator_minimal._clean_text("the amber lamp") == "the lamp"
-    assert coordinator_minimal._clean_text("shambers of commerce") == "shambers of commerce"
+    assert coordinator_minimal.clean_text("the amber lamp") == "the lamp"
+    assert coordinator_minimal.clean_text("shambers of commerce") == "shambers of commerce"
 
 
 def test_clean_text_strips_start_and_multiword_smart_triggers(coordinator_minimal: DictationCoordinator) -> None:
-    assert coordinator_minimal._clean_text("hello green fields") == "hello fields"
-    assert coordinator_minimal._clean_text("now smart green tomorrow") == "now tomorrow"
+    assert coordinator_minimal.clean_text("hello green fields") == "hello fields"
+    assert coordinator_minimal.clean_text("now smart green tomorrow") == "now tomorrow"
 
 
 def test_clean_text_keeps_spell_when_not_exact_modifier_phrase(coordinator_minimal: DictationCoordinator) -> None:
     """Only exact configured modifier phrases are removed; ``spell`` is not ``spelling``."""
-    assert coordinator_minimal._clean_text("spell check this") == "spell check this"
-    assert coordinator_minimal._clean_text("use spelling mode") == "use mode"
+    assert coordinator_minimal.clean_text("spell check this") == "spell check this"
+    assert coordinator_minimal.clean_text("use spelling mode") == "use mode"
 
 
 @pytest.mark.parametrize(
@@ -98,8 +112,8 @@ def test_clean_text_keeps_spell_when_not_exact_modifier_phrase(coordinator_minim
     ],
 )
 def test_is_isolated_stt_noise_fragment(text: str, expected_noise: bool) -> None:
-    assert DictationCoordinator._is_isolated_stt_noise_fragment(text) is expected_noise
+    assert is_isolated_stt_noise_fragment(text) is expected_noise
 
 
 def test_strip_config_phrases_idempotent_on_empty_phrases() -> None:
-    assert DictationCoordinator._strip_config_phrases_case_insensitive("a b c", ()) == "a b c"
+    assert strip_config_phrases_case_insensitive("a b c", ()) == "a b c"

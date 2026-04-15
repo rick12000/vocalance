@@ -72,8 +72,7 @@ class QtMarkView(QWidget):
         self.text_color = QColor(theme.config.text.medium)
         self.font = QFont(theme.config.font_family_primary, theme.config.fonts.small, QFont.Weight.DemiBold)
 
-        # Controller callback
-        self.controller_callback = None
+        self._controller = None
 
         # Connect signals to slots for thread-safe operations
         self.show_requested.connect(self._on_show_requested)
@@ -81,9 +80,9 @@ class QtMarkView(QWidget):
 
         self.logger.info("QtMarkView initialized")
 
-    def set_controller_callback(self, callback) -> None:
-        """Set the controller callback."""
-        self.controller_callback = callback
+    def bind_controller(self, controller) -> None:
+        """Attach the marks controller for overlay lifecycle callbacks."""
+        self._controller = controller
 
     @Slot()
     def _on_show_requested(self) -> None:
@@ -159,16 +158,16 @@ class QtMarkView(QWidget):
             self._schedule_robust_focus()
 
             # Notify controller asynchronously
-            if self.controller_callback:
-                QTimer.singleShot(0, lambda: self.controller_callback.on_mark_visualization_shown())
+            if self._controller:
+                QTimer.singleShot(0, lambda: self._controller.on_mark_visualization_shown())
 
             self.logger.info(f"Overlay displayed with focus scheduled, marks: {self.marks}")
 
         except Exception as e:
             self.logger.error(f"Error showing overlay: {e}", exc_info=True)
-            if self.controller_callback:
+            if self._controller:
                 error_msg = str(e)
-                QTimer.singleShot(0, lambda: self.controller_callback.on_mark_visualization_failed(error_msg))
+                QTimer.singleShot(0, lambda: self._controller.on_mark_visualization_failed(error_msg))
 
     def _schedule_robust_focus(self) -> None:
         """Schedule multiple focus attempts at strategic intervals.
@@ -229,8 +228,8 @@ class QtMarkView(QWidget):
             self._is_active = False
 
             # Notify controller asynchronously
-            if self.controller_callback:
-                QTimer.singleShot(0, lambda: self.controller_callback.on_mark_visualization_hidden())
+            if self._controller:
+                QTimer.singleShot(0, lambda: self._controller.on_mark_visualization_hidden())
 
             self.logger.info("Overlay hidden")
 

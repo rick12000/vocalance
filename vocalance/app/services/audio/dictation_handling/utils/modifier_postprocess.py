@@ -1,12 +1,8 @@
-"""Post-process dictation text: numbers, then optional casing/spelling modifiers."""
-
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.utils.number_parser import replace_spoken_numbers_in_text
 
 _MODIFIER_DISPLAY: dict[str, str] = {
     "upper": "Upper",
@@ -22,24 +18,6 @@ _MODIFIER_DISPLAY: dict[str, str] = {
 
 def modifier_display_label(modifier_id: DictationModifierId) -> str:
     return _MODIFIER_DISPLAY.get(modifier_id, modifier_id)
-
-
-def strip_trailing_period_after_numbers(text: str) -> str:
-    if not text:
-        return text
-    s = re.sub(r"(\d)\s+\.(?=\s|$)", r"\1 ", text)
-    s = re.sub(r"(\d)\.(?=\s|$)", r"\1", s)
-    return re.sub(r"\s+", " ", s).strip()
-
-
-def apply_base_postprocess(text: str) -> str:
-    if not text:
-        return text
-    s = re.sub(r"\s+", " ", text.strip())
-    if not s:
-        return ""
-    s = replace_spoken_numbers_in_text(s, apply_homophones=False)
-    return strip_trailing_period_after_numbers(s)
 
 
 def _title_each_word(text: str) -> str:
@@ -275,24 +253,3 @@ def apply_modifier_transform(text: str, active_modifiers: set[DictationModifierI
         text = _to_kebab_case(text)
 
     return text
-
-
-def apply_dictation_postprocess(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
-    if not text:
-        return text
-    result = apply_base_postprocess(text)
-    if not active_modifiers:
-        return result
-    return apply_modifier_transform(result, active_modifiers)
-
-
-def apply_dictation_postprocess_partial(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
-    if not text:
-        return text
-    result = apply_base_postprocess(text)
-    if not active_modifiers or active_modifiers == {"spelling"}:
-        return result
-
-    # Apply all except spelling for partials
-    partial_mods = active_modifiers - {"spelling"}
-    return apply_modifier_transform(result, partial_mods)

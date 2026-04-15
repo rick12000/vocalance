@@ -4,13 +4,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QVBoxLayout, QWidget
 
+from vocalance.app.ui.application.base_view import QtBaseView
 from vocalance.app.ui.components.buttons import DangerButton, DeleteButton, PrimaryButton
 from vocalance.app.ui.components.dialogs import BaseDialog
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BodyLabel, SectionTitle, SmallLabel
 from vocalance.app.ui.components.layouts import BaseContainer, ScrollableContainer, TransparentWidget, TwoColumnLayout
 from vocalance.app.ui.qt_theme import theme
-from vocalance.app.ui.views.qt_base_view import QtBaseView
 
 
 class SoundMappingDialog(BaseDialog):
@@ -91,34 +91,6 @@ class SoundMappingDialog(BaseDialog):
 
         self.type_combo = QComboBox()
         self.type_combo.setFont(theme.get_font(size="medium"))
-        self.type_combo.setStyleSheet(
-            f"""
-            QComboBox {{
-                background-color: {theme.config.shapes.medium};
-                color: {theme.config.text.medium};
-                border: none;
-                border-radius: {theme.config.radius.small}px;
-                padding: {theme.config.spacing.small}px;
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                background-color: {theme.config.shapes.medium};
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                color: {theme.config.text.medium};
-                width: 16px;
-                height: 16px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {theme.config.shapes.dark};
-                color: {theme.config.text.light};
-                selection-background-color: {theme.config.shapes.medium};
-                border: 1px solid {theme.config.shapes.medium};
-            }}
-        """
-        )
         command_types = self.controller.get_mapping_command_types()
         self.type_combo.addItems(command_types)
         self.type_combo.currentTextChanged.connect(self._on_type_changed)
@@ -130,34 +102,6 @@ class SoundMappingDialog(BaseDialog):
 
         self.value_combo = QComboBox()
         self.value_combo.setFont(theme.get_font(size="medium"))
-        self.value_combo.setStyleSheet(
-            f"""
-            QComboBox {{
-                background-color: {theme.config.shapes.medium};
-                color: {theme.config.text.medium};
-                border: none;
-                border-radius: {theme.config.radius.small}px;
-                padding: {theme.config.spacing.small}px;
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                background-color: {theme.config.shapes.medium};
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                color: {theme.config.text.medium};
-                width: 16px;
-                height: 16px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {theme.config.shapes.dark};
-                color: {theme.config.text.light};
-                selection-background-color: {theme.config.shapes.medium};
-                border: 1px solid {theme.config.shapes.medium};
-            }}
-        """
-        )
         mapping_layout.addWidget(self.value_combo)
 
         # Buttons
@@ -288,20 +232,6 @@ class QtSoundsView(QtBaseView):
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(2)  # Very thin bar
         self.progress_bar.setVisible(False)
-
-        # Style progress bar with theme colors matching startup window
-        progress_stylesheet = f"""
-        QProgressBar {{
-            background-color: {theme.config.shapes.dark};
-            border: none;
-            border-radius: 1px;
-        }}
-        QProgressBar::chunk {{
-            background-color: {theme.config.blue.blue_2};
-            border-radius: 1px;
-        }}
-        """
-        self.progress_bar.setStyleSheet(progress_stylesheet)
 
         # Add padding above progress bar
         progress_container = QWidget()

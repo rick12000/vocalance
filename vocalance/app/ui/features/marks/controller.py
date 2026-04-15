@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 
 from PySide6.QtCore import Signal
 
@@ -21,7 +21,6 @@ class QtMarksController(QtBaseController):
     mark_overlay_shown = Signal()
     mark_overlay_hidden = Signal()
     operation_error = Signal(str)
-    status_updated = Signal(str, bool)
 
     def __init__(
         self,
@@ -36,14 +35,10 @@ class QtMarksController(QtBaseController):
 
         self.mark_service = mark_service
         self.config = config
-        self.mark_view = None
         self.marks_list: List[MarkData] = []
 
         self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
         self.event_bus.subscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
-
-    def set_mark_view(self, mark_view: Any) -> None:
-        self.mark_view = mark_view
 
     def refresh_marks(self) -> None:
         asyncio.create_task(self._refresh_marks_async())
@@ -60,7 +55,7 @@ class QtMarksController(QtBaseController):
         else:
             self.marks_list = []
         self.marks_loaded.emit(self.marks_list)
-        if self.mark_view:
+        if self.get_view():
             self.update_mark_view_data(self.marks_list)
 
     def create_mark(self, name: Optional[str], x: int, y: int, description: Optional[str] = None) -> None:
@@ -100,7 +95,7 @@ class QtMarksController(QtBaseController):
         asyncio.create_task(self.mark_service.set_visualization(False))
 
     def show_mark_overlay(self) -> None:
-        if not self.mark_view:
+        if not self.get_view():
             self.logger.error("Cannot show mark overlay: mark view not set")
             return
         asyncio.create_task(self._show_mark_overlay_async())
@@ -111,22 +106,26 @@ class QtMarksController(QtBaseController):
     async def _show_mark_overlay_async(self) -> None:
         marks = await self.mark_service.get_all_marks()
         self._update_marks_list(marks)
-        if self.mark_view:
-            self.mark_view.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
-            self.mark_view.show_requested.emit()
+        overlay = self.get_view()
+        if overlay:
+            overlay.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
+            overlay.show_requested.emit()
 
     def hide_mark_overlay(self) -> None:
-        if self.mark_view:
-            self.mark_view.hide_requested.emit()
+        overlay = self.get_view()
+        if overlay:
+            overlay.hide_requested.emit()
         else:
             self.logger.error("Cannot hide mark overlay: mark view not set")
 
     def is_mark_overlay_active(self) -> bool:
-        return self.mark_view.is_active() if self.mark_view else False
+        overlay = self.get_view()
+        return overlay.is_active() if overlay else False
 
     def update_mark_view_data(self, marks_list: List[MarkData]) -> None:
-        if self.mark_view:
-            self.mark_view.update_marks(marks_list)
+        overlay = self.get_view()
+        if overlay:
+            overlay.update_marks(marks_list)
 
     def on_mark_visualization_shown(self) -> None:
         asyncio.create_task(self.mark_service.set_visualization(True))
@@ -141,21 +140,23 @@ class QtMarksController(QtBaseController):
         self._update_marks_list(marks_snapshot.marks)
 
     async def _handle_mark_visualization_state_changed(self, viz_state: MarkVisualizationStateChangedEventData) -> None:
-        if not self.mark_view:
+        overlay = self.get_view()
+        if not overlay:
             return
 
-        if viz_state.is_visible and not self.mark_view.is_active():
+        if viz_state.is_visible and not overlay.is_active():
             marks = await self.mark_service.get_all_marks()
             self._update_marks_list(marks)
-            if self.mark_view:
-                self.mark_view.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
-                self.mark_view.show_requested.emit()
+            overlay = self.get_view()
+            if overlay:
+                overlay.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
+                overlay.show_requested.emit()
 
-        elif not viz_state.is_visible and self.mark_view.is_active():
-            self.mark_view.hide_requested.emit()
+        elif not viz_state.is_visible and overlay.is_active():
+            overlay.hide_requested.emit()
 
     def notify_status(self, message: str, is_error: bool = False) -> None:
-        self.status_updated.emit(message, is_error)
+        self.emit_status(message, is_error)
         if is_error:
             self.operation_error.emit(message)
 
@@ -166,7 +167,8 @@ class QtMarksController(QtBaseController):
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")
 
-        if self.mark_view:
-            self.mark_view.cleanup()
+        overlay = self.get_view()
+        if overlay:
+            overlay.cleanup()
 
         super().cleanup()

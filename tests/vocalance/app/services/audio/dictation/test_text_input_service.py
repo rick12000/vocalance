@@ -1,15 +1,16 @@
-"""Unit tests for TextInputService and helper functions.
+"""Unit tests for DictationTextInput and helper functions.
 
 Tests text input handling, clipboard operations, and dictation text processing.
 """
 
+import asyncio
 from unittest.mock import Mock, patch
 
 import pytest
 
 from vocalance.app.config.app_config import DictationConfig
-from vocalance.app.services.audio.dictation_handling.text_input_service import (
-    TextInputService,
+from vocalance.app.services.audio.dictation_handling.text_input_service import DictationTextInput
+from vocalance.app.services.audio.dictation_handling.utils.segment_text import (
     clean_dictation_text,
     get_trailing_whitespace_count,
     lowercase_first_letter,
@@ -247,7 +248,7 @@ class TestRemoveFormatting:
 
 
 # ============================================================================
-# Tests for TextInputService
+# Tests for DictationTextInput
 # ============================================================================
 
 
@@ -265,9 +266,10 @@ def dictation_config():
 
 
 @pytest.fixture
-def text_input_service(dictation_config):
-    """Create TextInputService instance for testing."""
-    return TextInputService(config=dictation_config)
+async def text_input_service(dictation_config):
+    """Create DictationTextInput bound to the running asyncio loop."""
+    loop = asyncio.get_running_loop()
+    return DictationTextInput(config=dictation_config, loop=loop)
 
 
 def _setup_clipboard_mocks(mock_paste, mock_copy, expected_text):

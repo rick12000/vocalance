@@ -124,26 +124,13 @@ class StartupWindow(QDialog):
 
         # Progress bar - minimal, modern aesthetic
         self.progress_bar = QProgressBar(self)
+        self.progress_bar.setObjectName("StartupProgressBar")
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(2)  # Very thin bar
-        self.progress_bar.setFixedWidth(460)  # Fixed width to prevent horizontal shifts
-
-        # Style progress bar with theme colors
-        progress_stylesheet = f"""
-        QProgressBar {{
-            background-color: {theme.config.shapes.dark};
-            border: none;
-            border-radius: 1px;
-        }}
-        QProgressBar::chunk {{
-            background-color: {theme.config.blue.blue_2};
-            border-radius: 1px;
-        }}
-        """
-        self.progress_bar.setStyleSheet(progress_stylesheet)
+        self.progress_bar.setFixedHeight(2)
+        self.progress_bar.setFixedWidth(460)
 
         # Center the progress bar horizontally
         progress_container = QWidget(self)

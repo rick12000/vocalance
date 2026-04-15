@@ -294,14 +294,12 @@ async def test_storage_config_property(storage_service, app_config):
     assert storage_config == app_config.storage
 
 
-def test_shutdown_waits_for_executor(storage_service):
-    """Test shutdown waits for executor to complete."""
-    # Shutdown
-    storage_service.shutdown()
-
-    # Executor should be shutdown
-    if hasattr(storage_service, "_executor"):
-        assert storage_service._executor._shutdown
+@pytest.mark.asyncio
+async def test_shutdown_clears_cache(storage_service):
+    """Shutdown clears the in-memory cache."""
+    storage_service._cache["test_key"] = CacheEntry(data={"x": 1}, timestamp=0.0)
+    await storage_service.shutdown()
+    assert len(storage_service._cache) == 0
 
 
 @pytest.mark.asyncio

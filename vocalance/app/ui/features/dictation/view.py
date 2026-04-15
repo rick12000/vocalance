@@ -15,8 +15,8 @@ from vocalance.app.ui.components.layouts import (
     TransparentWidget,
     TwoColumnLayout,
 )
+from vocalance.app.ui.features.dictation.alias_subview import QtDictationAliasSubView
 from vocalance.app.ui.qt_theme import theme
-from vocalance.app.ui.views.qt_dictation_alias_sub_view import QtDictationAliasSubView
 
 
 class TabButton(QPushButton):

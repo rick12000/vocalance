@@ -5,13 +5,17 @@ from typing import Optional
 import pytest
 
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.audio.dictation_handling.dictation_postprocess import (
+from vocalance.app.services.audio.dictation_handling.utils.base_postprocess import (
     apply_base_postprocess,
-    apply_dictation_postprocess,
-    apply_dictation_postprocess_partial,
+    strip_trailing_period_after_numbers,
+)
+from vocalance.app.services.audio.dictation_handling.utils.modifier_postprocess import (
     apply_modifier_transform,
     modifier_display_label,
-    strip_trailing_period_after_numbers,
+)
+from vocalance.app.services.audio.dictation_handling.utils.postprocess_pipeline import (
+    apply_dictation_postprocess,
+    apply_dictation_postprocess_partial,
 )
 
 
@@ -99,7 +103,7 @@ def test_apply_dictation_postprocess_none_modifier_is_base_only() -> None:
 
 
 def test_apply_dictation_postprocess_base_then_modifier() -> None:
-    assert apply_dictation_postprocess("one two three", "spelling") == "123"
+    assert apply_dictation_postprocess("one two three", {"spelling"}) == "123"
 
 
 @pytest.mark.parametrize(

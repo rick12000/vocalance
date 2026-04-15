@@ -35,7 +35,6 @@ class QtDictationController(QtBaseController):
     llm_processing_completed = Signal(str, str)
     llm_processing_failed = Signal(str, str)
     operation_error = Signal(str)
-    status_updated = Signal(str, bool)
 
     def __init__(
         self,
@@ -113,7 +112,6 @@ class QtDictationController(QtBaseController):
 
         async def _do():
             await self._agentic_service.add_prompt(prompt_text, name)
-            await self._agentic_service._publish_state()
 
         asyncio.create_task(_do())
         self.notify_status(f"Added custom prompt: {name}")
@@ -121,7 +119,7 @@ class QtDictationController(QtBaseController):
 
     def select_prompt(self, prompt_id: str) -> None:
         self._agentic_service.set_current_prompt(prompt_id)
-        asyncio.create_task(self._agentic_service._publish_state())
+        asyncio.create_task(self._agentic_service.publish_state())
         self.notify_status("Prompt selection updated.")
 
     def is_default_prompt(self, prompt_id: str) -> bool:
@@ -142,7 +140,6 @@ class QtDictationController(QtBaseController):
 
         async def _do():
             await self._agentic_service.delete_prompt(prompt_id)
-            await self._agentic_service._publish_state()
 
         asyncio.create_task(_do())
         self.notify_status(f"Deleted prompt: {prompt_name}")
@@ -161,14 +158,13 @@ class QtDictationController(QtBaseController):
 
         async def _do():
             await self._agentic_service.edit_prompt(prompt_id, name, text)
-            await self._agentic_service._publish_state()
 
         asyncio.create_task(_do())
         self.notify_status(f"Updated prompt: {name}")
         return True
 
     def refresh_prompts(self) -> None:
-        asyncio.create_task(self._agentic_service._publish_state())
+        asyncio.create_task(self._agentic_service.publish_state())
         self.notify_status("Requesting prompts...")
 
     def get_prompts(self) -> List[Dict[str, Any]]:
@@ -178,7 +174,7 @@ class QtDictationController(QtBaseController):
         return self.current_prompt_id
 
     def notify_status(self, message: str, is_error: bool = False) -> None:
-        self.status_updated.emit(message, is_error)
+        self.emit_status(message, is_error)
         if is_error:
             self.operation_error.emit(message)
 

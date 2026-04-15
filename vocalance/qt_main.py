@@ -118,7 +118,15 @@ def _construct_services(
         action_map_provider=action_map_provider,
     )
 
-    dictation = DictationCoordinator(event_bus=event_bus, config=config, storage=storage, gui_event_loop=gui_loop)
+    stt = SpeechToTextService(event_bus=event_bus, config=config)
+
+    dictation = DictationCoordinator(
+        event_bus=event_bus,
+        config=config,
+        storage=storage,
+        gui_event_loop=gui_loop,
+        stt_service=stt,
+    )
 
     audio = AudioService(
         event_bus=event_bus,
@@ -127,7 +135,6 @@ def _construct_services(
         dictation=dictation,
     )
     sound_service = SoundService(event_bus=event_bus, config=config, storage=storage)
-    stt = SpeechToTextService(event_bus=event_bus, config=config)
 
     pause_manager = PauseStateManager(event_bus=event_bus)
     parser = CentralizedCommandParser(
@@ -244,7 +251,6 @@ async def _initialize_services(
     progress_tracker.update_sub_step(sub_step_name="Initializing dictation", progress=0.55)
     if not await services.dictation.initialize():
         raise RuntimeError("Critical dictation initialization failed")
-    services.dictation.set_stt_service(services.stt)
     _check_cancellation(shutdown_coordinator)
 
     progress_tracker.complete_step()
@@ -359,7 +365,9 @@ async def main() -> None:
             icon_manager.apply_to_application(qt_app)
 
         theme.load_fonts(config.asset_paths.fonts_dir)
-        theme._apply_app_palette(qt_app)
+        theme.load_stylesheet()
+        theme.apply_stylesheet(qt_app)
+        qt_app.setFont(theme.get_font(size="medium", weight="regular"))
 
         shutdown_coordinator = ShutdownCoordinator()
         _signal_timer = _setup_signal_handlers(shutdown_coordinator)  # noqa: F841

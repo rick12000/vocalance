@@ -240,7 +240,7 @@ class StorageService:
         with self._lock:
             return {"entries": len(self._cache), "models": list(self._cache.keys()), "ttl_seconds": self._cache_ttl}
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         """Shutdown storage service and clear cache."""
         try:
             logger.info("Shutting down StorageService...")

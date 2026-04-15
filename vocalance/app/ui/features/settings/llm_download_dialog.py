@@ -64,19 +64,6 @@ class LlmDownloadProgressDialog(QDialog):
         self._bar.setRange(0, 0)
         self._bar.setTextVisible(False)
         self._bar.setFixedHeight(3)
-        self._bar.setStyleSheet(
-            f"""
-            QProgressBar {{
-                background-color: {theme.config.shapes.dark};
-                border: none;
-                border-radius: 1px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {theme.config.blue.blue_2};
-                border-radius: 1px;
-            }}
-            """
-        )
         layout.addWidget(self._bar)
 
         status_row = QHBoxLayout()

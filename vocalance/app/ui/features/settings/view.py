@@ -15,8 +15,8 @@ from vocalance.app.ui.components.complex_components import FormGroup
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BoxTitleLabel, SectionTitle, SmallLabel
 from vocalance.app.ui.components.layouts import Box, ScrollableContainer
+from vocalance.app.ui.features.settings.llm_download_dialog import LlmDownloadProgressDialog
 from vocalance.app.ui.qt_theme import theme
-from vocalance.app.ui.views.qt_llm_download_dialog import LlmDownloadProgressDialog
 
 
 class QtSettingsView(QWidget):
@@ -281,39 +281,7 @@ class QtSettingsView(QWidget):
         self._sync_llm_model_ui_state()
 
     def _apply_llm_model_combo_style(self, combo: QComboBox) -> None:
-        """Match Box (`shapes.dark`) and other settings combos (e.g. Sounds view)."""
         combo.setFont(theme.get_font(size="medium"))
-        combo.setStyleSheet(
-            f"""
-            QComboBox {{
-                background-color: {theme.config.shapes.dark};
-                color: {theme.config.text.light};
-                border: 1px solid {theme.config.shapes.light};
-                border-radius: {theme.config.radius.small}px;
-                padding: {theme.config.spacing.small}px;
-            }}
-            QComboBox:focus {{
-                border-color: {theme.config.shapes.lightest};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                background-color: {theme.config.shapes.dark};
-                width: 20px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                color: {theme.config.text.light};
-                width: 16px;
-                height: 16px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {theme.config.shapes.darkest};
-                color: {theme.config.text.light};
-                selection-background-color: {theme.config.shapes.medium};
-                border: 1px solid {theme.config.shapes.medium};
-            }}
-        """
-        )
 
     def _set_llm_download_busy(self, busy: bool) -> None:
         self._llm_download_busy = busy

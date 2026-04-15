@@ -1,5 +1,4 @@
 import logging
-import threading
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt, QUrl
@@ -9,8 +8,9 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
+from vocalance.app.ui.application.ui_registry import UiRegistry
 from vocalance.app.ui.components.complex_components import HeaderIconButton, SidebarButton
-from vocalance.app.ui.components.labels import BodyLabel, LargeLabel, TitleLabel
+from vocalance.app.ui.components.labels import BodyLabel, TitleLabel
 from vocalance.app.ui.components.layouts import BaseContainer, TransparentBox
 from vocalance.app.ui.components.specialized import ExpandableSidebar
 from vocalance.app.ui.qt_theme import theme
@@ -52,15 +52,36 @@ class VocalanceMainWindow(QMainWindow):
         self.asset_cache = QtAssetCache(asset_paths_config=self.config.asset_paths)
         self.logo_service = QtLogoService(self.asset_cache)
 
-        self._view_cache_lock = threading.RLock()
-        self._view_cache: dict = {}
+        self._view_cache: dict[str, QWidget] = {}
         self._current_view: Optional[QWidget] = None
 
+        self._registry = UiRegistry(
+            event_bus=self.event_bus,
+            logger=self.logger,
+            config=self.config,
+            services=self._services,
+            main_window=self,
+        )
+        self._attach_registry_attributes()
+
         self._setup_window()
-        self._initialize_controllers()
         self._build_ui()
 
         self.logger.debug("VocalanceMainWindow initialized")
+
+    def _attach_registry_attributes(self) -> None:
+        r = self._registry
+        self.system_controller = r.system_controller
+        self.marks_controller = r.marks_controller
+        self.grid_controller = r.grid_controller
+        self.sound_controller = r.sound_controller
+        self.commands_controller = r.commands_controller
+        self.dictation_controller = r.dictation_controller
+        self.dictation_alias_controller = r.dictation_alias_controller
+        self.settings_controller = r.settings_controller
+        self.dictation_popup_controller = r.dictation_popup_controller
+        self.mark_view = r.mark_view
+        self.grid_view = r.grid_view
 
     def _setup_window(self) -> None:
         self.setWindowTitle("Vocalance")
@@ -83,68 +104,6 @@ class VocalanceMainWindow(QMainWindow):
             icon_path = self.asset_cache.get_icon_path()
             if icon_path and icon_path.exists():
                 self.setWindowIcon(QIcon(str(icon_path)))
-
-    def _initialize_controllers(self) -> None:
-        """Wire up every controller that has a backing service."""
-        from vocalance.app.ui.controls.qt_commands_controller import QtCommandsController
-        from vocalance.app.ui.controls.qt_dictation_alias_controller import QtDictationAliasController
-        from vocalance.app.ui.controls.qt_dictation_controller import QtDictationController
-        from vocalance.app.ui.controls.qt_grid_controller import QtGridController
-        from vocalance.app.ui.controls.qt_marks_controller import QtMarksController
-        from vocalance.app.ui.controls.qt_settings_controller import QtSettingsController
-        from vocalance.app.ui.controls.qt_sound_controller import QtSoundController
-        from vocalance.app.ui.controls.qt_system_controller import QtSystemController
-
-        s = self._services
-
-        self.system_controller = QtSystemController(self.event_bus, self)
-
-        self.marks_controller = QtMarksController(self.event_bus, s.mark, self.config) if s.mark else None
-        self.grid_controller = QtGridController(self.event_bus, s.grid, self.config) if s.grid else None
-        self.sound_controller = (
-            QtSoundController(self.event_bus, s.sound_service, s.storage, self.config, s.mark) if s.sound_service else None
-        )
-        self.commands_controller = (
-            QtCommandsController(self.event_bus, s.command_management, self.config) if s.command_management else None
-        )
-        self.dictation_controller = (
-            QtDictationController(self.event_bus, self.config, s.dictation.prompts) if s.dictation else None
-        )
-        self.dictation_alias_controller = QtDictationAliasController(self.event_bus, s.dictation.aliases) if s.dictation else None
-        self.settings_controller = QtSettingsController(self.event_bus, s.settings, self.config, self) if s.settings else None
-
-        self.dictation_popup_controller = None
-        try:
-            from vocalance.app.ui.controls.qt_dictation_popup_controller import QtDictationPopupController
-
-            self.dictation_popup_controller = QtDictationPopupController(self.event_bus)
-        except Exception as e:
-            self.logger.warning("Could not initialize dictation popup controller: %s", e)
-
-        self._initialize_overlay_views()
-
-    def _initialize_overlay_views(self) -> None:
-        s = self._services
-        try:
-            from vocalance.app.ui.views.qt_grid_view import QtGridView
-            from vocalance.app.ui.views.qt_mark_view import QtMarkView
-
-            if self.marks_controller and s.mark:
-                self.mark_view = QtMarkView(mark_service=s.mark, config=self.config)
-                self.mark_view.set_controller_callback(self.marks_controller)
-                self.marks_controller.set_mark_view(self.mark_view)
-            else:
-                self.mark_view = None
-
-            if self.grid_controller and s.grid:
-                self.grid_view = QtGridView(self.event_bus, s.click_tracker, self.config)
-                self.grid_view.set_controller_callback(self.grid_controller)
-                self.grid_controller.set_grid_view(self.grid_view)
-            else:
-                self.grid_view = None
-
-        except Exception as e:
-            self.logger.error("Error initializing overlay views: %s", e, exc_info=True)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -385,75 +344,17 @@ class VocalanceMainWindow(QMainWindow):
         if subtitle:
             self._set_header_subtitle(subtitle)
 
-        with self._view_cache_lock:
-            cached = self._view_cache.get(tab_name)
+        cached = self._view_cache.get(tab_name)
 
         if cached is None:
-            view = self._create_view(tab_name)
-            with self._view_cache_lock:
-                self._view_cache[tab_name] = view
-                self._current_view = view
+            view = self._registry.create_tab_widget(tab_name)
+            self._view_cache[tab_name] = view
+            self._current_view = view
             self.stacked_widget.addWidget(view)
             self.stacked_widget.setCurrentWidget(view)
         else:
-            with self._view_cache_lock:
-                self._current_view = cached
+            self._current_view = cached
             self.stacked_widget.setCurrentWidget(cached)
-
-    def _create_view(self, tab_name: str) -> QWidget:
-        try:
-            if tab_name == "Marks":
-                from vocalance.app.ui.views.qt_marks_view import QtMarksView
-
-                view = QtMarksView()
-                if self.marks_controller:
-                    view.set_controller(self.marks_controller)
-                return view
-
-            if tab_name == "Sounds":
-                from vocalance.app.ui.views.qt_sounds_view import QtSoundsView
-
-                view = QtSoundsView()
-                if self.sound_controller:
-                    view.set_controller(self.sound_controller)
-                return view
-
-            if tab_name == "Commands":
-                from vocalance.app.ui.views.qt_commands_view import QtCommandsView
-
-                view = QtCommandsView()
-                if self.commands_controller:
-                    view.set_controller(self.commands_controller)
-                return view
-
-            if tab_name == "Dictation":
-                from vocalance.app.ui.views.qt_dictation_view import QtDictationView
-
-                view = QtDictationView()
-                if self.dictation_controller:
-                    view.set_controller(self.dictation_controller)
-                if self.dictation_alias_controller:
-                    view.set_alias_controller(self.dictation_alias_controller)
-                return view
-
-            if tab_name == "Settings":
-                from vocalance.app.ui.views.qt_settings_view import QtSettingsView
-
-                view = QtSettingsView()
-                if self.settings_controller:
-                    view.set_controller(self.settings_controller)
-                return view
-
-        except Exception as e:
-            self.logger.error("Error creating view for %s: %s", tab_name, e, exc_info=True)
-
-        # Fallback
-        placeholder = QWidget()
-        layout = QVBoxLayout(placeholder)
-        label = LargeLabel(f"{tab_name} View\n(Fallback – check logs)")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(label)
-        return placeholder
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -467,10 +368,9 @@ class VocalanceMainWindow(QMainWindow):
             self._shutdown_coordinator.request_shutdown(reason="User closed main window", source="main_window_close_event")
 
     def _cleanup_controllers(self) -> None:
-        with self._view_cache_lock:
-            view_items = list(self._view_cache.items())
-            self._view_cache.clear()
-            self._current_view = None
+        view_items = list(self._view_cache.items())
+        self._view_cache.clear()
+        self._current_view = None
 
         for view_name, view in view_items:
             try:
@@ -479,17 +379,4 @@ class VocalanceMainWindow(QMainWindow):
             except Exception as e:
                 self.logger.debug("Error deleting cached view %s: %s", view_name, e)
 
-        for attr in (
-            "marks_controller",
-            "sound_controller",
-            "dictation_controller",
-            "dictation_alias_controller",
-            "settings_controller",
-            "commands_controller",
-            "grid_controller",
-            "system_controller",
-            "dictation_popup_controller",
-        ):
-            controller = getattr(self, attr, None)
-            if controller and hasattr(controller, "cleanup"):
-                controller.cleanup()
+        self._registry.cleanup_controllers()

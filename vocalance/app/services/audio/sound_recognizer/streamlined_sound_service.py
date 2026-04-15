@@ -340,7 +340,6 @@ class SoundService(Service):
     async def shutdown(self) -> None:
         self.event_bus.unsubscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
         try:
-            self._shutdown_event.set()
             self.cancel_training()
             if self.recognizer:
                 await self.recognizer.shutdown()
