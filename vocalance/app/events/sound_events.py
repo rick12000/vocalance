@@ -1,6 +1,8 @@
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from vocalance.app.events.base_event import BaseEvent
+
+SoundUiOp = Literal["delete", "reset_all", "train", "map", "refresh_snapshots"]
 
 
 class SoundTrainingInitiatedEvent(BaseEvent):
@@ -51,3 +53,13 @@ class SoundMappingsResponseEvent(BaseEvent):
     """Broadcast providing the full current sound-to-command mappings."""
 
     mappings: Dict[str, str] = {}
+
+
+class SoundUiOperationEvent(BaseEvent):
+    """UI-originated sound operations; handled by ``SoundService``."""
+
+    op: SoundUiOp
+    sound_label: str = ""
+    sound_name: str = ""
+    num_samples: int = 0
+    command_phrase: str = ""

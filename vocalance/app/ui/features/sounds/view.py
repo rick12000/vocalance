@@ -184,7 +184,6 @@ class QtSoundsView(QtBaseView):
         self.controller.training_progress.connect(self._on_training_progress)
         self.controller.training_completed.connect(self._on_training_completed)
         self.controller.training_error.connect(self._on_training_error)
-        self.controller.sound_deleted.connect(self._on_sound_deleted)
         self.controller.operation_error.connect(self._on_error)
 
         # Load initial sounds
@@ -351,12 +350,6 @@ class QtSoundsView(QtBaseView):
         self.samples_spinbox.setEnabled(True)
         self.current_training_sound = None
         self.logger.error(f"Training error for {sound_name}: {error_msg}")
-
-    def _on_sound_deleted(self, sound_name: str) -> None:
-        """Handle sound deleted event."""
-        if self.controller:
-            self.controller.refresh_sound_list()
-        self.logger.info(f"Sound deleted: {sound_name}")
 
     def _on_error(self, error_message: str) -> None:
         """Handle error from controller."""

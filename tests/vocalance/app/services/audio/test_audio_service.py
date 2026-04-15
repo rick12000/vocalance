@@ -2,12 +2,13 @@ import asyncio
 from unittest.mock import Mock, patch
 
 import pytest
+import pytest_asyncio
 
 from vocalance.app.services.audio.simple_audio_service import AudioService
 
 
-@pytest.fixture
-def audio_service(event_bus, app_config):
+@pytest_asyncio.fixture
+async def audio_service(event_bus, app_config):
     loop = asyncio.new_event_loop()
     dictation = Mock()
     dictation.feed_moonshine_audio_chunk = Mock()

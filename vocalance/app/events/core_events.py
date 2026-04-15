@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import Field
 
@@ -82,3 +82,48 @@ class MicLevelMeterPcmChunkEvent(BaseEvent):
     """Mono int16 PCM chunk for UI level metering (dictation popup simple mode)."""
 
     audio_chunk: bytes = Field(description="Raw PCM bytes, mono int16, host sample rate")
+
+
+RuntimeConfigRequestOp = Literal["get_effective", "update", "reset_defaults", "reset_section"]
+RuntimeConfigResponseOp = Literal["effective_snapshot", "update_result"]
+
+
+class RuntimeConfigRequestEvent(BaseEvent):
+    """UI/runtime configuration requests; handled by ``RuntimeConfigurationStore``."""
+
+    op: RuntimeConfigRequestOp
+    updates: Dict[str, Any] = Field(default_factory=dict)
+    correlation_id: str = ""
+    setting_keys: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class RuntimeConfigResponseEvent(BaseEvent):
+    """Responses for ``RuntimeConfigRequestEvent`` (effective settings or update RPC)."""
+
+    op: RuntimeConfigResponseOp
+    all_settings: Dict[str, Any] = Field(default_factory=dict)
+    correlation_id: str = ""
+    success: bool = False
+    message: str = ""
+
+
+LlmUiRequestOp = Literal["refresh_bundle_status", "start_download", "cancel_download"]
+LlmUiNotificationKind = Literal["bundle_status", "download_progress", "download_finished"]
+
+
+class LlmUiRequestEvent(BaseEvent):
+    """UI-originated LLM bundle/download requests; handled by ``LLMService``."""
+
+    op: LlmUiRequestOp
+    model_id: str = ""
+    request_id: str = ""
+
+
+class LlmUiNotificationEvent(BaseEvent):
+    """LLM bundle status and download lifecycle notifications for the UI."""
+
+    kind: LlmUiNotificationKind
+    status: Dict[str, bool] = Field(default_factory=dict)
+    request_id: str = ""
+    message: str = ""
+    ok: bool = False

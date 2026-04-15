@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import math
 import threading
 import time
+from functools import partial
 from typing import Any, Dict, List, Optional, Tuple
 
 import pyautogui
@@ -11,7 +13,9 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects
+from vocalance.app.events.core_events import PerformMouseClickEventData
+from vocalance.app.events.grid_events import GridStateEvent
+from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects, rects_with_click_counts
 from vocalance.app.ui.qt_theme import theme
 
 # Drag mode: PyAutoGUI only interpolates pointer motion when duration > 0.1s. A short settle after the
@@ -20,6 +24,15 @@ _GRID_DRAG_MOVE_MIN_S = 0.22
 _GRID_DRAG_MOVE_MAX_S = 0.85
 _GRID_DRAG_MOVE_DIST_DIVISOR = 2200.0
 _GRID_DRAG_SETTLE_S = 0.05
+
+
+def _log_grid_overlay_scheduled_future(logger: logging.Logger, fut: Any) -> None:
+    try:
+        exc = fut.exception()
+        if exc is not None:
+            logger.error("Grid overlay bus publish failed", exc_info=(type(exc), exc, exc.__traceback__))
+    except Exception:
+        logger.exception("Grid overlay publish future failed")
 
 
 class QtGridView(QWidget):
@@ -37,29 +50,23 @@ class QtGridView(QWidget):
     def __init__(
         self,
         event_bus: EventBus,
-        click_tracker_service,
         config: GlobalAppConfig,
+        gui_event_loop: asyncio.AbstractEventLoop,
         default_num_rects: Optional[int] = None,
     ):
-        """Initialize grid view.
-
-        Args:
-            event_bus: Event bus for publishing events.
-            click_tracker_service: ClickTrackerService for getting click data.
-            config: Global app configuration.
-            default_num_rects: Default number of rectangles to display.
-        """
         super().__init__()
 
         self.logger = logging.getLogger(self.__class__.__name__)
         self.event_bus = event_bus
-        self._click_tracker = click_tracker_service
         self.config = config
+        self._gui_loop = gui_event_loop
 
         self.default_num_rects = default_num_rects or self.DEFAULT_NUM_RECTS
 
         # Thread safety
         self._state_lock = threading.RLock()
+        self._clicks_snapshot: List[Dict[str, Any]] = []
+        self._pending_clicks_snapshot: Optional[List[Dict[str, Any]]] = None
 
         # Grid state
         self._is_active = False
@@ -115,95 +122,34 @@ class QtGridView(QWidget):
         self.max_font_size = theme.config.fonts.large
         self.default_font_size = theme.config.fonts.small  # Base font size for proportionality calculation
 
-        self._controller = None
-
         # Screen dimensions will be set dynamically when grid is shown
         self.screen_width = 1920
         self.screen_height = 1080
 
         self.logger.info("QtGridView initialized")
 
-    def bind_controller(self, controller) -> None:
-        """Attach the grid controller for selection result callbacks."""
-        self._controller = controller
+    def set_clicks_snapshot(self, clicks: List[Dict[str, Any]]) -> None:
+        self._pending_clicks_snapshot = [dict(c) for c in clicks]
+        QMetaObject.invokeMethod(self, "_apply_clicks_snapshot", Qt.ConnectionType.QueuedConnection)
+
+    @Slot()
+    def _apply_clicks_snapshot(self) -> None:
+        pending = self._pending_clicks_snapshot
+        if pending is None:
+            return
+        self._pending_clicks_snapshot = None
+        with self._state_lock:
+            self._clicks_snapshot = pending
+        self.refresh_click_labels_if_active()
 
     def _calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Calculate click counts from click tracker service synchronously.
+        with self._state_lock:
+            snap = list(self._clicks_snapshot)
+        return rects_with_click_counts(rect_definitions, snap)
 
-        OPTIMIZATION: Uses spatial bucketing to reduce O(N*M) to O(N+M) complexity.
-        For 2025 cells and 1000 clicks: reduces from 2,025,000 to 3,025 operations!
-        """
-        # Get all clicks from click tracker service (fast, in-memory)
-        if not self._click_tracker:
-            # No click tracker, return zero counts
-            return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
-
-        all_clicks = self._click_tracker.get_all_clicks_sync()
-
-        # OPTIMIZATION: Build spatial index of clicks using grid bucketing
-        # This reduces complexity from O(N*M) to O(N+M)
-        if not all_clicks:
-            return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
-
-        # Build spatial buckets: group clicks by cell they fall into
-        # Use first rect to determine bucket size (all rects have same dimensions)
-        if not rect_definitions:
-            return []
-
-        first_rect = rect_definitions[0]
-        bucket_w = int(first_rect["w"])
-        bucket_h = int(first_rect["h"])
-
-        # Create spatial hash map: (bucket_x, bucket_y) -> [clicks]
-        click_buckets = {}
-        for click in all_clicks:
-            try:
-                click_x = click.get("x", 0)
-                click_y = click.get("y", 0)
-                bucket_x = int(click_x // bucket_w)
-                bucket_y = int(click_y // bucket_h)
-                key = (bucket_x, bucket_y)
-                if key not in click_buckets:
-                    click_buckets[key] = []
-                click_buckets[key].append(click)
-            except (TypeError, ValueError):
-                continue
-
-        # Now count clicks per rect by checking only relevant buckets
-        processed_rects = []
-        for rect_def in rect_definitions:
-            try:
-                rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
-                rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
-
-                # Determine which bucket(s) this rect overlaps
-                bucket_x = int(rect_x // bucket_w)
-                bucket_y = int(rect_y // bucket_h)
-
-                # Check clicks in this bucket and adjacent buckets (for edge cases)
-                count = 0
-                for dx in [-1, 0, 1]:
-                    for dy in [-1, 0, 1]:
-                        key = (bucket_x + dx, bucket_y + dy)
-                        if key in click_buckets:
-                            for click in click_buckets[key]:
-                                if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h):
-                                    count += 1
-
-                processed_rects.append({"data": rect_def, "clicks": count})
-
-            except (KeyError, ValueError, TypeError):
-                processed_rects.append({"data": rect_def, "clicks": 0})
-
-        return processed_rects
-
-    def _is_click_in_rect(self, click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
-        """Check if click is in rectangle."""
-        try:
-            click_x, click_y = click.get("x", 0), click.get("y", 0)
-            return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
-        except (TypeError, ValueError):
-            return False
+    def _schedule_bus_coroutine(self, coro: Any) -> None:
+        fut = asyncio.run_coroutine_threadsafe(coro, self._gui_loop)
+        fut.add_done_callback(partial(_log_grid_overlay_scheduled_future, self.logger))
 
     def _calculate_adaptive_font_size(self, num_rects: int) -> int:
         """Calculate adaptive font size based on number of grid cells.
@@ -679,7 +625,7 @@ class QtGridView(QWidget):
             if not self._is_active:
                 return
             num_rects = self._layout_num_rects_requested
-        if num_rects is None or not self._click_tracker:
+        if num_rects is None:
             return
 
         primary = QApplication.primaryScreen()
@@ -730,10 +676,8 @@ class QtGridView(QWidget):
 
         self.update()
 
-    def _publish_grid_mouse_click(self, x: int, y: int) -> None:
-        """Record the grid-executed pointer action at physical coordinates (any thread)."""
-        if self._click_tracker is not None:
-            self._click_tracker.record_physical_click(x, y)
+    def _publish_grid_pointer_recorded(self, x: int, y: int) -> None:
+        self._schedule_bus_coroutine(self.event_bus.publish(PerformMouseClickEventData(x=x, y=y, source="grid_overlay")))
 
     def _execute_grid_pointer_action(
         self,
@@ -746,7 +690,7 @@ class QtGridView(QWidget):
         cx, cy = int(center_x), int(center_y)
         if click_mode == "click":
             pyautogui.click(cx, cy)
-            self._publish_grid_mouse_click(cx, cy)
+            self._publish_grid_pointer_recorded(cx, cy)
         elif click_mode == "hover":
             pyautogui.moveTo(cx, cy)
         elif click_mode == "drag":
@@ -766,9 +710,47 @@ class QtGridView(QWidget):
                 time.sleep(_GRID_DRAG_SETTLE_S)
             finally:
                 pyautogui.mouseUp(tx, ty, button="left", _pause=False)
-            self._publish_grid_mouse_click(tx, ty)
+            self._publish_grid_pointer_recorded(tx, ty)
         else:
             raise ValueError(f"Unsupported grid click_mode: {click_mode!r}")
+
+    def _execute_delayed_grid_action(
+        self,
+        selected_number: int,
+        center_x: float,
+        center_y: float,
+        click_mode: str,
+        drag_origin: Optional[Tuple[int, int]],
+    ) -> None:
+        try:
+            time.sleep(0.05)
+            self._execute_grid_pointer_action(click_mode, center_x, center_y, drag_origin)
+            self.logger.info("Action '%s' performed at (%s, %s)", click_mode, center_x, center_y)
+            self._schedule_bus_coroutine(self._publish_grid_interaction_success(selected_number, center_x, center_y))
+        except Exception as e:
+            self.logger.error("Error performing action: %s", e, exc_info=True)
+            self._schedule_bus_coroutine(self._publish_grid_interaction_failure(selected_number, str(e)))
+
+    async def _publish_grid_interaction_success(self, selected_number: int, center_x: float, center_y: float) -> None:
+        await self.event_bus.publish(
+            GridStateEvent(
+                state="interaction_success",
+                config={
+                    "selected_number": selected_number,
+                    "center_x": center_x,
+                    "center_y": center_y,
+                },
+            )
+        )
+
+    async def _publish_grid_interaction_failure(self, selected_number: int, error_message: str) -> None:
+        await self.event_bus.publish(
+            GridStateEvent(
+                state="interaction_failed",
+                config={"selected_number": selected_number},
+                message=error_message,
+            )
+        )
 
     def handle_selection(self, selection_key: str, click_mode: str = "click") -> bool:
         """Handle grid cell selection.
@@ -804,27 +786,11 @@ class QtGridView(QWidget):
         # This ensures the overlay is fully gone before we click on the screen
         self.hide()
 
-        # Schedule the actual click/hover action using threading.Timer (not QTimer)
-        # QTimer requires Qt event loop which may not be available from calling thread
-        def perform_action():
-            try:
-                # Small delay to ensure overlay is fully hidden
-                time.sleep(0.05)  # 50ms delay
-
-                self._execute_grid_pointer_action(click_mode, center_x, center_y, drag_origin)
-
-                self.logger.info(f"Action '{click_mode}' performed at ({center_x}, {center_y})")
-
-                if self._controller:
-                    self._controller.on_grid_selection_success(selected_number, center_x, center_y)
-
-            except Exception as e:
-                self.logger.error(f"Error performing action: {e}", exc_info=True)
-                if self._controller:
-                    self._controller.on_grid_selection_failed(selected_number, str(e))
-
-        # Use threading.Timer for cross-thread compatibility
-        action_thread = threading.Timer(0.001, perform_action)  # Start almost immediately but in background
+        action_thread = threading.Timer(
+            0.001,
+            self._execute_delayed_grid_action,
+            args=(selected_number, center_x, center_y, click_mode, drag_origin),
+        )
         action_thread.daemon = True
         action_thread.start()
 
@@ -839,5 +805,7 @@ class QtGridView(QWidget):
             self.ui_to_rect_data_map.clear()
             self._is_active = False
             self._layout_num_rects_requested = None
+            self._clicks_snapshot = []
+            self._pending_clicks_snapshot = None
 
         self.logger.debug("QtGridView cleanup completed")

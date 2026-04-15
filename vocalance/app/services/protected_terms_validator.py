@@ -136,3 +136,10 @@ class ProtectedTermsValidator:
         self._cached_terms = None
         self._cache_expiry = 0.0
         logger.debug("Protected terms cache invalidated")
+
+    async def shutdown(self) -> None:
+        if self._event_bus is None:
+            return
+        self._event_bus.unsubscribe(CommandMappingsUpdatedEvent, self._on_mappings_updated)
+        self._event_bus.unsubscribe(SoundToCommandMappingUpdatedEvent, self._on_sound_mapping_updated)
+        self._event_bus = None

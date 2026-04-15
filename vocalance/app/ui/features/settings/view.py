@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import threading
 from functools import partial
 from typing import Any, Dict, Optional, Tuple
 
@@ -55,7 +54,6 @@ class QtSettingsView(QWidget):
         self.controller.settings_loaded.connect(self._on_settings_loaded)
         self.controller.setting_changed.connect(self._on_setting_changed)
         self.controller.all_settings_changed.connect(self._on_all_settings_changed)
-        self.controller.settings_reset.connect(self._on_settings_reset)
         self.controller.operation_error.connect(self._on_error)
 
         # Load initial settings
@@ -102,13 +100,6 @@ class QtSettingsView(QWidget):
         self.settings = settings
         self._refresh_settings_display()
         self.logger.info("All settings updated")
-
-    def _on_settings_reset(self) -> None:
-        """Handle settings reset event from controller."""
-        if self.controller:
-            self.controller.load_settings()
-        self.logger.info("Settings reset event received")
-        # Note: specific section messages are shown by the reset button handlers
 
     def _on_error(self, error_msg: str) -> None:
         """Handle error from controller."""
@@ -355,8 +346,7 @@ class QtSettingsView(QWidget):
 
         spec = get_whitelisted_llm_model(mid)
         dlg = LlmDownloadProgressDialog(self, model_label=spec.label if spec else mid)
-        cancel_ev = threading.Event()
-        dlg.cancel_clicked.connect(cancel_ev.set)
+        dlg.cancel_clicked.connect(self.controller.cancel_llm_download)
 
         self._llm_active_download = {"dlg": dlg, "mid": mid, "download_msg": ""}
         self._set_llm_download_busy(True)
@@ -365,7 +355,7 @@ class QtSettingsView(QWidget):
         self.controller.llm_download_progress.connect(dlg.set_status)
         self.controller.llm_cancellable_download_finished.connect(self._on_llm_cancellable_download_finished)
         try:
-            self.controller.schedule_llm_cancellable_download(mid, cancel_ev)
+            self.controller.schedule_llm_cancellable_download(mid)
             dlg.exec()
         finally:
             try:

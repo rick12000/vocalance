@@ -16,7 +16,12 @@ from vocalance.app.config.command_types import (
 )
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import MarkCommandParsedEvent
-from vocalance.app.events.mark_events import MarksChangedEventData, MarkVisualizationStateChangedEventData
+from vocalance.app.events.mark_events import (
+    MarksChangedEventData,
+    MarkUiRequestEvent,
+    MarkUiResponseEvent,
+    MarkVisualizationStateChangedEventData,
+)
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 from vocalance.app.services.storage.storage_models import Coordinate, MarksData
@@ -41,6 +46,7 @@ class MarkService(Service):
         self._protected_terms_validator = protected_terms_validator
         self._is_viz_active: bool = False
         event_bus.subscribe(MarkCommandParsedEvent, self._handle_mark_command_parsed)
+        event_bus.subscribe(MarkUiRequestEvent, self._handle_mark_ui_request)
 
     async def _handle_mark_command_parsed(self, parsed_mark_command: MarkCommandParsedEvent) -> None:
         command = parsed_mark_command.command
@@ -170,9 +176,40 @@ class MarkService(Service):
     async def set_visualization(self, show: bool) -> None:
         """Toggle mark visualization and broadcast the state change."""
         self._is_viz_active = show
-        await self._event_bus.publish(MarkVisualizationStateChangedEventData(is_visible=show))
+        marks_payload: Optional[Dict[str, Dict[str, Any]]] = None
+        if show:
+            marks_payload = await self.get_all_marks()
+        await self._event_bus.publish(MarkVisualizationStateChangedEventData(is_visible=show, marks=marks_payload))
 
-    # ── Public interface for direct callers (UI controllers) ──────────────────
+    async def _handle_mark_ui_request(self, event: MarkUiRequestEvent) -> None:
+        op = event.op
+        if op == "create":
+            if event.x is None or event.y is None:
+                return
+            success, msg = await self.create_mark(event.name, event.x, event.y)
+            await self._event_bus.publish(
+                MarkUiResponseEvent(
+                    kind="create_result",
+                    success=success,
+                    message=msg,
+                    name=event.name or "",
+                    x=event.x,
+                    y=event.y,
+                )
+            )
+        elif op == "delete" and event.mark_name:
+            await self.delete_mark(event.mark_name)
+        elif op == "delete_all":
+            await self.delete_all_marks()
+        elif op == "execute" and event.identifier:
+            await self.execute_mark(event.identifier)
+        elif op == "set_visualization" and event.visible is not None:
+            await self.set_visualization(event.visible)
+        elif op == "refresh_list":
+            await self._publish_marks_changed()
+        elif op == "prepare_overlay":
+            marks = await self.get_all_marks()
+            await self._event_bus.publish(MarkUiResponseEvent(kind="overlay_marks", marks=marks))
 
     async def create_mark(self, name: Optional[str], x: int, y: int) -> Tuple[bool, str]:
         """Create a mark and broadcast the updated marks list. Returns (success, message)."""
@@ -215,4 +252,5 @@ class MarkService(Service):
 
     async def shutdown(self) -> None:
         self._event_bus.unsubscribe(MarkCommandParsedEvent, self._handle_mark_command_parsed)
+        self._event_bus.unsubscribe(MarkUiRequestEvent, self._handle_mark_ui_request)
         await asyncio.sleep(self._config.mark.shutdown_grace_period_seconds)

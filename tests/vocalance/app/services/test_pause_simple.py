@@ -23,7 +23,7 @@ async def test_pause_state_manager_pause():
     """Test pausing the application."""
     event_bus = EventBus()
     manager = PauseStateManager(event_bus=event_bus)
-    event_bus.start()
+    event_bus.start(asyncio.get_running_loop())
 
     assert manager.is_paused() is False
 
@@ -40,7 +40,7 @@ async def test_pause_state_manager_resume():
     """Test resuming the application."""
     event_bus = EventBus()
     manager = PauseStateManager(event_bus=event_bus)
-    event_bus.start()
+    event_bus.start(asyncio.get_running_loop())
 
     # Pause first
     await event_bus.publish(SystemControlCommandParsedEvent(command=PauseCommand(), source="test"))
@@ -60,7 +60,7 @@ async def test_pause_resume_toggle():
     """Test multiple pause/resume cycles."""
     event_bus = EventBus()
     manager = PauseStateManager(event_bus=event_bus)
-    event_bus.start()
+    event_bus.start(asyncio.get_running_loop())
 
     # Cycle 1
     await event_bus.publish(SystemControlCommandParsedEvent(command=PauseCommand(), source="test"))

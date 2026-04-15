@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -355,12 +356,14 @@ def app_config():
     return GlobalAppConfig()
 
 
-@pytest.fixture
-def event_bus():
-    """Create a started event bus for testing."""
+@pytest_asyncio.fixture
+async def event_bus():
+    """Create a started event bus bound to the test asyncio loop."""
     bus = EventBus()
-    bus.start()
-    return bus
+    loop = asyncio.get_running_loop()
+    bus.start(loop)
+    yield bus
+    await bus.shutdown()
 
 
 @pytest_asyncio.fixture

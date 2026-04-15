@@ -40,9 +40,9 @@ def command_management_service(mock_event_bus, mock_storage, mock_protected_term
 
 
 @pytest.mark.asyncio
-async def test_no_event_subscriptions(command_management_service, mock_event_bus):
-    """CommandManagementService has no event subscriptions (UI calls methods directly)."""
-    assert mock_event_bus.subscribe.call_count == 0
+async def test_registers_ui_request_subscriptions(command_management_service, mock_event_bus):
+    """CommandManagementService subscribes to UI request events on the bus."""
+    assert mock_event_bus.subscribe.call_count == 1
 
 
 @pytest.mark.asyncio

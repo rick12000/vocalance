@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, 
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
+from vocalance.app.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.ui.application.ui_registry import UiRegistry
 from vocalance.app.ui.components.header_icon_button import HeaderIconButton
 from vocalance.app.ui.components.labels import BodyLabel, TitleLabel

@@ -7,7 +7,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.mark_events import MarkData
-from vocalance.app.services.mark_service import MarkService
 from vocalance.app.ui.qt_theme import theme
 
 
@@ -25,17 +24,15 @@ class QtMarkView(QWidget):
     show_requested = Signal()
     hide_requested = Signal()
 
-    def __init__(self, mark_service: MarkService, config: GlobalAppConfig) -> None:
+    def __init__(self, config: GlobalAppConfig) -> None:
         """Initialize mark view.
 
         Args:
-            mark_service: Mark service instance.
             config: Global app configuration.
         """
         super().__init__()
 
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.mark_service = mark_service
         self.config = config
 
         # Mark data

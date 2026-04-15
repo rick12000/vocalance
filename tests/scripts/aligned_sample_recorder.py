@@ -74,7 +74,8 @@ class AlignedSampleRecorder:
             time.sleep(0.01)
 
         self._event_bus = EventBus()
-        self._event_bus.start()
+        assert self._loop is not None
+        self._event_bus.start(self._loop)
 
         self.recorder = AudioRecorder(
             app_config=self.config,

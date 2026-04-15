@@ -6,18 +6,18 @@ from PySide6.QtCore import Signal
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.mark_events import MarkData, MarksChangedEventData, MarkVisualizationStateChangedEventData
-from vocalance.app.services.mark_service import MarkService
+from vocalance.app.events.mark_events import (
+    MarkData,
+    MarksChangedEventData,
+    MarkUiRequestEvent,
+    MarkUiResponseEvent,
+    MarkVisualizationStateChangedEventData,
+)
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
 class QtMarksController(QtBaseController):
-    """Controller for marks functionality — orchestrates between mark service and view."""
-
     marks_loaded = Signal(list)
-    mark_created = Signal(str, int, int)
-    mark_deleted = Signal(str)
-    all_marks_deleted = Signal()
     mark_overlay_shown = Signal()
     mark_overlay_hidden = Signal()
     operation_error = Signal(str)
@@ -25,7 +25,6 @@ class QtMarksController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        mark_service: MarkService,
         config: GlobalAppConfig,
     ) -> None:
         super().__init__(
@@ -33,19 +32,15 @@ class QtMarksController(QtBaseController):
             logger=logging.getLogger("QtMarksController"),
         )
 
-        self.mark_service = mark_service
         self.config = config
         self.marks_list: List[MarkData] = []
 
         self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
         self.event_bus.subscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
+        self.event_bus.subscribe(MarkUiResponseEvent, self._on_mark_ui_response)
 
     def refresh_marks(self) -> None:
-        asyncio.create_task(self._refresh_marks_async())
-
-    async def _refresh_marks_async(self) -> None:
-        marks = await self.mark_service.get_all_marks()
-        self._update_marks_list(marks)
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="refresh_list")))
 
     def _update_marks_list(self, marks: dict) -> None:
         if marks:
@@ -59,57 +54,34 @@ class QtMarksController(QtBaseController):
             self.update_mark_view_data(self.marks_list)
 
     def create_mark(self, name: Optional[str], x: int, y: int, description: Optional[str] = None) -> None:
-        asyncio.create_task(self._create_mark_async(name, x, y))
-
-    async def _create_mark_async(self, name: Optional[str], x: int, y: int) -> None:
-        success, msg = await self.mark_service.create_mark(name, x, y)
-        if success:
-            self.mark_created.emit(name or "", x, y)
-        else:
-            self.notify_status(msg, True)
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="create", name=name, x=x, y=y, description=description)))
 
     def delete_mark_by_name(self, mark_name: str) -> None:
-        asyncio.create_task(self._delete_mark_async(mark_name))
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="delete", mark_name=mark_name)))
 
     def delete_mark(self, mark_name: str) -> None:
         self.delete_mark_by_name(mark_name)
 
-    async def _delete_mark_async(self, mark_name: str) -> None:
-        await self.mark_service.delete_mark(mark_name)
-        self.mark_deleted.emit(mark_name)
-
     def delete_all_marks(self) -> None:
-        asyncio.create_task(self._delete_all_marks_async())
-
-    async def _delete_all_marks_async(self) -> None:
-        await self.mark_service.delete_all_marks()
-        self.all_marks_deleted.emit()
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="delete_all")))
 
     def execute_mark(self, identifier: Union[str, int]) -> None:
-        asyncio.create_task(self.mark_service.execute_mark(str(identifier)))
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="execute", identifier=str(identifier))))
 
     def request_show_overlay(self) -> None:
-        asyncio.create_task(self.mark_service.set_visualization(True))
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="set_visualization", visible=True)))
 
     def request_hide_overlay(self) -> None:
-        asyncio.create_task(self.mark_service.set_visualization(False))
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="set_visualization", visible=False)))
 
     def show_mark_overlay(self) -> None:
         if not self.get_view():
             self.logger.error("Cannot show mark overlay: mark view not set")
             return
-        asyncio.create_task(self._show_mark_overlay_async())
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="prepare_overlay")))
 
     def show_marks_overlay(self) -> None:
         self.show_mark_overlay()
-
-    async def _show_mark_overlay_async(self) -> None:
-        marks = await self.mark_service.get_all_marks()
-        self._update_marks_list(marks)
-        overlay = self.get_view()
-        if overlay:
-            overlay.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
-            overlay.show_requested.emit()
 
     def hide_mark_overlay(self) -> None:
         overlay = self.get_view()
@@ -128,10 +100,10 @@ class QtMarksController(QtBaseController):
             overlay.update_marks(marks_list)
 
     def on_mark_visualization_shown(self) -> None:
-        asyncio.create_task(self.mark_service.set_visualization(True))
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="set_visualization", visible=True)))
 
     def on_mark_visualization_hidden(self) -> None:
-        asyncio.create_task(self.mark_service.set_visualization(False))
+        asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(op="set_visualization", visible=False)))
 
     def on_mark_visualization_failed(self, error_message: str) -> None:
         self.notify_status(f"Mark visualization failed: {error_message}", True)
@@ -145,8 +117,8 @@ class QtMarksController(QtBaseController):
             return
 
         if viz_state.is_visible and not overlay.is_active():
-            marks = await self.mark_service.get_all_marks()
-            self._update_marks_list(marks)
+            marks_dict = viz_state.marks or {}
+            self._update_marks_list(marks_dict)
             overlay = self.get_view()
             if overlay:
                 overlay.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
@@ -154,6 +126,16 @@ class QtMarksController(QtBaseController):
 
         elif not viz_state.is_visible and overlay.is_active():
             overlay.hide_requested.emit()
+
+    def _on_mark_ui_response(self, event: MarkUiResponseEvent) -> None:
+        if event.kind == "overlay_marks":
+            self._update_marks_list(event.marks)
+            overlay = self.get_view()
+            if overlay:
+                overlay.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
+                overlay.show_requested.emit()
+        elif event.kind == "create_result" and not event.success:
+            self.notify_status(event.message, True)
 
     def notify_status(self, message: str, is_error: bool = False) -> None:
         self.emit_status(message, is_error)
@@ -164,6 +146,7 @@ class QtMarksController(QtBaseController):
         try:
             self.event_bus.unsubscribe(MarksChangedEventData, self._on_marks_changed)
             self.event_bus.unsubscribe(MarkVisualizationStateChangedEventData, self._handle_mark_visualization_state_changed)
+            self.event_bus.unsubscribe(MarkUiResponseEvent, self._on_mark_ui_response)
         except Exception as e:
             self.logger.warning(f"Error during cleanup: {e}")
 

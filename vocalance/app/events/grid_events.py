@@ -1,10 +1,17 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent
 
 
 class GridClickHistoryChangedEvent(BaseEvent):
-    """Published after in-memory grid click history changes (debounced)."""
+    """Published when grid click history changes; carries a full in-memory snapshot for UI."""
+
+    clicks_snapshot: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Serialized click records (same shape as GridClickEvent.model_dump).",
+    )
 
 
 class GridStateEvent(BaseEvent):

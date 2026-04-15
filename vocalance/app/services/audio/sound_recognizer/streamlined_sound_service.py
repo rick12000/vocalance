@@ -16,6 +16,7 @@ from vocalance.app.events.sound_events import (
     SoundTrainingFailedEvent,
     SoundTrainingInitiatedEvent,
     SoundTrainingProgressEvent,
+    SoundUiOperationEvent,
 )
 from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
 from vocalance.app.services.base_service import Service
@@ -41,6 +42,20 @@ class SoundService(Service):
         self._target_samples = 0
 
         event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
+        event_bus.subscribe(SoundUiOperationEvent, self._handle_sound_ui_operation)
+
+    async def _handle_sound_ui_operation(self, event: SoundUiOperationEvent) -> None:
+        op = event.op
+        if op == "delete":
+            await self.delete_sound(event.sound_label)
+        elif op == "reset_all":
+            await self.reset_all_sounds()
+        elif op == "train":
+            await self.start_training_session(event.sound_name, event.num_samples)
+        elif op == "map":
+            await self.map_sound_to_command(event.sound_label, event.command_phrase)
+        elif op == "refresh_snapshots":
+            await self._publish_mappings()
 
     async def initialize(self) -> bool:
         try:
@@ -339,6 +354,7 @@ class SoundService(Service):
 
     async def shutdown(self) -> None:
         self.event_bus.unsubscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
+        self.event_bus.unsubscribe(SoundUiOperationEvent, self._handle_sound_ui_operation)
         try:
             self.cancel_training()
             if self.recognizer:

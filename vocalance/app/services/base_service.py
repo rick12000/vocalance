@@ -3,7 +3,7 @@
 Lifecycle contract
 ------------------
 1. ``__init__``  – Synchronous.  Wire ALL event-bus subscriptions here.  The bus
-                   queues events until ``event_bus.start()`` is called, so subscribing
+                   queues events until ``event_bus.start(loop)`` is called, so subscribing
                    in ``__init__`` is always safe regardless of init order.
 2. ``initialize`` – Optional async startup (storage reads, heavy imports, etc.).
                     Runs after construction but before the bus is started.

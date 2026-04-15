@@ -5,7 +5,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Tuple
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import SettingsChangedEvent
+from vocalance.app.events.core_events import RuntimeConfigRequestEvent, RuntimeConfigResponseEvent, SettingsChangedEvent
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import AppUserConfigDocument
 from vocalance.app.services.storage.storage_service import StorageService
@@ -32,6 +32,29 @@ class RuntimeConfigurationStore(Service):
         self.overrides: Dict[str, Dict[str, Any]] = {}
         self.listeners: List[Tuple[int, str, ConfigurationListener]] = []
         self.lock = asyncio.Lock()
+        event_bus.subscribe(RuntimeConfigRequestEvent, self._handle_runtime_config_request)
+
+    async def _handle_runtime_config_request(self, event: RuntimeConfigRequestEvent) -> None:
+        op = event.op
+        if op == "get_effective":
+            all_settings = self.get_effective_settings()
+            await self.event_bus.publish(RuntimeConfigResponseEvent(op="effective_snapshot", all_settings=all_settings))
+        elif op == "update":
+            ok = await self.update_multiple_settings(dict(event.updates))
+            msg = "OK" if ok else "Update failed"
+            await self.event_bus.publish(
+                RuntimeConfigResponseEvent(
+                    op="update_result",
+                    correlation_id=event.correlation_id,
+                    success=ok,
+                    message=msg,
+                )
+            )
+        elif op == "reset_defaults":
+            await self.reset_to_defaults()
+        elif op == "reset_section":
+            for setting_key in event.setting_keys:
+                await self.reset_setting(setting_key)
 
     def register_listener(self, order: int, name: str, listener: ConfigurationListener) -> None:
         self.listeners.append((order, name, listener))
@@ -41,6 +64,7 @@ class RuntimeConfigurationStore(Service):
         return self.config
 
     async def shutdown(self) -> None:
+        self.event_bus.unsubscribe(RuntimeConfigRequestEvent, self._handle_runtime_config_request)
         self.listeners.clear()
 
     async def initialize(self) -> bool:
@@ -183,7 +207,7 @@ def register_configuration_listeners(
     audio_service: Any,
     llm_service: Any,
 ) -> None:
-    """Register ordered listeners. Call after services exist, before event_bus.start()."""
+    """Register ordered listeners. Call after services exist, before ``event_bus.start(loop)``."""
 
     async def sound_listener(paths: frozenset[str]) -> None:
         cfg = store.current()

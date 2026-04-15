@@ -129,9 +129,6 @@ class QtDictationAliasSubView(QWidget):
 
         # Connect controller signals
         self.controller.aliases_loaded.connect(self._on_aliases_loaded)
-        self.controller.alias_added.connect(self._on_alias_added)
-        self.controller.alias_updated.connect(self._on_alias_updated)
-        self.controller.alias_deleted.connect(self._on_alias_deleted)
         self.controller.operation_error.connect(self._on_error)
         self.controller.status_updated.connect(self._on_status_updated)
 
@@ -202,24 +199,6 @@ class QtDictationAliasSubView(QWidget):
         except Exception as e:
             self.logger.error(f"Error loading aliases: {e}", exc_info=True)
             self._show_error(f"Error loading aliases: {e}")
-
-    def _on_alias_added(self, key: str, value: str) -> None:
-        """Handle alias added event."""
-        if self.controller:
-            self.controller.refresh_aliases()
-        self.logger.info(f"Alias added: {key}")
-
-    def _on_alias_updated(self, key: str, value: str) -> None:
-        """Handle alias updated event."""
-        if self.controller:
-            self.controller.refresh_aliases()
-        self.logger.info(f"Alias updated: {key}")
-
-    def _on_alias_deleted(self, key: str) -> None:
-        """Handle alias deleted event."""
-        if self.controller:
-            self.controller.refresh_aliases()
-        self.logger.info(f"Alias deleted: {key}")
 
     def _on_status_updated(self, message: str, is_error: bool) -> None:
         """Handle status updates from controller."""

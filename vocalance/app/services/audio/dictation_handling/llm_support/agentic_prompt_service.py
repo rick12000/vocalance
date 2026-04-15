@@ -5,7 +5,11 @@ from typing import Dict, List, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.dictation_events import AgenticPromptListUpdatedEvent, AgenticPromptUpdatedEvent
+from vocalance.app.events.dictation_events import (
+    AgenticPromptListUpdatedEvent,
+    AgenticPromptUiOperationEvent,
+    AgenticPromptUpdatedEvent,
+)
 from vocalance.app.services.storage.storage_models import AgenticPrompt, AgenticPromptsData
 from vocalance.app.services.storage.storage_service import StorageService
 
@@ -26,6 +30,21 @@ class AgenticPromptService:
         self.prompts: Dict[str, AgenticPrompt] = {}
         self.current_prompt_id: Optional[str] = None
         self.default_prompt_text = _DEFAULT_PROMPT
+        event_bus.subscribe(AgenticPromptUiOperationEvent, self._handle_agentic_ui_operation)
+
+    async def _handle_agentic_ui_operation(self, event: AgenticPromptUiOperationEvent) -> None:
+        op = event.op
+        if op == "add":
+            await self.add_prompt(event.prompt_text, event.name)
+        elif op == "select":
+            self.set_current_prompt(event.prompt_id)
+            await self.publish_state()
+        elif op == "delete":
+            await self.delete_prompt(event.prompt_id)
+        elif op == "edit":
+            await self.edit_prompt(event.prompt_id, event.name, event.text)
+        elif op == "publish_state":
+            await self.publish_state()
 
     async def initialize(self) -> bool:
         await self.load_prompts()
@@ -141,4 +160,5 @@ class AgenticPromptService:
         await self.event_bus.publish(AgenticPromptListUpdatedEvent(prompts=[p.model_dump() for p in self.prompts.values()]))
 
     async def shutdown(self) -> None:
+        self.event_bus.unsubscribe(AgenticPromptUiOperationEvent, self._handle_agentic_ui_operation)
         await self.save_prompts()

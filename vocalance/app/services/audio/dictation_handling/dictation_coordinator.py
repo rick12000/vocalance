@@ -427,7 +427,7 @@ class DictationCoordinator(Service):
         self.llm_processing_task: Optional[asyncio.Task] = None
 
         self.text_service = DictationTextInput(config=config.dictation, loop=gui_event_loop)
-        self.llm_service = LLMService(event_bus=event_bus, config=config)
+        self.llm_service = LLMService(event_bus=event_bus, config=config, gui_event_loop=gui_event_loop)
         self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
         self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
 

@@ -2,17 +2,70 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.events.grid_events import GridClickHistoryChangedEvent
 from vocalance.app.services.base_service import Service
-from vocalance.app.services.gui_async_bridge import GuiAsyncBridge
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
+
+
+def click_point_in_rect(click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
+    try:
+        click_x, click_y = click.get("x", 0), click.get("y", 0)
+        return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
+    except (TypeError, ValueError):
+        return False
+
+
+def rects_with_click_counts(rect_definitions: List[Dict[str, Any]], all_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not rect_definitions:
+        return []
+    if not all_clicks:
+        return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+
+    first_rect = rect_definitions[0]
+    try:
+        bucket_w = int(first_rect["w"])
+        bucket_h = int(first_rect["h"])
+    except (KeyError, TypeError, ValueError):
+        return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+
+    click_buckets: Dict[tuple, List[Dict[str, Any]]] = {}
+    for click in all_clicks:
+        try:
+            click_x = click.get("x", 0)
+            click_y = click.get("y", 0)
+            bucket_x = int(click_x // bucket_w)
+            bucket_y = int(click_y // bucket_h)
+            key = (bucket_x, bucket_y)
+            click_buckets.setdefault(key, []).append(click)
+        except (TypeError, ValueError):
+            continue
+
+    processed_rects = []
+    for rect_def in rect_definitions:
+        try:
+            rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
+            rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
+            bucket_x = int(rect_x // bucket_w)
+            bucket_y = int(rect_y // bucket_h)
+            count = 0
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    key = (bucket_x + dx, bucket_y + dy)
+                    if key in click_buckets:
+                        for click in click_buckets[key]:
+                            if click_point_in_rect(click, rect_x, rect_y, rect_w, rect_h):
+                                count += 1
+            processed_rects.append({"data": rect_def, "clicks": count})
+        except (KeyError, ValueError, TypeError):
+            processed_rects.append({"data": rect_def, "clicks": 0})
+    return processed_rects
 
 
 def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -38,19 +91,19 @@ def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> Lis
 
 
 class ClickTrackerService(Service):
-    """Click history in memory with debounced UI notify and async disk persistence."""
+    """Owns grid click history, persists via StorageService, notifies UI only through the event bus."""
 
     def __init__(
         self,
         event_bus: EventBus,
         storage: StorageService,
-        gui_async_bridge: GuiAsyncBridge,
+        gui_event_loop: asyncio.AbstractEventLoop,
         ui_refresh_debounce_s: float,
         persist_debounce_s: float,
     ) -> None:
         self._event_bus = event_bus
         self._storage = storage
-        self._bridge = gui_async_bridge
+        self._gui_loop = gui_event_loop
         self._ui_refresh_debounce_s = ui_refresh_debounce_s
         self._persist_debounce_s = persist_debounce_s
         self._lock = threading.RLock()
@@ -58,6 +111,9 @@ class ClickTrackerService(Service):
         self._ui_task: Optional[asyncio.Task] = None
         self._persist_task: Optional[asyncio.Task] = None
         event_bus.subscribe(PerformMouseClickEventData, self._handle_mouse_click)
+
+    def _run_on_gui_loop(self, fn: Callable[[], None]) -> None:
+        self._gui_loop.call_soon_threadsafe(fn)
 
     async def initialize(self) -> bool:
         try:
@@ -83,21 +139,21 @@ class ClickTrackerService(Service):
         self._persist_task = asyncio.create_task(self._debounced_persist())
 
     def _request_debounce_after_mutation(self) -> None:
-        self._bridge.invoke_on_gui_loop(self._reschedule_debounce_tasks)
-
-    def record_physical_click(self, x: int, y: int) -> None:
-        """Record a screen-space click; safe from any thread (e.g. grid pyautogui worker)."""
-        self._append_click_locked(x, y)
-        self._request_debounce_after_mutation()
+        self._run_on_gui_loop(self._reschedule_debounce_tasks)
 
     async def _handle_mouse_click(self, event: PerformMouseClickEventData) -> None:
         self._append_click_locked(event.x, event.y)
         self._request_debounce_after_mutation()
 
+    async def publish_click_history_snapshot(self) -> None:
+        with self._lock:
+            snap = [c.model_dump(mode="json") for c in self._clicks]
+        await self._event_bus.publish(GridClickHistoryChangedEvent(clicks_snapshot=snap))
+
     async def _debounced_ui_notify(self) -> None:
         try:
             await asyncio.sleep(self._ui_refresh_debounce_s)
-            await self._event_bus.publish(GridClickHistoryChangedEvent())
+            await self.publish_click_history_snapshot()
         except asyncio.CancelledError:
             raise
 
@@ -113,30 +169,6 @@ class ClickTrackerService(Service):
             logger.debug("Persisted %d grid clicks", len(snapshot))
         except Exception as e:
             logger.error("Debounced click history write failed: %s", e, exc_info=True)
-
-    def _is_click_in_rect(self, click: Dict[str, Any], rx: int, ry: int, rw: int, rh: int) -> bool:
-        try:
-            return rx <= click.get("x", 0) <= rx + rw and ry <= click.get("y", 0) <= ry + rh
-        except (TypeError, ValueError):
-            return False
-
-    def get_clicks_for_rects(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        with self._lock:
-            all_clicks = [c.model_dump() for c in self._clicks]
-        result = []
-        for rect in rect_definitions:
-            try:
-                rx, ry = int(rect["x"]), int(rect["y"])
-                rw, rh = int(rect["w"]), int(rect["h"])
-                count = sum(1 for c in all_clicks if self._is_click_in_rect(c, rx, ry, rw, rh))
-                result.append({"data": rect, "clicks": count})
-            except (KeyError, ValueError, TypeError):
-                result.append({"data": rect, "clicks": 0})
-        return result
-
-    def get_all_clicks_sync(self) -> List[Dict[str, Any]]:
-        with self._lock:
-            return [c.model_dump() for c in self._clicks]
 
     async def shutdown(self) -> None:
         self._event_bus.unsubscribe(PerformMouseClickEventData, self._handle_mouse_click)

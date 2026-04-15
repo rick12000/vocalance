@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from vocalance.app.config.automation_command_registry import AutomationCommandRegistry
-from vocalance.app.config.command_types import AutomationCommand
+from vocalance.app.config.command_types import AutomationCommand, ExactMatchCommand
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent, CommandValidationErrorEvent
+from vocalance.app.events.command_management_events import (
+    CommandMappingsUpdatedEvent,
+    CommandUiOperationEvent,
+    CommandValidationErrorEvent,
+)
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.commands.utilities.command_projection import build_command_projection, load_action_map
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
@@ -37,9 +41,37 @@ class CommandManagementService(Service):
         self.event_bus = event_bus
         self.storage = storage
         self.protected_terms_validator = protected_terms_validator
+        event_bus.subscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
+
+    async def _handle_command_ui_operation(self, event: CommandUiOperationEvent) -> None:
+        op = event.op
+        if op == "add_hotkey":
+            command = ExactMatchCommand(
+                command_key=event.command_phrase,
+                action_type="hotkey",
+                action_value=event.hotkey_value,
+                is_custom=True,
+                short_description="Custom Command",
+                long_description=f"Custom hotkey command: {event.hotkey_value}",
+                functional_group="Custom",
+            )
+            await self.add_command(command)
+        elif op == "update_phrase":
+            await self.update_command_phrase(event.old_phrase, event.new_phrase)
+        elif op == "delete_phrase":
+            phrase = event.command_phrase.lower().strip()
+            commands = await self.get_command_mappings()
+            for cmd in commands:
+                if cmd.command_key.lower().strip() == phrase:
+                    await self.delete_command(cmd)
+                    return
+        elif op == "reset_defaults":
+            await self.reset_to_defaults()
+        elif op == "refresh_mappings":
+            await self.publish_mappings_updated(True, "Command mappings refreshed")
 
     async def shutdown(self) -> None:
-        pass
+        self.event_bus.unsubscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
 
     async def validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
         is_valid, error_msg = await self.protected_terms_validator.validate_term(

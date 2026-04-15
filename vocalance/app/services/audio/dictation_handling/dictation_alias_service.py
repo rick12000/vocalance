@@ -5,7 +5,7 @@ import threading
 from typing import Dict
 
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.dictation_events import DictationAliasListUpdatedEvent
+from vocalance.app.events.dictation_events import DictationAliasListUpdatedEvent, DictationAliasUiOperationEvent
 from vocalance.app.services.storage.storage_models import DictationAliasData
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.concurrency import schedule_on_loop
@@ -29,6 +29,19 @@ class DictationAliasService:
         self.event_loop = event_loop
         self.alias_lock = threading.RLock()
         self.aliases: Dict[str, str] = {}
+        event_bus.subscribe(DictationAliasUiOperationEvent, self._handle_alias_ui_operation)
+
+    async def _handle_alias_ui_operation(self, event: DictationAliasUiOperationEvent) -> None:
+        op = event.op
+        if op == "add":
+            await self.add_alias(event.key, event.value)
+        elif op == "update":
+            await self.update_alias(event.key, event.value)
+        elif op == "delete":
+            await self.delete_alias(event.key)
+        elif op == "refresh_list":
+            await self.load_aliases()
+            self.publish_alias_list_updated()
 
     async def initialize(self) -> bool:
         await self.load_aliases()
@@ -163,4 +176,5 @@ class DictationAliasService:
         return re.sub(pattern, replace_match, text, flags=re.IGNORECASE)
 
     async def shutdown(self) -> None:
+        self.event_bus.unsubscribe(DictationAliasUiOperationEvent, self._handle_alias_ui_operation)
         await self.save_aliases()

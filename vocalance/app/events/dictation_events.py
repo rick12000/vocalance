@@ -108,6 +108,30 @@ class DictationAliasListUpdatedEvent(BaseEvent):
     aliases: Dict[str, str] = Field(description="Current alias mappings (key -> substitution)")
 
 
+AgenticPromptUiOp = Literal["add", "select", "delete", "edit", "publish_state"]
+
+
+class AgenticPromptUiOperationEvent(BaseEvent):
+    """UI-originated agentic prompt mutations; handled by ``AgenticPromptService``."""
+
+    op: AgenticPromptUiOp
+    name: str = ""
+    prompt_text: str = ""
+    prompt_id: str = ""
+    text: str = ""
+
+
+DictationAliasUiOp = Literal["add", "update", "delete", "refresh_list"]
+
+
+class DictationAliasUiOperationEvent(BaseEvent):
+    """UI-originated dictation alias mutations; handled by ``DictationAliasService``."""
+
+    op: DictationAliasUiOp
+    key: str = ""
+    value: str = ""
+
+
 class DictationStopWordDetectedEvent(BaseEvent):
     """Event fired when the dictation stop word is detected."""
 

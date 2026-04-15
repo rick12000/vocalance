@@ -1,13 +1,13 @@
 """Application entry point.
 
 Boot sequence:
-    1. Construct all services (subscriptions are registered in __init__)
-    2. Call event_bus.start() — flushes any queued events and enables live dispatch
-    3. Run async initialization on each service (storage reads, heavy imports)
-    4. Start audio capture
-    5. Show main window
-    6. Await shutdown signal
-    7. Tear down in dependency order
+    1. Construct all services (subscriptions are registered in ``__init__``).
+    2. Call ``event_bus.start(gui_loop)`` — flushes any queued events and enables live dispatch.
+    3. Run async initialization on each service (storage reads, heavy imports).
+    4. Start audio capture.
+    5. Show main window.
+    6. Await shutdown signal.
+    7. Tear down in dependency order.
 """
 
 import asyncio
@@ -36,14 +36,13 @@ from vocalance.app.services.commands.management import CommandManagementService
 from vocalance.app.services.commands.parser import CentralizedCommandParser
 from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
 from vocalance.app.services.grid.grid_service import GridService
-from vocalance.app.services.gui_async_bridge import GuiAsyncBridge
 from vocalance.app.services.mark_service import MarkService
 from vocalance.app.services.pause_state_manager import PauseStateManager
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
-from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore, register_configuration_listeners
 from vocalance.app.services.storage.storage_service import StorageService
+from vocalance.app.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.ui.qt_main_window import VocalanceMainWindow
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
 from vocalance.app.ui.qt_theme import theme
@@ -52,18 +51,12 @@ from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Service container
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Services:
-    """Holds every service once constructed.  All fields are non-Optional because
-    the bootstrap guarantees they are set before any consumer runs."""
+    """Holds every service once constructed. All fields are set before consumers run."""
 
     storage: StorageService
-    gui_async_bridge: GuiAsyncBridge
+    gui_event_loop: asyncio.AbstractEventLoop
     validator: ProtectedTermsValidator
     runtime_config: RuntimeConfigurationStore
     grid: GridService
@@ -80,18 +73,11 @@ class Services:
     _background_tasks: list = field(default_factory=list, repr=False)
 
 
-# ---------------------------------------------------------------------------
-# Construction  (subscriptions registered here, bus not yet started)
-# ---------------------------------------------------------------------------
-
-
 def _construct_services(
     event_bus: EventBus,
     config: GlobalAppConfig,
     gui_loop: asyncio.AbstractEventLoop,
 ) -> Services:
-    """Build every service.  No I/O.  Order matters only for dependency injection."""
-    gui_async_bridge = GuiAsyncBridge(gui_loop)
     storage = StorageService(config=config)
     runtime_config = RuntimeConfigurationStore(event_bus=event_bus, config=config, storage=storage)
     validator = ProtectedTermsValidator(config=config, storage=storage)
@@ -102,7 +88,7 @@ def _construct_services(
     click_tracker = ClickTrackerService(
         event_bus=event_bus,
         storage=storage,
-        gui_async_bridge=gui_async_bridge,
+        gui_event_loop=gui_loop,
         ui_refresh_debounce_s=config.grid.click_history_ui_refresh_debounce_s,
         persist_debounce_s=config.grid.click_history_persist_debounce_s,
     )
@@ -153,7 +139,7 @@ def _construct_services(
 
     return Services(
         storage=storage,
-        gui_async_bridge=gui_async_bridge,
+        gui_event_loop=gui_loop,
         validator=validator,
         runtime_config=runtime_config,
         grid=grid,
@@ -170,9 +156,14 @@ def _construct_services(
     )
 
 
-# ---------------------------------------------------------------------------
-# Async initialization  (I/O, heavy imports — bus is live by this point)
-# ---------------------------------------------------------------------------
+def _moonshine_model_cache_ready() -> bool:
+    try:
+        from moonshine_voice.download_file import get_cache_dir
+    except ImportError as e:
+        logger.warning("Moonshine import check failed: %s", e)
+        return False
+    cache = get_cache_dir()
+    return cache.is_dir() and any(cache.iterdir())
 
 
 async def _initialize_services(
@@ -181,8 +172,6 @@ async def _initialize_services(
     shutdown_coordinator: ShutdownCoordinator,
     progress_tracker: StartupProgressTracker,
 ) -> None:
-    """Run async init on every service that needs it, with progress reporting."""
-
     progress_tracker.start_step(step_name="Initializing storage...")
     progress_tracker.update_status_animated(status="Loading user settings")
     await services.runtime_config.initialize()
@@ -212,12 +201,7 @@ async def _initialize_services(
     )
     _check_cancellation(shutdown_coordinator)
 
-    try:
-        from moonshine_voice.download_file import get_cache_dir
-
-        model_exists = (lambda c: c.is_dir() and any(c.iterdir()))(get_cache_dir())
-    except Exception:
-        model_exists = False
+    model_exists = _moonshine_model_cache_ready()
     progress_tracker.update_status_animated(
         status="Initializing speech-to-text"
         if model_exists
@@ -247,11 +231,6 @@ async def _initialize_services(
     progress_tracker.complete_step()
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _check_cancellation(coordinator: ShutdownCoordinator) -> None:
     if coordinator.is_shutdown_requested():
         raise asyncio.CancelledError("Initialization cancelled")
@@ -266,7 +245,6 @@ def _validate_critical_assets(config: GlobalAppConfig) -> bool:
 
 
 def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> QTimer:
-    """Bridge OS signals into the Qt/asyncio loop via a polled threading.Event."""
     shutdown_event = threading.Event()
 
     def _handler(signum, _frame):
@@ -282,6 +260,7 @@ def _setup_signal_handlers(shutdown_coordinator: ShutdownCoordinator) -> QTimer:
         and shutdown_coordinator.request_shutdown(reason="System signal received", source="signal_handler")
     )
     timer.start(100)
+    shutdown_coordinator.attach_signal_poll_timer(timer)
     return timer
 
 
@@ -292,11 +271,17 @@ async def _cancel_background_tasks(tasks: list) -> None:
         if not t.done():
             t.cancel()
     try:
-        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=2.0)
-    except (asyncio.TimeoutError, Exception) as e:
-        logger.warning("Background task cancellation: %s", e)
-    finally:
+        results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=2.0)
+    except asyncio.TimeoutError:
+        logger.warning("Background tasks did not settle within 2s after cancellation")
         tasks.clear()
+        return
+    for result in results:
+        if isinstance(result, asyncio.CancelledError):
+            continue
+        if isinstance(result, BaseException):
+            logger.error("Background task failed", exc_info=(type(result), result, result.__traceback__))
+    tasks.clear()
 
 
 async def _cleanup_services(services: Services, event_bus: EventBus) -> None:
@@ -305,32 +290,53 @@ async def _cleanup_services(services: Services, event_bus: EventBus) -> None:
     services.audio.stop_processing()
     await asyncio.sleep(0.3)
 
-    # Shutdown in dependency order (dependants before dependencies)
     shutdown_order = [
         services.mark,
+        services.grid,
+        services.command_management,
         services.sound_service,
         services.centralized_parser,
+        services.pause_state_manager,
         services.automation,
-        services.stt,
         services.dictation,
+        services.stt,
         services.click_tracker,
         services.runtime_config,
         services.audio,
+        services.validator,
         services.storage,
     ]
+    errors: list[Exception] = []
     for svc in shutdown_order:
         try:
             await svc.shutdown()
         except Exception as e:
             logger.error("Error shutting down %s: %s", type(svc).__name__, e, exc_info=True)
+            errors.append(e)
 
     await event_bus.shutdown()
     logger.info("All services cleaned up")
 
+    if errors:
+        raise ExceptionGroup("One or more services failed during shutdown", errors)
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+
+async def _abort_startup(
+    startup_window: StartupWindow,
+    message: str,
+    delay_s: float,
+    services: Optional[Services],
+    event_bus: Optional[EventBus],
+    qt_app: QApplication,
+) -> None:
+    startup_window.update_progress(0.0, message, animate=False)
+    await asyncio.sleep(delay_s)
+    startup_window.close()
+    try:
+        if services is not None and event_bus is not None:
+            await _cleanup_services(services, event_bus)
+    finally:
+        qt_app.quit()
 
 
 async def main() -> None:
@@ -338,6 +344,12 @@ async def main() -> None:
 
     event_bus: Optional[EventBus] = None
     services: Optional[Services] = None
+    qt_app = QApplication.instance()
+    if qt_app is None:
+        raise RuntimeError("QApplication instance is missing; create it before calling main()")
+
+    shutdown_coordinator = ShutdownCoordinator(asyncio.get_running_loop())
+    _setup_signal_handlers(shutdown_coordinator)
 
     try:
         AppInfoConfig()
@@ -345,7 +357,6 @@ async def main() -> None:
         setup_logging(config=config.logging)
         os.makedirs(config.storage.user_data_root, exist_ok=True)
 
-        qt_app = QApplication.instance()
         qt_app.setQuitOnLastWindowClosed(False)
 
         icon_path = Path(config.asset_paths.icon_path) if config.asset_paths.icon_path else None
@@ -359,9 +370,6 @@ async def main() -> None:
         theme.load_stylesheet()
         theme.apply_stylesheet(qt_app)
         qt_app.setFont(theme.get_font(size="medium", weight="regular"))
-
-        shutdown_coordinator = ShutdownCoordinator()
-        _signal_timer = _setup_signal_handlers(shutdown_coordinator)  # noqa: F841
 
         startup_window = StartupWindow(
             logger=logging.getLogger("StartupWindow"),
@@ -378,15 +386,12 @@ async def main() -> None:
             qt_app.quit()
             return
 
-        # --- Phase 1: construct all services (subscriptions registered, bus still paused)
         event_bus = EventBus()
-        gui_loop = asyncio.get_event_loop()
+        gui_loop = asyncio.get_running_loop()
         services = _construct_services(event_bus, config, gui_loop)
 
-        # --- Phase 2: start the bus (flush any queued events, enable live dispatch)
-        event_bus.start()
+        event_bus.start(gui_loop)
 
-        # --- Phase 3: async initialization (I/O, model loading)
         progress_tracker = StartupProgressTracker(startup_window=startup_window, total_steps=2)
         init_task = asyncio.create_task(_initialize_services(services, config, shutdown_coordinator, progress_tracker))
         shutdown_coordinator.register_initialization_task(init_task)
@@ -396,26 +401,27 @@ async def main() -> None:
             shutdown_coordinator.unregister_initialization_task()
         except asyncio.CancelledError:
             logger.info("Initialization cancelled")
-            startup_window.update_progress(0.0, "Startup cancelled by user", animate=False)
-            await asyncio.sleep(1)
-            startup_window.close()
-            if services:
-                await _cleanup_services(services, event_bus)
-            qt_app.quit()
+            await _abort_startup(
+                startup_window,
+                "Startup cancelled by user",
+                1.0,
+                services,
+                event_bus,
+                qt_app,
+            )
             return
         except RuntimeError as e:
             logger.critical("Critical initialization error: %s", e)
-            startup_window.update_progress(
-                0.0, "Initialization failed. Please check your internet connection and try again.", animate=False
+            await _abort_startup(
+                startup_window,
+                "Initialization failed. Please check your internet connection and try again.",
+                3.0,
+                services,
+                event_bus,
+                qt_app,
             )
-            await asyncio.sleep(3)
-            startup_window.close()
-            if services:
-                await _cleanup_services(services, event_bus)
-            qt_app.quit()
             return
 
-        # --- Phase 4: start audio capture and show window
         services.audio.start_processing()
         startup_window.update_progress(1.0, "Ready!", animate=False)
         await asyncio.sleep(0.5)
@@ -428,6 +434,7 @@ async def main() -> None:
             icon_manager=icon_manager,
             shutdown_coordinator=shutdown_coordinator,
         )
+        await services.click_tracker.publish_click_history_snapshot()
         main_window.show()
         main_window.raise_()
         main_window.activateWindow()
@@ -440,12 +447,16 @@ async def main() -> None:
         await _cleanup_services(services=services, event_bus=event_bus)
         logger.info("Application shutdown complete")
 
-    except Exception as e:
-        logger.exception("Unexpected error: %s", e)
-
-    qt_app = QApplication.instance()
-    if qt_app is not None:
-        qt_app.quit()
+    except ExceptionGroup as eg:
+        logger.error("Multiple errors during application lifecycle", exc_info=eg)
+        raise
+    except Exception:
+        logger.exception("Unexpected error during application run")
+        raise
+    finally:
+        q = QApplication.instance()
+        if q is not None:
+            q.quit()
 
 
 if __name__ == "__main__":

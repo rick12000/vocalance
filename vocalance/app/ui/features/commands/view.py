@@ -48,9 +48,6 @@ class QtCommandsView(QtBaseView):
 
         # Connect controller signals
         self.controller.commands_loaded.connect(self._on_commands_loaded)
-        self.controller.command_created.connect(self._on_command_created)
-        self.controller.command_updated.connect(self._on_command_updated)
-        self.controller.command_deleted.connect(self._on_command_deleted)
         self.controller.validation_error.connect(self._on_validation_error)
         self.controller.operation_error.connect(self._on_error)
 
@@ -120,23 +117,6 @@ class QtCommandsView(QtBaseView):
         except Exception as e:
             self.logger.error(f"Error loading commands: {e}", exc_info=True)
             self._show_error(f"Error loading commands: {e}")
-
-    def _on_command_created(self, command_phrase: str) -> None:
-        """Handle command created event."""
-        try:
-            self.command_phrase_entry.clear()
-            self.hotkey_entry.clear()
-            self.logger.info(f"Command created: {command_phrase}")
-        except Exception as e:
-            self.logger.error(f"Error handling command created: {e}", exc_info=True)
-
-    def _on_command_updated(self, old_phrase: str, new_phrase: str) -> None:
-        """Handle command updated event."""
-        self.logger.info(f"Command updated: {old_phrase} -> {new_phrase}")
-
-    def _on_command_deleted(self, command_phrase: str) -> None:
-        """Handle command deleted event."""
-        self.logger.info(f"Command deleted: {command_phrase}")
 
     def _on_validation_error(self, error_msg: str, command_phrase: str) -> None:
         """Handle validation error from controller."""
@@ -245,6 +225,8 @@ class QtCommandsView(QtBaseView):
             return
 
         self.controller.handle_add_command(command_phrase, hotkey_value)
+        self.command_phrase_entry.clear()
+        self.hotkey_entry.clear()
 
     def _on_reset_clicked(self) -> None:
         """Handle reset to defaults button clicked."""

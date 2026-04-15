@@ -45,9 +45,6 @@ class QtMarksView(QWidget):
 
         # Connect controller signals
         self.controller.marks_loaded.connect(self._on_marks_loaded)
-        self.controller.mark_created.connect(self._on_mark_created)
-        self.controller.mark_deleted.connect(self._on_mark_deleted)
-        self.controller.all_marks_deleted.connect(self._on_all_deleted)
         self.controller.operation_error.connect(self._on_error)
 
         # Load initial marks
@@ -160,24 +157,6 @@ class QtMarksView(QWidget):
         except Exception as e:
             self.logger.error(f"Error loading marks: {e}", exc_info=True)
             self._show_error(f"Error loading marks: {e}")
-
-    def _on_mark_created(self, name: str, x: int, y: int) -> None:
-        """Handle mark created event."""
-        if self.controller:
-            self.controller.refresh_marks()
-        self.logger.info(f"Mark created: {name}")
-
-    def _on_mark_deleted(self, name: str) -> None:
-        """Handle mark deleted event."""
-        if self.controller:
-            self.controller.refresh_marks()
-        self.logger.info(f"Mark deleted: {name}")
-
-    def _on_all_deleted(self) -> None:
-        """Handle all marks deleted event."""
-        self.marks_list = []
-        self._display_marks([])
-        self.logger.info("All marks deleted")
 
     def _on_error(self, error_message: str) -> None:
         """Handle error from controller."""

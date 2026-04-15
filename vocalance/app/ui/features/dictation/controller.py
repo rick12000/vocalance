@@ -8,6 +8,7 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import (
     AgenticPromptListUpdatedEvent,
+    AgenticPromptUiOperationEvent,
     AgenticPromptUpdatedEvent,
     DictationSessionEvent,
     DictationStatusChangedEvent,
@@ -17,13 +18,10 @@ from vocalance.app.events.dictation_events import (
     LLMProcessingStartedEvent,
     PartialDictationTextEvent,
 )
-from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
 class QtDictationController(QtBaseController):
-    """Business logic controller for dictation functionality."""
-
     prompts_loaded = Signal(list)
     current_prompt_updated = Signal(str)
     dictation_status_changed = Signal(bool, str)
@@ -40,7 +38,6 @@ class QtDictationController(QtBaseController):
         self,
         event_bus: EventBus,
         config: GlobalAppConfig,
-        agentic_service: AgenticPromptService,
     ) -> None:
         super().__init__(
             event_bus=event_bus,
@@ -48,7 +45,6 @@ class QtDictationController(QtBaseController):
         )
 
         self.config = config
-        self._agentic_service = agentic_service
         self.prompts = []
         self.current_prompt_id = None
 
@@ -110,16 +106,12 @@ class QtDictationController(QtBaseController):
             self.notify_status("Please enter prompt instructions.", True)
             return False
 
-        async def _do():
-            await self._agentic_service.add_prompt(prompt_text, name)
-
-        asyncio.create_task(_do())
+        asyncio.create_task(self.event_bus.publish(AgenticPromptUiOperationEvent(op="add", name=name, prompt_text=prompt_text)))
         self.notify_status(f"Added custom prompt: {name}")
         return True
 
     def select_prompt(self, prompt_id: str) -> None:
-        self._agentic_service.set_current_prompt(prompt_id)
-        asyncio.create_task(self._agentic_service.publish_state())
+        asyncio.create_task(self.event_bus.publish(AgenticPromptUiOperationEvent(op="select", prompt_id=prompt_id)))
         self.notify_status("Prompt selection updated.")
 
     def is_default_prompt(self, prompt_id: str) -> bool:
@@ -138,10 +130,7 @@ class QtDictationController(QtBaseController):
                     return False
                 break
 
-        async def _do():
-            await self._agentic_service.delete_prompt(prompt_id)
-
-        asyncio.create_task(_do())
+        asyncio.create_task(self.event_bus.publish(AgenticPromptUiOperationEvent(op="delete", prompt_id=prompt_id)))
         self.notify_status(f"Deleted prompt: {prompt_name}")
         return True
 
@@ -156,15 +145,14 @@ class QtDictationController(QtBaseController):
             self.notify_status("The default prompt cannot be edited.", True)
             return False
 
-        async def _do():
-            await self._agentic_service.edit_prompt(prompt_id, name, text)
-
-        asyncio.create_task(_do())
+        asyncio.create_task(
+            self.event_bus.publish(AgenticPromptUiOperationEvent(op="edit", prompt_id=prompt_id, name=name, text=text))
+        )
         self.notify_status(f"Updated prompt: {name}")
         return True
 
     def refresh_prompts(self) -> None:
-        asyncio.create_task(self._agentic_service.publish_state())
+        asyncio.create_task(self.event_bus.publish(AgenticPromptUiOperationEvent(op="publish_state")))
         self.notify_status("Requesting prompts...")
 
     def get_prompts(self) -> List[Dict[str, Any]]:
