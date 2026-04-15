@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -5,6 +6,7 @@ import pytest_asyncio
 
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.services.grid.click_tracker_service import ClickTrackerService, prioritize_grid_rects
+from vocalance.app.services.gui_async_bridge import GuiAsyncBridge
 
 
 @pytest.fixture
@@ -25,7 +27,17 @@ def mock_storage():
 
 @pytest_asyncio.fixture
 async def click_tracker(mock_event_bus, mock_storage):
-    return ClickTrackerService(event_bus=mock_event_bus, storage=mock_storage)
+    loop = asyncio.get_running_loop()
+    bridge = GuiAsyncBridge(loop)
+    svc = ClickTrackerService(
+        event_bus=mock_event_bus,
+        storage=mock_storage,
+        gui_async_bridge=bridge,
+        ui_refresh_debounce_s=0.001,
+        persist_debounce_s=9999.0,
+    )
+    yield svc
+    await svc.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +92,14 @@ def test_prioritize_grid_rects_stable_ties_by_position():
 
 
 @pytest.mark.asyncio
+async def test_record_physical_click_stores_click(click_tracker):
+    click_tracker.record_physical_click(100, 200)
+    clicks = click_tracker.get_all_clicks_sync()
+    assert len(clicks) == 1
+    assert clicks[0]["x"] == 100
+    assert clicks[0]["y"] == 200
+
+
 async def test_handle_mouse_click_stores_click(click_tracker):
     event = PerformMouseClickEventData(x=100, y=200, button="left")
     await click_tracker._handle_mouse_click(event)

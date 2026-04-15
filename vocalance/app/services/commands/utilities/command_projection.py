@@ -1,5 +1,3 @@
-"""Build parser action map and UI command list from persisted `CommandsData`."""
-
 from __future__ import annotations
 
 from typing import Dict, List, Tuple
@@ -7,9 +5,10 @@ from typing import Dict, List, Tuple
 from vocalance.app.config.automation_command_registry import AutomationCommandRegistry
 from vocalance.app.config.command_types import AutomationCommand
 from vocalance.app.services.storage.storage_models import CommandsData
+from vocalance.app.services.storage.storage_service import StorageService
 
 
-def _with_effective_key(commands_data: CommandsData, template: AutomationCommand) -> AutomationCommand:
+def command_with_phrase_override(commands_data: CommandsData, template: AutomationCommand) -> AutomationCommand:
     key = commands_data.phrase_overrides.get(template.command_key, template.command_key)
     if key == template.command_key:
         return template
@@ -25,12 +24,11 @@ def _with_effective_key(commands_data: CommandsData, template: AutomationCommand
 
 
 def build_command_projection(commands_data: CommandsData) -> Tuple[Dict[str, AutomationCommand], List[AutomationCommand]]:
-    """Return `(phrase → command)` for parsing and an ordered list for the settings UI."""
     action_map: Dict[str, AutomationCommand] = dict(commands_data.custom_commands)
 
     registry_defaults = AutomationCommandRegistry.get_default_commands()
     for template in registry_defaults:
-        resolved = _with_effective_key(commands_data, template)
+        resolved = command_with_phrase_override(commands_data, template)
         norm = resolved.command_key.lower().strip()
         if norm not in action_map:
             action_map[norm] = resolved
@@ -43,7 +41,13 @@ def build_command_projection(commands_data: CommandsData) -> Tuple[Dict[str, Aut
             ui_list.append(cmd.model_copy())
 
     for template in registry_defaults:
-        resolved = _with_effective_key(commands_data, template)
+        resolved = command_with_phrase_override(commands_data, template)
         ui_list.append(resolved.model_copy())
 
     return action_map, ui_list
+
+
+async def load_action_map(storage: StorageService) -> Dict[str, AutomationCommand]:
+    commands_data = await storage.read(model_type=CommandsData)
+    action_map, _ = build_command_projection(commands_data)
+    return action_map

@@ -134,7 +134,7 @@ async def test_duplicate_text_filtering(stt_service_with_mocked_engines, command
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    # STT service doesn't do duplicate filtering - CentralizedCommandParser handles it
+    # STT service doesn't apply command interval gating - CentralizedCommandParser handles it
     # So we expect 2 events
     assert len(captured_events) == 2
 

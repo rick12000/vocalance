@@ -262,6 +262,18 @@ class GridConfig(BaseModel):
         description="Voice phrase to show the grid in drag mode (click-hold from pointer at show time to chosen cell).",
     )
     select_cell_phrase: str = "select"
+    click_history_ui_refresh_debounce_s: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=2.0,
+        description="Debounce before notifying UI to refresh grid labels after new clicks.",
+    )
+    click_history_persist_debounce_s: float = Field(
+        default=1.5,
+        ge=0.05,
+        le=120.0,
+        description="Debounce before writing click history JSON via StorageService (async, non-blocking).",
+    )
 
 
 class ErrorHandlingConfig(BaseModel):
@@ -555,8 +567,11 @@ class VADConfig(BaseModel):
 class CommandParserConfig(BaseModel):
     """Configuration for centralized command parser behavior."""
 
-    duplicate_detection_window_ms: float = Field(
-        default=600, description="Time window in milliseconds for command deduplication across STT and sound sources"
+    model_config = ConfigDict(extra="ignore")
+
+    min_command_interval_ms: float = Field(
+        default=100.0,
+        description="Minimum milliseconds between executed parsed commands; later commands in the window are ignored.",
     )
 
 

@@ -43,12 +43,10 @@ class MarksData(StorageData):
     marks: Dict[str, Coordinate] = Field(default_factory=dict, description="Map of mark name to coordinate")
 
 
-class SettingsData(StorageData):
-    """Storage model for user settings overrides."""
+class AppUserConfigDocument(StorageData):
+    """Canonical on-disk user configuration (UI-only overrides)."""
 
-    user_overrides: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict, description="User setting overrides organized by category"
-    )
+    overrides: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Sparse overrides merged onto GlobalAppConfig")
 
 
 class CommandsData(StorageData):

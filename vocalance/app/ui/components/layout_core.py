@@ -311,6 +311,21 @@ class ScrollableContainer(QFrame):
 
         main_layout.addWidget(self.scroll_area)
 
+    def clear_content(self) -> None:
+        """Replace the scroll body with an empty widget and layout.
+
+        Rebuilding by only ``takeAt`` + ``deleteLater`` leaves former children parented to
+        the old content widget until the event loop runs, so new siblings overlap them.
+        ``QScrollArea.setWidget`` removes the previous widget from the scene graph and
+        destroys it; do not call ``deleteLater`` on that widget or it would be freed twice.
+        """
+
+        self.content_widget = TransparentWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(theme.config.container.content_vertical_spacing)
+        self.scroll_area.setWidget(self.content_widget)
+
     def add(self, widget: QWidget, stretch: int = 0):
         """Add widget to scrollable content."""
         self.content_layout.addWidget(widget, stretch)

@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
-from vocalance.app.ui.components.complex_components import SidebarButton
+from vocalance.app.ui.components.sidebar_button import SidebarButton
 from vocalance.app.ui.qt_theme import theme
 
 

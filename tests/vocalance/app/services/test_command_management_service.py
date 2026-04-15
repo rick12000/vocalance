@@ -31,19 +31,11 @@ def mock_protected_terms_validator():
 
 
 @pytest.fixture
-def mock_action_map_provider():
-    provider = Mock()
-    provider.get_action_map = AsyncMock()
-    return provider
-
-
-@pytest.fixture
-def command_management_service(mock_event_bus, mock_storage, mock_protected_terms_validator, mock_action_map_provider):
+def command_management_service(mock_event_bus, mock_storage, mock_protected_terms_validator):
     return CommandManagementService(
         event_bus=mock_event_bus,
         storage=mock_storage,
         protected_terms_validator=mock_protected_terms_validator,
-        action_map_provider=mock_action_map_provider,
     )
 
 
@@ -226,55 +218,48 @@ async def test_get_command_mappings_applies_overrides(command_management_service
 
 
 @pytest.mark.asyncio
-async def test_validate_command_phrase_empty(command_management_service, mock_protected_terms_validator, mock_action_map_provider):
+async def test_validate_command_phrase_empty(command_management_service, mock_protected_terms_validator):
     mock_protected_terms_validator.validate_term.return_value = (False, "Term cannot be empty")
-    mock_action_map_provider.get_action_map.return_value = {}
 
-    error = await command_management_service._validate_command_phrase("")
+    error = await command_management_service.validate_command_phrase("")
     assert error is not None
     assert "empty" in error.lower()
 
 
 @pytest.mark.asyncio
-async def test_validate_command_phrase_protected(
-    command_management_service, mock_protected_terms_validator, mock_action_map_provider
-):
+async def test_validate_command_phrase_protected(command_management_service, mock_protected_terms_validator):
     mock_protected_terms_validator.validate_term.return_value = (False, "Protected term")
-    mock_action_map_provider.get_action_map.return_value = {}
 
-    error = await command_management_service._validate_command_phrase("copy")
+    error = await command_management_service.validate_command_phrase("copy")
     assert error is not None
 
 
 @pytest.mark.asyncio
-async def test_validate_command_phrase_already_exists(
-    command_management_service, mock_protected_terms_validator, mock_action_map_provider
-):
+async def test_validate_command_phrase_already_exists(command_management_service, mock_protected_terms_validator, mock_storage):
     mock_protected_terms_validator.validate_term.return_value = (True, None)
-    mock_action_map_provider.get_action_map.return_value = {
-        "existing command": AutomationCommand(
-            command_key="existing command",
-            action_type="hotkey",
-            action_value="ctrl+e",
-            is_custom=False,
-            short_description="Existing",
-            long_description="Existing",
-        )
-    }
+    existing = AutomationCommand(
+        command_key="existing command",
+        action_type="hotkey",
+        action_value="ctrl+e",
+        is_custom=True,
+        short_description="Existing",
+        long_description="Existing",
+    )
+    mock_storage.read.return_value = CommandsData(
+        custom_commands={"existing command": existing},
+        phrase_overrides={},
+    )
 
-    error = await command_management_service._validate_command_phrase("existing command")
+    error = await command_management_service.validate_command_phrase("existing command")
     assert error is not None
     assert "already exists" in error.lower()
 
 
 @pytest.mark.asyncio
-async def test_validate_command_phrase_with_exclude(
-    command_management_service, mock_protected_terms_validator, mock_action_map_provider
-):
+async def test_validate_command_phrase_with_exclude(command_management_service, mock_protected_terms_validator):
     mock_protected_terms_validator.validate_term.return_value = (True, None)
-    mock_action_map_provider.get_action_map.return_value = {}
 
-    error = await command_management_service._validate_command_phrase("same phrase", exclude_phrase="same phrase")
+    error = await command_management_service.validate_command_phrase("same phrase", exclude_phrase="same phrase")
     assert error is None
 
 

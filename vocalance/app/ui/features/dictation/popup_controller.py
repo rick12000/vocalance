@@ -300,9 +300,19 @@ class QtDictationPopupController(QtBaseController):
     def cleanup(self) -> None:
         """Clean up controller resources."""
         try:
+            self.event_bus.unsubscribe(DictationStatusChangedEvent, self._on_dictation_status_changed)
+            self.event_bus.unsubscribe(DictationSessionEvent, self._on_dictation_session)
+            self.event_bus.unsubscribe(PartialDictationTextEvent, self._on_partial_text)
+            self.event_bus.unsubscribe(FinalDictationTextEvent, self._on_final_text)
+            self.event_bus.unsubscribe(LLMProcessingStartedEvent, self._on_llm_started)
+            self.event_bus.unsubscribe(LLMProcessingCompletedEvent, self._on_llm_completed)
+            self.event_bus.unsubscribe(LLMProcessingFailedEvent, self._on_llm_failed)
+            self.event_bus.unsubscribe(LLMTokenGeneratedEvent, self._on_llm_token)
+            self.event_bus.unsubscribe(DictationStopWordDetectedEvent, self._on_stop_word_detected)
+            self.event_bus.unsubscribe(DictationModifierStateChangedEvent, self._on_modifier_state_changed)
             self.event_bus.unsubscribe(MicLevelMeterPcmChunkEvent, self._on_mic_level_meter_pcm_chunk)
         except Exception as e:
-            self.logger.debug("Mic level meter unsubscribe: %s", e)
+            self.logger.debug("Dictation popup event unsubscribe: %s", e)
         try:
             self.popup_view.hide_popup()
             self.logger.debug("Dictation popup controller cleaned up")

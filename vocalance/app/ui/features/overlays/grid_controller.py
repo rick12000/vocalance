@@ -1,10 +1,13 @@
-import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.grid_events import GridStateEvent
+from vocalance.app.events.grid_events import GridClickHistoryChangedEvent, GridStateEvent
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
+
+if TYPE_CHECKING:
+    from vocalance.app.services.gui_async_bridge import GuiAsyncBridge
 
 
 class QtGridController(QtBaseController):
@@ -15,6 +18,7 @@ class QtGridController(QtBaseController):
         event_bus: EventBus,
         grid_service,
         config: GlobalAppConfig,
+        gui_async_bridge: "GuiAsyncBridge",
     ) -> None:
         super().__init__(
             event_bus=event_bus,
@@ -23,6 +27,7 @@ class QtGridController(QtBaseController):
 
         self.grid_service = grid_service
         self.config = config
+        self._gui_async_bridge = gui_async_bridge
 
         self._subscribe_to_events()
         self.logger.debug("QtGridController initialized")
@@ -30,6 +35,7 @@ class QtGridController(QtBaseController):
     def _subscribe_to_events(self) -> None:
         try:
             self.event_bus.subscribe(GridStateEvent, self._handle_grid_state_event)
+            self.event_bus.subscribe(GridClickHistoryChangedEvent, self._handle_grid_click_history_changed)
         except Exception as e:
             self.logger.error("Error subscribing to events: %s", e, exc_info=True)
 
@@ -58,22 +64,33 @@ class QtGridController(QtBaseController):
         self.logger.error("Cannot handle grid selection: grid view not set")
         return False
 
+    async def _publish_grid_state(self, event: GridStateEvent) -> None:
+        await self.event_bus.publish(event)
+
+    def _schedule_grid_state_event(self, event: GridStateEvent) -> None:
+        self._gui_async_bridge.schedule_coro(self._publish_grid_state(event))
+
     def on_grid_selection_success(self, selected_number: int, center_x: float, center_y: float) -> None:
-        asyncio.create_task(
-            self.event_bus.publish(
-                GridStateEvent(
-                    state="interaction_success",
-                    config={"selected_number": selected_number, "center_x": center_x, "center_y": center_y},
-                )
+        self._schedule_grid_state_event(
+            GridStateEvent(
+                state="interaction_success",
+                config={"selected_number": selected_number, "center_x": center_x, "center_y": center_y},
             )
         )
 
     def on_grid_selection_failed(self, selected_number: int, error_message: str) -> None:
-        asyncio.create_task(
-            self.event_bus.publish(
-                GridStateEvent(state="interaction_failed", config={"selected_number": selected_number}, message=error_message)
+        self._schedule_grid_state_event(
+            GridStateEvent(
+                state="interaction_failed",
+                config={"selected_number": selected_number},
+                message=error_message,
             )
         )
+
+    async def _handle_grid_click_history_changed(self, _event: GridClickHistoryChangedEvent) -> None:
+        view = self.get_view()
+        if view is not None and view.is_active():
+            view.refresh_click_labels_if_active()
 
     def _handle_grid_state_event(self, grid_state: GridStateEvent) -> None:
         if grid_state.state == "visible":
@@ -97,6 +114,7 @@ class QtGridController(QtBaseController):
     def cleanup(self) -> None:
         try:
             self.event_bus.unsubscribe(GridStateEvent, self._handle_grid_state_event)
+            self.event_bus.unsubscribe(GridClickHistoryChangedEvent, self._handle_grid_click_history_changed)
         except Exception as e:
             self.logger.warning("Error during cleanup: %s", e)
 

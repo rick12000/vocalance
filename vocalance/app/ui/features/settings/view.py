@@ -11,10 +11,9 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QMessageBox, QVBoxLayout, 
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, get_whitelisted_llm_model, local_llm_allowlist
 from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
 from vocalance.app.ui.components.checkboxes import Checkbox
-from vocalance.app.ui.components.complex_components import FormGroup
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BoxTitleLabel, SectionTitle, SmallLabel
-from vocalance.app.ui.components.layouts import Box, ScrollableContainer
+from vocalance.app.ui.components.layouts import Box, FormField, ScrollableContainer
 from vocalance.app.ui.features.settings.llm_download_dialog import LlmDownloadProgressDialog
 from vocalance.app.ui.qt_theme import theme
 
@@ -118,11 +117,7 @@ class QtSettingsView(QWidget):
 
     def _refresh_settings_display(self) -> None:
         """Refresh the settings display with organized sections and per-section controls."""
-        # Clear existing widgets
-        while self.scroll_container.content_layout.count():
-            item = self.scroll_container.content_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self.scroll_container.clear_content()
 
         self.setting_widgets.clear()
         self.section_widgets.clear()
@@ -178,7 +173,7 @@ class QtSettingsView(QWidget):
                     inp = TextInput()
                     inp.setText(str(value))
 
-                    group = FormGroup(label_text, inp)
+                    group = FormField(label_text, inp)
                     self.scroll_container.add(group)
                     self.setting_widgets[setting_key] = inp
                     section_widgets_dict[setting_key] = inp
@@ -237,7 +232,7 @@ class QtSettingsView(QWidget):
         finally:
             self._suppress_llm_combo_events = False
 
-        group = FormGroup("Model", combo)
+        group = FormField("Model", combo)
         self.scroll_container.add(group)
         llm_widgets["llm.selected_model_id"] = combo
         self.setting_widgets["llm.selected_model_id"] = combo
@@ -262,7 +257,7 @@ class QtSettingsView(QWidget):
             setting_key = f"{category}.{key}"
             inp = TextInput()
             inp.setText(str(value))
-            group = FormGroup(label_text, inp)
+            group = FormField(label_text, inp)
             self.scroll_container.add(group)
             llm_widgets[setting_key] = inp
             self.setting_widgets[setting_key] = inp

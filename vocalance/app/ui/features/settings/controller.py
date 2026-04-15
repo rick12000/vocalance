@@ -10,7 +10,7 @@ from vocalance.app.config.app_config import GlobalAppConfig, get_whitelisted_llm
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import SettingsChangedEvent
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
-from vocalance.app.services.storage.settings_service import SettingsService
+from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
@@ -28,7 +28,7 @@ class QtSettingsController(QtBaseController):
     def __init__(
         self,
         event_bus: EventBus,
-        settings_service: SettingsService,
+        runtime_configuration: RuntimeConfigurationStore,
         config: GlobalAppConfig,
         main_window: Any,
     ) -> None:
@@ -36,7 +36,7 @@ class QtSettingsController(QtBaseController):
 
         Args:
             event_bus: Event bus for pub/sub.
-            settings_service: Settings service instance.
+            runtime_configuration: Runtime configuration store (user overrides + propagation).
             config: Global app configuration.
             main_window: Main window reference (used to access the dictation service for LLM downloads).
         """
@@ -45,7 +45,7 @@ class QtSettingsController(QtBaseController):
             logger=logging.getLogger("QtSettingsController"),
         )
 
-        self.settings_service = settings_service
+        self.runtime_configuration = runtime_configuration
         self.config = config
         self.main_window = main_window
         self._cached_settings: Dict[str, Any] = {}
@@ -78,7 +78,7 @@ class QtSettingsController(QtBaseController):
             Dict of current effective settings, or empty dict on failure.
         """
         try:
-            settings = self.settings_service.get_effective_settings()
+            settings = self.runtime_configuration.get_effective_settings()
             self._cached_settings = settings
             self.settings_loaded.emit(settings)
             return settings
@@ -102,7 +102,7 @@ class QtSettingsController(QtBaseController):
             Tuple of (success, message).
         """
         try:
-            success = await self.settings_service.update_multiple_settings({key: value})
+            success = await self.runtime_configuration.update_multiple_settings({key: value})
             if success:
                 parts = key.split(".")
                 if len(parts) == 2:
@@ -193,7 +193,7 @@ class QtSettingsController(QtBaseController):
             Tuple of (success, message).
         """
         try:
-            success = await self.settings_service.update_multiple_settings(settings)
+            success = await self.runtime_configuration.update_multiple_settings(settings)
             if success:
                 for key, value in settings.items():
                     parts = key.split(".")
@@ -221,7 +221,7 @@ class QtSettingsController(QtBaseController):
 
     async def _reset_to_defaults_async(self) -> None:
         try:
-            success, message = await self.settings_service.reset_to_defaults()
+            success, message = await self.runtime_configuration.reset_to_defaults()
             if success:
                 self.load_settings_async()
             else:
@@ -244,7 +244,7 @@ class QtSettingsController(QtBaseController):
         """
         try:
             for setting_key in setting_keys:
-                success = await self.settings_service.reset_setting(setting_key)
+                success = await self.runtime_configuration.reset_setting(setting_key)
                 if not success:
                     self.logger.warning(f"Failed to reset setting: {setting_key}")
             self.load_settings_async()
@@ -277,4 +277,8 @@ class QtSettingsController(QtBaseController):
 
     def cleanup(self) -> None:
         """Unsubscribe from all events and release resources."""
+        try:
+            self.event_bus.unsubscribe(SettingsChangedEvent, self._handle_settings_changed)
+        except Exception as e:
+            self.logger.debug("Settings event unsubscribe: %s", e)
         super().cleanup()

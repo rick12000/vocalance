@@ -3,6 +3,10 @@ from typing import Any, Dict, Literal, Optional
 from vocalance.app.events.base_event import BaseEvent
 
 
+class GridClickHistoryChangedEvent(BaseEvent):
+    """Published after in-memory grid click history changes (debounced)."""
+
+
 class GridStateEvent(BaseEvent):
     """Unified event for grid state changes and requests."""
 

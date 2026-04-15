@@ -53,5 +53,9 @@ class QtSystemController(QtBaseController):
             self.logger.error("Error showing audio device error dialog: %s", e, exc_info=True)
 
     def cleanup(self) -> None:
+        try:
+            self.event_bus.unsubscribe(AudioDeviceErrorEvent, self._handle_audio_device_error)
+        except Exception as e:
+            self.logger.debug("System controller event unsubscribe: %s", e)
         self.main_window = None
         super().cleanup()

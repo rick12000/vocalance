@@ -5,10 +5,10 @@ from PySide6.QtWidgets import QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.events.mark_events import MarkData
 from vocalance.app.ui.components.buttons import DangerButton, DeleteButton, PrimaryButton
-from vocalance.app.ui.components.complex_components import Tile
 from vocalance.app.ui.components.dialogs import askyesno
 from vocalance.app.ui.components.labels import BodyLabel, SmallLabel
 from vocalance.app.ui.components.layouts import ScrollableContainer, TransparentBox, TwoColumnLayout
+from vocalance.app.ui.components.tile import Tile
 from vocalance.app.ui.qt_theme import theme
 
 

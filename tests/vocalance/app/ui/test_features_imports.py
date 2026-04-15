@@ -1,12 +1,17 @@
-def test_feature_packages_import():
-    from vocalance.app.ui.features import commands, dictation, marks, overlays, settings, sounds
+def test_feature_views_import():
+    from vocalance.app.ui.features.commands.view import QtCommandsView
+    from vocalance.app.ui.features.dictation.view import QtDictationView
+    from vocalance.app.ui.features.marks.view import QtMarksView
+    from vocalance.app.ui.features.overlays.mark_overlay import QtMarkView
+    from vocalance.app.ui.features.settings.view import QtSettingsView
+    from vocalance.app.ui.features.sounds.view import QtSoundsView
 
-    assert hasattr(commands, "QtCommandsView")
-    assert hasattr(dictation, "QtDictationView")
-    assert hasattr(marks, "QtMarksView")
-    assert hasattr(overlays, "QtMarkView")
-    assert hasattr(settings, "QtSettingsView")
-    assert hasattr(sounds, "QtSoundsView")
+    assert QtCommandsView is not None
+    assert QtDictationView is not None
+    assert QtMarksView is not None
+    assert QtMarkView is not None
+    assert QtSettingsView is not None
+    assert QtSoundsView is not None
 
 
 def test_ui_registry_import():

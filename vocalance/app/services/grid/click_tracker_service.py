@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import threading
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
+from vocalance.app.events.grid_events import GridClickHistoryChangedEvent
 from vocalance.app.services.base_service import Service
+from vocalance.app.services.gui_async_bridge import GuiAsyncBridge
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService
 
@@ -13,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Sort rectangles by click frequency (desc), then by stable screen position."""
     if not rect_details_with_clicks:
         return []
 
@@ -36,13 +38,25 @@ def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> Lis
 
 
 class ClickTrackerService(Service):
-    """In-memory click cache loaded from storage on startup and flushed on shutdown."""
+    """Click history in memory with debounced UI notify and async disk persistence."""
 
-    def __init__(self, event_bus: EventBus, storage: StorageService) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        storage: StorageService,
+        gui_async_bridge: GuiAsyncBridge,
+        ui_refresh_debounce_s: float,
+        persist_debounce_s: float,
+    ) -> None:
         self._event_bus = event_bus
         self._storage = storage
+        self._bridge = gui_async_bridge
+        self._ui_refresh_debounce_s = ui_refresh_debounce_s
+        self._persist_debounce_s = persist_debounce_s
         self._lock = threading.RLock()
         self._clicks: List[GridClickEvent] = []
+        self._ui_task: Optional[asyncio.Task] = None
+        self._persist_task: Optional[asyncio.Task] = None
         event_bus.subscribe(PerformMouseClickEventData, self._handle_mouse_click)
 
     async def initialize(self) -> bool:
@@ -54,12 +68,51 @@ class ClickTrackerService(Service):
             return True
         except Exception as e:
             logger.error("Failed to load click history: %s", e, exc_info=True)
-            return True  # non-fatal
+            return True
 
-    async def _handle_mouse_click(self, event: PerformMouseClickEventData) -> None:
-        new_click = GridClickEvent(x=event.x, y=event.y, timestamp=time.time(), cell_id=None)
+    def _append_click_locked(self, x: int, y: int) -> None:
+        new_click = GridClickEvent(x=x, y=y, timestamp=time.time(), cell_id=None)
         with self._lock:
             self._clicks.append(new_click)
+
+    def _reschedule_debounce_tasks(self) -> None:
+        for t in (self._ui_task, self._persist_task):
+            if t is not None and not t.done():
+                t.cancel()
+        self._ui_task = asyncio.create_task(self._debounced_ui_notify())
+        self._persist_task = asyncio.create_task(self._debounced_persist())
+
+    def _request_debounce_after_mutation(self) -> None:
+        self._bridge.invoke_on_gui_loop(self._reschedule_debounce_tasks)
+
+    def record_physical_click(self, x: int, y: int) -> None:
+        """Record a screen-space click; safe from any thread (e.g. grid pyautogui worker)."""
+        self._append_click_locked(x, y)
+        self._request_debounce_after_mutation()
+
+    async def _handle_mouse_click(self, event: PerformMouseClickEventData) -> None:
+        self._append_click_locked(event.x, event.y)
+        self._request_debounce_after_mutation()
+
+    async def _debounced_ui_notify(self) -> None:
+        try:
+            await asyncio.sleep(self._ui_refresh_debounce_s)
+            await self._event_bus.publish(GridClickHistoryChangedEvent())
+        except asyncio.CancelledError:
+            raise
+
+    async def _debounced_persist(self) -> None:
+        try:
+            await asyncio.sleep(self._persist_debounce_s)
+        except asyncio.CancelledError:
+            raise
+        with self._lock:
+            snapshot = list(self._clicks)
+        try:
+            await self._storage.write(data=GridClicksData(clicks=snapshot))
+            logger.debug("Persisted %d grid clicks", len(snapshot))
+        except Exception as e:
+            logger.error("Debounced click history write failed: %s", e, exc_info=True)
 
     def _is_click_in_rect(self, click: Dict[str, Any], rx: int, ry: int, rw: int, rh: int) -> bool:
         try:
@@ -87,12 +140,21 @@ class ClickTrackerService(Service):
 
     async def shutdown(self) -> None:
         self._event_bus.unsubscribe(PerformMouseClickEventData, self._handle_mouse_click)
+        for t in (self._ui_task, self._persist_task):
+            if t is not None and not t.done():
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+        self._ui_task = None
+        self._persist_task = None
         with self._lock:
             clicks_to_save = list(self._clicks)
         if not clicks_to_save:
             return
         try:
             await self._storage.write(data=GridClicksData(clicks=clicks_to_save))
-            logger.info("Saved %d clicks to storage", len(clicks_to_save))
+            logger.info("Saved %d clicks to storage on shutdown", len(clicks_to_save))
         except Exception as e:
             logger.error("Error saving clicks on shutdown: %s", e, exc_info=True)

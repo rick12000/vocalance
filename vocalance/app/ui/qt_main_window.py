@@ -9,9 +9,10 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.ui.application.ui_registry import UiRegistry
-from vocalance.app.ui.components.complex_components import HeaderIconButton, SidebarButton
+from vocalance.app.ui.components.header_icon_button import HeaderIconButton
 from vocalance.app.ui.components.labels import BodyLabel, TitleLabel
 from vocalance.app.ui.components.layouts import BaseContainer, TransparentBox
+from vocalance.app.ui.components.sidebar_button import SidebarButton
 from vocalance.app.ui.components.specialized import ExpandableSidebar
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache

@@ -1,6 +1,6 @@
 import vocalance.app.ui.components.layout_composites as lcm
 import vocalance.app.ui.components.layout_core as lc
-from vocalance.app.ui.components import layouts
+import vocalance.app.ui.components.layouts as layouts
 
 
 def test_layout_core_has_scrollable():

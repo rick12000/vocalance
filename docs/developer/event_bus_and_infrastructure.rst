@@ -206,7 +206,7 @@ Initialization Stages
 
 **Stage 1 - Core Services**: GridService and AutomationService have no dependencies.
 
-**Stage 2 - Storage Services**: StorageService (provides to others), then in parallel: SettingsService, CommandManagementService, MarkService, ClickTrackerService.
+**Stage 2 - Storage Services**: StorageService (provides to others), then in parallel: RuntimeConfigurationStore, CommandManagementService, MarkService, ClickTrackerService.
 
 **Stage 3 - Audio Services**: AudioService (base audio capture), then in parallel: SoundService, SpeechToTextService, CentralizedCommandParser, DictationCoordinator (loads LLM model).
 
@@ -225,8 +225,10 @@ Parallel Initialization Example
        storage = StorageService(config=self.config)
 
        async def init_settings():
-           settings = SettingsService(storage=storage)
-           await settings.initialize()
+           runtime_config = RuntimeConfigurationStore(
+               event_bus=event_bus, config=config, storage=storage
+           )
+           await runtime_config.initialize()
 
        async def init_commands():
            command_mgmt = CommandManagementService(storage=storage)

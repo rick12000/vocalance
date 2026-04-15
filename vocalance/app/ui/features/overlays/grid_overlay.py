@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import math
 import threading
@@ -12,7 +11,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects
 from vocalance.app.ui.qt_theme import theme
 
@@ -69,6 +67,7 @@ class QtGridView(QWidget):
         self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
         self._current_click_mode: str = "click"
         self._drag_origin: Optional[Tuple[int, int]] = None
+        self._layout_num_rects_requested: Optional[int] = None
 
         # Cached layout data for fast painting
         self._cached_num_cols: int = 0
@@ -579,6 +578,7 @@ class QtGridView(QWidget):
                 self._cached_num_rows = num_rows
                 self._cached_cell_w = logical_cell_w
                 self._cached_cell_h = logical_cell_h
+                self._layout_num_rects_requested = num_rects
 
                 self._is_active = True
 
@@ -604,6 +604,7 @@ class QtGridView(QWidget):
                 self._is_preparing = False
                 self._is_active = False
                 self._drag_origin = None
+                self._layout_num_rects_requested = None
             self.logger.error(f"Error showing grid: {e}", exc_info=True)
 
     def _schedule_robust_focus(self) -> None:
@@ -665,16 +666,74 @@ class QtGridView(QWidget):
                 self._cached_cell_w = 0
                 self._cached_cell_h = 0
                 self._drag_origin = None
+                self._layout_num_rects_requested = None
 
             self.logger.info("Grid hidden")
 
         except Exception as e:
             self.logger.error(f"Error hiding grid: {e}", exc_info=True)
 
+    def refresh_click_labels_if_active(self) -> None:
+        """Recompute cell numbering from click history while the overlay stays visible."""
+        with self._state_lock:
+            if not self._is_active:
+                return
+            num_rects = self._layout_num_rects_requested
+        if num_rects is None or not self._click_tracker:
+            return
+
+        primary = QApplication.primaryScreen()
+        if primary:
+            geometry = primary.geometry()
+            device_pixel_ratio = primary.devicePixelRatio()
+            self._layout_device_pixel_ratio = float(device_pixel_ratio)
+            self.screen_width = int(geometry.width() * device_pixel_ratio)
+            self.screen_height = int(geometry.height() * device_pixel_ratio)
+            logical_width = geometry.width()
+            logical_height = geometry.height()
+        else:
+            self._layout_device_pixel_ratio = 1.0
+            self.screen_width = 1920
+            self.screen_height = 1080
+            device_pixel_ratio = 1.0
+            logical_width = 1920
+            logical_height = 1080
+
+        rect_definitions, cell_w, cell_h = self._calculate_grid_layout(num_rects)
+        if not rect_definitions:
+            return
+
+        rects_with_clicks = self._calculate_click_counts_sync(rect_definitions)
+        weighted_rects = prioritize_grid_rects(rects_with_clicks)
+
+        logical_cell_w = cell_w / device_pixel_ratio
+        logical_cell_h = cell_h / device_pixel_ratio
+        num_cols = max(1, round(logical_width / logical_cell_w))
+        num_rows = max(1, round(logical_height / logical_cell_h))
+        logical_cell_w = logical_width / num_cols
+        logical_cell_h = logical_height / num_rows
+
+        self.current_font_size = self._calculate_adaptive_font_size(len(weighted_rects))
+        self.font.setPointSize(self.current_font_size)
+
+        with self._state_lock:
+            if not self._is_active:
+                return
+            self.ui_to_rect_data_map.clear()
+            for ui_number, weighted_rect_info in enumerate(weighted_rects, 1):
+                self.ui_to_rect_data_map[ui_number] = weighted_rect_info["data"]
+            self.current_num_rects_displayed = len(weighted_rects)
+            self._cached_num_cols = num_cols
+            self._cached_num_rows = num_rows
+            self._cached_cell_w = logical_cell_w
+            self._cached_cell_h = logical_cell_h
+
+        self.update()
+
     def _publish_grid_mouse_click(self, x: int, y: int) -> None:
-        """Log a grid-originated click at physical coordinates (click tracking)."""
-        ev = PerformMouseClickEventData(x=x, y=y, source="grid")
-        asyncio.create_task(self.event_bus.publish(ev))
+        """Record the grid-executed pointer action at physical coordinates (any thread)."""
+        if self._click_tracker is not None:
+            self._click_tracker.record_physical_click(x, y)
 
     def _execute_grid_pointer_action(
         self,
@@ -779,5 +838,6 @@ class QtGridView(QWidget):
         with self._state_lock:
             self.ui_to_rect_data_map.clear()
             self._is_active = False
+            self._layout_num_rects_requested = None
 
         self.logger.debug("QtGridView cleanup completed")

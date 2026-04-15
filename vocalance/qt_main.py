@@ -24,7 +24,7 @@ import PySide6.QtAsyncio as QtAsyncio
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig, load_app_config
+from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
 from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
@@ -32,19 +32,17 @@ from vocalance.app.services.audio.simple_audio_service import AudioService
 from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.automation_service import AutomationService
-from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
 from vocalance.app.services.commands.management import CommandManagementService
 from vocalance.app.services.commands.parser import CentralizedCommandParser
-from vocalance.app.services.deduplication.event_deduplicator import EventDeduplicator
 from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
 from vocalance.app.services.grid.grid_service import GridService
+from vocalance.app.services.gui_async_bridge import GuiAsyncBridge
 from vocalance.app.services.mark_service import MarkService
 from vocalance.app.services.pause_state_manager import PauseStateManager
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 from vocalance.app.services.shutdown_coordinator import ShutdownCoordinator
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
-from vocalance.app.services.storage.settings_service import SettingsService
-from vocalance.app.services.storage.settings_update_coordinator import SettingsUpdateCoordinator
+from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore, register_configuration_listeners
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.ui.qt_main_window import VocalanceMainWindow
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
@@ -65,10 +63,9 @@ class Services:
     the bootstrap guarantees they are set before any consumer runs."""
 
     storage: StorageService
+    gui_async_bridge: GuiAsyncBridge
     validator: ProtectedTermsValidator
-    action_map_provider: CommandActionMapProvider
-    settings_coordinator: SettingsUpdateCoordinator
-    settings: SettingsService
+    runtime_config: RuntimeConfigurationStore
     grid: GridService
     automation: AutomationService
     click_tracker: ClickTrackerService
@@ -94,17 +91,21 @@ def _construct_services(
     gui_loop: asyncio.AbstractEventLoop,
 ) -> Services:
     """Build every service.  No I/O.  Order matters only for dependency injection."""
+    gui_async_bridge = GuiAsyncBridge(gui_loop)
     storage = StorageService(config=config)
+    runtime_config = RuntimeConfigurationStore(event_bus=event_bus, config=config, storage=storage)
     validator = ProtectedTermsValidator(config=config, storage=storage)
     validator.setup_invalidation_subscriptions(event_bus)
-    action_map_provider = CommandActionMapProvider(storage=storage)
-
-    settings_coordinator = SettingsUpdateCoordinator(event_bus=event_bus, config=config)
-    settings = SettingsService(event_bus=event_bus, config=config, storage=storage, coordinator=settings_coordinator)
 
     grid = GridService(event_bus=event_bus, config=config)
     automation = AutomationService(event_bus=event_bus, config=config)
-    click_tracker = ClickTrackerService(event_bus=event_bus, storage=storage)
+    click_tracker = ClickTrackerService(
+        event_bus=event_bus,
+        storage=storage,
+        gui_async_bridge=gui_async_bridge,
+        ui_refresh_debounce_s=config.grid.click_history_ui_refresh_debounce_s,
+        persist_debounce_s=config.grid.click_history_persist_debounce_s,
+    )
     mark = MarkService(
         event_bus=event_bus,
         config=config,
@@ -115,7 +116,6 @@ def _construct_services(
         event_bus=event_bus,
         storage=storage,
         protected_terms_validator=validator,
-        action_map_provider=action_map_provider,
     )
 
     stt = SpeechToTextService(event_bus=event_bus, config=config)
@@ -140,19 +140,22 @@ def _construct_services(
     parser = CentralizedCommandParser(
         event_bus=event_bus,
         app_config=config,
-        action_map_provider=action_map_provider,
-        deduplicator=EventDeduplicator(window_ms=config.command_parser.duplicate_detection_window_ms),
+        storage=storage,
         pause_state_manager=pause_manager,
     )
 
-    _register_settings_callbacks(settings_coordinator, sound_service, audio)
+    register_configuration_listeners(
+        runtime_config,
+        sound_service=sound_service,
+        audio_service=audio,
+        llm_service=dictation.llm_service,
+    )
 
     return Services(
         storage=storage,
+        gui_async_bridge=gui_async_bridge,
         validator=validator,
-        action_map_provider=action_map_provider,
-        settings_coordinator=settings_coordinator,
-        settings=settings,
+        runtime_config=runtime_config,
         grid=grid,
         automation=automation,
         click_tracker=click_tracker,
@@ -165,17 +168,6 @@ def _construct_services(
         centralized_parser=parser,
         dictation=dictation,
     )
-
-
-def _register_settings_callbacks(
-    coordinator: SettingsUpdateCoordinator,
-    sound_service: SoundService,
-    audio: AudioService,
-) -> None:
-    reg = coordinator.register_callback
-    reg("sound_recognizer.confidence_threshold", sound_service.on_confidence_threshold_updated)
-    reg("sound_recognizer.vote_threshold", sound_service.on_vote_threshold_updated)
-    reg("vad.command_silent_chunks_for_end", audio.on_command_silent_chunks_updated)
 
 
 # ---------------------------------------------------------------------------
@@ -193,8 +185,7 @@ async def _initialize_services(
 
     progress_tracker.start_step(step_name="Initializing storage...")
     progress_tracker.update_status_animated(status="Loading user settings")
-    await services.settings.initialize()
-    await services.settings.apply_startup_settings_to_config()
+    await services.runtime_config.initialize()
     progress_tracker.update_status_animated(status="Initializing click tracking")
     await services.click_tracker.initialize()
     await services.centralized_parser.initialize()
@@ -323,7 +314,7 @@ async def _cleanup_services(services: Services, event_bus: EventBus) -> None:
         services.stt,
         services.dictation,
         services.click_tracker,
-        services.settings_coordinator,
+        services.runtime_config,
         services.audio,
         services.storage,
     ]
@@ -349,8 +340,8 @@ async def main() -> None:
     services: Optional[Services] = None
 
     try:
-        app_info = AppInfoConfig()
-        config = load_app_config(app_info=app_info)
+        AppInfoConfig()
+        config = GlobalAppConfig()
         setup_logging(config=config.logging)
         os.makedirs(config.storage.user_data_root, exist_ok=True)
 

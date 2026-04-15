@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
@@ -8,6 +9,14 @@ from vocalance.app.events.command_events import AutomationCommandParsedEvent, Sy
 from vocalance.app.events.core_events import CommandTextRecognizedEvent
 from vocalance.app.services.commands.parser import CentralizedCommandParser
 from vocalance.app.services.pause_state_manager import PauseStateManager
+from vocalance.app.services.storage.storage_models import CommandsData
+
+
+@pytest.fixture
+def command_parser_storage():
+    storage = Mock()
+    storage.read = AsyncMock(return_value=CommandsData(custom_commands={}, phrase_overrides={}))
+    return storage
 
 
 @pytest_asyncio.fixture
@@ -17,11 +26,11 @@ async def pause_state_manager(event_bus):
 
 
 @pytest_asyncio.fixture
-async def command_parser_with_pause(event_bus, app_config, mock_action_map_provider, pause_state_manager):
+async def command_parser_with_pause(event_bus, app_config, command_parser_storage, pause_state_manager):
     parser = CentralizedCommandParser(
         event_bus=event_bus,
         app_config=app_config,
-        action_map_provider=mock_action_map_provider,
+        storage=command_parser_storage,
         pause_state_manager=pause_state_manager,
     )
     await parser.initialize()
@@ -32,7 +41,7 @@ async def command_parser_with_pause(event_bus, app_config, mock_action_map_provi
 async def test_pause_command_parsing(command_parser_with_pause):
     """Test that pause command is correctly parsed."""
     parser = command_parser_with_pause
-    event_bus = parser._event_bus
+    event_bus = parser.event_bus
 
     captured_events = []
 
@@ -54,7 +63,7 @@ async def test_pause_command_parsing(command_parser_with_pause):
 async def test_resume_command_parsing(command_parser_with_pause):
     """Test that resume command is correctly parsed."""
     parser = command_parser_with_pause
-    event_bus = parser._event_bus
+    event_bus = parser.event_bus
 
     captured_events = []
 
@@ -76,8 +85,8 @@ async def test_resume_command_parsing(command_parser_with_pause):
 async def test_pause_blocks_automation_commands(command_parser_with_pause):
     """Test that automation commands are blocked when paused."""
     parser = command_parser_with_pause
-    event_bus = parser._event_bus
-    pause_manager = parser._pause_state_manager
+    event_bus = parser.event_bus
+    pause_manager = parser.pause_state_manager
 
     automation_events = []
 
@@ -108,8 +117,8 @@ async def test_pause_blocks_automation_commands(command_parser_with_pause):
 async def test_resume_unblocks_commands(command_parser_with_pause):
     """Test that resume command unblocks automation commands."""
     parser = command_parser_with_pause
-    event_bus = parser._event_bus
-    pause_manager = parser._pause_state_manager
+    event_bus = parser.event_bus
+    pause_manager = parser.pause_state_manager
 
     automation_events = []
 
@@ -138,8 +147,8 @@ async def test_resume_unblocks_commands(command_parser_with_pause):
 async def test_resume_command_works_when_paused(command_parser_with_pause):
     """Test that resume command can be executed even when paused."""
     parser = command_parser_with_pause
-    event_bus = parser._event_bus
-    pause_manager = parser._pause_state_manager
+    event_bus = parser.event_bus
+    pause_manager = parser.pause_state_manager
 
     system_control_events = []
 

@@ -50,14 +50,16 @@ class UiRegistry:
         self.system_controller = QtSystemController(event_bus, main_window)
 
         self.marks_controller = QtMarksController(event_bus, s.mark, config) if s.mark else None
-        self.grid_controller = QtGridController(event_bus, s.grid, config) if s.grid else None
+        self.grid_controller = QtGridController(event_bus, s.grid, config, s.gui_async_bridge) if s.grid else None
         self.sound_controller = (
             QtSoundController(event_bus, s.sound_service, s.storage, config, s.mark) if s.sound_service else None
         )
         self.commands_controller = QtCommandsController(event_bus, s.command_management, config) if s.command_management else None
         self.dictation_controller = QtDictationController(event_bus, config, s.dictation.prompts) if s.dictation else None
         self.dictation_alias_controller = QtDictationAliasController(event_bus, s.dictation.aliases) if s.dictation else None
-        self.settings_controller = QtSettingsController(event_bus, s.settings, config, main_window) if s.settings else None
+        self.settings_controller = (
+            QtSettingsController(event_bus, s.runtime_config, config, main_window) if s.runtime_config else None
+        )
 
         self.dictation_popup_controller: Optional[QtDictationPopupController] = None
         try:
