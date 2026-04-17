@@ -325,6 +325,11 @@ async def cleanup_services(services: Services, event_bus: EventBus) -> None:
             errors.append(e)
 
     await event_bus.shutdown()
+
+    from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
+
+    shared_input_executor.shutdown(wait=True)
+
     logger.info("All services cleaned up")
 
     if errors:
@@ -442,7 +447,6 @@ async def main() -> None:
             event_bus=event_bus,
             logger=logging.getLogger("MainWindow"),
             config=config,
-            services=services,
             icon_manager=icon_manager,
             shutdown_coordinator=shutdown_coordinator,
         )

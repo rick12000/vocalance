@@ -1,6 +1,5 @@
 import asyncio
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, Optional
 
 import pyautogui
@@ -11,6 +10,7 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import AutomationCommandParsedEvent
 from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
 from vocalance.app.services.base_service import Service
+from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
 
 
 class AutomationService(Service):
@@ -19,7 +19,6 @@ class AutomationService(Service):
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         self.event_bus = event_bus
         self.config = config
-        self.thread_pool = ThreadPoolExecutor(max_workers=config.automation_service.thread_pool_max_workers)
         self.cooldown_timers: Dict[str, float] = {}
         event_bus.subscribe(AutomationCommandParsedEvent, self.handle_automation_command_parsed)
         event_bus.subscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
@@ -35,7 +34,7 @@ class AutomationService(Service):
         if not action_fn:
             return
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(self.thread_pool, lambda: self.run_action(action_fn, count))
+        await loop.run_in_executor(shared_input_executor, lambda: self.run_action(action_fn, count))
         self.cooldown_timers[command.command_key] = time.time()
 
     def run_action(self, action_fn: Callable[[], None], count: int) -> None:
@@ -92,4 +91,3 @@ class AutomationService(Service):
     async def shutdown(self) -> None:
         self.event_bus.unsubscribe(AutomationCommandParsedEvent, self.handle_automation_command_parsed)
         self.event_bus.unsubscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
-        await asyncio.to_thread(self.thread_pool.shutdown, wait=True)

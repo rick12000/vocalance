@@ -14,6 +14,7 @@ from vocalance.app.services.audio.dictation_handling.utils.segment_text import (
     should_lowercase_current_start,
     should_remove_previous_period,
 )
+from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +89,9 @@ class DictationTextInput:
                 cleaned_text = lowercase_first_letter(cleaned_text)
 
         if self.config.use_clipboard:
-            success: bool = await self.loop.run_in_executor(None, self.paste_clipboard, cleaned_text)
+            success: bool = await self.loop.run_in_executor(shared_input_executor, self.paste_clipboard, cleaned_text)
         else:
-            success = await self.loop.run_in_executor(None, self.type_text, cleaned_text)
+            success = await self.loop.run_in_executor(shared_input_executor, self.type_text, cleaned_text)
 
         if success:
             self.last_text = cleaned_text
@@ -181,16 +182,16 @@ class DictationTextInput:
         return True
 
     async def add_space(self) -> bool:
-        await self.loop.run_in_executor(None, pyautogui.press, "space")
+        await self.loop.run_in_executor(shared_input_executor, pyautogui.press, "space")
         return True
 
     async def add_newline(self) -> bool:
-        await self.loop.run_in_executor(None, pyautogui.press, "enter")
+        await self.loop.run_in_executor(shared_input_executor, pyautogui.press, "enter")
         return True
 
     async def backspace(self, count: int = 1) -> bool:
         for _ in range(count):
-            await self.loop.run_in_executor(None, pyautogui.press, "backspace")
+            await self.loop.run_in_executor(shared_input_executor, pyautogui.press, "backspace")
         return True
 
     def shutdown(self) -> None:

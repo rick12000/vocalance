@@ -14,6 +14,14 @@ logger = logging.getLogger(__name__)
 class EventBus:
     """Publish-subscribe bus with deferred start, MRO-based dispatch, and sync/async handlers.
 
+    This modern implementation decouples publishing from processing:
+    - Publishing is non-blocking and immediate, dropping events into a bounded queue.
+    - If the system is catastrophically overloaded, backpressure is applied to the publisher.
+    - Events are processed strictly sequentially (Event A completes fully before Event B begins)
+      to guarantee causal ordering and prevent state corruption or race conditions.
+    - Within a single event, synchronous handlers run immediately, and all asynchronous
+      handlers run concurrently via `asyncio.gather` for maximum efficiency.
+
     Handlers run on the asyncio loop passed to ``start``. One failing handler is logged
     and does not prevent other handlers from running. After ``shutdown``, ``publish`` is
     a no-op and the bus cannot be restarted.
@@ -24,7 +32,10 @@ class EventBus:
         self.bus_lock = threading.Lock()
         self.started = False
         self.closed = False
+
         self.pending_events: List[BaseEvent] = []
+        self._queue: asyncio.Queue[BaseEvent] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Flush queued events and begin live dispatch on ``loop``.
@@ -47,16 +58,30 @@ class EventBus:
             if self.started:
                 return
             self.started = True
+
+            self._queue = asyncio.Queue(maxsize=500)
+
             queued: List[BaseEvent] = list(self.pending_events)
             self.pending_events.clear()
 
-        if queued:
-            loop.create_task(self.flush_pending_events(queued))
+        for event in queued:
+            self._queue.put_nowait(event)
 
-    async def flush_pending_events(self, events: List[BaseEvent]) -> None:
-        """Dispatch a batch of events that were queued before ``start``."""
-        for event in events:
-            await self.dispatch_event(event)
+        self._worker_task = loop.create_task(self._process_queue())
+
+    async def _process_queue(self) -> None:
+        """Background worker that processes events sequentially from the queue."""
+        if self._queue is None:
+            return
+
+        while True:
+            event = await self._queue.get()
+            try:
+                await self._dispatch_event(event)
+            except Exception as e:
+                logger.error("Catastrophic error in event dispatch: %s", e, exc_info=True)
+            finally:
+                self._queue.task_done()
 
     async def shutdown(self) -> None:
         """Stop accepting publishes and clear subscribers and queues."""
@@ -66,8 +91,22 @@ class EventBus:
             self.subscribers.clear()
             self.pending_events.clear()
 
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await self._worker_task
+            except asyncio.CancelledError:
+                pass
+
     async def publish(self, event: BaseEvent) -> None:
-        """Publish ``event`` to subscribers, queue if not started, or no-op if shut down."""
+        """Publish ``event`` to subscribers, queue if not started, or no-op if shut down.
+
+        This method is non-blocking under normal conditions. It will only block if the
+        event queue is full (backpressure), preventing memory exhaustion.
+
+        Args:
+            event: The event instance to publish.
+        """
         with self.bus_lock:
             if self.closed:
                 return
@@ -75,23 +114,47 @@ class EventBus:
                 self.pending_events.append(event)
                 return
 
-        await self.dispatch_event(event)
+        if self._queue is not None:
+            await self._queue.put(event)
 
-    async def dispatch_event(self, event: BaseEvent) -> None:
+    async def _dispatch_event(self, event: BaseEvent) -> None:
+        """Dispatch a single event to all registered handlers.
+
+        Synchronous handlers are executed sequentially and immediately.
+        Asynchronous handlers are executed concurrently. The method waits for all
+        async handlers to finish before returning, ensuring strict inter-event ordering.
+
+        Args:
+            event: The event instance to dispatch.
+        """
         handlers: List[Callable[..., Any]] = []
         with self.bus_lock:
             for cls in type(event).__mro__:
                 if cls in self.subscribers:
                     handlers.extend(self.subscribers[cls])
 
+        async_tasks = []
+
         for handler in handlers:
             try:
                 if asyncio.iscoroutinefunction(handler):
-                    await handler(event)
+                    async_tasks.append(handler(event))
                 else:
                     handler(event)
-            except Exception:
-                logger.error("Handler %s failed for %s", handler, type(event).__name__, exc_info=True)
+            except Exception as e:
+                logger.error("Sync handler %s failed for %s: %s", handler.__name__, type(event).__name__, e, exc_info=True)
+
+        if async_tasks:
+            results = await asyncio.gather(*async_tasks, return_exceptions=True)
+
+            for coro, result in zip(async_tasks, results):
+                if isinstance(result, Exception):
+                    logger.error(
+                        "Async handler failed for %s: %s",
+                        type(event).__name__,
+                        result,
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
 
     def subscribe(self, event_type: Type[BaseEvent], handler: Callable[..., Any]) -> None:
         """Register ``handler`` for exact ``event_type`` (and MRO dispatch on publish)."""

@@ -54,6 +54,7 @@ from vocalance.app.services.audio.dictation_handling.utils.segment_text import r
 from vocalance.app.services.audio.dictation_handling.utils.trigger_strip import strip_dictation_triggers
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.base_service import Service
+from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.concurrency import SubscriptionTracker
 
@@ -588,7 +589,7 @@ class DictationCoordinator(Service):
             await self.start_amend_session()
 
     async def start_amend_session(self) -> None:
-        captured = await self.gui_event_loop.run_in_executor(None, self.text_service.capture_selection_via_copy)
+        captured = await self.gui_event_loop.run_in_executor(shared_input_executor, self.text_service.capture_selection_via_copy)
         if not captured or not captured.strip():
             logger.warning("Amend mode: no text captured — keep focus on the app with the selection")
             return

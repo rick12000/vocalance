@@ -23,6 +23,7 @@ from vocalance.app.events.mark_events import (
     MarkVisualizationStateChangedEventData,
 )
 from vocalance.app.services.base_service import Service
+from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 from vocalance.app.services.storage.storage_models import Coordinate, MarksData
 from vocalance.app.services.storage.storage_service import StorageService
@@ -77,7 +78,8 @@ class MarkService(Service):
             coords = await self.get_mark_coordinates_internal(command.label)
             if coords:
                 x, y = coords
-                pyautogui.click(x, y)
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(shared_input_executor, pyautogui.click, x, y)
                 logger.info("Navigated to mark '%s' at (%s, %s) and clicked.", command.label, x, y)
             else:
                 logger.warning("Mark '%s' not found.", command.label)
@@ -250,7 +252,8 @@ class MarkService(Service):
             logger.warning("Mark '%s' not found for execution", name_or_id)
             return False
         x, y = coords
-        pyautogui.click(x, y)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(shared_input_executor, pyautogui.click, x, y)
         logger.info("Executed mark '%s' at (%s, %s)", name_or_id, x, y)
         return True
 

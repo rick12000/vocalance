@@ -663,13 +663,17 @@ class QtGridView(QWidget):
         # This ensures the overlay is fully gone before we click on the screen
         self.hide()
 
-        action_thread = threading.Timer(
-            0.001,
+        from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
+
+        self.gui_loop.run_in_executor(
+            shared_input_executor,
             self.execute_delayed_grid_action,
-            args=(selected_number, center_x, center_y, click_mode, drag_origin),
+            selected_number,
+            center_x,
+            center_y,
+            click_mode,
+            drag_origin,
         )
-        action_thread.daemon = True
-        action_thread.start()
 
         return True
 

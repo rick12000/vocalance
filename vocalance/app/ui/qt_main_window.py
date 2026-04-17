@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QIcon, QPalette
@@ -19,9 +19,6 @@ from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
 from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
 
-if TYPE_CHECKING:
-    from vocalance.qt_main import Services
-
 
 class VocalanceMainWindow(QMainWindow):
     """Application shell: sidebar, stacked tab content, and header."""
@@ -31,7 +28,6 @@ class VocalanceMainWindow(QMainWindow):
         event_bus: EventBus,
         logger: logging.Logger,
         config: GlobalAppConfig,
-        services: "Services",
         icon_manager: Optional[WindowIconManager] = None,
         shutdown_coordinator: Optional[ShutdownCoordinator] = None,
     ) -> None:
@@ -40,7 +36,6 @@ class VocalanceMainWindow(QMainWindow):
         self.event_bus = event_bus
         self.logger = logger
         self.config = config
-        self._service_container = services
         self.icon_manager = icon_manager
         self._shutdown_coordinator = shutdown_coordinator
 
@@ -56,7 +51,6 @@ class VocalanceMainWindow(QMainWindow):
             event_bus=self.event_bus,
             logger=self.logger,
             config=self.config,
-            services=self._service_container,
             main_window=self,
         )
         self._bind_registry_controllers()

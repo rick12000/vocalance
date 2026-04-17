@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QVBoxLayout, QWidget
@@ -24,9 +24,6 @@ from vocalance.app.ui.features.settings.view import QtSettingsView
 from vocalance.app.ui.features.sounds.controller import QtSoundController
 from vocalance.app.ui.features.sounds.view import QtSoundsView
 
-if TYPE_CHECKING:
-    from vocalance.qt_main import Services
-
 
 class UiRegistry:
     def __init__(
@@ -34,26 +31,22 @@ class UiRegistry:
         event_bus: EventBus,
         logger: logging.Logger,
         config: GlobalAppConfig,
-        services: "Services",
         main_window: QWidget,
     ) -> None:
         self.event_bus = event_bus
         self.logger = logger
         self.config = config
-        self.services = services
         self._main_window = main_window
-
-        s = services
 
         self.system_controller = QtSystemController(event_bus, main_window)
 
-        self.marks_controller = QtMarksController(event_bus, config) if s.mark else None
-        self.grid_controller = QtGridController(event_bus, config) if s.grid else None
-        self.sound_controller = QtSoundController(event_bus, config) if s.sound_service else None
-        self.commands_controller = QtCommandsController(event_bus, config) if s.command_management else None
-        self.dictation_controller = QtDictationController(event_bus, config) if s.dictation else None
-        self.dictation_alias_controller = QtDictationAliasController(event_bus) if s.dictation else None
-        self.settings_controller = QtSettingsController(event_bus, config) if s.runtime_config else None
+        self.marks_controller = QtMarksController(event_bus, config)
+        self.grid_controller = QtGridController(event_bus, config)
+        self.sound_controller = QtSoundController(event_bus, config)
+        self.commands_controller = QtCommandsController(event_bus, config)
+        self.dictation_controller = QtDictationController(event_bus, config)
+        self.dictation_alias_controller = QtDictationAliasController(event_bus)
+        self.settings_controller = QtSettingsController(event_bus, config)
 
         self.dictation_popup_controller: Optional[QtDictationPopupController] = QtDictationPopupController(event_bus)
 
@@ -62,42 +55,36 @@ class UiRegistry:
         self._init_overlays()
 
     def _init_overlays(self) -> None:
-        s = self.services
-        if self.marks_controller and s.mark:
-            self.mark_view = QtMarkView(config=self.config)
-            self.mark_view.bind_controller(self.marks_controller)
-            self.marks_controller.set_view(self.mark_view)
-        if self.grid_controller and s.grid:
-            self.grid_view = QtGridView(self.event_bus, self.config, s.gui_event_loop)
-            self.grid_controller.set_view(self.grid_view)
+        import asyncio
+
+        self.mark_view = QtMarkView(config=self.config)
+        self.mark_view.bind_controller(self.marks_controller)
+        self.marks_controller.set_view(self.mark_view)
+
+        self.grid_view = QtGridView(self.event_bus, self.config, asyncio.get_running_loop())
+        self.grid_controller.set_view(self.grid_view)
 
     def create_tab_widget(self, tab_name: str) -> QWidget:
         if tab_name == "Marks":
             view = QtMarksView()
-            if self.marks_controller:
-                view.set_controller(self.marks_controller)
+            view.set_controller(self.marks_controller)
             return view
         if tab_name == "Sounds":
             view = QtSoundsView()
-            if self.sound_controller:
-                view.set_controller(self.sound_controller)
+            view.set_controller(self.sound_controller)
             return view
         if tab_name == "Commands":
             view = QtCommandsView()
-            if self.commands_controller:
-                view.set_controller(self.commands_controller)
+            view.set_controller(self.commands_controller)
             return view
         if tab_name == "Dictation":
             view = QtDictationView()
-            if self.dictation_controller:
-                view.set_controller(self.dictation_controller)
-            if self.dictation_alias_controller:
-                view.set_alias_controller(self.dictation_alias_controller)
+            view.set_controller(self.dictation_controller)
+            view.set_alias_controller(self.dictation_alias_controller)
             return view
         if tab_name == "Settings":
             view = QtSettingsView()
-            if self.settings_controller:
-                view.set_controller(self.settings_controller)
+            view.set_controller(self.settings_controller)
             return view
 
         placeholder = QWidget()
