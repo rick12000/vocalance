@@ -1,45 +1,36 @@
 Event Bus & Infrastructure
 ############################
 
-Vocalance's infrastructure enables complex, multi-threaded coordination through an event bus, thread pool architecture, and service lifecycle management. This foundation allows the application to remain responsive while performing audio capture, speech recognition, LLM inference, and UI updates—all simultaneously.
+Vocalance's infrastructure enables complex coordination through an event bus, thread pool architecture, and service lifecycle management. This foundation allows the application to remain responsive while performing audio capture, speech recognition, LLM inference, and UI updates.
 
 Why Event-Driven Architecture?
 ==============================
 
 Vocalance must handle multiple concurrent operations: capturing audio in real time, recognizing speech, parsing commands, coordinating dictation state, updating the UI, and more. Traditional architectures would have these components calling each other directly, creating tight coupling and potential deadlocks when threads compete for locks.
 
-An event-driven architecture decouples these components: each publishes events describing what it did, and others subscribe to events they care about. This loose coupling means components can be developed, tested, and modified independently. It also provides natural serialization: events arrive at the event bus in order, are processed sequentially by priority, and handlers can safely assume they won't race with other operations on the same event type.
+An event-driven architecture decouples these components: each publishes events describing what it did, and others subscribe to events they care about. This loose coupling means components can be developed, tested, and modified independently. It also provides natural serialization: events arrive at the event bus in order, are processed sequentially, and handlers can safely assume they won't race with other operations on the same event type.
 
 The Event Bus: Central Nervous System
 =======================================
 
-The `EventBus` is the central routing system. All components—audio service, STT service, command parser, controllers, services—communicate by publishing and subscribing to events through the bus. The bus guarantees:
+The ``EventBus`` is the central routing system. All components—audio service, STT service, command parser, controllers, services—communicate by publishing and subscribing to events through the bus. The bus guarantees:
 
-- **Priority-based ordering**: Events are processed in priority order (CRITICAL before HIGH before NORMAL before LOW), ensuring critical operations aren't delayed by background tasks.
-- **Sequential processing**: Only one handler runs at a time per event type, preventing race conditions.
-- **Async support**: Handlers can be either sync or async, allowing the system to use both blocking and non-blocking code.
-- **Backpressure management**: When the event queue fills up, low-priority events are dropped to prevent memory buildup.
+- **Sequential processing**: Only one event is processed at a time, preventing race conditions and guaranteeing causal ordering.
+- **Async concurrency**: Within a single event, synchronous handlers run sequentially, and all asynchronous handlers run concurrently via ``asyncio.gather`` for maximum efficiency.
+- **Backpressure management**: The event queue has a bounded size (maxsize=500). If the system is catastrophically overloaded, publishing will block, applying backpressure to the publisher.
 - **Thread-safe subscriptions**: Components can subscribe from any thread without contention.
 
 Publishing an Event
 --------------------
 
-Publishing is simple and non-blocking. A component creates an event (a subclass of `BaseEvent`) and calls `await event_bus.publish(event)`:
+Publishing is simple and non-blocking under normal conditions. A component creates an event (a subclass of ``BaseEvent``) and calls ``await event_bus.publish(event)``:
 
 .. code-block:: python
 
-   event = MarkCreateRequestEventData(name="home", x=100, y=200)
+   event = MarkCommandParsedEvent(command=MarkCreateCommand(label="home", ...))
    await event_bus.publish(event)
 
-The `publish` method validates the event, adds it to the priority queue with its priority level, and returns immediately. The caller doesn't wait for the event to be processed. This is crucial: if publishing were blocking, the audio thread would pause while the event bus processed events, causing audio drops.
-
-**Backpressure Handling**: The event queue has a maximum size (default 200 events). When approaching capacity, the system takes action:
-
-- At 50% capacity (100 events): info-level log message
-- At 75% capacity (150 events): warning-level log message
-- At max capacity and full: LOW and NORMAL priority events are dropped; HIGH and CRITICAL events are forced through but logged as an error indicating system overload
-
-This ensures critical operations (shutdown, UI updates, audio processing) never get dropped while preventing unbounded memory growth under extreme load.
+The ``publish`` method adds the event to the queue and returns. It will only block if the event queue is full, preventing memory exhaustion.
 
 Subscribing to Events
 ---------------------
@@ -50,260 +41,107 @@ During initialization, services and controllers subscribe to event types they ha
 
    def setup_subscriptions(self):
        self.event_bus.subscribe(
-           event_type=MarkCreateRequestEventData,
-           handler=self._handle_mark_create_request
-       )
-       self.event_bus.subscribe(
-           event_type=MarkCreatedEventData,
-           handler=self._handle_mark_created
+           event_type=MarkCommandParsedEvent,
+           handler=self._handle_mark_command_parsed
        )
 
-The `subscribe` method registers a callable (sync or async function) to be invoked whenever an event of that type (or a subclass) is published. Subscriptions are thread-safe—a component can subscribe from any thread without locking issues.
+The ``subscribe`` method registers a callable (sync or async function) to be invoked whenever an event of that type (or a subclass, via MRO dispatch) is published.
 
-Event Processing: Priority and Flow
+Event Processing Flow
 ------------------------------------
 
-The event bus runs a background worker task that continuously dequeues events and invokes handlers. This worker is the single point of serialization: only one handler executes at a time per event type, but handlers for different event types can run concurrently if the system uses task scheduling (which Vocalance doesn't—it processes events sequentially for simplicity).
+The event bus runs a background worker task that continuously dequeues events and invokes handlers. This worker is the single point of serialization:
 
-**Processing Sequence**: When an event is dequeued:
-
-1. The event type is matched against registered subscriptions
-2. All handlers for that event type are collected (or handlers for parent types if using inheritance)
-3. Handlers execute sequentially in registration order
-4. Both sync and async handlers are supported
-5. Exceptions in handlers are caught, logged, and don't propagate
-6. Slow handlers (>100ms) trigger a warning log
-7. After all handlers complete, the worker applies an adaptive sleep based on event priority and queue depth
-
-**Adaptive Sleep**: The worker doesn't busy-wait. Instead, it sleeps between events:
-
-- CRITICAL priority: no sleep (immediate processing)
-- Queue empty: 10ms sleep (low CPU usage, reduced latency)
-- Queue light (< 10 events): no sleep (process immediately)
-- Queue moderate (< 50 events): 1ms sleep
-- Queue heavy (50+ events): 10ms sleep
-
-This balances throughput (low latency when busy) with efficiency (low CPU when idle).
-
-Event Types and Priority Levels
-================================
-
-All events inherit from `BaseEvent`, which defines a priority field. Priority is an enum with four levels:
-
-- **CRITICAL** (value 10): Shutdown requests, safety-critical operations. Highest priority, never dropped.
-- **HIGH** (value 20): User input, real-time audio processing, UI updates. Important and responsive.
-- **NORMAL** (value 50): Command execution, STT results, standard events. Default priority.
-- **LOW** (value 80): Logging, analytics, diagnostics. Can be dropped under load.
-
-Events are ordered in the queue by priority, so a CRITICAL event published after 100 NORMAL events will be processed first.
-
-Event Type Hierarchy
----------------------
-
-Events are organized by functional area. Core audio and recognition events include `CommandAudioSegmentReadyEvent` (command/sound VAD segments), `CommandTextRecognizedEvent` (Vosk), dictation streaming events (`PartialDictationTextEvent`, `FinalDictationTextEvent`, and `DictationTextRecognizedEvent` from Moonshine via the coordinator), and `CustomSoundRecognizedEvent`.
-
-Command events (`AutomationCommandParsedEvent`, `MarkCommandParsedEvent`, etc.) represent parsed commands ready for execution. Dictation events coordinate the dictation workflow: `DictationStatusChangedEvent` indicates active/inactive state, `PartialDictationTextEvent` and `FinalDictationTextEvent` drive streaming UI, and `LLMTokenGeneratedEvent` delivers streaming LLM output for smart and amend (dual-pane) modes. `DictationSessionEvent` carries ``mode="smart"`` or ``"amend"`` and ``state="started"`` or ``"stopped"`` so the UI can branch.
-
-Management events (`CommandMappingsUpdatedEvent`, `SettingsChangedEvent`, etc.) communicate configuration changes and operational state to services that need to adapt their behavior.
+1. The event type is matched against registered subscriptions (including parent classes via MRO).
+2. All handlers for that event type are collected.
+3. Synchronous handlers are executed sequentially and immediately.
+4. Asynchronous handlers are collected into tasks.
+5. All asynchronous handlers are executed concurrently using ``asyncio.gather``. The bus waits for all async handlers to finish before moving to the next event, ensuring strict inter-event ordering.
+6. Exceptions in handlers are caught, logged, and don't prevent other handlers from running.
 
 Threading Architecture
 ======================
 
 Vocalance must remain responsive to user input while handling real-time audio capture and performing CPU-intensive operations like speech recognition and LLM inference. This requires careful threading:
 
-**Main Thread (Qt)**: The primary thread running the Qt (PySide6) event loop. All widget creation, update, and signal/slot handling occurs here. When the user clicks a button, types text, or resizes the window, handlers fire on this thread. This thread must never block—if a handler blocks for too long, the UI becomes unresponsive.
+**Main Thread (Qt + Asyncio)**: Vocalance uses ``PySide6.QtAsyncio`` to integrate the asyncio event loop with the Qt event loop on the **same main thread**. All widget creation, UI updates, signal/slot handling, event bus processing, and async service operations occur here. This thread must never block—if a handler blocks for too long, the UI becomes unresponsive.
 
-**GUI Event Loop Thread**: A dedicated daemon thread running an asyncio event loop. This is where the event bus worker task runs, where async service operations execute, and where event handlers run. This thread is separate from the main thread because Qt and asyncio both need to run event loops, and they can't share one.
+**Audio Capture Thread**: The recorder thread continuously reads ~30 ms PCM frames via PortAudio callbacks. Raw dictation PCM is forwarded synchronously to a coordinator callback; command/sound VAD is fed via thread-safe calls to the main asyncio loop. This path must stay lightweight so the input device buffer does not overrun.
 
-**Audio capture thread**: The recorder thread continuously reads ~30 ms PCM frames. Raw dictation PCM may be forwarded synchronously to a coordinator callback; command/sound VAD runs on a separate worker thread. Both paths must stay lightweight so the input device buffer does not overrun.
-
-Together, these threads enable Vocalance to capture audio continuously (audio thread), process events asynchronously (GUI event loop thread), and remain responsive to user input (main thread).
+**Thread Pools**: CPU-intensive or blocking operations are offloaded to thread pools using ``loop.run_in_executor()``. For example, PyAutoGUI automation commands, file I/O for saving models, and LLM inference run in background threads to avoid blocking the main Qt/Asyncio thread.
 
 Cross-Thread Communication
 ---------------------------
 
 With multiple threads, special care is needed when one thread needs to communicate with another:
 
-**Publishing events from native threads**: Segment-ready events are published with `asyncio.run_coroutine_threadsafe` onto the GUI asyncio loop so heavy per-chunk work stays off the bus. Handlers still run on the bus worker; the publish call itself is marshalled safely from the VAD thread.
+**Publishing events from native threads**: Audio chunks captured on the PortAudio thread are scheduled to be processed on the main asyncio loop using ``loop.call_soon_threadsafe()``.
 
-**UI Updates from Event Handlers**: Event handlers run in the GUI event loop thread but must update the UI (which runs on the main thread). Controllers marshal callbacks to run on the main thread via Qt's signal/slot mechanism or event loop scheduling. This ensures thread safety without explicit locks.
-
-**Service Shutdown**: When the application shuts down, multiple threads need to be coordinated. The main thread requests shutdown, which signals the audio thread to stop, cancels tasks in the GUI event loop, and stops the GUI event loop thread. The shutdown coordinator manages this sequence.
+**UI Updates**: Because the asyncio event loop and Qt event loop share the main thread, async event handlers can safely update the UI directly or emit Qt Signals. However, any background thread (like the automation executor) must not touch the UI directly.
 
 State Management and Locking
 =============================
 
 Shared state accessed from multiple threads must be protected by synchronization primitives.
 
-**asyncio.Lock**: Used in async code within the GUI event loop thread. These locks protect async-specific state without blocking the event loop:
-
-.. code-block:: python
-
-   class ExampleAsyncHandler:
-       def __init__(self):
-           self._state_lock = asyncio.Lock()
-           self._items: list[bytes] = []
-
-       async def _handle_item(self, payload: bytes) -> None:
-           async with self._state_lock:
-               self._items.append(payload)
-
-**threading.RLock**: Used in sync code or when both sync and async code access the same state. RLock allows the same thread to acquire the lock multiple times:
+**threading.RLock and threading.Lock**: Used to protect state that might be accessed by both the main thread and background threads (e.g., the audio capture thread or the automation thread pool).
 
 .. code-block:: python
 
    class DictationCoordinator:
        def __init__(self):
-           self._state_lock = threading.RLock()
-           self._current_mode = DictationMode.INACTIVE
+           self.state_lock = threading.RLock()
+           self.current_state = DictationState.IDLE
 
-       def _start_dictation(self):
-           with self._state_lock:
-               self._current_mode = DictationMode.STANDARD
-               self._current_session = DictationSession()
+       def set_state(self, new_state: DictationState) -> None:
+           with self.state_lock:
+               # Validate and transition state
+               self.current_state = new_state
 
-**Fine-Grained Locking**: Locks should be held for as little time as possible. Compute-intensive operations should happen outside the lock:
-
-.. code-block:: python
-
-   # WRONG: Computing inside lock
-   async with self._lock:
-       energy = calculate_energy(chunk)  # CPU-intensive, blocks others
-       self._buffer.append(chunk)
-
-   # RIGHT: Computing outside lock
-   energy = calculate_energy(chunk)  # No lock, can do long operations
-   async with self._lock:
-       self._buffer.append(chunk)  # Brief lock, minimal contention
-
-**Atomic State Transitions**: State machines enforce valid transitions using locks:
-
-.. code-block:: python
-
-   _VALID_TRANSITIONS = {
-       State.IDLE: {State.RECORDING},
-       State.RECORDING: {State.PROCESSING, State.IDLE},
-       State.PROCESSING: {State.IDLE},
-   }
-
-   async def _transition_to(self, new_state):
-       async with self._state_lock:
-           if new_state not in _VALID_TRANSITIONS[self._current_state]:
-               logger.error(f"Invalid transition: {self._current_state} → {new_state}")
-               return False
-           self._current_state = new_state
-           return True
-
-This ensures state never enters an invalid configuration even under concurrent events.
+**Fine-Grained Locking**: Locks should be held for as little time as possible. Compute-intensive operations should happen outside the lock.
 
 Service Lifecycle: Initialization and Shutdown
 ================================================
 
-Services are initialized in stages based on dependencies, then activated, and finally shut down gracefully. The lifecycle is coordinated by `FastServiceInitializer` in `main.py`.
+Services are initialized in stages, activated, and finally shut down gracefully. The lifecycle is coordinated in ``qt_main.py``.
 
-Initialization Stages
+Initialization Sequence
 ---------------------
 
-**Stage 1 - Core Services**: GridService and AutomationService have no dependencies.
-
-**Stage 2 - Storage Services**: StorageService (provides to others), then in parallel: RuntimeConfigurationStore, CommandManagementService, MarkService, ClickTrackerService.
-
-**Stage 3 - Audio Services**: AudioService (base audio capture), then in parallel: SoundService, SpeechToTextService, CentralizedCommandParser, DictationCoordinator (loads LLM model).
-
-**Stage 4 - UI Components**: QtAssetCache and FontService, then VocalanceMainWindow (main window).
-
-**Stage 5 - Activation**: Call `setup_subscriptions()` on each service to enable event processing.
-
-Within each stage, services without mutual dependencies initialize in parallel using `asyncio.gather()`, reducing startup time from ~5-7 seconds to ~3-4 seconds.
-
-Parallel Initialization Example
----------------------------------
-
-.. code-block:: python
-
-   async def _init_storage_services(self):
-       storage = StorageService(config=self.config)
-
-       async def init_settings():
-           runtime_config = RuntimeConfigurationStore(
-               event_bus=event_bus, config=config, storage=storage
-           )
-           await runtime_config.initialize()
-
-       async def init_commands():
-           command_mgmt = CommandManagementService(storage=storage)
-
-       async def init_marks():
-           marks = MarkService(storage=storage)
-
-       # Run in parallel
-       await asyncio.gather(
-           init_settings(),
-           init_commands(),
-           init_marks()
-       )
+1. **Configuration and Logging**: Load ``GlobalAppConfig`` and set up logging.
+2. **UI Setup**: Initialize Qt application, load fonts, apply stylesheet, and show the ``StartupWindow``.
+3. **Service Construction**: Instantiate all services (Storage, Grid, Automation, Marks, Audio, STT, Dictation, etc.) and wire configuration listeners.
+4. **Event Bus Start**: Start the event bus worker task on the asyncio loop.
+5. **Service Initialization**: Run async ``initialize()`` methods on services. This includes loading user settings, initializing STT models (Vosk, Moonshine), and loading sound recognition models (YAMNet).
+6. **Main Window**: Create and show the ``VocalanceMainWindow``, then close the startup window.
 
 Progress Tracking
 -----------------
 
-During initialization, the `StartupProgressTracker` updates the startup window with status and progress bars. This provides visual feedback during the ~3-4 second startup sequence and prevents the UI from appearing frozen.
+During initialization, the ``StartupProgressTracker`` updates the startup window with status and progress bars. This provides visual feedback during the startup sequence and prevents the UI from appearing frozen while models load.
 
 Graceful Shutdown
 ------------------
 
-Shutdown follows the reverse order of initialization:
+Shutdown is managed by the ``ShutdownCoordinator``, which provides a thread-safe, idempotent shutdown gate tied to the GUI asyncio loop.
 
-1. **Stop audio processing**: Halt audio capture to end real-time operations
-2. **Wait 300ms**: Allow pending audio chunks to be processed
-3. **Stop event bus worker**: Prevent new events from being processed
-4. **Cancel pending tasks**: Cancel all async tasks in the GUI event loop
-5. **Stop GUI event loop**: Halt the GUI event loop thread
-6. **Shutdown services in order**: Call `shutdown()` on each service in reverse initialization order
-7. **Memory cleanup**: Run garbage collection and attempt to return memory to the OS
-8. **Exit process**: Terminate cleanly with `os._exit(0)`
+1. **Request Shutdown**: Triggered by user closing the window, or OS signals (SIGINT/SIGTERM).
+2. **Stop Audio Processing**: Halt audio capture to end real-time operations.
+3. **Shutdown Services**: Call ``shutdown()`` on each service in reverse dependency order.
+4. **Stop Event Bus**: Stop accepting new events and cancel the worker task.
+5. **Cleanup Thread Pools**: Shut down shared input executors.
+6. **Exit Process**: Terminate cleanly.
 
-**Shutdown Coordinator**: The `ShutdownCoordinator` manages shutdown from multiple sources (user click, system signal, critical error). It ensures shutdown happens once and coordinated, collecting all errors and logging them.
-
-**Signal Handlers**: When the user presses Ctrl+C or the OS sends SIGTERM, signal handlers request graceful shutdown. If shutdown doesn't complete in 5 seconds (e.g., a service hangs), a timeout forces the process to exit to prevent the application from becoming unresponsive.
-
-Performance Monitoring and Diagnostics
-========================================
-
-The event bus provides statistics and diagnostic information for monitoring performance:
-
-.. code-block:: python
-
-   stats = await event_bus.get_stats()
-   # {
-   #   "queue_size": 12,
-   #   "max_queue_size": 200,
-   #   "queue_utilization": "6.0%",
-   #   "events_dropped": 0,
-   #   "subscribers": {
-   #     "MarkCreateRequestEventData": 1,
-   #     "CommandAudioSegmentReadyEvent": 1,
-   #     ...
-   #   },
-   #   "worker_status": "running",
-   #   "is_shutting_down": False,
-   # }
-
-These stats help diagnose bottlenecks:
-
-- **High queue utilization**: Event handlers are slow or many events are being published rapidly
-- **Events dropped**: System is under heavy load and can't keep up
-- **Slow handler warnings**: Individual handlers taking >100ms are logged, allowing identification of bottlenecks
-- **Queue depth monitoring**: Progressive warnings at 50%, 75%, 90% capacity help catch load issues early
+**Signal Handlers**: When the user presses Ctrl+C or the OS sends SIGTERM, signal handlers request graceful shutdown via the ``ShutdownCoordinator``. A Qt timer polls the shutdown event to ensure the Qt event loop processes the shutdown request promptly.
 
 Infrastructure Summary
 ======================
 
-The infrastructure provides a foundation for responsive, multi-threaded coordination:
+The infrastructure provides a foundation for responsive coordination:
 
-1. **Event bus**: Asynchronous pub/sub with priority ordering, backpressure management, and thread-safe subscriptions
-2. **Threading model**: Three threads (main, GUI event loop, audio) with clear responsibilities and safe cross-thread communication
-3. **State management**: Locks protect shared state, atomic transitions prevent race conditions
-4. **Service lifecycle**: Staged initialization with parallel setup reduces startup time; reverse-order shutdown ensures clean resource release
-5. **Performance monitoring**: Event bus stats and slow handler detection help diagnose issues
+1. **Event bus**: Asynchronous pub/sub with sequential processing and concurrent async handlers.
+2. **Threading model**: Integrated Qt/Asyncio main thread, dedicated audio capture thread, and thread pools for blocking operations.
+3. **State management**: Locks protect shared state, atomic transitions prevent race conditions.
+4. **Service lifecycle**: Coordinated initialization with progress tracking; reverse-order shutdown ensures clean resource release.
 
 This foundation enables Vocalance to perform real-time audio capture, concurrent speech recognition, LLM inference, and responsive UI updates without the complexities of traditional multi-threaded programming. The event-driven design means components are loosely coupled, testable independently, and easily extended with new functionality.

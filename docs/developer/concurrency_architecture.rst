@@ -1,7 +1,7 @@
 Concurrency & Asynchronous Architecture
 #######################################
 
-Vocalance employs a **Unified Hybrid Concurrency Model**. This architecture heavily favors synchronous, sequential, and tightly coupled code on a single unified event loop, reserving background threads and asynchronous I/O strictly for operations where concurrency is explicitly justified.
+Vocalance employs a **Unified Hybrid Concurrency Model**. This architecture heavily favors asynchronous, sequential, and tightly coupled code on a single unified event loop, reserving background threads and asynchronous I/O strictly for operations where concurrency is explicitly justified.
 
 This document explains exactly how our concurrency architecture is structured, why it is designed this way, and how data flows safely between different parts of the system.
 
@@ -14,20 +14,21 @@ Because both the UI and the asynchronous backend services share this single thre
 
 If a task takes too long to execute synchronously on the Main Thread, the entire application freezes—the UI stops responding, animations stutter, and audio buffers overflow. We only use background threads when an operation would violate this rule.
 
-The Synchronous Event Bus
+The Asynchronous Event Bus
 =========================
 
 The ``EventBus`` is the central nervous system of Vocalance. It facilitates communication between decoupled components (e.g., Audio Listeners -> STT Service -> Dictation Coordinator -> UI Controllers).
 
-To minimize overhead and complexity, the EventBus operates as a **fast, synchronous dispatcher**.
+To minimize overhead and complexity while preventing blocking, the EventBus operates as a **non-blocking, sequential dispatcher**.
 
 When a component calls ``await event_bus.publish(event)``:
 
-1. The bus immediately iterates over all subscribers for that event type.
-2. It executes them sequentially, ``await``ing async handlers and calling sync handlers directly.
-3. The ``publish`` call only returns once *all* subscribers have fully processed the event.
+1. The bus immediately places the event into an ``asyncio.Queue`` and returns. It does **not** wait for subscribers to process the event.
+2. A background worker task (``_process_queue``) continuously dequeues events one by one.
+3. For each event, it executes synchronous handlers sequentially, and then executes all asynchronous handlers **concurrently** using ``asyncio.gather``.
+4. The worker waits for all async handlers of the current event to finish before moving to the next event in the queue.
 
-This tight coupling ensures highly predictable state transitions and eliminates the need for complex queue management or background worker tasks. The entire subscriber dictionary is protected by a single, highly efficient ``threading.RLock``, making it safe to subscribe or publish from any thread.
+This design ensures highly predictable state transitions (events are processed in order) and eliminates race conditions between different events, while maximizing efficiency within a single event by running its async handlers concurrently. The entire subscriber dictionary and queue operations are protected by a highly efficient ``threading.Lock``, making it safe to subscribe or publish from any thread.
 
 Why Background Threads Exist
 ============================
@@ -38,12 +39,12 @@ However, Vocalance uses background threads for heavy CPU-bound tasks like Speech
 
 When a Python background thread calls into these highly optimized C++ libraries, the library immediately **releases the Python GIL**. This allows the C++ code to max out the CPU cores in true parallel, while the Python Main Thread remains completely free to keep the UI buttery smooth and capture audio.
 
-We use background threads in four specific, justified scenarios:
+We use background threads in specific, justified scenarios:
 
-1. **Hardware Audio Capture (sounddevice)**: A dedicated C-level thread provided by PortAudio waits for the hardware buffer to fill every 30ms.
+1. **Hardware Audio Capture (sounddevice)**: A dedicated C-level thread provided by PortAudio waits for the hardware buffer to fill every ~30ms.
 2. **LLM Inference (llama.cpp)**: Offloaded to a thread pool to prevent the UI from freezing during heavy matrix math.
-3. **Speech-to-Text (Moonshine/Vosk)**: Offloaded using ``asyncio.to_thread()`` to prevent blocking during transcription.
-4. **File I/O (StorageService)**: Disk reads/writes are offloaded via ``asyncio.to_thread()`` to prevent micro-stutters.
+3. **Speech-to-Text (Vosk/Moonshine)**: Offloaded using ``asyncio.to_thread()`` or dedicated C++ threads to prevent blocking during transcription.
+4. **File I/O and Automation (PyAutoGUI)**: Disk reads/writes and synchronous PyAutoGUI calls (which can block for 50-500ms) are offloaded via ``asyncio.to_thread()`` or a shared thread pool executor to prevent micro-stutters.
 
 Cross-Thread Communication
 ==========================
@@ -54,7 +55,7 @@ To solve this, we use a bridge: ``loop.call_soon_threadsafe()``.
 
 Whenever a background thread finishes a task (e.g., capturing an audio chunk or generating an LLM token), it packages that data into a function call and hands it to ``call_soon_threadsafe``. On its very next cycle, the Main Thread picks up this function and executes it safely within its own environment.
 
-For events, background threads use the ``ThreadSafeEventPublisher`` utility, which automatically wraps the synchronous ``publish`` call in a thread-safe task on the Main Thread.
+For events, background threads can safely call ``asyncio.run_coroutine_threadsafe(event_bus.publish(event), loop)`` to publish events from outside the main asyncio loop.
 
 End-to-End Flows
 ================
@@ -70,20 +71,20 @@ In standard command mode, audio is buffered silently on the Main Thread until th
 
    sequenceDiagram
        participant Mic as sounddevice C-Thread
-       participant Main as Main Thread (VAD & Bus)
-       participant STT as Moonshine Background Thread
+       participant Main as Main Thread (Segmenter & Bus)
+       participant STT as Vosk Background Thread
        participant UI as UI Controllers
 
        loop Every 30ms
            Mic->>Main: call_soon_threadsafe(audio_chunk)
-           Note over Main: VAD buffers audio silently
+           Note over Main: Segmenter buffers audio silently
        end
        Note over Main: User stops speaking (Silence detected)
        Main->>Main: Publish CommandAudioSegmentReadyEvent
        Main->>STT: asyncio.to_thread(process_audio)
        Note over STT: C++ engine releases GIL & processes
-       STT-->>Main: ThreadSafeEventPublisher(CommandTextRecognizedEvent)
-       Main->>UI: Synchronous Event Dispatch
+       STT-->>Main: publish(CommandTextRecognizedEvent)
+       Main->>UI: Event Dispatch
        Note over UI: UI updates instantly
 
 Dictation Flow
@@ -103,12 +104,12 @@ In dictation mode, audio chunks are streamed continuously to the background STT 
            Mic->>Main: call_soon_threadsafe(audio_chunk)
            Main->>STT: Feed Chunk (C++ Buffer)
            Note over STT: Processes chunks asynchronously
-           STT-->>Main: ThreadSafeEventPublisher(PartialTextEvent)
+           STT-->>Main: publish(PartialTextEvent)
            Note over Main: UI updates with partial text
        end
        Note over Main: Stop word detected or user stops
        Main->>STT: Stop Stream
-       STT-->>Main: ThreadSafeEventPublisher(FinalTextEvent)
+       STT-->>Main: publish(FinalTextEvent)
 
 LLM Smart Dictation Flow
 ------------------------

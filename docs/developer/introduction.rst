@@ -17,10 +17,9 @@ Omitting as much detail as possible, the diagram below shows how Vocalance goes 
    flowchart TD
        A[Microphone Input] --> B[AudioRecorder<br/>~30 ms PCM]
        B --> C[AudioService]
-       C --> D[VAD worker thread]
-       D --> E[CommandAudioListener]
-       D --> F[SoundAudioListener]
-       E --> G[CommandAudioSegmentReadyEvent]
+       C --> D[UtteranceSegmenter<br/>Command]
+       C --> F[UtteranceSegmenter<br/>Sound]
+       D --> G[CommandAudioSegmentReadyEvent]
        F --> H[ProcessAudioChunkForSoundRecognitionEvent]
        G --> J[SpeechToTextService<br/>Vosk]
        J --> N[CommandTextRecognizedEvent]
@@ -48,12 +47,12 @@ Omitting as much detail as possible, the diagram below shows how Vocalance goes 
 
 The general pattern is:
 
-- The recorder streams ~30 ms PCM frames; ``AudioService`` enqueues them for a VAD worker and optionally forwards raw bytes to dictation
-- ``CommandAudioListener`` and ``SoundAudioListener`` apply VAD on the worker thread and publish segment events to the bus (via the main asyncio loop)
-- ``SpeechToTextService`` runs Vosk on command segments (full commands, or stop phrase plus dictation modifier phrases while dictation is active); it loads Moonshine for use by ``DictationCoordinator``, not for command segments
-- Dictation text comes from Moonshine streams in the coordinator (all streaming dictation modes), not from a third audio listener
-- ``SoundAudioListener`` publishes sound segments; ``SoundService`` classifies them without going through Vosk/Moonshine
-- ``CentralizedCommandParser`` combines command text and sound-derived commands; services execute the parsed result
+- The recorder streams ~30 ms PCM frames; ``AudioService`` forwards raw bytes to dictation and feeds them to its segmenters on the main asyncio loop.
+- ``UtteranceSegmenter`` applies VAD and emits hits which ``AudioService`` publishes as segment events to the bus.
+- ``SpeechToTextService`` runs Vosk on command segments (full commands, or stop phrase plus dictation modifier phrases while dictation is active); it loads Moonshine for use by ``DictationCoordinator``, not for command segments.
+- Dictation text comes from Moonshine streams in the coordinator (all streaming dictation modes), not from a third audio listener.
+- ``AudioService`` publishes sound segments; ``SoundService`` classifies them without going through Vosk/Moonshine.
+- ``CentralizedCommandParser`` combines command text and sound-derived commands; services execute the parsed result.
 
 Event-Driven Architecture
 ===========================
@@ -67,11 +66,11 @@ Let's trace through exactly what happens when you say "click" into the microphon
 
 **1. Audio capture and routing**
 
-``AudioService`` starts the recorder (16 kHz, ~30 ms frames). Each frame is copied to a dictation callback if registered, and enqueued for the VAD worker. The worker calls ``process_audio_chunk`` on ``CommandAudioListener`` and ``SoundAudioListener``—no per-chunk events on the event bus.
+``AudioService`` starts the recorder (16 kHz, ~30 ms frames). Each frame is copied to a dictation callback if registered, and fed to ``UtteranceSegmenter`` instances for commands and sounds directly on the asyncio loop—no per-chunk events on the event bus.
 
 **2. Segment detection**
 
-Listeners buffer normalized float chunks until adaptive VAD sees enough silence (command timing is configurable; sound uses short fixed windows). Completed segments are published with ``asyncio.run_coroutine_threadsafe(event_bus.publish(...), main_loop)`` so native-thread audio work stays off the asyncio loop.
+The segmenters buffer normalized float chunks until adaptive VAD sees enough silence (command timing is configurable; sound uses short fixed windows). Completed segments are scheduled to be published on the event bus via the main asyncio loop.
 
 **3. Speech-to-text**
 
@@ -79,13 +78,13 @@ Listeners buffer normalized float chunks until adaptive VAD sees enough silence 
 
 **4. Sound Recognition Processing**
 
-The SoundAudioListener publishes ``ProcessAudioChunkForSoundRecognitionEvent`` directly to the
+The ``AudioService`` publishes ``ProcessAudioChunkForSoundRecognitionEvent`` directly to the
 SoundService, bypassing STT entirely. The SoundService recognizes trained sounds or collects
 training samples without involvement from the speech-to-text pipeline:
 
 .. code-block:: python
 
-   # SoundAudioListener publishes audio chunks for sound recognition
+   # AudioService publishes audio chunks for sound recognition
    event = ProcessAudioChunkForSoundRecognitionEvent(
        audio_chunk=audio_bytes,
        sample_rate=16000
@@ -153,9 +152,8 @@ Notice the pattern: each service does its job and publishes an event when done. 
    sequenceDiagram
        participant Recorder as AudioRecorder
        participant AS as AudioService
-       participant VAD as VAD worker
-       participant CmdListener as CommandAudioListener
-       participant SoundListener as SoundAudioListener
+       participant CmdSeg as Command Segmenter
+       participant SoundSeg as Sound Segmenter
        participant Bus as EventBus
        participant STT as SpeechToTextService
        participant SoundSvc as SoundService
@@ -166,13 +164,14 @@ Notice the pattern: each service does its job and publishes an event when done. 
 
        loop Each ~30 ms frame
            Recorder->>AS: PCM bytes + timestamp
-           AS->>VAD: enqueue chunk
-           VAD->>CmdListener: process_audio_chunk
-           VAD->>SoundListener: process_audio_chunk
+           AS->>CmdSeg: feed_pcm_chunk
+           AS->>SoundSeg: feed_pcm_chunk
        end
 
-       CmdListener->>Bus: CommandAudioSegmentReadyEvent
-       SoundListener->>Bus: ProcessAudioChunkForSoundRecognitionEvent
+       CmdSeg->>AS: SegmentHit (Clip)
+       AS->>Bus: CommandAudioSegmentReadyEvent
+       SoundSeg->>AS: SegmentHit (Clip)
+       AS->>Bus: ProcessAudioChunkForSoundRecognitionEvent
 
        Bus->>STT: CommandAudioSegmentReadyEvent
        Bus->>SoundSvc: ProcessAudioChunkForSoundRecognitionEvent
