@@ -349,7 +349,7 @@ def _create_dialog_base(
             else:
                 btn = PrimaryButton(text=btn_text)
 
-            def on_click(callback=btn_callback):
+            def on_click(*args, callback=btn_callback):
                 if callable(callback):
                     result[0] = callback()
                 else:

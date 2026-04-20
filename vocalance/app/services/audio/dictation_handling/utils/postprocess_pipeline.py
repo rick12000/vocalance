@@ -7,20 +7,30 @@ from vocalance.app.services.audio.dictation_handling.utils.base_postprocess impo
 from vocalance.app.services.audio.dictation_handling.utils.modifier_postprocess import apply_modifier_transform
 
 
-def apply_dictation_postprocess(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
+def apply_dictation_postprocess(
+    text: str,
+    active_modifiers: Optional[set[DictationModifierId]],
+    explicit_modifiers: Optional[set[DictationModifierId]] = None,
+    accumulated_text: str = "",
+) -> str:
     if not text:
         return text
     result: str = apply_base_postprocess(text)
     if not active_modifiers:
         return result
-    return apply_modifier_transform(result, active_modifiers)
+    return apply_modifier_transform(result, active_modifiers, explicit_modifiers, accumulated_text)
 
 
-def apply_dictation_postprocess_partial(text: str, active_modifiers: Optional[set[DictationModifierId]]) -> str:
+def apply_dictation_postprocess_partial(
+    text: str,
+    active_modifiers: Optional[set[DictationModifierId]],
+    explicit_modifiers: Optional[set[DictationModifierId]] = None,
+    accumulated_text: str = "",
+) -> str:
     if not text:
         return text
     result: str = apply_base_postprocess(text)
     if not active_modifiers or active_modifiers == {"spelling"}:
         return result
     partial_mods: set[DictationModifierId] = active_modifiers - {"spelling"}
-    return apply_modifier_transform(result, partial_mods)
+    return apply_modifier_transform(result, partial_mods, explicit_modifiers, accumulated_text)

@@ -75,11 +75,6 @@ class QtMarkView(QWidget):
 
         self.logger.info("Direct show: %s marks ready", len(self.marks))
 
-        if not self.marks:
-            self.logger.warning("Direct show with empty marks dict; deferring 50ms")
-            QTimer.singleShot(50, self.do_show_direct)
-            return
-
         primary = QApplication.primaryScreen()
         if primary:
             geometry = primary.geometry()

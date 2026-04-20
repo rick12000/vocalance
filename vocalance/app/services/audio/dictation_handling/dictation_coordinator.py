@@ -114,7 +114,9 @@ class DictationSegmentPipeline:
         if is_isolated_stt_noise_fragment(with_subs):
             return ""
 
-        processed = apply_dictation_postprocess(text_with_placeholders, session.active_modifiers)
+        processed = apply_dictation_postprocess(
+            text_with_placeholders, session.active_modifiers, session.explicit_modifiers, session.accumulated_text
+        )
 
         return substitute_alias_placeholders(processed, alias_map)
 
@@ -130,7 +132,9 @@ class DictationSegmentPipeline:
         if is_isolated_stt_noise_fragment(with_subs):
             return ""
 
-        processed = apply_dictation_postprocess_partial(text_with_placeholders, session.active_modifiers)
+        processed = apply_dictation_postprocess_partial(
+            text_with_placeholders, session.active_modifiers, session.explicit_modifiers, session.accumulated_text
+        )
 
         return substitute_alias_placeholders(processed, alias_map)
 
@@ -491,18 +495,24 @@ class DictationCoordinator(Service):
                 return
             mid = modifier_phrase.modifier_id
             current_mods = set(session.active_modifiers)
+            explicit_mods = set(session.explicit_modifiers)
 
             casing_mods = {"upper", "capitals", "camel", "snake", "kebab", "diminish"}
             punct_mods = {"spelling", "strip"}
 
             if mid in current_mods:
                 current_mods.remove(mid)
+                if mid in explicit_mods:
+                    explicit_mods.remove(mid)
             else:
                 if mid in casing_mods:
                     current_mods -= casing_mods
+                    explicit_mods -= casing_mods
                 elif mid in punct_mods:
                     current_mods -= punct_mods
+                    explicit_mods -= punct_mods
                 current_mods.add(mid)
+                explicit_mods.add(mid)
 
             label = ", ".join(modifier_display_label(m) for m in current_mods) if current_mods else ""
             active = bool(current_mods)
@@ -515,6 +525,7 @@ class DictationCoordinator(Service):
                 last_text_time=session.last_text_time,
                 is_first_segment=session.is_first_segment,
                 active_modifiers=current_mods,
+                explicit_modifiers=explicit_mods,
             )
         await self.event_bus.publish(
             DictationModifierStateChangedEvent(active=active, active_modifiers=current_mods, display_label=label)
@@ -548,14 +559,24 @@ class DictationCoordinator(Service):
         if not cleaned_text:
             return
 
+        add_trailing, skip_join = dictation_segment_input_options(session.mode, session.active_modifiers)
+
+        new_accumulated = cleaned_text
+        if session.accumulated_text:
+            if skip_join:
+                new_accumulated = session.accumulated_text + cleaned_text
+            else:
+                new_accumulated = session.accumulated_text + " " + cleaned_text
+
         updated_session = DictationSession(
             session_id=session.session_id,
             mode=session.mode,
             start_time=session.start_time,
-            accumulated_text=(f"{session.accumulated_text} {cleaned_text}" if session.accumulated_text else cleaned_text),
+            accumulated_text=new_accumulated,
             last_text_time=time.time() if session.mode == DictationMode.TYPE else None,
             is_first_segment=False,
             active_modifiers=session.active_modifiers,
+            explicit_modifiers=session.explicit_modifiers,
         )
 
         with self.state_lock:
@@ -737,6 +758,7 @@ class DictationCoordinator(Service):
                 last_text_time=None,
                 is_first_segment=True,
                 active_modifiers=initial_modifiers,
+                explicit_modifiers=set(),
             )
             self.set_state(DictationState.RECORDING)
 

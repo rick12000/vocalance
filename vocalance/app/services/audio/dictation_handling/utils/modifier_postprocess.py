@@ -64,17 +64,96 @@ def to_kebab_case(text: str) -> str:
     return "-".join(w.lower() for w in words if w)
 
 
-def apply_strip_modifier(text: str) -> str:
+CONTRACTIONS: set[str] = {
+    "i'm",
+    "i'll",
+    "i've",
+    "i'd",
+    "you're",
+    "you'll",
+    "you've",
+    "you'd",
+    "he's",
+    "he'll",
+    "he'd",
+    "she's",
+    "she'll",
+    "she'd",
+    "it's",
+    "it'll",
+    "it'd",
+    "we're",
+    "we'll",
+    "we've",
+    "we'd",
+    "they're",
+    "they'll",
+    "they've",
+    "they'd",
+    "isn't",
+    "aren't",
+    "wasn't",
+    "weren't",
+    "hasn't",
+    "haven't",
+    "hadn't",
+    "doesn't",
+    "don't",
+    "didn't",
+    "won't",
+    "wouldn't",
+    "shan't",
+    "shouldn't",
+    "can't",
+    "couldn't",
+    "mustn't",
+    "mightn't",
+    "needn't",
+    "daren't",
+    "oughtn't",
+    "let's",
+    "that's",
+    "who's",
+    "what's",
+    "where's",
+    "when's",
+    "why's",
+    "how's",
+    "y'all",
+    "ma'am",
+    "o'clock",
+}
+
+
+def apply_strip_modifier(text: str, retain_grammatical_correctness: bool = False) -> str:
     if not text:
         return text
-    s = re.sub(r"[^\w\s]", "", text, flags=re.UNICODE)
+
+    if retain_grammatical_correctness:
+        protected = text
+
+        def protect_contraction(m: re.Match) -> str:
+            word = m.group(0)
+            if word.lower() in CONTRACTIONS:
+                return word.replace("'", "___apostrophe___")
+            return word
+
+        protected = re.sub(r"\b[a-zA-Z]+'[a-zA-Z]+\b", protect_contraction, protected)
+        s = re.sub(r"[^\w\s]", "", protected, flags=re.UNICODE)
+        s = s.replace("___apostrophe___", "'")
+    else:
+        s = re.sub(r"[^\w\s]", "", text, flags=re.UNICODE)
+
     return re.sub(r"\s+", " ", s).strip()
 
 
-def apply_diminish_modifier(text: str) -> str:
+def apply_diminish_modifier(text: str, retain_grammatical_correctness: bool = False) -> str:
     if not text:
         return text
-    return text.lower()
+    lowered = text.lower()
+    if retain_grammatical_correctness:
+        lowered = re.sub(r"\bi(?:'m|'ll|'ve|'d)?\b", lambda m: m.group(0).capitalize(), lowered)
+    return lowered
 
 
 SPELLING_PUNCT_PHRASES: list[tuple[str, str]] = sorted(
@@ -157,12 +236,25 @@ SPELLING_PUNCT_PHRASES: list[tuple[str, str]] = sorted(
 )
 
 
-def apply_spelling_modifier(text: str) -> str:
+def apply_spelling_modifier(text: str, accumulated_text: str = "") -> str:
     if not text:
         return text
 
     raw = re.sub(r"\s+", " ", text.strip())
-    scrubbed = re.sub(r"[^\w\s]", "", raw.lower(), flags=re.UNICODE)
+
+    # Protect contractions
+    protected = raw
+
+    def protect_contraction(m: re.Match) -> str:
+        word = m.group(0)
+        if word.lower() in CONTRACTIONS:
+            return word.replace("'", "___apostrophe___")
+        return word
+
+    protected = re.sub(r"\b[a-zA-Z]+'[a-zA-Z]+\b", protect_contraction, protected)
+    scrubbed = re.sub(r"[^\w\s]", "", protected.lower(), flags=re.UNICODE)
+    scrubbed = scrubbed.replace("___apostrophe___", "'")
+
     words = scrubbed.split()
     if not words:
         return ""
@@ -185,62 +277,127 @@ def apply_spelling_modifier(text: str) -> str:
 
     s = join_spelling_tokens(tokens)
     s = re.sub(r"\s+", " ", s).strip()
-    return apply_sentence_casing_after_punct(s)
+
+    prepend_space = False
+    if accumulated_text and not accumulated_text.endswith(" ") and tokens:
+        last_char = accumulated_text[-1]
+        first_token = tokens[0]
+
+        prev_is_sym = not last_char.isalnum() and last_char not in "'"
+        is_sym = len(first_token) == 1 and not first_token.isalnum() and first_token not in CONTRACTIONS
+
+        if is_sym:
+            if first_token in "([{<#@$€£":
+                if prev_is_sym and last_char in "([{<":
+                    prepend_space = False
+                else:
+                    prepend_space = True
+            else:
+                prepend_space = False
+        else:
+            if prev_is_sym:
+                if last_char in "([{<#@$€£":
+                    prepend_space = False
+                else:
+                    prepend_space = True
+            else:
+                prepend_space = True
+
+    result = apply_sentence_casing_after_punct(s, accumulated_text)
+    if prepend_space:
+        result = " " + result
+    return result
 
 
 def join_spelling_tokens(parts: list[str]) -> str:
     if not parts:
         return ""
     result = ""
-    last_was_punct = False
-    for p in parts:
-        one_sym = len(p) == 1 and not p.isalnum()
+    for i, p in enumerate(parts):
+        is_sym = len(p) == 1 and not p.isalnum() and p not in CONTRACTIONS
+
         if not result:
             result = p
-            last_was_punct = one_sym
             continue
-        if one_sym:
-            result = result.rstrip() + p
-            last_was_punct = True
-        else:
-            if last_was_punct:
-                result = result + p
+
+        prev_p = parts[i - 1]
+        prev_is_sym = len(prev_p) == 1 and not prev_p.isalnum() and prev_p not in CONTRACTIONS
+
+        if is_sym:
+            if p in "([{<#@$€£":
+                if prev_is_sym and prev_p in "([{<":
+                    result += p
+                else:
+                    result += " " + p
             else:
-                result = result + " " + p
-            last_was_punct = False
+                result += p
+        else:
+            if prev_is_sym:
+                if prev_p in "([{<#@$€£":
+                    result += p
+                else:
+                    result += " " + p
+            else:
+                result += " " + p
     return result
 
 
-def apply_sentence_casing_after_punct(text: str) -> str:
+def apply_sentence_casing_after_punct(text: str, accumulated_text: str = "") -> str:
     if not text:
         return text
+
+    cap_next = True
+    if accumulated_text:
+        last_char = ""
+        for c in reversed(accumulated_text):
+            if not c.isspace():
+                last_char = c
+                break
+        if last_char:
+            if last_char in ".!?":
+                cap_next = True
+            else:
+                cap_next = False
+
     chars = list(text)
     n = len(chars)
-    cap_next = True
     for idx in range(n):
         c = chars[idx]
         if c.isalpha():
             if cap_next:
                 chars[idx] = c.upper()
                 cap_next = False
+            else:
+                chars[idx] = c.lower()
         elif c in ".!?":
             cap_next = True
-        elif c.isspace():
-            pass
-    return "".join(chars)
+
+    joined = "".join(chars)
+    joined = re.sub(r"\bi(?:'m|'ll|'ve|'d)?\b", lambda m: m.group(0).capitalize(), joined, flags=re.IGNORECASE)
+    return joined
 
 
-def apply_modifier_transform(text: str, active_modifiers: set[DictationModifierId]) -> str:
+def apply_modifier_transform(
+    text: str,
+    active_modifiers: set[DictationModifierId],
+    explicit_modifiers: set[DictationModifierId] | None = None,
+    accumulated_text: str = "",
+) -> str:
     if not active_modifiers:
         return text
 
+    if explicit_modifiers is None:
+        explicit_modifiers = set()
+
     if "spelling" in active_modifiers:
-        text = apply_spelling_modifier(text)
+        text = apply_spelling_modifier(text, accumulated_text)
     if "strip" in active_modifiers:
-        text = apply_strip_modifier(text)
+        retain_grammatical_correctness = "strip" not in explicit_modifiers
+        text = apply_strip_modifier(text, retain_grammatical_correctness)
 
     if "diminish" in active_modifiers:
-        text = apply_diminish_modifier(text)
+        retain_grammatical_correctness = "diminish" not in explicit_modifiers
+        text = apply_diminish_modifier(text, retain_grammatical_correctness)
     if "upper" in active_modifiers:
         text = title_each_word(text)
     if "capitals" in active_modifiers:
