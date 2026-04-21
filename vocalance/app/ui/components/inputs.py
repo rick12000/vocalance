@@ -1,6 +1,6 @@
 from typing import Optional
 
-from PySide6.QtGui import QColor, QPalette, QTextOption
+from PySide6.QtGui import QColor, QPalette, QResizeEvent, QTextOption
 from PySide6.QtWidgets import QLineEdit, QPlainTextEdit, QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -17,18 +17,15 @@ class TextInput(QLineEdit):
         self,
         placeholder: str = "",
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         self.setPlaceholderText(placeholder)
 
-        # Set font
         self.setFont(theme.get_font("medium"))
 
-        # Set minimum height
         self.setMinimumHeight(theme.config.components.input_height)
 
-        # Set padding via text margins
         margins = self.textMargins()
         margins.setLeft(theme.config.components.input_padding_horizontal)
         margins.setRight(theme.config.components.input_padding_horizontal)
@@ -36,7 +33,6 @@ class TextInput(QLineEdit):
         margins.setBottom(theme.config.components.input_padding_vertical)
         self.setTextMargins(margins)
 
-        # Apply colors via palette
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Base, QColor(theme.config.shapes.darkest))
         palette.setColor(QPalette.ColorRole.Text, QColor(theme.config.text.light))
@@ -44,7 +40,6 @@ class TextInput(QLineEdit):
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
-        # Minimal stylesheet for border-radius only - uses class selector
         self.setStyleSheet(
             f"""
             TextInput {{
@@ -70,13 +65,11 @@ class PasswordInput(TextInput):
         self,
         placeholder: str = "",
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(placeholder, parent)
 
-        # Set echo mode to hide password
         self.setEchoMode(QLineEdit.EchoMode.Password)
 
-        # Override stylesheet to use PasswordInput selector
         self.setStyleSheet(
             f"""
             PasswordInput {{
@@ -103,30 +96,24 @@ class ExpandableTextArea(QPlainTextEdit):
         self,
         placeholder: str = "",
         parent: Optional[QWidget] = None,
-    ):
+    ) -> None:
         super().__init__(parent)
 
         self.placeholder_text = placeholder
-        self._min_height_lines = 3  # Default minimum height
+        self._min_height_lines = 3
 
-        # Set placeholder text
         self.setPlaceholderText(placeholder)
 
-        # Set font
         self.setFont(theme.get_font("medium"))
 
-        # Enable word wrap for text to wrap within container width
         self.setWordWrapMode(QTextOption.WrapMode.WordWrap)
 
-        # Calculate minimum height based on placeholder text
         self._calculate_height_from_placeholder()
 
-        # Set padding with increased left padding
         left_padding = theme.config.components.input_padding_horizontal * 2
         vertical_padding = theme.config.components.input_padding_vertical
         self.setContentsMargins(left_padding, vertical_padding, theme.config.components.input_padding_horizontal, vertical_padding)
 
-        # Apply colors via palette
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Base, QColor(theme.config.shapes.darkest))
         palette.setColor(QPalette.ColorRole.Text, QColor(theme.config.text.light))
@@ -134,7 +121,6 @@ class ExpandableTextArea(QPlainTextEdit):
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
-        # Set up stylesheet for border-radius and scrollbar
         self.setStyleSheet(
             f"""
             ExpandableTextArea {{
@@ -162,42 +148,28 @@ class ExpandableTextArea(QPlainTextEdit):
         """
         )
 
-        # Connect text changed signal to adjust height if needed
-        self.textChanged.connect(self._on_text_changed)
-
     def _calculate_height_from_placeholder(self) -> None:
         """Calculate and set minimum height based on placeholder text."""
         fm = self.fontMetrics()
         line_height = fm.lineSpacing()
 
-        # Count lines in placeholder text
         lines = max(self.placeholder_text.count("\n") + 1, self._min_height_lines)
 
-        # Calculate width for text wrapping
-        # Account for padding and margins
         padding = theme.config.components.input_padding_horizontal * 2
         margins = self.contentsMargins()
         available_width = self.width() - padding - margins.left() - margins.right()
 
         if available_width > 0:
-            # Calculate actual lines needed for placeholder
             placeholder_width = fm.horizontalAdvance(self.placeholder_text)
             if placeholder_width > available_width:
-                # Estimate wrapped lines
                 lines = max(lines, (placeholder_width // available_width) + 1)
 
-        # Set minimum height with padding
         min_height = (line_height * lines) + (theme.config.components.input_padding_vertical * 2)
         self.setMinimumHeight(min_height)
 
-    def _on_text_changed(self) -> None:
-        """Adjust height and scrollbar visibility based on content."""
-        # The scrollbar will automatically appear when content exceeds minimum height
-        # No additional adjustment needed - QPlainTextEdit handles this natively
-
-    def resizeEvent(self, event):
+    def resizeEvent(self, resize_event: QResizeEvent) -> None:
         """Recalculate height on resize."""
-        super().resizeEvent(event)
+        super().resizeEvent(resize_event)
         self._calculate_height_from_placeholder()
 
     def text(self) -> str:

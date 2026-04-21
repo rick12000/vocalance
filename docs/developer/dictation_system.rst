@@ -54,7 +54,7 @@ Dictation flows from parse event → mode selection → text recognition → mod
 Post-processing and modifiers
 -----------------------------
 
-After Moonshine (or VAD) emits text, the coordinator runs a **base** pass on every segment: spoken cardinals and digit-by-digit sequences are replaced with decimal numerals via ``vocalance.app.utils.number_parser.replace_spoken_numbers_in_text``. Optional **modifiers** (at most one active) add transforms: title case (**upper**), ALL CAPS (**capitals**), UpperCamelCase (**camel**; punctuation stripped), snake_case (**snake**; punctuation stripped), and a **spelling** mode that strips punctuation then maps spoken punctuation words to symbols and reapplies sentence casing. Modifier phrases are configured on ``DictationConfig`` (defaults: ``upper``, ``capitals``, ``camel``, ``snake``, ``spelling``).
+After Moonshine (or VAD) emits text, the coordinator runs a **base** pass on every segment: spoken cardinals and digit-by-digit sequences are replaced with decimal numerals via ``vocalance.app.utils.number_parser.replace_spoken_numbers_in_text``. Optional **modifiers** (which can be stacked if compatible) add transforms: title case (**upper**), ALL CAPS (**capitals**), UpperCamelCase (**camel**; punctuation stripped), snake_case (**snake**; punctuation stripped), kebab-case (**kebab**; punctuation stripped), lowercase (**diminish**), strip punctuation (**strip**), and a **spelling** mode that strips punctuation then maps spoken punctuation words to symbols and reapplies sentence casing. Modifier phrases are configured on ``DictationConfig`` (defaults: ``upper``, ``capitals``, ``camel``, ``snake``, ``spelling``, ``kebab``, ``diminish``, ``strip``). In **type** mode, ``strip`` and ``diminish`` are enabled by default.
 
 While dictation is active, **Vosk** still runs on command audio segments. Besides the shared stop phrase (default ``amber``; see ``DictationConfig.stop_trigger``), it detects modifier phrases and publishes ``DictationModifierPhraseEvent`` (no ``CommandTextRecognizedEvent``). The coordinator toggles the same phrase off or switches to another modifier, updates session state, publishes ``DictationModifierStateChangedEvent`` (the **smart**, **amend**, and **visual** popup layouts show a small faded modifier chip; standard, type, and hidden wave-only UIs do not), and starts a short **Moonshine suppress window** (monotonic clock) so partials/finals from the same utterance are dropped. **Type** mode’s silence timeout only advances on segments that yield non-empty text after trigger stripping and post-processing; Vosk-only modifier phrases do not touch that timer.
 
@@ -67,11 +67,11 @@ The following ties together the pieces added for voice modifiers; all phrase str
 
 1. **Detection** — ``SpeechToTextService`` runs Vosk on each command segment while dictation is active. If the transcript contains a configured modifier phrase (longest match first), it publishes ``DictationModifierPhraseEvent``. Stop phrase handling is unchanged.
 
-2. **Session state** — ``DictationCoordinator._handle_dictation_modifier_phrase`` updates ``DictationSession.active_modifier`` (same phrase toggles off; a different phrase replaces the active modifier). It publishes ``DictationModifierStateChangedEvent`` and sets ``_moonshine_suppress_until`` to ``time.monotonic() + MOONSHINE_MODIFIER_SUPPRESS_SEC`` (~0.55s) so ``_moonshine_on_partial`` / ``_moonshine_on_final`` return early during that window.
+2. **Session state** — ``DictationCoordinator._handle_dictation_modifier_phrase`` updates ``DictationSession.active_modifiers`` (a set of active modifiers). If the same phrase is spoken, it toggles off. If a new phrase is spoken, it is added to the set, and any mutually exclusive modifiers (e.g., casing vs casing, punctuation vs punctuation) are removed. It publishes ``DictationModifierStateChangedEvent`` and sets ``_moonshine_suppress_until`` to ``time.monotonic() + MOONSHINE_MODIFIER_SUPPRESS_SEC`` (~0.55s) so ``_moonshine_on_partial`` / ``_moonshine_on_final`` return early during that window.
 
 3. **Segment text** — ``_clean_text`` removes each configured trigger and modifier phrase only as a **whole phrase** (case-insensitive word-boundary match via ``re.escape``). Phrases are applied **longest first** (multi-word before single-word) so a start trigger like ``green`` does not strip the second word of ``smart green`` before that phrase is removed. ``_prepare_dictation_segment_final`` / ``_prepare_dictation_segment_partial`` apply aliases, drop isolated punctuation fragments, then call ``dictation_postprocess.apply_dictation_postprocess`` or ``apply_dictation_postprocess_partial`` (partials skip the **spelling** transform).
 
-4. **Typing** — For standard/type modes, ``_dictation_segment_input_options`` passes ``add_trailing_space=False`` and ``skip_prose_segment_join_rules=True`` when the active modifier is **camel**, **snake**, or **spelling**, so ``TextInputService.input_text`` does not append a trailing space or apply mid-sentence lowercasing that would break identifiers.
+4. **Typing** — For standard/type modes, ``_dictation_segment_input_options`` passes ``add_trailing_space=False`` and ``skip_prose_segment_join_rules=True`` when the active modifiers include **camel**, **snake**, **kebab**, or **spelling**, so ``TextInputService.input_text`` does not append a trailing space or apply mid-sentence lowercasing that would break identifiers.
 
 5. **UI** — ``QtDictationPopupController`` forwards ``DictationModifierStateChangedEvent`` to ``QtDictationPopupView.set_modifier_banner``; reserved labels beside the dictation column titles (dual-pane and visual) show the faded chip. Wave-only popups ignore active modifier display.
 
@@ -161,7 +161,6 @@ System Awareness During Dictation
 
 When dictation starts, the coordinator broadcasts ``DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=...)`` which:
 
-- **Disables Markov predictions** (prevents false command predictions)
 - **Disables sound recognition** (prevents sound-mapped commands)
 - **Narrows command-path recognition** to the stop phrase and configured modifier phrases (see ``SpeechToTextService``)
 
@@ -232,7 +231,7 @@ Before output, text is cleaned and concatenated:
 - **Period removal**: If previous segment ends with "." and current starts lowercase, remove period
 - **Capitalization**: If no sentence boundary (no period), lowercase first letter of current segment
 
-**Modifier modes** (camel, snake, spelling): the coordinator passes ``skip_prose_segment_join_rules=True`` and usually ``add_trailing_space=False`` so segments are not merged as running prose; see :ref:`modifier-pipeline-reference`.
+**Modifier modes** (camel, snake, kebab, spelling): the coordinator passes ``skip_prose_segment_join_rules=True`` and usually ``add_trailing_space=False`` so segments are not merged as running prose; see :ref:`modifier-pipeline-reference`.
 
 Example:
 
@@ -478,7 +477,7 @@ This streaming provides visual feedback during ~2-5 second LLM processing.
 Amend mode (selection + instructions)
 ======================================
 
-Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Moonshine streaming fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``SmartDictationStartedEvent`` / ``SmartDictationStoppedEvent`` use ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. Streaming modes rely on partial/final dictation events rather than immediate typing from every ``DictationTextRecognizedEvent``.
+Amend mode is a second **dual-pane LLM** path alongside smart. After the amend start phrase, the coordinator captures the current selection via ``TextInputService.capture_selection_via_copy`` (Ctrl+C, read clipboard, restore prior clipboard) and stores a snapshot. Moonshine streaming fills the left column with your **spoken instructions**; the right column shows LLM output like smart mode. On stop, ``LLMService.process_amend_streaming`` builds messages from the snapshot plus instructions (and the current agentic preset). ``DictationSessionEvent`` uses ``mode="amend"``; the popup shows the same layout as smart with the left title **Prompt**. Streaming modes rely on partial/final dictation events rather than immediate typing from every ``DictationTextRecognizedEvent``.
 
 Type Mode: Raw Insertion
 ==========================
@@ -540,7 +539,7 @@ How It Works
        if mode == DictationMode.HIDDEN:
            await self._start_streaming_mode(mode)
            # No popup window created—accumulation happens silently
-           await self.event_bus.publish(HiddenDictationStartedEvent(...))
+           await self.event_bus.publish(DictationSessionEvent(mode="hidden", state="started"))
 
    async def _handle_dictation_text_recognized(self, event: DictationTextRecognizedEvent):
        if self._current_mode == DictationMode.HIDDEN:
@@ -591,7 +590,6 @@ While dictating, the system monitors for stop triggers. The command listener con
 
 - Filter STT output to only recognize stop trigger words
 - Disable sound recognition
-- Disable Markov predictions
 
 When dictation stops, ``DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive")`` re-enables all systems.
 
@@ -714,7 +712,6 @@ After dictation text is output:
 
 - **UI updates** reflect dictation status (active/inactive)
 - **Command recognition** resumes full operation
-- **Markov predictions** resume suggesting next commands
 - **Sound recognition** resumes listening for sound-mapped commands
 - **System returns** to idle state waiting for next voice input
 

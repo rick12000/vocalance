@@ -1,190 +1,143 @@
 import asyncio
-import logging
-import queue
 import threading
-from typing import Callable, Optional
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import RecordingTriggerEvent
-from vocalance.app.events.dictation_events import AudioModeChangeRequestEvent
-from vocalance.app.services.audio.audio_listeners import CommandAudioListener, SoundAudioListener
-from vocalance.app.services.audio.audio_processor import AudioProcessor
+from vocalance.app.events.core_events import (
+    AudioDetectedEvent,
+    CommandAudioSegmentReadyEvent,
+    MicLevelMeterPcmChunkEvent,
+    ProcessAudioChunkForSoundRecognitionEvent,
+)
+from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
+from vocalance.app.services.audio.audio_utils import AudioProcessor, Clip, Onset, SegmentConfig, SegmentHit, UtteranceSegmenter
+from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
 from vocalance.app.services.audio.recorder import AudioRecorder
+from vocalance.app.services.base_service import Service
 
-logger = logging.getLogger(__name__)
 
-
-class AudioService:
-    """Recorder → VAD worker → command/sound listeners; dictation PCM via ``set_dictation_chunk_callback``."""
+class AudioService(Service):
+    """Captures microphone audio, feeds dictation, meters levels, and publishes segment events."""
 
     def __init__(
-        self, event_bus: EventBus, config: GlobalAppConfig, main_event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self,
+        event_bus: EventBus,
+        config: GlobalAppConfig,
+        main_event_loop: asyncio.AbstractEventLoop,
+        dictation: DictationCoordinator,
     ) -> None:
-        self._event_bus = event_bus
-        self._config = config
+        self.event_bus = event_bus
+        self.config = config
+        self.main_event_loop = main_event_loop
+        self.dictation = dictation
 
-        if main_event_loop:
-            self._main_event_loop = main_event_loop
-        else:
-            try:
-                self._main_event_loop = asyncio.get_running_loop()
-            except RuntimeError:
-                self._main_event_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._main_event_loop)
-
-        self._recorder = AudioRecorder(
-            app_config=config,
-            event_bus=event_bus,
-            on_audio_chunk=self._on_audio_chunk_callback,
-        )
-
-        self._shared_audio_processor = AudioProcessor(
+        self.chunk_analyzer = AudioProcessor(
             sample_rate=config.audio.sample_rate,
             enable_normalization=config.vad.enable_audio_normalization,
         )
+        self.command_segmenter = self.create_command_segmenter()
+        self.sound_segmenter = self.create_sound_segmenter()
+        self.sound_input_muted = False
+        self.dictation_lock = threading.Lock()
+        event_bus.subscribe(DictationModeDisableOthersEvent, self.apply_dictation)
 
-        self._command_listener = CommandAudioListener(event_bus, config, self._shared_audio_processor)
-        self._sound_listener = SoundAudioListener(event_bus, config, self._shared_audio_processor)
+        self.recorder = AudioRecorder(
+            app_config=config,
+            loop=main_event_loop,
+            event_bus=event_bus,
+            on_audio_chunk=self.relay_captured_pcm_to_consumers,
+        )
 
-        self._dictation_chunk_callback: Optional[Callable[[bytes, int], None]] = None
+    def create_command_segmenter(self) -> UtteranceSegmenter:
+        app_config = self.config
+        chunk_seconds = float(app_config.audio.capture_chunk_duration_seconds)
+        chunks_per_second = 1.0 / chunk_seconds if chunk_seconds > 0 else 1.0 / 0.03
+        vad = app_config.vad
+        segment_config = SegmentConfig(
+            speech_multiplier=vad.command_adaptive_margin_multiplier,
+            silence_multiplier=vad.command_adaptive_margin_multiplier * vad.silence_threshold_multiplier,
+            min_threshold=vad.command_energy_threshold,
+            max_threshold=0.1,
+            silent_chunks_for_end=vad.command_silent_chunks_for_end,
+            pre_roll_chunks=vad.command_pre_roll_buffers,
+            min_duration_chunks=int(vad.command_min_recording_duration * chunks_per_second),
+            max_duration_chunks=int(vad.command_max_recording_duration * chunks_per_second),
+            emit_onset=True,
+        )
+        return UtteranceSegmenter(segment_config, self.chunk_analyzer, app_config.audio.sample_rate)
 
-        self._vad_queue: queue.Queue[tuple[bytes, float, int]] = queue.Queue()
-        self._vad_stop = threading.Event()
-        self._vad_worker_thread: Optional[threading.Thread] = None
-        self._level_meter_callback: Optional[Callable[[bytes], None]] = None
+    def create_sound_segmenter(self) -> UtteranceSegmenter:
+        app_config = self.config
+        vad = app_config.vad
+        segment_config = SegmentConfig(
+            speech_multiplier=vad.sound_adaptive_margin_multiplier,
+            silence_multiplier=vad.sound_adaptive_margin_multiplier * vad.silence_threshold_multiplier,
+            min_threshold=vad.sound_energy_threshold,
+            max_threshold=0.15,
+            silent_chunks_for_end=5,
+            pre_roll_chunks=5,
+            min_duration_chunks=5,
+            max_duration_chunks=34,
+            min_peak_ratio=1.5,
+        )
+        return UtteranceSegmenter(segment_config, self.chunk_analyzer, app_config.audio.sample_rate)
 
-    def set_dictation_chunk_callback(self, callback: Optional[Callable[[bytes, int], None]]) -> None:
-        """Raw PCM hook from the recorder thread (dictation / Moonshine); keep it non-blocking."""
-        self._dictation_chunk_callback = callback
+    def apply_dictation(self, event: DictationModeDisableOthersEvent) -> None:
+        with self.dictation_lock:
+            self.sound_input_muted = event.dictation_mode_active
 
-    def set_level_meter_callback(self, callback: Optional[Callable[[bytes], None]]) -> None:
-        """Optional UI level meter hook (raw bytes per chunk)."""
-        self._level_meter_callback = callback
+    async def publish_mic_level_meter_chunk(self, pcm: bytes) -> None:
+        await self.event_bus.publish(MicLevelMeterPcmChunkEvent(audio_chunk=pcm))
 
-    def _on_audio_chunk_callback(self, audio_bytes: bytes, timestamp: float) -> None:
-        sample_rate = self._config.audio.sample_rate
-        cb = self._dictation_chunk_callback
-        if cb is not None:
-            try:
-                cb(audio_bytes, sample_rate)
-            except Exception as e:
-                logger.error("dictation chunk callback error: %s", e, exc_info=True)
-        try:
-            self._vad_queue.put((audio_bytes, timestamp, sample_rate))
-        except Exception as e:
-            logger.error("VAD queue put failed: %s", e, exc_info=True)
+    async def publish_audio_detected(self, ts: float) -> None:
+        await self.event_bus.publish(AudioDetectedEvent(timestamp=ts))
 
-    def _vad_worker_loop(self) -> None:
-        while True:
-            try:
-                item = self._vad_queue.get(timeout=0.25)
-            except queue.Empty:
-                if self._vad_stop.is_set():
-                    break
-                continue
-            audio_bytes, timestamp, _ = item
-            lm = self._level_meter_callback
-            if lm is not None:
-                try:
-                    lm(audio_bytes)
-                except Exception as e:
-                    logger.debug("level meter callback error: %s", e)
-            try:
-                if self._command_listener is not None:
-                    self._command_listener.process_audio_chunk(audio_bytes, timestamp)
-                if self._sound_listener is not None:
-                    self._sound_listener.process_audio_chunk(audio_bytes, timestamp)
-            except Exception as e:
-                logger.error("VAD worker chunk error: %s", e, exc_info=True)
-        logger.debug("Audio VAD worker thread exiting")
+    async def publish_command_segment_ready(self, clip: Clip) -> None:
+        await self.event_bus.publish(CommandAudioSegmentReadyEvent(audio_bytes=clip.pcm_bytes, sample_rate=clip.sample_rate))
 
-    def _start_vad_worker(self) -> None:
-        if self._vad_worker_thread is not None and self._vad_worker_thread.is_alive():
-            return
-        self._vad_stop.clear()
-        self._vad_worker_thread = threading.Thread(target=self._vad_worker_loop, name="AudioVADWorker", daemon=True)
-        self._vad_worker_thread.start()
-        logger.debug("Audio VAD worker thread started")
+    async def publish_sound_recognition_chunk(self, clip: Clip) -> None:
+        await self.event_bus.publish(
+            ProcessAudioChunkForSoundRecognitionEvent(audio_chunk=clip.pcm_bytes, sample_rate=clip.sample_rate)
+        )
 
-    def _stop_vad_worker(self) -> None:
-        self._vad_stop.set()
-        if self._vad_worker_thread is not None:
-            self._vad_worker_thread.join(timeout=5.0)
-            if self._vad_worker_thread.is_alive():
-                logger.warning("Audio VAD worker did not stop within timeout")
-            self._vad_worker_thread = None
-        while True:
-            try:
-                self._vad_queue.get_nowait()
-            except queue.Empty:
-                break
+    def schedule_command_hit(self, hit: SegmentHit) -> None:
+        if isinstance(hit, Onset):
+            self.main_event_loop.create_task(self.publish_audio_detected(hit.ts))
+        elif isinstance(hit, Clip):
+            self.main_event_loop.create_task(self.publish_command_segment_ready(hit))
 
-    def init_listeners(self) -> None:
-        self._command_listener.setup_subscriptions()
-        self._sound_listener.setup_subscriptions()
-        self._command_listener.set_main_event_loop(self._main_event_loop)
-        self._sound_listener.set_main_event_loop(self._main_event_loop)
+    def schedule_sound_hit(self, hit: SegmentHit) -> None:
+        if isinstance(hit, Clip):
+            self.main_event_loop.create_task(self.publish_sound_recognition_chunk(hit))
 
-        self._event_bus.subscribe(event_type=RecordingTriggerEvent, handler=self._handle_recording_trigger)
-        self._event_bus.subscribe(event_type=AudioModeChangeRequestEvent, handler=self._handle_audio_mode_change_request)
-
-        logger.info("Audio service event subscriptions configured (2 listeners)")
-
-    async def _handle_recording_trigger(self, event: RecordingTriggerEvent) -> None:
-        if event.trigger == "start":
-            logger.info("Start recording command received - recorder already active")
-        elif event.trigger == "stop":
-            logger.info("Stop recording command received - recorder continues running")
-        else:
-            logger.warning(f"Unknown recording trigger: {event.trigger}")
-
-    async def _handle_audio_mode_change_request(self, event: AudioModeChangeRequestEvent) -> None:
-        logger.info("Audio mode change request: mode=%s reason=%s", event.mode, event.reason)
+    def relay_captured_pcm_to_consumers(self, pcm_bytes: bytes, ts: float) -> None:
+        self.dictation.feed_moonshine_audio_chunk(pcm_bytes, self.config.audio.sample_rate)
+        if self.main_event_loop.is_running():
+            self.main_event_loop.create_task(self.publish_mic_level_meter_chunk(pcm_bytes))
+        for hit in self.command_segmenter.feed_pcm_chunk(pcm_bytes, ts, False):
+            self.schedule_command_hit(hit)
+        with self.dictation_lock:
+            skip_sound = self.sound_input_muted
+        for hit in self.sound_segmenter.feed_pcm_chunk(pcm_bytes, ts, skip_sound):
+            self.schedule_sound_hit(hit)
 
     def start_processing(self) -> None:
-        try:
-            logger.info("Starting audio processing with continuous streaming")
-            self._start_vad_worker()
-            self._recorder.start()
-            logger.info("Audio processing started successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to start audio processing: {e}", exc_info=True)
-            raise
+        self.recorder.start()
 
     def stop_processing(self) -> None:
-        try:
-            logger.info("Stopping audio processing")
-            self._recorder.stop()
-            self._stop_vad_worker()
-            logger.info("Audio processing stopped")
-        except Exception as e:
-            logger.error(f"Error stopping audio processing: {e}", exc_info=True)
+        self.recorder.stop()
+
+    async def wait_for_capture_pipeline_idle(self, timeout_s: float = 3.0) -> None:
+        if self.recorder is not None:
+            await self.recorder.wait_deliveries_drained(timeout_s)
+
+    def on_command_silent_chunks_updated(self, chunks: int) -> None:
+        self.command_segmenter.set_silence_tail(chunks)
 
     async def shutdown(self) -> None:
-        try:
-            logger.info("Shutting down audio service")
-            self.stop_processing()
-            self._level_meter_callback = None
-
-            self._recorder = None
-            self._command_listener = None
-            self._sound_listener = None
-
-            logger.info("Audio service shutdown complete")
-        except Exception as e:
-            logger.error(f"Error during audio service shutdown: {e}", exc_info=True)
-
-    def setup_subscriptions(self) -> None:
-        self.init_listeners()
-
-    async def on_command_silent_chunks_updated(self, chunks: int) -> None:
-        if self._command_listener:
-            await self._command_listener.update_silent_chunks_threshold(chunks)
-            logger.info(f"Updated command silent chunks to {chunks}")
-        else:
-            logger.warning("Command listener not initialized, cannot update silent chunks")
-
-    def get_recorder(self) -> AudioRecorder:
-        return self._recorder
+        self.stop_processing()
+        self.event_bus.unsubscribe(DictationModeDisableOthersEvent, self.apply_dictation)
+        self.recorder = None
+        self.command_segmenter = None
+        self.sound_segmenter = None
+        self.chunk_analyzer = None

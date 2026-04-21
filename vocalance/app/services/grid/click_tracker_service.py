@@ -1,220 +1,198 @@
+from __future__ import annotations
+
+import asyncio
 import logging
 import threading
 import time
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
-from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import ClickLoggedEventData, PerformMouseClickEventData
+from vocalance.app.events.core_events import PerformMouseClickEventData
+from vocalance.app.events.grid_events import GridClickHistoryChangedEvent
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService
-from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
 
 logger = logging.getLogger(__name__)
 
 
-def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Sort rectangles by click frequency (desc), then by stable screen position.
+def click_point_in_rect(click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
+    """Return True if ``click`` has integer x/y inside the axis-aligned rectangle."""
+    try:
+        click_x, click_y = click.get("x", 0), click.get("y", 0)
+        return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
+    except (TypeError, ValueError):
+        return False
 
-    Random tie-breaks caused visible renumbering when the grid repainted or when
-    equal-click cells were re-sorted; geographic order is deterministic.
-    """
+
+def rects_with_click_counts(rect_definitions: List[Dict[str, Any]], all_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach per-rectangle click counts using spatial bucketing for performance."""
+    if not rect_definitions:
+        return []
+    if not all_clicks:
+        return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+
+    first_rect = rect_definitions[0]
+    try:
+        bucket_w = int(first_rect["w"])
+        bucket_h = int(first_rect["h"])
+    except (KeyError, TypeError, ValueError):
+        return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+
+    click_buckets: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
+    for click in all_clicks:
+        try:
+            click_x = click.get("x", 0)
+            click_y = click.get("y", 0)
+            bucket_x = int(click_x // bucket_w)
+            bucket_y = int(click_y // bucket_h)
+            key = (bucket_x, bucket_y)
+            click_buckets.setdefault(key, []).append(click)
+        except (TypeError, ValueError):
+            continue
+
+    processed_rects = []
+    for rect_def in rect_definitions:
+        try:
+            rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
+            rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
+            bucket_x = int(rect_x // bucket_w)
+            bucket_y = int(rect_y // bucket_h)
+            count = 0
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    key = (bucket_x + dx, bucket_y + dy)
+                    if key in click_buckets:
+                        for click in click_buckets[key]:
+                            if click_point_in_rect(click, rect_x, rect_y, rect_w, rect_h):
+                                count += 1
+            processed_rects.append({"data": rect_def, "clicks": count})
+        except (KeyError, ValueError, TypeError):
+            processed_rects.append({"data": rect_def, "clicks": 0})
+    return processed_rects
+
+
+def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sort rectangles by descending click count, then position and id for stability."""
     if not rect_details_with_clicks:
         return []
 
-    def sort_key(rect_item: Dict[str, Any]) -> tuple:
-        clicks = rect_item.get("clicks", 0)
+    def sort_key(rect: Dict[str, Any]) -> tuple[float, float, float, int]:
+        clicks = rect.get("clicks", 0)
         if not isinstance(clicks, (int, float)):
             clicks = 0
-        data = rect_item.get("data") or {}
+        data = rect.get("data") or {}
         try:
-            x = float(data.get("x", 0))
-            y = float(data.get("y", 0))
+            x, y = float(data.get("x", 0)), float(data.get("y", 0))
         except (TypeError, ValueError):
             x, y = 0.0, 0.0
-        tie = rect_item.get("id", 0)
         try:
-            tie_i = int(tie)
+            tie = int(rect.get("id", 0))
         except (TypeError, ValueError):
-            tie_i = 0
-        return (-float(clicks), y, x, tie_i)
+            tie = 0
+        return (-float(clicks), y, x, tie)
 
     return sorted(rect_details_with_clicks, key=sort_key)
 
 
-class ClickTrackerService:
-    """Click tracking service with in-memory cache and startup/shutdown persistence.
+class ClickTrackerService(Service):
+    """Owns grid click history, persists via StorageService, notifies UI only through the event bus."""
 
-    Architecture:
-    - Maintains in-memory list of all clicks for fast access
-    - Loads clicks from storage on initialization (startup)
-    - Adds new clicks only to memory during session
-    - Writes all clicks to storage only on shutdown
-
-    This provides low-latency click tracking while ensuring persistence across sessions.
-    """
-
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
-        """Initialize click tracker service with dependencies.
-
-        Args:
-            event_bus: EventBus for pub/sub messaging.
-            config: Global application configuration.
-            storage: Storage service for persistent click data.
-        """
+    def __init__(
+        self,
+        event_bus: EventBus,
+        storage: StorageService,
+        gui_event_loop: asyncio.AbstractEventLoop,
+        ui_refresh_debounce_s: float,
+        persist_debounce_s: float,
+    ) -> None:
         self._event_bus = event_bus
-        self._config = config
         self._storage = storage
-
-        # Thread-safe in-memory click cache
+        self._gui_loop = gui_event_loop
+        self._ui_refresh_debounce_s = ui_refresh_debounce_s
+        self._persist_debounce_s = persist_debounce_s
         self._lock = threading.RLock()
         self._clicks: List[GridClickEvent] = []
-        self._loaded = False
+        self._ui_task: Optional[asyncio.Task] = None
+        self._persist_task: Optional[asyncio.Task] = None
+        event_bus.subscribe(PerformMouseClickEventData, self._handle_mouse_click)
 
-        self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
-        self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="ClickTrackerService")
+    def _run_on_gui_loop(self, fn: Callable[[], None]) -> None:
+        self._gui_loop.call_soon_threadsafe(fn)
 
-        logger.debug("ClickTrackerService initialized")
-
-    async def initialize(self) -> None:
-        """Load click history from storage into memory cache.
-
-        Called once on application startup to populate the in-memory cache.
-        """
+    async def initialize(self) -> bool:
+        """Hydrate click history from storage; failures are logged but do not block startup."""
         try:
-            logger.info("Loading click history from storage...")
             clicks_data = await self._storage.read(model_type=GridClicksData)
-
             with self._lock:
                 self._clicks = list(clicks_data.clicks)
-                self._loaded = True
-
-            logger.info(f"Loaded {len(self._clicks)} clicks from storage into memory cache")
-
+            logger.info("Loaded %d clicks from storage", len(self._clicks))
+            return True
         except Exception as e:
-            logger.error(f"Failed to load click history from storage: {e}", exc_info=True)
-            with self._lock:
-                self._clicks = []
-                self._loaded = True
+            logger.error("Failed to load click history: %s", e, exc_info=True)
+            return True
 
-    def setup_subscriptions(self) -> None:
-        """Set up event subscriptions for click tracking."""
-        subscriptions = [
-            (PerformMouseClickEventData, self._handle_mouse_click),
-        ]
-
-        for event_type, handler in subscriptions:
-            self.subscription_manager.subscribe(event_type, handler)
-
-        logger.debug("ClickTrackerService subscriptions set up")
-
-    async def _handle_mouse_click(self, event_data: PerformMouseClickEventData) -> None:
-        """Handle mouse click event by adding to in-memory cache only.
-
-        NO storage I/O here - just fast memory append.
-        """
-        timestamp = time.time()
-        new_click = GridClickEvent(x=event_data.x, y=event_data.y, timestamp=timestamp, cell_id=None)
-
+    def _append_click_locked(self, x: int, y: int) -> None:
+        new_click = GridClickEvent(x=x, y=y, timestamp=time.time(), cell_id=None)
         with self._lock:
             self._clicks.append(new_click)
-            click_count = len(self._clicks)
 
-        # Publish event for any listeners
-        click_logged_event = ClickLoggedEventData(x=event_data.x, y=event_data.y, timestamp=timestamp)
-        self.event_publisher.publish(click_logged_event)
+    def _reschedule_debounce_tasks(self) -> None:
+        for t in (self._ui_task, self._persist_task):
+            if t is not None and not t.done():
+                t.cancel()
+        self._ui_task = asyncio.create_task(self._debounced_ui_notify())
+        self._persist_task = asyncio.create_task(self._debounced_persist())
 
-        logger.debug(f"Click logged to memory cache: ({event_data.x}, {event_data.y}) - total: {click_count}")
+    def _request_debounce_after_mutation(self) -> None:
+        self._run_on_gui_loop(self._reschedule_debounce_tasks)
 
-    def _calculate_click_counts(
-        self, all_clicks: List[Dict[str, Any]], rect_definitions: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Calculate click counts per rectangle."""
-        processed_rects = []
+    async def _handle_mouse_click(self, event: PerformMouseClickEventData) -> None:
+        self._append_click_locked(event.x, event.y)
+        self._request_debounce_after_mutation()
 
-        for rect_def in rect_definitions:
-            try:
-                rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
-                rect_w, rect_h = int(rect_def["w"]), int(rect_def["h"])
+    async def publish_click_history_snapshot(self) -> None:
+        with self._lock:
+            snap = [c.model_dump(mode="json") for c in self._clicks]
+        await self._event_bus.publish(GridClickHistoryChangedEvent(clicks_snapshot=snap))
 
-                count = sum(1 for click in all_clicks if self._is_click_in_rect(click, rect_x, rect_y, rect_w, rect_h))
-
-                processed_rects.append({"data": rect_def, "clicks": count})
-
-            except (KeyError, ValueError, TypeError):
-                processed_rects.append({"data": rect_def, "clicks": 0})
-
-        return processed_rects
-
-    def _is_click_in_rect(self, click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
-        """Check if click is within rectangle bounds."""
+    async def _debounced_ui_notify(self) -> None:
         try:
-            click_x, click_y = click.get("x", 0), click.get("y", 0)
-            return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
-        except (TypeError, ValueError):
-            return False
+            await asyncio.sleep(self._ui_refresh_debounce_s)
+            await self.publish_click_history_snapshot()
+        except asyncio.CancelledError:
+            raise
 
-    def get_all_clicks_sync(self) -> List[Dict[str, Any]]:
-        """Get all clicks from memory cache synchronously.
-
-        Used by grid view for prioritization - no async/storage overhead.
-
-        Returns:
-            List of click dictionaries with x, y, timestamp, cell_id
-        """
+    async def _debounced_persist(self) -> None:
+        try:
+            await asyncio.sleep(self._persist_debounce_s)
+        except asyncio.CancelledError:
+            raise
         with self._lock:
-            return [click.model_dump() for click in self._clicks]
-
-    async def get_click_statistics(self) -> Dict[str, Any]:
-        """Get click statistics from in-memory cache."""
-        with self._lock:
-            all_clicks = [click.model_dump() for click in self._clicks]
-
-        if not all_clicks:
-            return {"total_clicks": 0}
-
-        timestamps = [click.get("timestamp", 0) for click in all_clicks if click.get("timestamp")]
-        sources = [click.get("source", "unknown") for click in all_clicks]
-
-        source_counts = {}
-        for source in sources:
-            source_counts[source] = source_counts.get(source, 0) + 1
-
-        return {
-            "total_clicks": len(all_clicks),
-            "earliest_click": min(timestamps) if timestamps else 0,
-            "latest_click": max(timestamps) if timestamps else 0,
-            "source_distribution": source_counts,
-        }
+            snapshot = list(self._clicks)
+        try:
+            await self._storage.write(data=GridClicksData(clicks=snapshot))
+            logger.debug("Persisted %d grid clicks", len(snapshot))
+        except Exception as e:
+            logger.error("Debounced click history write failed: %s", e, exc_info=True)
 
     async def shutdown(self) -> None:
-        """Save all clicks from memory to storage on shutdown.
-
-        Called once on application shutdown to persist all session data.
-        """
+        self._event_bus.unsubscribe(PerformMouseClickEventData, self._handle_mouse_click)
+        for t in (self._ui_task, self._persist_task):
+            if t is not None and not t.done():
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+        self._ui_task = None
+        self._persist_task = None
+        with self._lock:
+            clicks_to_save = list(self._clicks)
+        if not clicks_to_save:
+            return
         try:
-            with self._lock:
-                clicks_to_save = list(self._clicks)
-
-            if not clicks_to_save:
-                logger.info("No clicks to save on shutdown")
-                return
-
-            logger.info(f"Saving {len(clicks_to_save)} clicks to storage on shutdown...")
-
-            clicks_data = GridClicksData(clicks=clicks_to_save)
-            success = await self._storage.write(data=clicks_data)
-
-            if success:
-                logger.info(f"Successfully saved {len(clicks_to_save)} clicks to storage")
-            else:
-                logger.error("Failed to save clicks to storage on shutdown")
-
+            await self._storage.write(data=GridClicksData(clicks=clicks_to_save))
+            logger.info("Saved %d clicks to storage on shutdown", len(clicks_to_save))
         except Exception as e:
-            logger.error(f"Error saving clicks on shutdown: {e}", exc_info=True)
-
-    async def cleanup(self) -> None:
-        """Clean up resources and save data."""
-        self.subscription_manager.unsubscribe_all()
-        await self.shutdown()
-        logger.info("ClickTrackerService cleanup complete")
+            logger.error("Error saving clicks on shutdown: %s", e, exc_info=True)

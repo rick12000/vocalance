@@ -1,119 +1,64 @@
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional
 
-from vocalance.app.events.base_event import BaseEvent, EventPriority
+from pydantic import BaseModel, Field
 
+from vocalance.app.events.base_event import BaseEvent
 
-class MarkCreateRequestEventData(BaseEvent):
-    """Request to create a new mark at specified coordinates."""
+MarkUiRequestOp = Literal[
+    "create",
+    "delete",
+    "delete_all",
+    "execute",
+    "set_visualization",
+    "refresh_list",
+    "prepare_overlay",
+]
 
-    name: Optional[str] = None
-    x: int
-    y: int
-    description: Optional[str] = None
-    source: str = "unknown"
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class MarkDeleteByNameRequestEventData(BaseEvent):
-    """Request to delete a mark by name."""
-
-    name: str
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class MarkDeleteAllRequestEventData(BaseEvent):
-    """Request to delete all marks."""
-
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class MarkExecuteRequestEventData(BaseEvent):
-    """Request to execute/click a mark by name or ID."""
-
-    name_or_id: Union[str, int]
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class MarkGetAllRequestEventData(BaseEvent):
-    """Request to retrieve all marks."""
-
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class MarkVisualizeAllRequestEventData(BaseEvent):
-    """Request to visualize all marks on screen."""
-
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class MarkVisualizeCancelRequestEventData(BaseEvent):
-    """Request to cancel mark visualization."""
-
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class MarkCreatedEventData(BaseEvent):
-    """Event indicating a mark has been successfully created."""
-
-    name: str
-    x: int
-    y: int
-    priority: EventPriority = EventPriority.LOW
-
-
-class MarkDeletedEventData(BaseEvent):
-    """Event indicating a mark has been deleted."""
-
-    name: str
-    priority: EventPriority = EventPriority.LOW
+MarkUiResponseKind = Literal["create_result", "overlay_marks"]
 
 
 class MarksChangedEventData(BaseEvent):
-    """Event indicating marks collection has been modified."""
+    """Broadcast when the marks collection changes."""
 
     marks: Dict[str, Dict[str, Any]]
-    priority: EventPriority = EventPriority.LOW
-
-
-class AllMarksClearedEventData(BaseEvent):
-    """Event indicating all marks have been cleared."""
-
-    count: int
-    priority: EventPriority = EventPriority.LOW
 
 
 class MarkVisualizationStateChangedEventData(BaseEvent):
-    """Event indicating mark visualization state has changed."""
+    """Broadcast when mark overlay visibility changes."""
 
     is_visible: bool
-    priority: EventPriority = EventPriority.LOW
+    marks: Optional[Dict[str, Dict[str, Any]]] = None
 
 
-class MarkOperationFailedEventData(BaseEvent):
-    """Event indicating a mark operation has failed."""
+class MarkUiRequestEvent(BaseEvent):
+    """UI-originated mark operations; handled by ``MarkService``."""
 
-    operation: Literal["create", "execute", "delete", "visualize", "reset", "visualize_cancel"]
-    name_or_id: Optional[Union[str, int]] = None
-    reason: str
-    details: Optional[Dict[str, Any]] = None
-    priority: EventPriority = EventPriority.LOW
-
-
-class MarkOperationSuccessEventData(BaseEvent):
-    """Event indicating a mark operation has succeeded."""
-
-    operation: Literal["create", "execute", "delete", "visualize", "reset", "visualize_cancel"]
-    label: Optional[str] = None
-    message: Optional[str] = None
-    marks_data: Optional[Dict[str, Any]] = None
-    priority: EventPriority = EventPriority.LOW
+    op: MarkUiRequestOp
+    name: Optional[str] = None
+    x: Optional[int] = None
+    y: Optional[int] = None
+    description: Optional[str] = None
+    mark_name: Optional[str] = None
+    identifier: Optional[str] = None
+    visible: Optional[bool] = None
 
 
-class MarkData(BaseEvent):
+class MarkUiResponseEvent(BaseEvent):
+    """Service-originated mark UI outcomes (create validation, overlay payload)."""
+
+    kind: MarkUiResponseKind
+    success: bool = True
+    message: str = ""
+    name: str = ""
+    x: int = 0
+    y: int = 0
+    marks: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+
+class MarkData(BaseModel):
     """Data model for a single mark."""
 
     name: str
     x: int
     y: int
     description: str = ""
-    priority: EventPriority = EventPriority.LOW

@@ -13,7 +13,7 @@ After the audio listeners detect speech and sound segments (see :doc:`audio_capt
    flowchart TD
        A[CommandAudioSegmentReadyEvent] --> B[SpeechToTextService]
        D[ProcessAudioChunkForSoundRecognitionEvent] --> E[SoundService]
-       R[Raw PCM callback] --> C[DictationCoordinator]
+       R[AudioService raw PCM] --> C[DictationCoordinator]
        C --> H[Moonshine stream / batch]
 
        B --> F{Dictation active?}
@@ -246,4 +246,4 @@ Recognized text and sound events now flow into the command parser, which determi
 
     - ``CustomSoundRecognizedEvent`` → ``CentralizedCommandParser`` → Map to ``click`` → Execute
 
-The command parsing pipeline, including Markov chain prediction and deduplication, is covered in :doc:`command_parsing`.
+The command parsing pipeline, including deduplication, is covered in :doc:`command_parsing`.

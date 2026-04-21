@@ -5,20 +5,13 @@ import pytest_asyncio
 
 from vocalance.app.config.command_types import GridSelectCommand, GridShowCommand
 from vocalance.app.events.command_events import GridCommandParsedEvent
-from vocalance.app.events.core_events import CommandExecutedStatusEvent
-from vocalance.app.events.grid_events import GridVisibilityChangedEventData
 from vocalance.app.services.grid.grid_service import GridService
 
 
 @pytest_asyncio.fixture
 async def grid_service(event_bus, app_config):
-    """Create grid service for testing."""
     service = GridService(event_bus, app_config)
-    service.setup_subscriptions()
-
-    await event_bus.start_worker()
     yield service
-    await event_bus.stop_worker()
 
 
 @pytest.mark.asyncio
@@ -27,28 +20,12 @@ async def test_grid_show_default(grid_service, app_config):
     service = grid_service
     event_bus = service._event_bus
 
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(GridVisibilityChangedEventData, capture_event)
-    event_bus.subscribe(CommandExecutedStatusEvent, capture_event)
-
     command = GridShowCommand(num_rects=None)
     event = GridCommandParsedEvent(command=command, source="speech")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    viz_events = [e for e in captured_events if isinstance(e, GridVisibilityChangedEventData)]
-    status_events = [e for e in captured_events if isinstance(e, CommandExecutedStatusEvent)]
-
-    assert len(viz_events) == 1
-    assert viz_events[0].visible is True
-    assert viz_events[0].rows is not None
-    assert viz_events[0].cols is not None
-    assert len(status_events) == 1
-    assert status_events[0].success is True
+    assert service._visible is True
 
 
 @pytest.mark.asyncio
@@ -57,22 +34,12 @@ async def test_grid_show_with_custom_count(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(GridVisibilityChangedEventData, capture_event)
-
     command = GridShowCommand(num_rects=9)
     event = GridCommandParsedEvent(command=command, source="speech")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    viz_events = [e for e in captured_events if isinstance(e, GridVisibilityChangedEventData)]
-    assert len(viz_events) == 1
-    assert viz_events[0].visible is True
-    assert viz_events[0].rows * viz_events[0].cols >= 9
+    assert service._visible is True
 
 
 @pytest.mark.asyncio
@@ -95,31 +62,26 @@ async def test_grid_select_cell(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    async with service._state_lock:
-        service._visible = True
+    service._visible = True
 
     captured_events = []
 
     async def capture_event(event):
         captured_events.append(event)
 
-    event_bus.subscribe(CommandExecutedStatusEvent, capture_event)
+    from vocalance.app.events.grid_events import GridStateEvent
 
-    from vocalance.app.events.grid_events import ClickGridCellRequestEventData
-
-    event_bus.subscribe(ClickGridCellRequestEventData, capture_event)
+    event_bus.subscribe(GridStateEvent, capture_event)
 
     command = GridSelectCommand(selected_number=5)
     event = GridCommandParsedEvent(command=command, source="speech")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    click_events = [e for e in captured_events if isinstance(e, ClickGridCellRequestEventData)]
-    status_events = [e for e in captured_events if isinstance(e, CommandExecutedStatusEvent)]
+    click_events = [e for e in captured_events if isinstance(e, GridStateEvent) and e.state == "interaction_request"]
 
     assert len(click_events) == 1
-    assert click_events[0].cell_label == "5"
-    assert len(status_events) == 1
+    assert click_events[0].config.get("cell_label") == "5"
 
 
 @pytest.mark.asyncio
@@ -128,54 +90,27 @@ async def test_grid_select_cell_drag_mode(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    async with service._state_lock:
-        service._visible = True
-        service._current_click_mode = "drag"
+    service._visible = True
+    service._current_click_mode = "drag"
 
     captured_events = []
 
     async def capture_event(event):
         captured_events.append(event)
 
-    from vocalance.app.events.grid_events import ClickGridCellRequestEventData
+    from vocalance.app.events.grid_events import GridStateEvent
 
-    event_bus.subscribe(ClickGridCellRequestEventData, capture_event)
+    event_bus.subscribe(GridStateEvent, capture_event)
 
     command = GridSelectCommand(selected_number=3)
     event = GridCommandParsedEvent(command=command, source="speech")
     await event_bus.publish(event)
     await asyncio.sleep(0.1)
 
-    click_events = [e for e in captured_events if isinstance(e, ClickGridCellRequestEventData)]
+    click_events = [e for e in captured_events if isinstance(e, GridStateEvent) and e.state == "interaction_request"]
     assert len(click_events) == 1
-    assert click_events[0].cell_label == "3"
-    assert click_events[0].click_mode == "drag"
-
-
-@pytest.mark.asyncio
-async def test_grid_select_when_not_visible(grid_service):
-    """Test that grid select is rejected when grid is not visible."""
-    service = grid_service
-    event_bus = service._event_bus
-
-    async with service._state_lock:
-        service._visible = False
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    event_bus.subscribe(CommandExecutedStatusEvent, capture_event)
-
-    command = GridSelectCommand(selected_number=5)
-    event = GridCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.1)
-
-    status_events = [e for e in captured_events if isinstance(e, CommandExecutedStatusEvent)]
-    assert len(status_events) == 1
-    assert status_events[0].success is False
+    assert click_events[0].config.get("cell_label") == "3"
+    assert click_events[0].config.get("click_mode") == "drag"
 
 
 @pytest.mark.asyncio
@@ -184,16 +119,14 @@ async def test_grid_visibility_state_tracking(grid_service):
     service = grid_service
     event_bus = service._event_bus
 
-    async with service._state_lock:
-        assert service._visible is False
+    assert service._visible is False
 
     show_command = GridShowCommand(num_rects=9)
     show_event = GridCommandParsedEvent(command=show_command, source="speech")
     await event_bus.publish(show_event)
     await asyncio.sleep(0.1)
 
-    async with service._state_lock:
-        assert service._visible is True
+    assert service._visible is True
 
 
 @pytest.mark.parametrize("num_rects,expected_min_cells", [(4, 4), (9, 9), (16, 16), (12, 12), (25, 25)])

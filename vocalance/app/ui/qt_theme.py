@@ -41,7 +41,7 @@ class ShapeColors:
     medium: str = "#1a1a22"
     dark: str = "#121218"
     darkest: str = "#0c0c10"
-    orange: str = "#ff8c00"  # Orange color for dictation stop word indicator
+    orange: str = "#ff8c00"
 
 
 @dataclass
@@ -76,42 +76,30 @@ class BorderRadius:
 
 @dataclass
 class ContainerLayout:
-    """Container spacing system - defines relationship between containers and content.
+    """Spacing between container chrome, padding, and stacked content."""
 
-    HIERARCHY:
-    - border: 1px solid line (part of container style)
-    - padding: space from border to content area
-    - content_margin: additional margin for content widgets inside container
-    """
+    box_padding: int = 16
+    box_spacing_between: int = 14
+    box_title_spacing: int = 12
 
-    # Box containers (primary content boxes)
-    box_padding: int = 16  # Padding from border to content
-    box_spacing_between: int = 14  # Space between adjacent boxes
-    box_title_spacing: int = 12  # Space after box title before content
+    content_horizontal_margin: int = 0
+    content_vertical_spacing: int = 10
 
-    # Content inside boxes
-    content_horizontal_margin: int = 0  # Additional horizontal margin for content (titles align with border + padding)
-    content_vertical_spacing: int = 10  # Space between stacked content items
+    list_item_padding_vertical: int = 4
+    list_item_padding_horizontal: int = 0
+    list_item_spacing: int = 0
 
-    # List items
-    list_item_padding_vertical: int = 4  # Vertical padding within each list item
-    list_item_padding_horizontal: int = 0  # Horizontal padding within list item (uses content margin)
-    list_item_spacing: int = 0  # Space between list items
+    group_header_margin_top: int = 12
+    group_header_margin_bottom: int = 4
+    group_header_first_margin_top: int = 0
 
-    # Group headers in lists
-    group_header_margin_top: int = 12  # Space above group header (first group has less)
-    group_header_margin_bottom: int = 4  # Space below group header, before divider
-    group_header_first_margin_top: int = 0  # No top margin for first group
-
-    # Section dividers
-    divider_margin_bottom: int = 4  # Space after divider before content
+    divider_margin_bottom: int = 4
 
 
 @dataclass
 class ComponentSizes:
     """Component dimension tokens."""
 
-    # Interactive elements
     button_height: int = 28
     button_padding_horizontal: int = 16
     button_padding_vertical: int = 2
@@ -121,13 +109,11 @@ class ComponentSizes:
     input_padding_horizontal: int = 12
     input_padding_vertical: int = 7
 
-    # Windows
     main_window_width: int = 1000
     main_window_height: int = 600
     main_window_min_width: int = 1000
     main_window_min_height: int = 600
 
-    # Dialogs
     dialog_width: int = 400
     dialog_min_height: int = 150
     dialog_message_max_width: int = 350
@@ -137,7 +123,6 @@ class ComponentSizes:
     progress_bar_height: int = 5
     progress_bar_width: int = 300
 
-    # Startup Window
     startup_width: int = 500
     startup_height: int = 200
     startup_logo_size: int = 110
@@ -153,7 +138,6 @@ class SidebarLayout:
     animation_duration: int = 260
     padding_top: int = 18
     padding_horizontal: int = 0
-    # Icons + logo are centered in collapsed_width; no extra L/R inset on the rail.
     button_padding_left: int = 0
     button_padding_right: int = 0
     button_spacing_vertical: int = 5
@@ -171,15 +155,15 @@ class HeaderLayout:
     """Header layout configuration."""
 
     padding_horizontal: int = 28
-    content_padding_left: int = 18  # Matches box_padding for vertical alignment with box titles
-    content_padding_right: int = 18  # Matches box_padding for consistent spacing
+    content_padding_left: int = 18
+    content_padding_right: int = 18
     height: int = 88
     title_offset_y: int = 10
     title_y_offset: int = 0
     spacing: int = 4
     padding_bottom: int = 16
     icon_size: int = 36
-    text_icon_spacing: int = 20  # Space between text and icon in header button
+    text_icon_spacing: int = 20
 
 
 @dataclass
@@ -208,40 +192,31 @@ class ThemeConfig:
     header: HeaderLayout = field(default_factory=HeaderLayout)
     icon_properties: IconProperties = field(default_factory=IconProperties)
 
-    # Font family names (updated from TTF files after load_fonts() is called)
-    font_family_primary: str = "DM Sans"  # Default font for most UI elements
-    font_family_display: str = "Alata"  # Display font for titles and headers
+    font_family_primary: str = "DM Sans"
+    font_family_display: str = "Alata"
 
 
 class ThemeManager:
-    """Manages theme configuration and resource loading."""
+    """Loads fonts, builds QSS, and exposes token-backed ``ThemeConfig``."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = ThemeConfig()
-        self._loaded_fonts = set()
-        self._stylesheet: str = ""
+        self._registered_font_families: set[str] = set()
+        self._cached_stylesheet_text: str = ""
 
-    def load_stylesheet(self, qss_path: str = None) -> str:
-        """Load the centralized QSS stylesheet.
+    def load_stylesheet(self, qss_path: str | None = None) -> str:
+        """Build the application stylesheet from packaged QSS partials and theme tokens.
 
-        Args:
-            qss_path: Optional path to QSS file. If None, uses default location.
-
-        Returns:
-            The loaded stylesheet content.
+        Optional ``qss_path`` appends an additional file after the built stylesheet.
         """
-        if qss_path is None:
-            # Default location is alongside this module
-            qss_path = Path(__file__).parent / "styles.qss"
-        else:
-            qss_path = Path(qss_path)
+        from vocalance.app.ui.style.builder import build_app_stylesheet
 
-        if qss_path.exists():
-            self._stylesheet = qss_path.read_text(encoding="utf-8")
-        else:
-            self._stylesheet = ""
-
-        return self._stylesheet
+        self._cached_stylesheet_text = build_app_stylesheet(self)
+        if qss_path is not None:
+            extra = Path(qss_path)
+            if extra.is_file():
+                self._cached_stylesheet_text = self._cached_stylesheet_text + "\n" + extra.read_text(encoding="utf-8")
+        return self._cached_stylesheet_text
 
     def apply_stylesheet(self, app) -> None:
         """Apply the loaded stylesheet and palette to a QApplication.
@@ -249,37 +224,22 @@ class ThemeManager:
         Args:
             app: QApplication instance to apply stylesheet to.
         """
-        if not self._stylesheet:
+        if not self._cached_stylesheet_text:
             self.load_stylesheet()
 
-        if self._stylesheet:
-            app.setStyleSheet(self._stylesheet)
+        if self._cached_stylesheet_text:
+            app.setStyleSheet(self._cached_stylesheet_text)
 
-        # Apply custom palette to override OS theme colors
-        self._apply_app_palette(app)
+        self._paint_application_palette(app)
 
-    def _apply_app_palette(self, app) -> None:
-        """Apply our custom palette to the QApplication to override OS theme.
-
-        This ensures that selection colors, radio button indicators, and other
-        OS-dependent colors use our theme colors instead of the system colors.
-
-        Palette inheritance model:
-        - QApplication palette is the base - inherited by all widgets
-        - Widgets can override by calling setPalette() with their own palette
-        - This creates a clean cascade where specific colors are overridden locally
-        - Palette colors are INDEPENDENT of QSS stylesheets (separate systems)
-
-        Args:
-            app: QApplication instance to apply palette to.
-        """
+    def _paint_application_palette(self, app) -> None:
+        """Set highlight colors on ``app`` so controls match theme tokens."""
         from PySide6.QtGui import QColor, QPalette
 
         palette = app.palette()
 
-        # Override OS theme selection colors with our theme colors
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))  # Selection background
-        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))  # Selection text
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))
 
         app.setPalette(palette)
 
@@ -289,9 +249,9 @@ class ThemeManager:
         Returns:
             The stylesheet string, loading it if necessary.
         """
-        if not self._stylesheet:
+        if not self._cached_stylesheet_text:
             self.load_stylesheet()
-        return self._stylesheet
+        return self._cached_stylesheet_text
 
     def load_fonts(self, fonts_dir: str = None) -> None:
         """Load custom fonts (Alata and DM Sans) from the fonts directory.
@@ -304,31 +264,32 @@ class ThemeManager:
         else:
             fonts_base = Path(fonts_dir).resolve()
 
-        # Load Alata (display font for titles)
         alata_dir = fonts_base / "Alata"
-        self._load_font_family(alata_dir, "Alata")
+        self._register_fonts_in_directory(alata_dir, "Alata")
 
-        # Load DM Sans (primary font for body text)
         dmsans_dir = fonts_base / "DM_Sans"
-        self._load_font_family(dmsans_dir, "DM Sans")
+        self._register_fonts_in_directory(dmsans_dir, "DM Sans")
 
-        # Update config with loaded font families
-        if "DM Sans" in self._loaded_fonts:
+        if "DM Sans" in self._registered_font_families:
             self.config.font_family_primary = "DM Sans"
-        if "Alata" in self._loaded_fonts:
+        if "Alata" in self._registered_font_families:
             self.config.font_family_display = "Alata"
 
-        logger.info(f"Fonts loaded - Primary: {self.config.font_family_primary}, Display: {self.config.font_family_display}")
+        logger.debug(
+            "Fonts loaded primary=%s display=%s",
+            self.config.font_family_primary,
+            self.config.font_family_display,
+        )
 
-    def _load_font_family(self, fonts_dir: Path, expected_family: str) -> bool:
-        """Load all TTF files from a font directory.
+    def _register_fonts_in_directory(self, fonts_dir: Path, expected_family: str) -> bool:
+        """Register every ``.ttf`` under ``fonts_dir`` with Qt.
 
         Args:
-            fonts_dir: Path to font directory
-            expected_family: Expected font family name for logging
+            fonts_dir: Directory containing font files.
+            expected_family: Human-readable family label for logs.
 
         Returns:
-            True if at least one font was loaded successfully, False otherwise
+            True if at least one face was registered.
         """
         fonts_dir = fonts_dir.resolve()
 
@@ -341,15 +302,14 @@ class ThemeManager:
             font_id = QFontDatabase.addApplicationFont(str(font_file.absolute()))
             if font_id != -1:
                 families = QFontDatabase.applicationFontFamilies(font_id)
-                self._loaded_fonts.update(families)
+                self._registered_font_families.update(families)
                 loaded_count += 1
 
         if loaded_count > 0:
-            logger.info(f"Loaded {loaded_count} {expected_family} font files")
+            logger.debug("Registered %s font file(s) for %s", loaded_count, expected_family)
             return True
-        else:
-            logger.warning(f"No fonts loaded from {expected_family} directory")
-            return False
+        logger.warning("No fonts loaded from %s directory", expected_family)
+        return False
 
     def get_font_family(self, weight: str = "regular", display: bool = False) -> str:
         """Get font family name from loaded fonts.
@@ -380,7 +340,6 @@ class ThemeManager:
         Returns:
             QFont object using the custom loaded font family
         """
-        # Handle size being int or string
         if isinstance(size, int):
             font_size = size
         else:
@@ -391,9 +350,9 @@ class ThemeManager:
         font = QFont(family, font_size)
 
         if bold or weight == "bold":
-            font.setWeight(QFont.Weight(550))  # Reduced from Bold (700) by ~14% (DemiBold equivalent)
+            font.setWeight(QFont.Weight(550))
         elif weight == "semibold":
-            font.setWeight(QFont.Weight(530))  # Reduced from DemiBold (600) by ~17% (Medium equivalent)
+            font.setWeight(QFont.Weight(530))
         elif weight == "light":
             font.setWeight(QFont.Weight(200))
 
@@ -448,8 +407,8 @@ class ThemeManager:
         palette.setColor(QPalette.ColorRole.ButtonText, QColor(text_color))
 
         # Always include our custom theme selection colors
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))  # Selection background
-        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))  # Selection text
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))
 
         return palette
 
@@ -471,9 +430,8 @@ class ThemeManager:
             palette.setColor(QPalette.ColorRole.WindowText, QColor(text_color))
             palette.setColor(QPalette.ColorRole.Text, QColor(text_color))
 
-        # Override OS theme selection colors with our theme colors
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))  # Selection background
-        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))  # Selection text
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(self.config.blue.blue_2))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(self.config.text.lightest))
 
         widget.setPalette(palette)
         widget.setAutoFillBackground(True)
@@ -490,13 +448,11 @@ class ThemeManager:
         from PySide6.QtGui import QColor, QPalette
         from PySide6.QtWidgets import QFrame
 
-        # Set colors
         palette = frame.palette()
         palette.setColor(QPalette.ColorRole.Window, QColor(bg_color))
         frame.setPalette(palette)
         frame.setAutoFillBackground(True)
 
-        # Store border info for custom painting if needed
         frame._theme_border_color = border_color
         frame._theme_border_radius = border_radius
         frame.setFrameShape(QFrame.Shape.NoFrame)

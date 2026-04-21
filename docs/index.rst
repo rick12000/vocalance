@@ -25,6 +25,7 @@ For general information, features, or download instructions, please visit `vocal
    developer/dictation_system
    developer/user_interface
    developer/event_bus_and_infrastructure
+   developer/concurrency_architecture
 
 .. toctree::
    :maxdepth: 1

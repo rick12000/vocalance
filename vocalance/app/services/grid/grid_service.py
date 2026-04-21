@@ -1,197 +1,82 @@
-import asyncio
+from __future__ import annotations
+
 import logging
 import math
-from typing import Any, Dict, Optional
 
-from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.config.command_types import GridSelectCommand, GridShowCommand
+from vocalance.app.config.app_config import GlobalAppConfig, GridConfig
+from vocalance.app.config.command_types import BaseCommand, GridSelectCommand, GridShowCommand
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import GridCommandParsedEvent
-from vocalance.app.events.core_events import CommandExecutedStatusEvent
-from vocalance.app.events.grid_events import (
-    ClickGridCellRequestEventData,
-    GridConfigUpdatedEventData,
-    GridVisibilityChangedEventData,
-    ShowGridRequestEventData,
-    UpdateGridConfigRequestEventData,
-)
-from vocalance.app.utils.event_utils import EventSubscriptionManager, ThreadSafeEventPublisher
+from vocalance.app.events.grid_events import GridStateEvent
+from vocalance.app.services.base_service import Service
 
 logger = logging.getLogger(__name__)
 
 
-class GridService:
-    """Grid service for command processing and UI state management.
-
-    Handles grid show/hide/select commands, calculates optimal grid dimensions,
-    and manages grid configuration updates through event-driven architecture.
-    All state access is protected with async locks for thread safety.
-    """
+class GridService(Service):
+    """Handle grid voice commands and merge overlay-driven config updates into ``GlobalAppConfig``."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
-        """Initialize grid service with dependencies.
-
-        Args:
-            event_bus: EventBus for pub/sub messaging.
-            config: Global application configuration.
-        """
         self._event_bus = event_bus
         self._config = config
         self._visible: bool = False
-        self._current_click_mode: str = "click"  # Track current click mode
-        self._state_lock = asyncio.Lock()
-        self.event_publisher = ThreadSafeEventPublisher(event_bus=event_bus)
-        self.subscription_manager = EventSubscriptionManager(event_bus=event_bus, component_name="GridService")
-
-        logger.debug("GridService initialized")
-
-    def setup_subscriptions(self) -> None:
-        subscriptions = [
-            (GridCommandParsedEvent, self._handle_grid_command),
-            (UpdateGridConfigRequestEventData, self._handle_config_update),
-        ]
-
-        for event_type, handler in subscriptions:
-            self.subscription_manager.subscribe(event_type, handler)
-
-        logger.debug("GridService subscriptions set up")
+        self._current_click_mode: str = "click"
+        event_bus.subscribe(GridCommandParsedEvent, self._handle_grid_command)
+        event_bus.subscribe(GridStateEvent, self._handle_grid_state_event)
 
     def _calculate_grid_dimensions(self, num_rects: int) -> tuple[int, int]:
-        """Calculate optimal grid dimensions for given number of rectangles.
-
-        Uses square root approximation to create a nearly square grid layout.
-
-        Args:
-            num_rects: Number of cells to fit in grid.
-
-        Returns:
-            Tuple of (rows, cols) dimensions.
-        """
         cols = math.ceil(math.sqrt(num_rects))
         rows = math.ceil(num_rects / cols)
         return rows, cols
 
-    async def _publish_visibility_event(self, visible: bool, rows: Optional[int] = None, cols: Optional[int] = None) -> None:
-        """Publish grid visibility changed event and update internal state."""
-        async with self._state_lock:
-            self._visible = visible
-        event = GridVisibilityChangedEventData(visible=visible, rows=rows, cols=cols)
-        self.event_publisher.publish(event)
-
-    def _publish_command_status(
-        self, command_type: str, success: bool, message: str, details: Optional[Dict[str, Any]] = None
-    ) -> None:
-        """Publish command execution status event."""
-        status_event = CommandExecutedStatusEvent(
-            command={"command_type": command_type, "details": details or {}}, success=success, message=message, source="grid"
-        )
-        self.event_publisher.publish(status_event)
-
-    async def _handle_grid_command(self, event_data: GridCommandParsedEvent) -> None:
-        """Handle grid commands (show/select) with mode-specific processing."""
-        command = event_data.command
-        command_type = type(command).__name__
-
+    async def _handle_grid_command(self, event: GridCommandParsedEvent) -> None:
+        command: BaseCommand = event.command
         if isinstance(command, GridShowCommand):
             num_rects = command.num_rects or self._config.grid.default_rect_count
             rows, cols = self._calculate_grid_dimensions(num_rects)
-            click_mode = command.click_mode
-
-            async with self._state_lock:
-                self._current_click_mode = click_mode
-
-            # CRITICAL PATH OPTIMIZATION: Publish show event immediately
-            # The controller will handle showing the grid synchronously
-            show_event = ShowGridRequestEventData(rows=rows, cols=cols, click_mode=click_mode)
-            self.event_publisher.publish(show_event)
-
-            # Publish visibility event for state tracking (non-blocking)
-            # This does NOT trigger another show operation (fixed in controller)
-            await self._publish_visibility_event(True, rows, cols)
-
-            # Publish status asynchronously (non-blocking, low priority)
-            mode_desc = {"hover": "hover mode", "drag": "drag mode"}.get(click_mode, "click mode")
-            self._publish_command_status(
-                command_type,
-                True,
-                f"Grid shown with {num_rects} cells in {mode_desc}",
-                {"num_rects": num_rects, "click_mode": click_mode},
+            self._current_click_mode = command.click_mode
+            self._visible = True
+            await self._event_bus.publish(
+                GridStateEvent(state="visible", config={"rows": rows, "cols": cols, "click_mode": command.click_mode})
             )
-
         elif isinstance(command, GridSelectCommand):
-            async with self._state_lock:
-                is_visible = self._visible
-
-            if not is_visible:
-                self._publish_command_status(command_type, False, "Grid not visible")
+            if not self._visible:
                 return
-
-            # Get the click_mode from the most recent GridShowCommand (stored in state)
-            async with self._state_lock:
-                click_mode = self._current_click_mode
-
-            click_event = ClickGridCellRequestEventData(cell_label=str(command.selected_number), click_mode=click_mode)
-            self.event_publisher.publish(click_event)
-
-            action_desc = {"hover": "hovered", "drag": "dragged to"}.get(click_mode, "selected")
-            self._publish_command_status(
-                command_type,
-                True,
-                f"Grid cell {command.selected_number} {action_desc}",
-                {"selected_number": command.selected_number, "click_mode": click_mode},
+            await self._event_bus.publish(
+                GridStateEvent(
+                    state="interaction_request",
+                    config={"cell_label": str(command.selected_number), "click_mode": self._current_click_mode},
+                )
             )
-
         else:
-            logger.warning(f"Unknown grid command type: {command_type}")
+            logger.warning("Unknown grid command type: %s", type(command).__name__)
 
-    async def _handle_config_update(self, event_data: UpdateGridConfigRequestEventData) -> None:
-        """Handle grid configuration update requests and apply to active config."""
-        config_fields = [
-            "rows",
-            "cols",
-            "cell_width",
-            "cell_height",
-            "line_color",
-            "label_color",
-            "font_size",
-            "font_name",
-            "show_labels",
-            "default_rect_count",
-        ]
+    async def _handle_grid_state_event(self, event: GridStateEvent) -> None:
+        if event.state == "config_updated" and event.config:
+            for field in (
+                "rows",
+                "cols",
+                "cell_width",
+                "cell_height",
+                "line_color",
+                "label_color",
+                "font_size",
+                "font_name",
+                "show_labels",
+                "default_rect_count",
+            ):
+                value = event.config.get(field)
+                if value is not None and hasattr(self._config.grid, field):
+                    if field == "cancel_phrases" and isinstance(value, list):
+                        value = list(set(value))
+                    setattr(self._config.grid, field, value)
 
-        updated_fields = {}
-        for field in config_fields:
-            value = getattr(event_data, field, None)
-            if value is not None and hasattr(self._config.grid, field):
-                if field == "cancel_phrases" and isinstance(value, list):
-                    value = list(set(value))
-                setattr(self._config.grid, field, value)
-                updated_fields[field] = value
+    def is_grid_visible(self) -> bool:
+        return self._visible
 
-        if updated_fields:
-            config_event = GridConfigUpdatedEventData(
-                rows=self._config.grid.rows,
-                cols=self._config.grid.cols,
-                cell_width=self._config.grid.cell_width,
-                cell_height=self._config.grid.cell_height,
-                line_color=self._config.grid.line_color,
-                label_color=self._config.grid.label_color,
-                font_size=self._config.grid.font_size,
-                font_name=self._config.grid.font_name,
-                show_labels=self._config.grid.show_labels,
-                default_rect_count=self._config.grid.default_rect_count,
-                message=f"Updated: {list(updated_fields.keys())}",
-            )
-            self.event_publisher.publish(config_event)
-            logger.info(f"Grid config updated: {updated_fields}")
-
-    async def is_grid_visible(self) -> bool:
-        async with self._state_lock:
-            return self._visible
-
-    def get_current_config(self):
+    def get_current_config(self) -> GridConfig:
         return self._config.grid
 
     async def shutdown(self) -> None:
-        logger.info("Shutting down GridService")
-        self.subscription_manager.unsubscribe_all()
+        self._event_bus.unsubscribe(GridCommandParsedEvent, self._handle_grid_command)
+        self._event_bus.unsubscribe(GridStateEvent, self._handle_grid_state_event)

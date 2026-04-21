@@ -1,64 +1,33 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from vocalance.app.config.command_types import AutomationCommand
-from vocalance.app.events.base_event import BaseEvent, EventPriority
+from vocalance.app.events.base_event import BaseEvent
 
-
-class AddCustomCommandEvent(BaseEvent):
-    """Event to add a new custom automation command"""
-
-    command: AutomationCommand
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class UpdateCommandPhraseEvent(BaseEvent):
-    """Event to update an existing command phrase"""
-
-    old_command_phrase: str
-    new_command_phrase: str
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class DeleteCustomCommandEvent(BaseEvent):
-    """Event to delete a custom command"""
-
-    command: AutomationCommand
-    priority: EventPriority = EventPriority.NORMAL
+CommandUiOp = Literal["add_hotkey", "update_phrase", "delete_phrase", "reset_defaults", "refresh_mappings"]
 
 
 class CommandMappingsUpdatedEvent(BaseEvent):
-    """Event fired when command mappings are updated"""
+    """Broadcast when command mappings change (add/update/delete/reset)."""
 
     success: bool
     message: str = ""
     updated_count: Optional[int] = None
     updated_mappings: Optional[List[AutomationCommand]] = None
-    priority: EventPriority = EventPriority.LOW
-
-
-class RequestCommandMappingsEvent(BaseEvent):
-    """Event to request current command mappings"""
-
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class CommandMappingsResponseEvent(BaseEvent):
-    """Response event with current command mappings"""
-
-    mappings: List[AutomationCommand]
-    priority: EventPriority = EventPriority.LOW
 
 
 class CommandValidationErrorEvent(BaseEvent):
-    """Event fired when command validation fails"""
+    """Broadcast when a command mutation fails validation."""
 
     error_message: str
     command_phrase: str = ""
     action_value: str = ""
-    priority: EventPriority = EventPriority.NORMAL
 
 
-class ResetCommandsToDefaultsEvent(BaseEvent):
-    """Event to reset all commands to their default state"""
+class CommandUiOperationEvent(BaseEvent):
+    """UI-originated command CRUD; handled by ``CommandManagementService``."""
 
-    priority: EventPriority = EventPriority.NORMAL
+    op: CommandUiOp
+    command_phrase: str = ""
+    hotkey_value: str = ""
+    old_phrase: str = ""
+    new_phrase: str = ""

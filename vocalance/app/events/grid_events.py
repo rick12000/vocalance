@@ -1,88 +1,22 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import Field
 
-from vocalance.app.events.base_event import BaseEvent, EventPriority
+from vocalance.app.events.base_event import BaseEvent
 
 
-class ShowGridRequestEventData(BaseEvent):
-    """Request to display the grid overlay."""
+class GridClickHistoryChangedEvent(BaseEvent):
+    """Published when grid click history changes; carries a full in-memory snapshot for UI."""
 
-    rows: Optional[int] = None
-    cols: Optional[int] = None
-    click_mode: str = "click"  # "click", "hover", or "drag"
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class HideGridRequestEventData(BaseEvent):
-    """Request to hide the grid overlay."""
-
-    priority: EventPriority = EventPriority.NORMAL
+    clicks_snapshot: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Serialized click records (same shape as GridClickEvent.model_dump).",
+    )
 
 
-class ClickGridCellRequestEventData(BaseEvent):
-    """Request to click a specific grid cell."""
+class GridStateEvent(BaseEvent):
+    """Unified event for grid state changes and requests."""
 
-    cell_label: str = Field(description="The label of the grid cell to click (e.g., 'A1', 'C5').")
-    click_mode: str = "click"  # "click", "hover", or "drag"
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class UpdateGridConfigRequestEventData(BaseEvent):
-    """Request to update grid configuration parameters."""
-
-    rows: Optional[int] = None
-    cols: Optional[int] = None
-    cell_width: Optional[int] = None
-    cell_height: Optional[int] = None
-    line_color: Optional[str] = None
-    label_color: Optional[str] = None
-    font_size: Optional[int] = None
-    font_name: Optional[str] = None
-    show_labels: Optional[bool] = None
-    priority: EventPriority = EventPriority.NORMAL
-
-
-class GridVisibilityChangedEventData(BaseEvent):
-    """Event indicating grid visibility state has changed."""
-
-    visible: bool
-    rows: Optional[int] = None
-    cols: Optional[int] = None
-    priority: EventPriority = EventPriority.LOW
-
-
-class GridConfigUpdatedEventData(BaseEvent):
-    """Event indicating grid configuration has been updated."""
-
-    rows: int
-    cols: int
-    cell_width: int
-    cell_height: int
-    line_color: str
-    label_color: str
-    font_size: int
-    font_name: str
-    show_labels: bool
-    default_rect_count: int
-    message: str = "Grid configuration updated."
-    priority: EventPriority = EventPriority.LOW
-
-
-class GridInteractionSuccessEventData(BaseEvent):
-    """Event indicating a grid interaction succeeded."""
-
-    operation: Literal["select_cell"]
-    details: Optional[Dict[str, Any]] = None
+    state: Literal["visible", "hidden", "config_updated", "interaction_request", "interaction_success", "interaction_failed"]
+    config: Optional[Dict[str, Any]] = None
     message: Optional[str] = None
-    priority: EventPriority = EventPriority.LOW
-
-
-class GridInteractionFailedEventData(BaseEvent):
-    """Event indicating a grid interaction failed."""
-
-    operation: Literal["select_cell"]
-    reason: str
-    cell_label: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
-    priority: EventPriority = EventPriority.LOW

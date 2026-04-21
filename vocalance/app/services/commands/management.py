@@ -1,43 +1,34 @@
-"""Persisted custom commands and phrase overrides; validates against protected terms."""
-
 from __future__ import annotations
 
-import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from vocalance.app.config.automation_command_registry import AutomationCommandRegistry
-from vocalance.app.config.command_types import AutomationCommand
+from vocalance.app.config.command_types import AutomationCommand, ExactMatchCommand
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_management_events import (
-    AddCustomCommandEvent,
-    CommandMappingsResponseEvent,
     CommandMappingsUpdatedEvent,
+    CommandUiOperationEvent,
     CommandValidationErrorEvent,
-    DeleteCustomCommandEvent,
-    RequestCommandMappingsEvent,
-    ResetCommandsToDefaultsEvent,
-    UpdateCommandPhraseEvent,
 )
-from vocalance.app.services.commands.action_map_provider import CommandActionMapProvider
-from vocalance.app.services.commands.projection import build_command_projection
+from vocalance.app.services.base_service import Service
+from vocalance.app.services.commands.utilities.command_projection import build_command_projection, load_action_map
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 from vocalance.app.services.storage.storage_models import CommandsData
 from vocalance.app.services.storage.storage_service import StorageService
 
-logger = logging.getLogger(__name__)
 
-
-def _registry_phrase_for_current_phrase(commands_data: CommandsData, current_norm: str) -> Optional[str]:
+def registry_phrase_for_normalized_phrase(commands_data: CommandsData, normalized_phrase: str) -> Optional[str]:
+    """Resolve the registry or override original phrase for a normalized key, if any."""
     for original, override in commands_data.phrase_overrides.items():
-        if override.lower().strip() == current_norm:
+        if override.lower().strip() == normalized_phrase:
             return original
     for cmd in AutomationCommandRegistry.get_default_commands():
-        if cmd.command_key.lower().strip() == current_norm:
+        if cmd.command_key.lower().strip() == normalized_phrase:
             return cmd.command_key
     return None
 
 
-class CommandManagementService:
+class CommandManagementService(Service):
     """CRUD for stored automation commands; publishes mapping updates on the event bus."""
 
     def __init__(
@@ -45,22 +36,45 @@ class CommandManagementService:
         event_bus: EventBus,
         storage: StorageService,
         protected_terms_validator: ProtectedTermsValidator,
-        action_map_provider: CommandActionMapProvider,
     ) -> None:
-        self._event_bus = event_bus
-        self._storage = storage
-        self._protected_terms_validator = protected_terms_validator
-        self._action_map_provider = action_map_provider
+        self.event_bus = event_bus
+        self.storage = storage
+        self.protected_terms_validator = protected_terms_validator
+        event_bus.subscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
 
-    def setup_subscriptions(self) -> None:
-        self._event_bus.subscribe(event_type=AddCustomCommandEvent, handler=self._handle_add_custom_command)
-        self._event_bus.subscribe(event_type=UpdateCommandPhraseEvent, handler=self._handle_update_command_phrase)
-        self._event_bus.subscribe(event_type=DeleteCustomCommandEvent, handler=self._handle_delete_custom_command)
-        self._event_bus.subscribe(event_type=RequestCommandMappingsEvent, handler=self._handle_request_command_mappings)
-        self._event_bus.subscribe(event_type=ResetCommandsToDefaultsEvent, handler=self._handle_reset_to_defaults)
+    async def _handle_command_ui_operation(self, event: CommandUiOperationEvent) -> None:
+        op: str = event.op
+        if op == "add_hotkey":
+            command = ExactMatchCommand(
+                command_key=event.command_phrase,
+                action_type="hotkey",
+                action_value=event.hotkey_value,
+                is_custom=True,
+                short_description="Custom Command",
+                long_description=f"Custom hotkey command: {event.hotkey_value}",
+                functional_group="Custom",
+            )
+            await self.add_command(command)
+        elif op == "update_phrase":
+            await self.update_command_phrase(event.old_phrase, event.new_phrase)
+        elif op == "delete_phrase":
+            phrase = event.command_phrase.lower().strip()
+            commands = await self.get_command_mappings()
+            for cmd in commands:
+                if cmd.command_key.lower().strip() == phrase:
+                    await self.delete_command(cmd)
+                    return
+        elif op == "reset_defaults":
+            await self.reset_to_defaults()
+        elif op == "refresh_mappings":
+            await self.publish_mappings_updated(True, "Command mappings refreshed")
 
-    async def _validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
-        is_valid, error_msg = await self._protected_terms_validator.validate_term(
+    async def shutdown(self) -> None:
+        self.event_bus.unsubscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
+
+    async def validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
+        """Return an error message if ``command_phrase`` is invalid or collides; otherwise None."""
+        is_valid, error_msg = await self.protected_terms_validator.validate_term(
             term=command_phrase, exclude_term=exclude_phrase or None
         )
         if not is_valid:
@@ -71,96 +85,100 @@ class CommandManagementService:
         if norm == ex:
             return None
 
-        action_map = await self._action_map_provider.get_action_map()
+        action_map = await load_action_map(self.storage)
         if norm in action_map:
             return f"Command phrase '{command_phrase}' already exists"
         return None
 
     async def get_command_mappings(self) -> List[AutomationCommand]:
-        commands_data = await self._storage.read(model_type=CommandsData)
+        """Return merged registry and custom commands with phrase overrides applied."""
+        commands_data = await self.storage.read(model_type=CommandsData)
         return build_command_projection(commands_data)[1]
 
-    async def _handle_add_custom_command(self, event_data: AddCustomCommandEvent) -> None:
-        command = event_data.command
-        phrase = command.command_key.lower().strip()
-        err = await self._validate_command_phrase(phrase)
+    async def add_command(self, command: AutomationCommand) -> Tuple[bool, str]:
+        """Persist a custom command after validation; emits validation errors on the bus when blocked."""
+        phrase: str = command.command_key.lower().strip()
+        err = await self.validate_command_phrase(phrase)
         if err:
-            await self._publish_validation_error(err, phrase)
-            return
+            await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=phrase))
+            return False, err
 
         command.is_custom = True
-        commands_data = await self._storage.read(model_type=CommandsData)
+        commands_data = await self.storage.read(model_type=CommandsData)
         commands_data.custom_commands[phrase] = command
-        if await self._storage.write(data=commands_data):
-            await self._publish_mappings_updated(True, f"Added custom command: {phrase}")
-        else:
-            await self._publish_validation_error("Failed to store custom command", phrase)
+        if await self.storage.write(data=commands_data):
+            await self.publish_mappings_updated(True, f"Added custom command: {phrase}")
+            return True, ""
+        err: str = "Failed to store custom command"
+        await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=phrase))
+        return False, err
 
-    async def _handle_update_command_phrase(self, event: UpdateCommandPhraseEvent) -> None:
-        old_phrase = event.old_command_phrase
-        new_phrase = event.new_command_phrase
-        old_norm = old_phrase.lower().strip()
-        new_norm = new_phrase.lower().strip()
+    async def update_command_phrase(self, old_phrase: str, new_phrase: str) -> Tuple[bool, str]:
+        """Rename a custom phrase or set a registry phrase override."""
+        old_norm: str = old_phrase.lower().strip()
+        new_norm: str = new_phrase.lower().strip()
 
-        err = await self._validate_command_phrase(new_norm, exclude_phrase=old_phrase)
+        err = await self.validate_command_phrase(new_norm, exclude_phrase=old_phrase)
         if err:
-            await self._publish_validation_error(err, new_phrase)
-            return
+            await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=new_phrase))
+            return False, err
 
-        commands_data = await self._storage.read(model_type=CommandsData)
-        success = False
+        commands_data = await self.storage.read(model_type=CommandsData)
 
+        success: bool
         if old_norm in commands_data.custom_commands:
             obj = commands_data.custom_commands[old_norm]
             obj.command_key = new_norm
             del commands_data.custom_commands[old_norm]
             commands_data.custom_commands[new_norm] = obj
-            success = await self._storage.write(data=commands_data)
+            success = await self.storage.write(data=commands_data)
         else:
-            original = _registry_phrase_for_current_phrase(commands_data, old_norm)
+            original = registry_phrase_for_normalized_phrase(commands_data, old_norm)
             if original:
                 commands_data.phrase_overrides[original] = new_norm
-                success = await self._storage.write(data=commands_data)
+                success = await self.storage.write(data=commands_data)
             else:
-                logger.error("Could not find original command for phrase %r", old_phrase)
-                await self._publish_validation_error(f"Could not find command '{old_phrase}' to update", old_phrase)
-                return
+                err = f"Could not find command '{old_phrase}' to update"
+                await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=old_phrase))
+                return False, err
 
         if success:
-            await self._publish_mappings_updated(True, f"Updated command phrase: '{old_phrase}' -> '{new_phrase}'")
-        else:
-            await self._publish_validation_error("Failed to update command phrase", new_phrase)
+            await self.publish_mappings_updated(True, f"Updated command phrase: '{old_phrase}' -> '{new_phrase}'")
+            return True, ""
+        err = "Failed to update command phrase"
+        await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=new_phrase))
+        return False, err
 
-    async def _handle_delete_custom_command(self, event: DeleteCustomCommandEvent) -> None:
-        phrase = event.command.command_key.lower().strip()
-        commands_data = await self._storage.read(model_type=CommandsData)
+    async def delete_command(self, command: AutomationCommand) -> Tuple[bool, str]:
+        """Remove a custom command phrase from storage when present."""
+        phrase: str = command.command_key.lower().strip()
+        commands_data = await self.storage.read(model_type=CommandsData)
         if phrase in commands_data.custom_commands:
             del commands_data.custom_commands[phrase]
-            success = await self._storage.write(data=commands_data)
+            success = await self.storage.write(data=commands_data)
         else:
             success = True
 
         if success:
-            await self._publish_mappings_updated(True, f"Deleted custom command: {phrase}")
-        else:
-            await self._publish_validation_error("Failed to delete custom command")
+            await self.publish_mappings_updated(True, f"Deleted custom command: {phrase}")
+            return True, ""
+        err = "Failed to delete custom command"
+        await self.event_bus.publish(CommandValidationErrorEvent(error_message=err, command_phrase=phrase))
+        return False, err
 
-    async def _handle_request_command_mappings(self, event: RequestCommandMappingsEvent) -> None:
-        mappings = await self.get_command_mappings()
-        await self._event_bus.publish(CommandMappingsResponseEvent(mappings=mappings))
+    async def reset_to_defaults(self) -> Tuple[bool, str]:
+        """Replace stored commands with defaults and broadcast."""
+        if await self.storage.write(data=CommandsData()):
+            await self.publish_mappings_updated(True, "Reset commands to defaults")
+            return True, ""
+        err = "Failed to reset commands to defaults"
+        await self.event_bus.publish(CommandValidationErrorEvent(error_message=err))
+        return False, err
 
-    async def _handle_reset_to_defaults(self, event: ResetCommandsToDefaultsEvent) -> None:
-        if await self._storage.write(data=CommandsData()):
-            await self._publish_mappings_updated(True, "Reset commands to defaults")
-        else:
-            await self._publish_validation_error("Failed to reset commands to defaults")
-
-    async def _publish_validation_error(self, error_message: str, command_phrase: str = "") -> None:
-        await self._event_bus.publish(CommandValidationErrorEvent(error_message=error_message, command_phrase=command_phrase))
-
-    async def _publish_mappings_updated(self, success: bool, message: str) -> None:
+    async def publish_mappings_updated(self, success: bool, message: str) -> None:
+        """Publish the current command list for UI and other subscribers."""
         current = await self.get_command_mappings()
-        await self._event_bus.publish(
+        await self.event_bus.publish(
             CommandMappingsUpdatedEvent(
                 success=success,
                 message=message,

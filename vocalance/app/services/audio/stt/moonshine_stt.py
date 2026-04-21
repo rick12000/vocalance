@@ -1,5 +1,3 @@
-"""Moonshine Voice STT for dictation (streaming + batch)."""
-
 from __future__ import annotations
 
 import asyncio
@@ -41,37 +39,45 @@ class MoonshineDictationStreamSession:
             def __init__(self, outer: MoonshineDictationStreamSession) -> None:
                 self._outer = outer
 
-            def on_line_text_changed(self, event: LineTextChanged) -> None:
-                self._outer._dispatch_partial(event)
+            def on_line_text_changed(self, line_update: LineTextChanged) -> None:
+                self._outer._dispatch_partial(line_update)
 
-            def on_line_completed(self, event: LineCompleted) -> None:
-                self._outer._dispatch_final(event)
+            def on_line_completed(self, line_completed: LineCompleted) -> None:
+                self._outer._dispatch_final(line_completed)
 
         self._stream.add_listener(_Listener(self))
         self._stream.start()
         self._max_line_duration_sec = max_line_duration_sec
 
-    def _dispatch_partial(self, event: Any) -> None:
+    def _dispatch_partial(self, line_update) -> None:
         """Normalize line text and schedule ``on_partial`` on the asyncio loop."""
-        text = (event.line.text or "").strip()
+        text = (line_update.line.text or "").strip()
         if not text:
             return
         text = normalize_dictation_text(text)
         if not text:
             return
-        segment_id = str(event.line.line_id)
-        asyncio.run_coroutine_threadsafe(self._on_partial(text, segment_id), self._loop)
+        segment_id = str(line_update.line.line_id)
+        coro = self._on_partial(text, segment_id)
+        try:
+            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
+        except RuntimeError:
+            coro.close()
 
-    def _dispatch_final(self, event: Any) -> None:
+    def _dispatch_final(self, line_completed) -> None:
         """Normalize completed line text and schedule ``on_final`` on the asyncio loop."""
-        text = (event.line.text or "").strip()
+        text = (line_completed.line.text or "").strip()
         if not text:
             return
         text = normalize_dictation_text(text)
         if not text:
             return
-        segment_id = str(event.line.line_id)
-        asyncio.run_coroutine_threadsafe(self._on_final(text, segment_id), self._loop)
+        segment_id = str(line_completed.line.line_id)
+        coro = self._on_final(text, segment_id)
+        try:
+            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
+        except RuntimeError:
+            coro.close()
 
     def add_audio_pcm16(self, audio_bytes: bytes, sample_rate: int) -> bool:
         """Feed int16 mono PCM. Returns True when ``max_line_duration_sec`` was exceeded (rotate stream)."""

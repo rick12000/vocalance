@@ -1,0 +1,7 @@
+QToolTip {
+    background-color: {{SHAPES_MEDIUM}};
+    color: {{TEXT_LIGHTEST}};
+    border: 1px solid {{SHAPES_LIGHT}};
+    border-radius: {{RADIUS_SMALL}}px;
+    padding: {{SPACING_SMALL}}px;
+}

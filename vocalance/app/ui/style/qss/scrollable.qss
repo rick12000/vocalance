@@ -1,0 +1,68 @@
+QScrollArea#VocalanceScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar:vertical {
+    background-color: transparent;
+    width: 8px;
+    margin: 0px;
+    border: none;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::handle:vertical {
+    background-color: rgba(148, 163, 184, 0.28);
+    border-radius: 4px;
+    min-height: 24px;
+    margin: 4px 2px 4px 2px;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::handle:vertical:hover {
+    background-color: rgba(148, 163, 184, 0.45);
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::handle:vertical:pressed {
+    background-color: rgba(148, 163, 184, 0.6);
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::add-line:vertical,
+QScrollArea#VocalanceScrollArea QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::add-page:vertical,
+QScrollArea#VocalanceScrollArea QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar:horizontal {
+    background-color: transparent;
+    height: 8px;
+    margin: 0px;
+    border: none;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::handle:horizontal {
+    background-color: rgba(148, 163, 184, 0.28);
+    border-radius: 4px;
+    min-width: 24px;
+    margin: 2px 4px 2px 4px;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::handle:horizontal:hover {
+    background-color: rgba(148, 163, 184, 0.45);
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::handle:horizontal:pressed {
+    background-color: rgba(148, 163, 184, 0.6);
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::add-line:horizontal,
+QScrollArea#VocalanceScrollArea QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+QScrollArea#VocalanceScrollArea QScrollBar::add-page:horizontal,
+QScrollArea#VocalanceScrollArea QScrollBar::sub-page:horizontal {
+    background: none;
+}

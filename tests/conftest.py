@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -355,25 +356,22 @@ def app_config():
     return GlobalAppConfig()
 
 
-@pytest.fixture
-def event_bus():
-    """Create event bus for testing."""
+@pytest_asyncio.fixture
+async def event_bus():
+    """Create a started event bus bound to the test asyncio loop."""
     bus = EventBus()
-    return bus
+    loop = asyncio.get_running_loop()
+    bus.start(loop)
+    yield bus
+    await bus.shutdown()
 
 
 @pytest_asyncio.fixture
 async def stt_service(event_bus, app_config):
     """Create and initialize STT service."""
     service = SpeechToTextService(event_bus, app_config)
-    await service.initialize_engines()
-    service.setup_subscriptions()
-
-    await event_bus.start_worker()
-
+    await service.initialize()
     yield service
-
-    await event_bus.stop_worker()
 
 
 @pytest.fixture
@@ -385,22 +383,26 @@ def command_audio_bytes():
 @pytest.fixture
 def mock_storage_service():
     """Mock unified storage service for testing."""
-    from vocalance.app.services.storage.storage_models import CommandHistoryData, CommandsData, MarksData
+    from vocalance.app.services.storage.storage_models import CommandsData, MarksData
 
     storage = Mock()
+    _store: dict = {}
 
-    # Mock the read method to return appropriate data models
     async def mock_read(model_type):
+        if model_type in _store:
+            return _store[model_type]
         if model_type == MarksData:
             return MarksData(marks={})
         elif model_type == CommandsData:
             return CommandsData(custom_commands={}, phrase_overrides={})
-        elif model_type == CommandHistoryData:
-            return CommandHistoryData(history=[])
         return None
 
+    async def mock_write(data):
+        _store[type(data)] = data
+        return True
+
     storage.read = AsyncMock(side_effect=mock_read)
-    storage.write = AsyncMock(return_value=True)
+    storage.write = AsyncMock(side_effect=mock_write)
 
     return storage
 
@@ -427,7 +429,6 @@ def isolated_storage_config():
         config.storage.settings_dir = str(temp_path / "settings")
         config.storage.click_tracker_dir = str(temp_path / "click_tracker")
         config.storage.sound_model_dir = str(temp_path / "sound_model")
-        config.storage.command_history_dir = str(temp_path / "command_history")
 
         # Verify no production paths leaked through
         production_indicators = ["AppData", "Roaming", "vocalance_voice_assistant_data"]
@@ -437,7 +438,6 @@ def isolated_storage_config():
             "settings_dir",
             "click_tracker_dir",
             "sound_model_dir",
-            "command_history_dir",
         ]:
             path_value = getattr(config.storage, path_attr)
             for indicator in production_indicators:
@@ -552,62 +552,3 @@ def mock_protected_terms_validator():
     validator.is_term_protected = AsyncMock(return_value=False)
     validator.get_all_protected_terms = AsyncMock(return_value={"start dictation", "stop dictation", "show grid"})
     return validator
-
-
-@pytest.fixture
-def mock_action_map_provider():
-    """Mock CommandActionMapProvider for testing."""
-    from vocalance.app.config.command_types import AutomationCommand
-
-    provider = Mock()
-
-    async def mock_get_action_map():
-        return {
-            "click": AutomationCommand(
-                command_key="click",
-                action_type="click",
-                action_value="left",
-                is_custom=False,
-                short_description="Click",
-                long_description="Mouse click",
-            ),
-            "copy": AutomationCommand(
-                command_key="copy",
-                action_type="hotkey",
-                action_value="ctrl+c",
-                is_custom=False,
-                short_description="Copy text",
-                long_description="Copy selected text to clipboard",
-            ),
-            "paste": AutomationCommand(
-                command_key="paste",
-                action_type="hotkey",
-                action_value="ctrl+v",
-                is_custom=False,
-                short_description="Paste text",
-                long_description="Paste clipboard contents",
-            ),
-            "scroll up": AutomationCommand(
-                command_key="scroll up",
-                action_type="scroll",
-                action_value="up",
-                is_custom=False,
-                short_description="Scroll up",
-                long_description="Scroll up",
-            ),
-        }
-
-    provider.get_action_map = AsyncMock(side_effect=mock_get_action_map)
-    return provider
-
-
-@pytest.fixture
-def mock_command_history_manager():
-    """Mock CommandHistoryManager for testing."""
-    manager = Mock()
-    manager.initialize = AsyncMock(return_value=True)
-    manager.record_command = AsyncMock()
-    manager.get_recent_history = AsyncMock(return_value=[])
-    manager.get_full_history = AsyncMock(return_value=[])
-    manager.shutdown = AsyncMock(return_value=True)
-    return manager

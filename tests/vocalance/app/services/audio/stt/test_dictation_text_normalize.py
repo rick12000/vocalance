@@ -1,5 +1,3 @@
-"""Tests for shared dictation text normalization."""
-
 import pytest
 
 from vocalance.app.services.audio.stt.dictation_text_normalize import normalize_dictation_text
