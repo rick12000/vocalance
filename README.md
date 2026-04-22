@@ -52,15 +52,12 @@ Vocalance can be set up entirely from the source code in this repository (curren
 For a visual walkthrough of these steps, play the installation video below:
 
 <p align="center">
-  <video controls style="width:100%; max-width:900px; height:auto; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.15);" controlsList="nodownload">
-    <source src="vocalance/app/assets/repo/Demo Video.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-  <br/>
-  <em>Installation Walkthrough</em>
+  [![Installation Walkthrough](https://img.youtube.com/vi/p2_gPICZ9x8/maxresdefault.jpg)](https://www.youtube.com/watch?v=p2_gPICZ9x8)
 </p>
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
+
+Having issues with the installation steps? Reach out at: vocalance.contact@gmail.com
 
 ---
 
