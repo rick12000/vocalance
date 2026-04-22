@@ -33,6 +33,9 @@ Vocalance can be set up entirely from the source code in this repository (curren
 
 > [!IMPORTANT]
 > Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
+
+To get started with installation, either follow the steps below or watch the [installation walkthrough on YouTube](https://www.youtube.com/watch?v=p2_gPICZ9x8).
+
 1. Open PowerShell (from Windows Start Menu).
 
 2. Paste and run:
@@ -48,8 +51,6 @@ Vocalance can be set up entirely from the source code in this repository (curren
 <p align="center">
   <img src="vocalance/app/assets/repo/shortcut.png" alt="Vocalance shortcut in the Windows Start menu under Recently added" width="200" />
 </p>
-
-For a step-by-step walkthrough, watch the [installation video on YouTube](https://www.youtube.com/watch?v=p2_gPICZ9x8).
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
 
