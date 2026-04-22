@@ -51,9 +51,11 @@ Vocalance can be set up entirely from the source code in this repository (curren
 
 For a visual walkthrough of these steps, play the installation video below:
 
-<p align="center">
-  [![Installation Walkthrough](https://img.youtube.com/vi/p2_gPICZ9x8/maxresdefault.jpg)](https://www.youtube.com/watch?v=p2_gPICZ9x8)
-</p>
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=p2_gPICZ9x8">
+    <img src="https://i.ytimg.com/vi/p2_gPICZ9x8/hqdefault.jpg" alt="Installation walkthrough (YouTube)" width="800" />
+  </a>
+</div>
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
 
