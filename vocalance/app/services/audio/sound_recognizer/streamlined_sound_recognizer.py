@@ -189,7 +189,9 @@ class SoundRecognizer:
                 logger.error("TensorFlow not available")
                 return False
 
-            if not self._initialize_yamnet_model():
+            loop = asyncio.get_running_loop()
+            success = await loop.run_in_executor(None, self._initialize_yamnet_model)
+            if not success:
                 return False
 
             await self._load_model_data_async()

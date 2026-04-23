@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "600"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 import asyncio
 import importlib.util
@@ -184,12 +185,19 @@ def moonshine_model_cache_ready() -> bool:
 
 
 async def initialize_services(
-    services: Services,
+    event_bus: EventBus,
     config: GlobalAppConfig,
+    gui_loop: asyncio.AbstractEventLoop,
     shutdown_coordinator: ShutdownCoordinator,
     progress_tracker: StartupProgressTracker,
-) -> None:
+) -> Services:
     """Run staged startup: storage, audio stack, STT, dictation, and LLM assets."""
+    progress_tracker.start_step(step_name="Loading core components...")
+    progress_tracker.update_status_animated(status="Initializing services")
+    services = await asyncio.to_thread(construct_services, event_bus, config, gui_loop)
+    progress_tracker.complete_step()
+    check_initialization_cancelled(shutdown_coordinator)
+
     progress_tracker.start_step(step_name="Initializing storage...")
     progress_tracker.update_status_animated(status="Loading user settings")
     await services.runtime_config.initialize()
@@ -235,13 +243,16 @@ async def initialize_services(
         from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 
         downloader = LLMModelDownloader(config)
-        if not downloader.model_bundle_complete(spec.gguf_filenames):
-            progress_tracker.update_sub_step(
-                sub_step_name="Fetching default local LLM (~2–4 GB). First launch may take several minutes.",
-                progress=0.35,
-            )
-            if not await downloader.download_model_bundle(repo_id=spec.repo_id, filenames=list(spec.gguf_filenames)):
-                raise RuntimeError("Critical asset download failed: LLM model")
+        try:
+            if not downloader.model_bundle_complete(spec.gguf_filenames):
+                progress_tracker.update_sub_step(
+                    sub_step_name="Fetching AI Model. First launch may take several minutes.",
+                    progress=0.35,
+                )
+                if not await downloader.download_model_bundle(repo_id=spec.repo_id, filenames=list(spec.gguf_filenames)):
+                    raise RuntimeError("Critical asset download failed: LLM model")
+        finally:
+            downloader.shutdown()
 
     progress_tracker.update_sub_step(sub_step_name="Initializing dictation", progress=0.55)
     if not await services.dictation.initialize():
@@ -249,6 +260,7 @@ async def initialize_services(
     check_initialization_cancelled(shutdown_coordinator)
 
     progress_tracker.complete_step()
+    return services
 
 
 def check_initialization_cancelled(coordinator: ShutdownCoordinator) -> None:
@@ -428,16 +440,15 @@ async def main() -> None:
 
         event_bus = EventBus()
         gui_loop = asyncio.get_running_loop()
-        services = construct_services(event_bus, config, gui_loop)
 
         event_bus.start(gui_loop)
 
-        progress_tracker = StartupProgressTracker(startup_window=startup_window, total_steps=2)
-        init_task = asyncio.create_task(initialize_services(services, config, shutdown_coordinator, progress_tracker))
+        progress_tracker = StartupProgressTracker(startup_window=startup_window, total_steps=3)
+        init_task = asyncio.create_task(initialize_services(event_bus, config, gui_loop, shutdown_coordinator, progress_tracker))
         shutdown_coordinator.register_initialization_task(init_task)
 
         try:
-            await init_task
+            services = await init_task
             shutdown_coordinator.unregister_initialization_task()
         except asyncio.CancelledError:
             logger.info("Initialization cancelled")

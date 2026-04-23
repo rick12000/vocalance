@@ -322,3 +322,5 @@ class LLMService:
     async def shutdown(self) -> None:
         self.event_bus.unsubscribe(LlmUiRequestEvent, self.handle_llm_ui_request)
         await self.dispose_loaded_model()
+        if hasattr(self, "model_downloader") and self.model_downloader:
+            self.model_downloader.shutdown()
