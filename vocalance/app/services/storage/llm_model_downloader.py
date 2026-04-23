@@ -38,6 +38,10 @@ class LLMModelDownloader:
     def get_models_directory(self) -> str:
         return self._models_dir
 
+    def shutdown(self) -> None:
+        """Shut down the thread pool executor to prevent orphaned processes."""
+        self._executor.shutdown(wait=False)
+
     def model_exists(self, filename: str) -> bool:
         model_path = os.path.join(self._models_dir, filename)
         return os.path.exists(model_path) and os.path.getsize(model_path) > 0
