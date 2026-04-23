@@ -417,6 +417,7 @@ async def main() -> None:
             icon_manager=icon_manager,
         )
         startup_window.show()
+        qt_app.processEvents()
 
         if not validate_critical_assets(config):
             startup_window.update_progress(0.0, "Critical assets missing. Please check logs.", animate=False)
@@ -500,6 +501,15 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        import ctypes
+
+        try:
+            app_id = "vocalance.app.main"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ctypes.c_wchar_p(app_id))
+        except (AttributeError, OSError):
+            pass
+
     qt_application = QApplication(sys.argv)
     qt_application.setStyle("Fusion")
     QtAsyncio.run(main(), keep_running=False)
