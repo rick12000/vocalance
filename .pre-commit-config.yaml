@@ -33,7 +33,7 @@ repos:
     hooks:
     -   id: flake8
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
-        args: ['--max-line-length=131', '--ignore=E203,W503,E501']
+        args: ['--config=.flake8']
 -   repo: https://github.com/PyCQA/autoflake
     rev: v2.2.0
     hooks:

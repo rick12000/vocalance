@@ -1,0 +1,5 @@
+[flake8]
+max-line-length = 131
+ignore = E203,W503,E501
+per-file-ignores =
+    vocalance/qt_main.py:E402
