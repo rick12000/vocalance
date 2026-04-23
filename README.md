@@ -26,13 +26,15 @@ To find out more about what Vocalance can do, including detailed instructions an
 
 Vocalance can be set up entirely from the source code in this repository (currently only supported on Windows).
 
-### ✨ **Easy Setup**
+### ✨ **Easy Setup (Recommended)**
 
 > [!IMPORTANT]
 > Ensure Git is installed. If not, download the latest Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
 
 > [!IMPORTANT]
 > Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
+
+To get started with installation, either follow the steps below or watch the [installation walkthrough on YouTube](https://www.youtube.com/watch?v=p2_gPICZ9x8).
 
 1. Open PowerShell (from Windows Start Menu).
 
@@ -51,6 +53,10 @@ Vocalance can be set up entirely from the source code in this repository (curren
 </p>
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
+
+Having issues with the installation steps? Reach out at: vocalance.contact@gmail.com
+
+---
 
 ### 🛠️ **Developer Setup**
 
@@ -111,8 +117,6 @@ Then you're good to go! If you haven't already, refer to Vocalance's official we
 The recommended approach is to install Vocalance with uv, since the developers can freeze and document all recommended dependancies in a `uv.lock` file, which you then install with `uv sync --active`.
 
 If you're more familiar with a mixture of a virtual environment manager (eg. `venv` or `conda` or `pyenv`) + `pip` however, you can absolutely replace above uv steps with your environment manager and replace `uv sync --active` with `pip install .` to install Vocalance as a package. Note this is at your discretion, and license disclosures in this repository pertain to pinned package versions in `uv.lock`.
-
-**Maintainers — PyPI license fetch:** From the repo root, run `python scripts/licensing/fetch_licenses.py` (see [scripts/licensing/fetch_licenses.py](scripts/licensing/fetch_licenses.py)) to refresh `NOTICES/PYPI_LICENSES`.
 
 ## 🔧 System Requirements
 

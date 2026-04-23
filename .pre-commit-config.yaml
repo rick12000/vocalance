@@ -10,7 +10,7 @@ repos:
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: check-added-large-files
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
-        args: ['--maxkb=10000']  # Allow larger files for models
+        args: ['--maxkb=20000']  # Allow larger files for models
     -   id: debug-statements
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: detect-private-key
