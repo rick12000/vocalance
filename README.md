@@ -52,6 +52,9 @@ To get started with installation, either follow the steps below or watch the [in
   <img src="vocalance/app/assets/repo/shortcut.png" alt="Vocalance shortcut in the Windows Start menu under Recently added" width="200" />
 </p>
 
+   - If the application doesn't appear immediately after you clicked it, *wait 10-15 seconds before retrying*, it may be loading in the background.
+   - On first use, the application needs to **download** your local AI model from a trusted *Hugging Face* repository (among other essential downloads). **Do not close** the start up window during this process and allow up to 30 minutes for it to complete depending on internet connection (but should take around 5 minutes for most users).
+
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
 
 Having issues with the installation steps? Reach out at: vocalance.contact@gmail.com

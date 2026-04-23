@@ -1,14 +1,19 @@
+from __future__ import annotations
+
+import os
+
+os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "600"
+
 import asyncio
 import importlib.util
 import logging
-import os
 import signal
 import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import FrameType
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import PySide6.QtAsyncio as QtAsyncio
 from PySide6.QtCore import QTimer
@@ -17,26 +22,26 @@ from PySide6.QtWidgets import QApplication
 from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
-from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
-from vocalance.app.services.audio.simple_audio_service import AudioService
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
-from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
-from vocalance.app.services.automation_service import AutomationService
-from vocalance.app.services.commands.management import CommandManagementService
-from vocalance.app.services.commands.parser import CentralizedCommandParser
-from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
-from vocalance.app.services.grid.grid_service import GridService
-from vocalance.app.services.mark_service import MarkService
-from vocalance.app.services.pause_state_manager import PauseStateManager
-from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
-from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
-from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore, register_configuration_listeners
-from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.shutdown_coordinator import ShutdownCoordinator
-from vocalance.app.ui.qt_main_window import VocalanceMainWindow
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
+
+if TYPE_CHECKING:
+    from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
+    from vocalance.app.services.audio.simple_audio_service import AudioService
+    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
+    from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
+    from vocalance.app.services.automation_service import AutomationService
+    from vocalance.app.services.commands.management import CommandManagementService
+    from vocalance.app.services.commands.parser import CentralizedCommandParser
+    from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
+    from vocalance.app.services.grid.grid_service import GridService
+    from vocalance.app.services.mark_service import MarkService
+    from vocalance.app.services.pause_state_manager import PauseStateManager
+    from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
+    from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore
+    from vocalance.app.services.storage.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +80,21 @@ def construct_services(
     gui_loop: asyncio.AbstractEventLoop,
 ) -> Services:
     """Build the default service graph and wire configuration listeners."""
+    from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
+    from vocalance.app.services.audio.simple_audio_service import AudioService
+    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
+    from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
+    from vocalance.app.services.automation_service import AutomationService
+    from vocalance.app.services.commands.management import CommandManagementService
+    from vocalance.app.services.commands.parser import CentralizedCommandParser
+    from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
+    from vocalance.app.services.grid.grid_service import GridService
+    from vocalance.app.services.mark_service import MarkService
+    from vocalance.app.services.pause_state_manager import PauseStateManager
+    from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
+    from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore, register_configuration_listeners
+    from vocalance.app.services.storage.storage_service import StorageService
+
     storage = StorageService(config=config)
     runtime_config = RuntimeConfigurationStore(event_bus=event_bus, config=config, storage=storage)
     validator = ProtectedTermsValidator(config=config, storage=storage)
@@ -212,6 +232,8 @@ async def initialize_services(
     allow = config.local_llm_allowlist
     spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
     if spec:
+        from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
+
         downloader = LLMModelDownloader(config)
         if not downloader.model_bundle_complete(spec.gguf_filenames):
             progress_tracker.update_sub_step(
@@ -395,6 +417,7 @@ async def main() -> None:
             icon_manager=icon_manager,
         )
         startup_window.show()
+        qt_app.processEvents()
 
         if not validate_critical_assets(config):
             startup_window.update_progress(0.0, "Critical assets missing. Please check logs.", animate=False)
@@ -443,6 +466,8 @@ async def main() -> None:
         startup_window.update_progress(1.0, "Ready!", animate=False)
         await asyncio.sleep(0.5)
 
+        from vocalance.app.ui.qt_main_window import VocalanceMainWindow
+
         main_window = VocalanceMainWindow(
             event_bus=event_bus,
             logger=logging.getLogger("MainWindow"),
@@ -476,6 +501,15 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        import ctypes
+
+        try:
+            app_id = "vocalance.app.main"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ctypes.c_wchar_p(app_id))
+        except (AttributeError, OSError):
+            pass
+
     qt_application = QApplication(sys.argv)
     qt_application.setStyle("Fusion")
     QtAsyncio.run(main(), keep_running=False)
