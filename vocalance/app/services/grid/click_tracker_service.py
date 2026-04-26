@@ -106,7 +106,7 @@ class ClickTrackerService(Service):
         ui_refresh_debounce_s: float,
         persist_debounce_s: float,
     ) -> None:
-        self._event_bus = event_bus
+        super().__init__(event_bus)
         self._storage = storage
         self._gui_loop = gui_event_loop
         self._ui_refresh_debounce_s = ui_refresh_debounce_s
@@ -115,7 +115,7 @@ class ClickTrackerService(Service):
         self._clicks: List[GridClickEvent] = []
         self._ui_task: Optional[asyncio.Task] = None
         self._persist_task: Optional[asyncio.Task] = None
-        event_bus.subscribe(PerformMouseClickEventData, self._handle_mouse_click)
+        self.subscribe(PerformMouseClickEventData, self._handle_mouse_click)
 
     def _run_on_gui_loop(self, fn: Callable[[], None]) -> None:
         self._gui_loop.call_soon_threadsafe(fn)
@@ -154,7 +154,7 @@ class ClickTrackerService(Service):
     async def publish_click_history_snapshot(self) -> None:
         with self._lock:
             snap = [c.model_dump(mode="json") for c in self._clicks]
-        await self._event_bus.publish(GridClickHistoryChangedEvent(clicks_snapshot=snap))
+        await self.event_bus.publish(GridClickHistoryChangedEvent(clicks_snapshot=snap))
 
     async def _debounced_ui_notify(self) -> None:
         try:
@@ -177,7 +177,6 @@ class ClickTrackerService(Service):
             logger.error("Debounced click history write failed: %s", e, exc_info=True)
 
     async def shutdown(self) -> None:
-        self._event_bus.unsubscribe(PerformMouseClickEventData, self._handle_mouse_click)
         for t in (self._ui_task, self._persist_task):
             if t is not None and not t.done():
                 t.cancel()
@@ -189,10 +188,10 @@ class ClickTrackerService(Service):
         self._persist_task = None
         with self._lock:
             clicks_to_save = list(self._clicks)
-        if not clicks_to_save:
-            return
-        try:
-            await self._storage.write(data=GridClicksData(clicks=clicks_to_save))
-            logger.info("Saved %d clicks to storage on shutdown", len(clicks_to_save))
-        except Exception as e:
-            logger.error("Error saving clicks on shutdown: %s", e, exc_info=True)
+        if clicks_to_save:
+            try:
+                await self._storage.write(data=GridClicksData(clicks=clicks_to_save))
+                logger.info("Saved %d clicks to storage on shutdown", len(clicks_to_save))
+            except Exception as e:
+                logger.error("Error saving clicks on shutdown: %s", e, exc_info=True)
+        await super().shutdown()

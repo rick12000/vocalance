@@ -26,9 +26,9 @@ class QtMarksController(QtBaseController):
         super().__init__(event_bus=event_bus, logger=logging.getLogger("QtMarksController"))
         self.config = config
         self.marks_list: List[MarkData] = []
-        self.event_bus.subscribe(MarksChangedEventData, self._on_marks_changed)
-        self.event_bus.subscribe(MarkVisualizationStateChangedEventData, self._on_visualization_state_changed)
-        self.event_bus.subscribe(MarkUiResponseEvent, self._on_mark_ui_response)
+        self.subscribe(MarksChangedEventData, self._on_marks_changed)
+        self.subscribe(MarkVisualizationStateChangedEventData, self._on_visualization_state_changed)
+        self.subscribe(MarkUiResponseEvent, self._on_mark_ui_response)
 
     def _mark_ui(self, **fields: Any) -> None:
         asyncio.create_task(self.event_bus.publish(MarkUiRequestEvent(**fields)))
@@ -117,11 +117,8 @@ class QtMarksController(QtBaseController):
         if is_error:
             self.operation_error.emit(message)
 
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(MarksChangedEventData, self._on_marks_changed)
-        self.event_bus.unsubscribe(MarkVisualizationStateChangedEventData, self._on_visualization_state_changed)
-        self.event_bus.unsubscribe(MarkUiResponseEvent, self._on_mark_ui_response)
+    def shutdown(self) -> None:
         overlay = self.get_view()
         if overlay:
-            overlay.cleanup()
-        super().cleanup()
+            overlay.shutdown()
+        super().shutdown()

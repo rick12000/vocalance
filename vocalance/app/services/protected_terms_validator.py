@@ -6,26 +6,33 @@ from vocalance.app.config.automation_command_registry import AutomationCommandRe
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
 from vocalance.app.events.sound_events import SoundToCommandMappingUpdatedEvent
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import MarksData, SoundMappingsData
 from vocalance.app.services.storage.storage_service import StorageService
 
 
-class ProtectedTermsValidator:
-    """Validates reserved terms for commands, marks, and sound labels with a short-lived cache."""
+class ProtectedTermsValidator(Service):
+    """Validates reserved terms for commands, marks, and sound labels with a short-lived cache.
+
+    The event bus is optional at construction so the validator can be built before
+    the bus exists (used by tests). Call :meth:`setup_invalidation_subscriptions`
+    once an event bus is available to wire cache invalidation.
+    """
 
     def __init__(self, config: GlobalAppConfig, storage: StorageService) -> None:
         self.config = config
         self.storage = storage
-        self.event_bus: Optional[EventBus] = None
         self.cached_terms: Optional[Set[str]] = None
         self.cache_expiry: float = 0.0
         self.cache_ttl: float = config.protected_terms_validator.cache_ttl_seconds
+        self._wired = False
 
     def setup_invalidation_subscriptions(self, event_bus: EventBus) -> None:
-        """Subscribe to mapping updates so the protected-terms cache can be cleared."""
-        self.event_bus = event_bus
-        event_bus.subscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
-        event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self.handle_sound_mapping_updated)
+        """Bind to ``event_bus`` and subscribe to mapping updates that invalidate the cache."""
+        Service.__init__(self, event_bus)
+        self._wired = True
+        self.subscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
+        self.subscribe(SoundToCommandMappingUpdatedEvent, self.handle_sound_mapping_updated)
 
     async def handle_command_mappings_updated(self, event: CommandMappingsUpdatedEvent) -> None:
         if event.success:
@@ -109,8 +116,6 @@ class ProtectedTermsValidator:
         self.cache_expiry = 0.0
 
     async def shutdown(self) -> None:
-        if self.event_bus is None:
-            return
-        self.event_bus.unsubscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
-        self.event_bus.unsubscribe(SoundToCommandMappingUpdatedEvent, self.handle_sound_mapping_updated)
-        self.event_bus = None
+        if self._wired:
+            await super().shutdown()
+            self._wired = False

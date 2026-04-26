@@ -7,7 +7,7 @@ from PySide6.QtGui import QCloseEvent, QColor, QPainter, QPainterPath, QPaintEve
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import AssetPathsConfig
-from vocalance.app.shutdown_coordinator import ShutdownCoordinator
+from vocalance.app.lifecycle import AppLifecycle
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
@@ -28,13 +28,13 @@ class StartupWindow(QDialog):
         self,
         logger: logging.Logger,
         asset_paths_config: AssetPathsConfig,
-        shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+        lifecycle: Optional[AppLifecycle] = None,
         icon_manager: Optional[WindowIconManager] = None,
     ) -> None:
         super().__init__()
 
         self.logger = logger
-        self.shutdown_coordinator = shutdown_coordinator
+        self.lifecycle = lifecycle
         self.icon_manager = icon_manager
         self.is_closed = False
         self._state_lock = threading.Lock()
@@ -243,12 +243,8 @@ class StartupWindow(QDialog):
                 self.is_closed = True
                 self.accept()
 
-                if (
-                    not self._closing_after_init
-                    and self.shutdown_coordinator
-                    and not self.shutdown_coordinator.is_shutdown_requested()
-                ):
-                    self.shutdown_coordinator.request_shutdown(
+                if not self._closing_after_init and self.lifecycle is not None and not self.lifecycle.is_shutdown_requested():
+                    self.lifecycle.request_shutdown(
                         reason="User closed startup window",
                         source="startup_window",
                     )

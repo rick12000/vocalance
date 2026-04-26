@@ -12,9 +12,9 @@ class PauseStateManager(Service):
     """Tracks whether the application is paused or resumed."""
 
     def __init__(self, event_bus: EventBus) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.pause_active: bool = False
-        event_bus.subscribe(SystemControlCommandParsedEvent, self.handle_system_control_command)
+        self.subscribe(SystemControlCommandParsedEvent, self.handle_system_control_command)
 
     async def handle_system_control_command(self, event: SystemControlCommandParsedEvent) -> None:
         if isinstance(event.command, PauseCommand):
@@ -26,6 +26,3 @@ class PauseStateManager(Service):
 
     def is_paused(self) -> bool:
         return self.pause_active
-
-    async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(SystemControlCommandParsedEvent, self.handle_system_control_command)

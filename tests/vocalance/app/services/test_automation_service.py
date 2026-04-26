@@ -7,12 +7,15 @@ import pytest_asyncio
 from vocalance.app.config.command_types import ExactMatchCommand, ParameterizedCommand
 from vocalance.app.events.command_events import AutomationCommandParsedEvent
 from vocalance.app.services.automation_service import AutomationService
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 
 
 @pytest_asyncio.fixture
 async def automation_service(event_bus, app_config):
-    service = AutomationService(event_bus, app_config)
+    input_service = KeyboardInputService(event_bus=event_bus)
+    service = AutomationService(event_bus, app_config, input_service=input_service)
     yield service
+    await input_service.shutdown()
 
 
 @pytest.mark.asyncio

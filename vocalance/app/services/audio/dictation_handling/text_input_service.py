@@ -14,7 +14,7 @@ from vocalance.app.services.audio.dictation_handling.utils.segment_text import (
     should_lowercase_current_start,
     should_remove_previous_period,
 )
-from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +22,15 @@ logger = logging.getLogger(__name__)
 class DictationTextInput:
     """Injects dictation text via clipboard or keyboard using the given asyncio loop."""
 
-    def __init__(self, config: DictationConfig, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self,
+        config: DictationConfig,
+        loop: asyncio.AbstractEventLoop,
+        input_service: KeyboardInputService,
+    ) -> None:
         self.config = config
         self.loop = loop
+        self.input_service = input_service
         self.lock = threading.RLock()
         self.clipboard_lock = threading.Lock()
         self.last_text: str | None = None
@@ -89,9 +95,9 @@ class DictationTextInput:
                 cleaned_text = lowercase_first_letter(cleaned_text)
 
         if self.config.use_clipboard:
-            success: bool = await self.loop.run_in_executor(shared_input_executor, self.paste_clipboard, cleaned_text)
+            success: bool = await self.input_service.run(self.paste_clipboard, cleaned_text)
         else:
-            success = await self.loop.run_in_executor(shared_input_executor, self.type_text, cleaned_text)
+            success = await self.input_service.run(self.type_text, cleaned_text)
 
         if success:
             self.last_text = cleaned_text
@@ -182,16 +188,16 @@ class DictationTextInput:
         return True
 
     async def add_space(self) -> bool:
-        await self.loop.run_in_executor(shared_input_executor, pyautogui.press, "space")
+        await self.input_service.run(pyautogui.press, "space")
         return True
 
     async def add_newline(self) -> bool:
-        await self.loop.run_in_executor(shared_input_executor, pyautogui.press, "enter")
+        await self.input_service.run(pyautogui.press, "enter")
         return True
 
     async def backspace(self, count: int = 1) -> bool:
         for _ in range(count):
-            await self.loop.run_in_executor(shared_input_executor, pyautogui.press, "backspace")
+            await self.input_service.run(pyautogui.press, "backspace")
         return True
 
     def shutdown(self) -> None:

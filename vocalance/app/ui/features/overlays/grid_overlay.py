@@ -38,6 +38,7 @@ class QtGridView(QWidget):
         event_bus: EventBus,
         config: GlobalAppConfig,
         gui_event_loop: asyncio.AbstractEventLoop,
+        input_service: Any,
         default_num_rects: Optional[int] = None,
     ):
         super().__init__()
@@ -46,6 +47,7 @@ class QtGridView(QWidget):
         self.event_bus = event_bus
         self.config = config
         self.gui_loop = gui_event_loop
+        self.input_service = input_service
 
         self.default_num_rects = default_num_rects or self.DEFAULT_NUM_RECTS
 
@@ -663,10 +665,7 @@ class QtGridView(QWidget):
         # This ensures the overlay is fully gone before we click on the screen
         self.hide()
 
-        from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
-
-        self.gui_loop.run_in_executor(
-            shared_input_executor,
+        self.input_service.submit(
             self.execute_delayed_grid_action,
             selected_number,
             center_x,
@@ -677,8 +676,8 @@ class QtGridView(QWidget):
 
         return True
 
-    def cleanup(self) -> None:
-        """Clean up resources."""
+    def shutdown(self) -> None:
+        """Cancel pending timers, hide the overlay, and clear cached state."""
         self.cancel_focus_timers()
         self.hide()
 
@@ -689,4 +688,4 @@ class QtGridView(QWidget):
             self.clicks_snapshot = []
             self.pending_clicks_snapshot = None
 
-        self.logger.debug("QtGridView cleanup completed")
+        self.logger.debug("QtGridView shutdown completed")

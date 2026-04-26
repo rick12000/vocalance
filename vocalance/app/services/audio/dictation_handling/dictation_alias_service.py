@@ -6,16 +6,17 @@ from typing import Dict
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import DictationAliasListUpdatedEvent, DictationAliasUiOperationEvent
+from vocalance.app.lifecycle.concurrency import schedule_on_loop
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import DictationAliasData
 from vocalance.app.services.storage.storage_service import StorageService
-from vocalance.app.utils.concurrency import schedule_on_loop
 
 logger = logging.getLogger(__name__)
 
 ALIAS_FLAG_WORD = "insert"
 
 
-class DictationAliasService:
+class DictationAliasService(Service):
     """Persists dictation aliases and applies phrase substitution; thread-safe."""
 
     def __init__(
@@ -24,12 +25,12 @@ class DictationAliasService:
         storage: StorageService,
         event_loop: asyncio.AbstractEventLoop,
     ) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.storage = storage
         self.event_loop = event_loop
         self.alias_lock = threading.RLock()
         self.aliases: Dict[str, str] = {}
-        event_bus.subscribe(DictationAliasUiOperationEvent, self.handle_alias_ui_operation)
+        self.subscribe(DictationAliasUiOperationEvent, self.handle_alias_ui_operation)
 
     async def handle_alias_ui_operation(self, event: DictationAliasUiOperationEvent) -> None:
         op = event.op
@@ -175,5 +176,5 @@ class DictationAliasService:
         return re.sub(pattern, replace_match, text, flags=re.IGNORECASE)
 
     async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(DictationAliasUiOperationEvent, self.handle_alias_ui_operation)
         await self.save_aliases()
+        await super().shutdown()

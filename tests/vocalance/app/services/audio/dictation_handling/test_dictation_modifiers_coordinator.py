@@ -35,6 +35,7 @@ def coordinator_minimal() -> Iterator[DictationCoordinator]:
             storage=storage,
             gui_event_loop=loop,
             stt_service=Mock(),
+            input_service=Mock(),
         )
     coord.alias_service = Mock()
     coord.alias_service.apply_substitutions = lambda t: t

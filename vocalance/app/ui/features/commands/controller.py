@@ -24,8 +24,8 @@ class QtCommandsController(QtBaseController):
         super().__init__(event_bus=event_bus, logger=logging.getLogger("QtCommandsController"))
         self.config = config
         self.available_commands: List[AutomationCommand] = []
-        self.event_bus.subscribe(CommandMappingsUpdatedEvent, self.on_command_mappings_updated)
-        self.event_bus.subscribe(CommandValidationErrorEvent, self.on_command_validation_error)
+        self.subscribe(CommandMappingsUpdatedEvent, self.on_command_mappings_updated)
+        self.subscribe(CommandValidationErrorEvent, self.on_command_validation_error)
 
     def on_view_ready(self) -> None:
         asyncio.create_task(self.event_bus.publish(CommandUiOperationEvent(op="refresh_mappings")))
@@ -77,8 +77,3 @@ class QtCommandsController(QtBaseController):
 
     def get_available_commands(self) -> List[AutomationCommand]:
         return self.available_commands
-
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(CommandMappingsUpdatedEvent, self.on_command_mappings_updated)
-        self.event_bus.unsubscribe(CommandValidationErrorEvent, self.on_command_validation_error)
-        super().cleanup()

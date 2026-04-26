@@ -23,7 +23,7 @@ from vocalance.app.events.mark_events import (
     MarkVisualizationStateChangedEventData,
 )
 from vocalance.app.services.base_service import Service
-from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
 from vocalance.app.services.storage.storage_models import Coordinate, MarksData
 from vocalance.app.services.storage.storage_service import StorageService
@@ -40,14 +40,16 @@ class MarkService(Service):
         config: GlobalAppConfig,
         storage: StorageService,
         protected_terms_validator: ProtectedTermsValidator,
+        input_service: KeyboardInputService,
     ) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.config = config
         self.storage = storage
         self.protected_terms_validator = protected_terms_validator
+        self.input_service = input_service
         self.is_viz_active: bool = False
-        event_bus.subscribe(MarkCommandParsedEvent, self.handle_mark_command_parsed)
-        event_bus.subscribe(MarkUiRequestEvent, self.handle_mark_ui_request)
+        self.subscribe(MarkCommandParsedEvent, self.handle_mark_command_parsed)
+        self.subscribe(MarkUiRequestEvent, self.handle_mark_ui_request)
 
     async def handle_mark_command_parsed(self, parsed_mark_command: MarkCommandParsedEvent) -> None:
         command: BaseCommand = parsed_mark_command.command
@@ -78,8 +80,7 @@ class MarkService(Service):
             coords = await self.get_mark_coordinates_internal(command.label)
             if coords:
                 x, y = coords
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(shared_input_executor, pyautogui.click, x, y)
+                await self.input_service.run(pyautogui.click, x, y)
                 logger.info("Navigated to mark '%s' at (%s, %s) and clicked.", command.label, x, y)
             else:
                 logger.warning("Mark '%s' not found.", command.label)
@@ -252,8 +253,7 @@ class MarkService(Service):
             logger.warning("Mark '%s' not found for execution", name_or_id)
             return False
         x, y = coords
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(shared_input_executor, pyautogui.click, x, y)
+        await self.input_service.run(pyautogui.click, x, y)
         logger.info("Executed mark '%s' at (%s, %s)", name_or_id, x, y)
         return True
 
@@ -267,6 +267,5 @@ class MarkService(Service):
         return {name: {"name": name, "x": coords[0], "y": coords[1]} for name, coords in marks.items()}
 
     async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(MarkCommandParsedEvent, self.handle_mark_command_parsed)
-        self.event_bus.unsubscribe(MarkUiRequestEvent, self.handle_mark_ui_request)
         await asyncio.sleep(self.config.mark.shutdown_grace_period_seconds)
+        await super().shutdown()

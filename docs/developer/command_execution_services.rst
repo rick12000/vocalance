@@ -73,11 +73,10 @@ When you say a mark name (e.g., "home"), the service looks up the stored positio
        coords = await self.get_mark_coordinates_internal(command.label)
        if coords:
            x, y = coords
-           loop = asyncio.get_running_loop()
-           await loop.run_in_executor(shared_input_executor, pyautogui.click, x, y)
+           await self.input_service.run(pyautogui.click, x, y)
            logger.info("Navigated to mark '%s' at (%s, %s) and clicked.", command.label, x, y)
 
-The service clicks at the stored position using a shared thread pool executor. This is different from just moving the mouse—it actually performs a click action at the mark location.
+The service clicks at the stored position via ``KeyboardInputService.run``. This is different from just moving the mouse — it actually performs a click action at the mark location.
 
 Managing Marks
 --------------
@@ -202,17 +201,16 @@ To prevent accidental rapid-fire execution and avoid overwhelming the system, ea
 Non-Blocking Execution
 -----------------------
 
-PyAutoGUI calls are synchronous and can block for 50-500ms. To prevent blocking the async event loop, the service runs PyAutoGUI in a shared thread pool (``shared_input_executor``):
+PyAutoGUI calls are synchronous and can block for 50-500ms. To prevent blocking the async event loop, every input call is serialised through ``KeyboardInputService``, which owns a single-worker ``ThreadPoolExecutor``:
 
 .. code-block:: python
 
    async def handle_automation_command_parsed(self, event: AutomationCommandParsedEvent) -> None:
        # ... setup and cooldown checks ...
-       loop = asyncio.get_running_loop()
-       await loop.run_in_executor(shared_input_executor, lambda: self.run_action(action_fn, count))
+       await self.input_service.run(self.run_action, action_fn, count)
        self.cooldown_timers[command.command_key] = time.time()
 
-This ensures automation commands don't block STT recognition, event processing, or UI updates.
+The single-worker pool guarantees strict ordering of OS-level input events while keeping the async/Qt event loop unblocked. Its lifecycle is owned by ``AppLifecycle`` (the service exposes an ``async def shutdown`` that drains the executor), so automation commands never outlive teardown.
 
 Repeat Counts
 -------------

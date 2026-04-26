@@ -26,7 +26,7 @@ async def stt_service_with_mocked_engines(event_bus, app_config):
 async def test_command_audio_processing_normal_mode(stt_service_with_mocked_engines, command_audio_bytes):
     """Test command audio processing in normal command mode."""
     service = stt_service_with_mocked_engines
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     captured_events = []
 
@@ -48,7 +48,7 @@ async def test_command_audio_processing_normal_mode(stt_service_with_mocked_engi
 async def test_amber_trigger_detection_during_dictation(stt_service_with_mocked_engines, command_audio_bytes):
     """Test that amber triggers are detected during dictation mode."""
     service = stt_service_with_mocked_engines
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     service.vosk_engine.recognize = AsyncMock(return_value="amber")
 
@@ -74,7 +74,7 @@ async def test_amber_trigger_detection_during_dictation(stt_service_with_mocked_
 async def test_non_amber_suppressed_during_dictation(stt_service_with_mocked_engines, command_audio_bytes):
     """Test that non-amber commands are suppressed during dictation mode."""
     service = stt_service_with_mocked_engines
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     service.vosk_engine.recognize = AsyncMock(return_value="copy")
 
@@ -99,7 +99,7 @@ async def test_non_amber_suppressed_during_dictation(stt_service_with_mocked_eng
 async def test_dictation_mode_state_changes(stt_service_with_mocked_engines):
     """Test dictation mode state transitions."""
     service = stt_service_with_mocked_engines
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     assert service._dictation_active is False
 
@@ -116,7 +116,7 @@ async def test_dictation_mode_state_changes(stt_service_with_mocked_engines):
 async def test_duplicate_text_filtering(stt_service_with_mocked_engines, command_audio_bytes):
     """Test that duplicate text within threshold is filtered."""
     service = stt_service_with_mocked_engines
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     service.vosk_engine.recognize = AsyncMock(return_value="copy")
 
@@ -147,7 +147,7 @@ async def test_empty_text_does_not_trigger_sound_recognition_from_stt(stt_servic
     This prevents duplicate events.
     """
     service = stt_service_with_mocked_engines
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     service.vosk_engine.recognize = AsyncMock(return_value="")
 

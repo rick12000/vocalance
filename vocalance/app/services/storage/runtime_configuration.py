@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-from typing import Any, Awaitable, Callable, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
@@ -13,7 +13,6 @@ from vocalance.app.services.storage.storage_models import AppUserConfigDocument
 from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.services.storage.user_configurable_settings import (
     ALLOWED_USER_SETTING_PATHS,
-    LLM_SESSION_SETTING_PATHS,
     apply_dot_path_to_config,
     effective_settings_projection,
     sanitize_user_overrides,
@@ -21,20 +20,22 @@ from vocalance.app.services.storage.user_configurable_settings import (
 
 logger = logging.getLogger(__name__)
 
-ConfigurationListener = Callable[[frozenset[str]], Awaitable[None]]
-
 
 class RuntimeConfigurationStore(Service):
-    """Loads user overrides from disk, merges into GlobalAppConfig, persists updates, notifies listeners."""
+    """Loads user overrides from disk, merges them into ``GlobalAppConfig``, and persists updates.
+
+    Mutates the shared ``GlobalAppConfig`` instance in place and publishes
+    ``SettingsChangedEvent`` after every change so consumers can re-read whatever
+    slice they care about.
+    """
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.config = config
         self.storage = storage
         self.overrides: Dict[str, Dict[str, Any]] = {}
-        self.listeners: List[Tuple[int, str, ConfigurationListener]] = []
         self.lock = asyncio.Lock()
-        event_bus.subscribe(RuntimeConfigRequestEvent, self._handle_runtime_config_request)
+        self.subscribe(RuntimeConfigRequestEvent, self._handle_runtime_config_request)
 
     async def _handle_runtime_config_request(self, event: RuntimeConfigRequestEvent) -> None:
         op: str = event.op
@@ -58,18 +59,9 @@ class RuntimeConfigurationStore(Service):
             for setting_key in event.setting_keys:
                 await self.reset_setting(setting_key)
 
-    def register_listener(self, order: int, name: str, listener: ConfigurationListener) -> None:
-        """Register an async callback invoked after overrides change (sorted by ``order`` then ``name``)."""
-        self.listeners.append((order, name, listener))
-        self.listeners.sort(key=lambda t: (t[0], t[1]))
-
     def current(self) -> GlobalAppConfig:
         """Return the live merged ``GlobalAppConfig`` instance."""
         return self.config
-
-    async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(RuntimeConfigRequestEvent, self._handle_runtime_config_request)
-        self.listeners.clear()
 
     async def initialize(self) -> bool:
         async with self.lock:
@@ -89,7 +81,6 @@ class RuntimeConfigurationStore(Service):
                     except Exception as e:
                         logger.warning("Skipping invalid persisted override %s=%r: %s", path, value, e)
 
-            await self.dispatch_configuration_listeners(frozenset(changed))
             if changed:
                 await self.publish_settings_changed_event(frozenset(changed))
             logger.info("RuntimeConfigurationStore initialized (%d override paths)", len(changed))
@@ -133,7 +124,6 @@ class RuntimeConfigurationStore(Service):
                     apply_dot_path_to_config(self.config, path, value)
 
                 self.storage.clear_cache(AppUserConfigDocument)
-                await self.dispatch_configuration_listeners(frozenset(settings_updates.keys()))
                 await self.publish_settings_changed_event(frozenset(settings_updates.keys()))
                 return True
             except Exception as e:
@@ -164,7 +154,6 @@ class RuntimeConfigurationStore(Service):
                 self.overrides = new_overrides
                 apply_dot_path_to_config(self.config, setting_path, default_val)
                 self.storage.clear_cache(AppUserConfigDocument)
-                await self.dispatch_configuration_listeners(frozenset([setting_path]))
                 await self.publish_settings_changed_event(frozenset([setting_path]))
                 return True
             except Exception as e:
@@ -183,7 +172,6 @@ class RuntimeConfigurationStore(Service):
 
                 self.storage.clear_cache(AppUserConfigDocument)
                 paths = frozenset(ALLOWED_USER_SETTING_PATHS)
-                await self.dispatch_configuration_listeners(paths)
                 await self.publish_settings_changed_event(paths)
                 logger.info("All user configuration reset to code defaults")
                 return True, "Settings reset to defaults successfully"
@@ -192,43 +180,7 @@ class RuntimeConfigurationStore(Service):
                 logger.error(msg, exc_info=True)
                 return False, msg
 
-    async def dispatch_configuration_listeners(self, paths: frozenset[str]) -> None:
-        if not paths:
-            return
-        for order, name, fn in self.listeners:
-            await fn(paths)
-
     async def publish_settings_changed_event(self, paths: frozenset[str]) -> None:
         resolved = {p: self.get_setting(p) for p in paths}
         all_settings = self.get_effective_settings()
         await self.event_bus.publish(SettingsChangedEvent(updated_settings=resolved, all_settings=all_settings))
-
-
-def register_configuration_listeners(
-    store: RuntimeConfigurationStore,
-    *,
-    sound_service: Any,
-    audio_service: Any,
-    llm_service: Any,
-) -> None:
-    """Register ordered listeners. Call after services exist, before ``event_bus.start(loop)``."""
-
-    async def sound_listener(paths: frozenset[str]) -> None:
-        cfg = store.current()
-        if "sound_recognizer.confidence_threshold" in paths:
-            sound_service.on_confidence_threshold_updated(cfg.sound_recognizer.confidence_threshold)
-        if "sound_recognizer.vote_threshold" in paths:
-            sound_service.on_vote_threshold_updated(cfg.sound_recognizer.vote_threshold)
-
-    async def audio_listener(paths: frozenset[str]) -> None:
-        cfg = store.current()
-        if "vad.command_silent_chunks_for_end" in paths:
-            audio_service.on_command_silent_chunks_updated(cfg.vad.command_silent_chunks_for_end)
-
-    async def llm_listener(paths: frozenset[str]) -> None:
-        if paths & LLM_SESSION_SETTING_PATHS:
-            await llm_service.dispose_loaded_model()
-
-    store.register_listener(10, "sound", sound_listener)
-    store.register_listener(20, "audio", audio_listener)
-    store.register_listener(30, "llm", llm_listener)

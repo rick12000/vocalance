@@ -49,6 +49,7 @@ async def coordinator(mock_event_bus, mock_storage, app_config):
             storage=mock_storage,
             gui_event_loop=loop,
             stt_service=mock_stt,
+            input_service=Mock(),
         )
 
         coord.text_service = Mock()
@@ -266,6 +267,7 @@ async def test_initialization_with_all_services(mock_event_bus, mock_storage, ap
             storage=mock_storage,
             gui_event_loop=loop,
             stt_service=Mock(),
+            input_service=Mock(),
         )
 
         result = await coord.initialize()
@@ -295,6 +297,7 @@ async def test_initialization_failure_returns_false(mock_event_bus, mock_storage
             storage=mock_storage,
             gui_event_loop=loop,
             stt_service=Mock(),
+            input_service=Mock(),
         )
 
         result = await coord.initialize()

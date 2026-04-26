@@ -7,7 +7,8 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QMainWindow, QStackedWidget, 
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.shutdown_coordinator import ShutdownCoordinator
+from vocalance.app.lifecycle import AppLifecycle
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 from vocalance.app.ui.application.ui_registry import UiRegistry
 from vocalance.app.ui.components.header_icon_button import HeaderIconButton
 from vocalance.app.ui.components.labels import BodyLabel, TitleLabel
@@ -28,8 +29,9 @@ class VocalanceMainWindow(QMainWindow):
         event_bus: EventBus,
         logger: logging.Logger,
         config: GlobalAppConfig,
+        input_service: KeyboardInputService,
         icon_manager: Optional[WindowIconManager] = None,
-        shutdown_coordinator: Optional[ShutdownCoordinator] = None,
+        lifecycle: Optional[AppLifecycle] = None,
     ) -> None:
         super().__init__()
 
@@ -37,7 +39,8 @@ class VocalanceMainWindow(QMainWindow):
         self.logger = logger
         self.config = config
         self.icon_manager = icon_manager
-        self._shutdown_coordinator = shutdown_coordinator
+        self._lifecycle = lifecycle
+        self._input_service = input_service
 
         self.current_tab = "Commands"
 
@@ -52,6 +55,7 @@ class VocalanceMainWindow(QMainWindow):
             logger=self.logger,
             config=self.config,
             main_window=self,
+            input_service=self._input_service,
         )
         self._bind_registry_controllers()
 
@@ -339,13 +343,14 @@ class VocalanceMainWindow(QMainWindow):
             self.stacked_widget.setCurrentWidget(cached)
 
     def closeEvent(self, close_event: QCloseEvent) -> None:
+        """Accept the close and ask the lifecycle to tear everything down."""
         self.logger.debug("Main window close event")
-        self._dispose_tab_views()
         close_event.accept()
-        if self._shutdown_coordinator:
-            self._shutdown_coordinator.request_shutdown(reason="User closed main window", source="main_window_close_event")
+        if self._lifecycle is not None:
+            self._lifecycle.request_shutdown(reason="User closed main window", source="main_window_close_event")
 
-    def _dispose_tab_views(self) -> None:
+    def shutdown(self) -> None:
+        """Dispose tab views and tear down the UI registry."""
         view_items = list(self._tab_views.items())
         self._tab_views.clear()
         self._active_tab_view = None
@@ -353,4 +358,4 @@ class VocalanceMainWindow(QMainWindow):
         for _view_name, view in view_items:
             view.deleteLater()
 
-        self._ui_registry.cleanup_controllers()
+        self._ui_registry.shutdown()

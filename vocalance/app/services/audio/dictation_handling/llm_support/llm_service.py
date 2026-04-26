@@ -10,10 +10,13 @@ from llama_cpp import Llama
 
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfig, LocalLLMArtifact, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiRequestEvent
+from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiRequestEvent, SettingsChangedEvent
 from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent
+from vocalance.app.lifecycle.cancellation import CancellationToken
+from vocalance.app.lifecycle.concurrency import schedule_on_loop
+from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
-from vocalance.app.utils.concurrency import schedule_on_loop
+from vocalance.app.services.storage.user_configurable_settings import LLM_SESSION_SETTING_PATHS
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ _AMEND_SYSTEM_BASE = (
 )
 
 
-class LLMService:
+class LLMService(Service):
     """Loads a GGUF model with llama.cpp for CPU inference and unloads when idle."""
 
     def __init__(
@@ -35,10 +38,12 @@ class LLMService:
         event_bus: EventBus,
         config: GlobalAppConfig,
         gui_event_loop: Optional[asyncio.AbstractEventLoop] = None,
+        cancel_token: Optional[CancellationToken] = None,
     ) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.config = config
         self.gui_event_loop = gui_event_loop
+        self.cancel_token = cancel_token
         self.llm: Optional[Llama] = None
         self.model_loaded = False
         self.model_downloader = LLMModelDownloader(config)
@@ -48,7 +53,13 @@ class LLMService:
         self.request_lock = asyncio.Lock()
         self.download_cancel_events: Dict[str, threading.Event] = {}
         self.active_download_request_id: Optional[str] = None
-        event_bus.subscribe(LlmUiRequestEvent, self.handle_llm_ui_request)
+        self.subscribe(LlmUiRequestEvent, self.handle_llm_ui_request)
+        self.subscribe(SettingsChangedEvent, self._handle_settings_changed)
+
+    async def _handle_settings_changed(self, event: SettingsChangedEvent) -> None:
+        """Drop the in-memory model when any setting that invalidates the session changes."""
+        if event.updated_settings.keys() & LLM_SESSION_SETTING_PATHS:
+            await self.dispose_loaded_model()
 
     def download_progress_callback(self, request_id: str) -> Optional[Callable[[str], None]]:
         if self.gui_event_loop is None or self.gui_event_loop.is_closed():
@@ -71,6 +82,7 @@ class LLMService:
             await self.event_bus.publish(LlmUiNotificationEvent(kind="bundle_status", status=status))
         elif op == "start_download":
             cancel = threading.Event()
+            unlink = self.cancel_token.link_event(cancel) if self.cancel_token is not None else (lambda: None)
             self.download_cancel_events[event.request_id] = cancel
             self.active_download_request_id = event.request_id
             progress_cb = self.download_progress_callback(event.request_id)
@@ -79,6 +91,8 @@ class LLMService:
             except Exception:
                 logger.exception("Whitelisted model download failed")
                 ok, msg = False, "Download failed"
+            finally:
+                unlink()
             await self.event_bus.publish(
                 LlmUiNotificationEvent(kind="download_finished", request_id=event.request_id, ok=ok, message=msg)
             )
@@ -320,7 +334,7 @@ class LLMService:
         return self.model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(LlmUiRequestEvent, self.handle_llm_ui_request)
         await self.dispose_loaded_model()
         if hasattr(self, "model_downloader") and self.model_downloader:
             self.model_downloader.shutdown()
+        await super().shutdown()

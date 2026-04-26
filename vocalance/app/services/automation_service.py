@@ -1,4 +1,3 @@
-import asyncio
 import time
 from typing import Callable, Dict, Optional
 
@@ -10,18 +9,19 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import AutomationCommandParsedEvent
 from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
 from vocalance.app.services.base_service import Service
-from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 
 
 class AutomationService(Service):
     """Runs automation commands (hotkeys, clicks, scrolls) via pyautogui on a thread pool."""
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
-        self.event_bus = event_bus
+    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, input_service: KeyboardInputService) -> None:
+        super().__init__(event_bus)
         self.config = config
+        self.input_service = input_service
         self.cooldown_timers: Dict[str, float] = {}
-        event_bus.subscribe(AutomationCommandParsedEvent, self.handle_automation_command_parsed)
-        event_bus.subscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
+        self.subscribe(AutomationCommandParsedEvent, self.handle_automation_command_parsed)
+        self.subscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
 
     async def handle_automation_command_parsed(self, event: AutomationCommandParsedEvent) -> None:
         command = event.command
@@ -33,8 +33,7 @@ class AutomationService(Service):
         action_fn = self.create_action_function(command.action_type, command.action_value)
         if not action_fn:
             return
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(shared_input_executor, lambda: self.run_action(action_fn, count))
+        await self.input_service.run(self.run_action, action_fn, count)
         self.cooldown_timers[command.command_key] = time.time()
 
     def run_action(self, action_fn: Callable[[], None], count: int) -> None:
@@ -87,7 +86,3 @@ class AutomationService(Service):
 
     async def handle_command_mappings_updated(self, _: CommandMappingsUpdatedEvent) -> None:
         self.cooldown_timers.clear()
-
-    async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(AutomationCommandParsedEvent, self.handle_automation_command_parsed)
-        self.event_bus.unsubscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)

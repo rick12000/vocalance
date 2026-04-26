@@ -34,6 +34,7 @@ from vocalance.app.events.dictation_events import (
     LLMProcessingStartedEvent,
     PartialDictationTextEvent,
 )
+from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
 from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
@@ -54,9 +55,8 @@ from vocalance.app.services.audio.dictation_handling.utils.segment_text import r
 from vocalance.app.services.audio.dictation_handling.utils.trigger_strip import strip_dictation_triggers
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.base_service import Service
-from vocalance.app.services.commands.utilities.input_executor import shared_input_executor
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 from vocalance.app.services.storage.storage_service import StorageService
-from vocalance.app.utils.concurrency import SubscriptionTracker
 
 MOONSHINE_CHUNK_DICTATION_MODES: tuple[DictationMode, ...] = (
     DictationMode.STANDARD,
@@ -407,11 +407,15 @@ class DictationCoordinator(Service):
         storage: StorageService,
         gui_event_loop: asyncio.AbstractEventLoop,
         stt_service: SpeechToTextService,
+        input_service: KeyboardInputService,
+        cancel_token: Optional[CancellationToken] = None,
     ) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.config = config
         self.gui_event_loop = gui_event_loop
         self.stt_service = stt_service
+        self.input_service = input_service
+        self.cancel_token = cancel_token
 
         self.state_lock = threading.RLock()
 
@@ -421,8 +425,8 @@ class DictationCoordinator(Service):
         self.type_silence_task: Optional[asyncio.Task] = None
         self.llm_processing_task: Optional[asyncio.Task] = None
 
-        self.text_service = DictationTextInput(config=config.dictation, loop=gui_event_loop)
-        self.llm_service = LLMService(event_bus=event_bus, config=config, gui_event_loop=gui_event_loop)
+        self.text_service = DictationTextInput(config=config.dictation, loop=gui_event_loop, input_service=input_service)
+        self.llm_service = LLMService(event_bus=event_bus, config=config, gui_event_loop=gui_event_loop, cancel_token=cancel_token)
         self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
         self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
 
@@ -432,14 +436,12 @@ class DictationCoordinator(Service):
 
         self.amend_clipboard_snapshot: Optional[str] = None
 
-        self.subs = SubscriptionTracker(event_bus=event_bus)
-
-        self.subs.subscribe(DictationTextRecognizedEvent, self.handle_dictation_text)
-        self.subs.subscribe(LLMProcessingCompletedEvent, self.llm_runtime.handle_completed)
-        self.subs.subscribe(LLMProcessingFailedEvent, self.llm_runtime.handle_failed)
-        self.subs.subscribe(DictationCommandParsedEvent, self.handle_dictation_command)
-        self.subs.subscribe(LLMProcessingReadyEvent, self.llm_runtime.handle_ready)
-        self.subs.subscribe(DictationModifierPhraseEvent, self.handle_dictation_modifier_phrase)
+        self.subscribe(DictationTextRecognizedEvent, self.handle_dictation_text)
+        self.subscribe(LLMProcessingCompletedEvent, self.llm_runtime.handle_completed)
+        self.subscribe(LLMProcessingFailedEvent, self.llm_runtime.handle_failed)
+        self.subscribe(DictationCommandParsedEvent, self.handle_dictation_command)
+        self.subscribe(LLMProcessingReadyEvent, self.llm_runtime.handle_ready)
+        self.subscribe(DictationModifierPhraseEvent, self.handle_dictation_modifier_phrase)
 
     @property
     def active_mode(self) -> DictationMode:
@@ -610,7 +612,7 @@ class DictationCoordinator(Service):
             await self.start_amend_session()
 
     async def start_amend_session(self) -> None:
-        captured = await self.gui_event_loop.run_in_executor(shared_input_executor, self.text_service.capture_selection_via_copy)
+        captured = await self.input_service.run(self.text_service.capture_selection_via_copy)
         if not captured or not captured.strip():
             logger.warning("Amend mode: no text captured — keep focus on the app with the selection")
             return
@@ -861,3 +863,5 @@ class DictationCoordinator(Service):
         with self.state_lock:
             self.current_session = None
             self.pending_llm_session = None
+
+        await super().shutdown()

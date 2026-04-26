@@ -9,7 +9,11 @@ import numpy as np
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import CustomSoundRecognizedEvent, ProcessAudioChunkForSoundRecognitionEvent
+from vocalance.app.events.core_events import (
+    CustomSoundRecognizedEvent,
+    ProcessAudioChunkForSoundRecognitionEvent,
+    SettingsChangedEvent,
+)
 from vocalance.app.events.sound_events import (
     SoundListUpdatedEvent,
     SoundMappingsResponseEvent,
@@ -31,7 +35,7 @@ class SoundService(Service):
     """Sound recognition, training, and sound→command mappings (thread-safe training state)."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig, storage: StorageService) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.config = config
         self.recognizer = SoundRecognizer(config=config, storage=storage)
 
@@ -43,8 +47,9 @@ class SoundService(Service):
         self._training_samples: List[tuple[Any, int]] = []
         self._target_samples = 0
 
-        event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
-        event_bus.subscribe(SoundUiOperationEvent, self._handle_sound_ui_operation)
+        self.subscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
+        self.subscribe(SoundUiOperationEvent, self._handle_sound_ui_operation)
+        self.subscribe(SettingsChangedEvent, self._handle_settings_changed)
 
     async def _handle_sound_ui_operation(self, event: SoundUiOperationEvent) -> None:
         op: str = event.op
@@ -346,18 +351,19 @@ class SoundService(Service):
         with self._training_lock:
             return self._current_training_label
 
-    def on_confidence_threshold_updated(self, threshold: float) -> None:
-        self.recognizer.on_confidence_threshold_updated(threshold=threshold)
-
-    def on_vote_threshold_updated(self, threshold: float) -> None:
-        self.recognizer.on_vote_threshold_updated(threshold=threshold)
+    def _handle_settings_changed(self, event: SettingsChangedEvent) -> None:
+        """Re-read sound-recogniser thresholds from the shared config when they change."""
+        paths = event.updated_settings.keys()
+        if "sound_recognizer.confidence_threshold" in paths:
+            self.recognizer.on_confidence_threshold_updated(threshold=self.config.sound_recognizer.confidence_threshold)
+        if "sound_recognizer.vote_threshold" in paths:
+            self.recognizer.on_vote_threshold_updated(threshold=self.config.sound_recognizer.vote_threshold)
 
     async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(ProcessAudioChunkForSoundRecognitionEvent, self._handle_audio_chunk)
-        self.event_bus.unsubscribe(SoundUiOperationEvent, self._handle_sound_ui_operation)
         try:
             self.cancel_training()
             if self.recognizer:
                 await self.recognizer.shutdown()
         except Exception as e:
             logger.error("Error during SoundService shutdown: %s", e, exc_info=True)
+        await super().shutdown()

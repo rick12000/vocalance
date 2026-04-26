@@ -32,9 +32,9 @@ class QtSettingsController(QtBaseController):
         self.llm_bundle_status: Dict[str, bool] = {}
         self.pending_setting_futures: Dict[str, asyncio.Future[Tuple[bool, str]]] = {}
         self.active_llm_download_rid: Optional[str] = None
-        self.event_bus.subscribe(SettingsChangedEvent, self.on_settings_changed)
-        self.event_bus.subscribe(RuntimeConfigResponseEvent, self.on_runtime_config_response)
-        self.event_bus.subscribe(LlmUiNotificationEvent, self.on_llm_ui_notification)
+        self.subscribe(SettingsChangedEvent, self.on_settings_changed)
+        self.subscribe(RuntimeConfigResponseEvent, self.on_runtime_config_response)
+        self.subscribe(LlmUiNotificationEvent, self.on_llm_ui_notification)
 
     def on_settings_changed(self, settings_change: SettingsChangedEvent) -> None:
         self.cached_settings = settings_change.all_settings
@@ -144,9 +144,3 @@ class QtSettingsController(QtBaseController):
 
     def get_all_settings(self) -> Dict[str, Any]:
         return dict(self.cached_settings)
-
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(SettingsChangedEvent, self.on_settings_changed)
-        self.event_bus.unsubscribe(RuntimeConfigResponseEvent, self.on_runtime_config_response)
-        self.event_bus.unsubscribe(LlmUiNotificationEvent, self.on_llm_ui_notification)
-        super().cleanup()

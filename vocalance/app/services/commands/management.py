@@ -37,10 +37,10 @@ class CommandManagementService(Service):
         storage: StorageService,
         protected_terms_validator: ProtectedTermsValidator,
     ) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.storage = storage
         self.protected_terms_validator = protected_terms_validator
-        event_bus.subscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
+        self.subscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
 
     async def _handle_command_ui_operation(self, event: CommandUiOperationEvent) -> None:
         op: str = event.op
@@ -68,9 +68,6 @@ class CommandManagementService(Service):
             await self.reset_to_defaults()
         elif op == "refresh_mappings":
             await self.publish_mappings_updated(True, "Command mappings refreshed")
-
-    async def shutdown(self) -> None:
-        self.event_bus.unsubscribe(CommandUiOperationEvent, self._handle_command_ui_operation)
 
     async def validate_command_phrase(self, command_phrase: str, exclude_phrase: str = "") -> Optional[str]:
         """Return an error message if ``command_phrase`` is invalid or collides; otherwise None."""

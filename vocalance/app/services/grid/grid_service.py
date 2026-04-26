@@ -17,12 +17,12 @@ class GridService(Service):
     """Handle grid voice commands and merge overlay-driven config updates into ``GlobalAppConfig``."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
-        self._event_bus = event_bus
+        super().__init__(event_bus)
         self._config = config
         self._visible: bool = False
         self._current_click_mode: str = "click"
-        event_bus.subscribe(GridCommandParsedEvent, self._handle_grid_command)
-        event_bus.subscribe(GridStateEvent, self._handle_grid_state_event)
+        self.subscribe(GridCommandParsedEvent, self._handle_grid_command)
+        self.subscribe(GridStateEvent, self._handle_grid_state_event)
 
     def _calculate_grid_dimensions(self, num_rects: int) -> tuple[int, int]:
         cols = math.ceil(math.sqrt(num_rects))
@@ -36,13 +36,13 @@ class GridService(Service):
             rows, cols = self._calculate_grid_dimensions(num_rects)
             self._current_click_mode = command.click_mode
             self._visible = True
-            await self._event_bus.publish(
+            await self.event_bus.publish(
                 GridStateEvent(state="visible", config={"rows": rows, "cols": cols, "click_mode": command.click_mode})
             )
         elif isinstance(command, GridSelectCommand):
             if not self._visible:
                 return
-            await self._event_bus.publish(
+            await self.event_bus.publish(
                 GridStateEvent(
                     state="interaction_request",
                     config={"cell_label": str(command.selected_number), "click_mode": self._current_click_mode},
@@ -76,7 +76,3 @@ class GridService(Service):
 
     def get_current_config(self) -> GridConfig:
         return self._config.grid
-
-    async def shutdown(self) -> None:
-        self._event_bus.unsubscribe(GridCommandParsedEvent, self._handle_grid_command)
-        self._event_bus.unsubscribe(GridStateEvent, self._handle_grid_state_event)

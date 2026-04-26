@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 
@@ -6,6 +7,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 from vocalance.app.ui.application.system_controller import QtSystemController
 from vocalance.app.ui.components.labels import LargeLabel
 from vocalance.app.ui.features.commands.controller import QtCommandsController
@@ -32,11 +34,13 @@ class UiRegistry:
         logger: logging.Logger,
         config: GlobalAppConfig,
         main_window: QWidget,
+        input_service: KeyboardInputService,
     ) -> None:
         self.event_bus = event_bus
         self.logger = logger
         self.config = config
         self._main_window = main_window
+        self._input_service = input_service
 
         self.system_controller = QtSystemController(event_bus, main_window)
 
@@ -55,13 +59,11 @@ class UiRegistry:
         self._init_overlays()
 
     def _init_overlays(self) -> None:
-        import asyncio
-
         self.mark_view = QtMarkView(config=self.config)
         self.mark_view.bind_controller(self.marks_controller)
         self.marks_controller.set_view(self.mark_view)
 
-        self.grid_view = QtGridView(self.event_bus, self.config, asyncio.get_running_loop())
+        self.grid_view = QtGridView(self.event_bus, self.config, asyncio.get_running_loop(), self._input_service)
         self.grid_controller.set_view(self.grid_view)
 
     def create_tab_widget(self, tab_name: str) -> QWidget:
@@ -94,18 +96,19 @@ class UiRegistry:
         layout.addWidget(label)
         return placeholder
 
-    def cleanup_controllers(self) -> None:
+    def shutdown(self) -> None:
+        """Tear down every controller in reverse construction order."""
         for attr in (
-            "marks_controller",
-            "sound_controller",
-            "dictation_controller",
-            "dictation_alias_controller",
-            "settings_controller",
-            "commands_controller",
-            "grid_controller",
-            "system_controller",
             "dictation_popup_controller",
+            "system_controller",
+            "grid_controller",
+            "commands_controller",
+            "settings_controller",
+            "dictation_alias_controller",
+            "dictation_controller",
+            "sound_controller",
+            "marks_controller",
         ):
             controller = getattr(self, attr, None)
-            if controller and hasattr(controller, "cleanup"):
-                controller.cleanup()
+            if controller and hasattr(controller, "shutdown"):
+                controller.shutdown()

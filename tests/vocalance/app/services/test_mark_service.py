@@ -7,19 +7,23 @@ import pytest_asyncio
 from vocalance.app.config.command_types import MarkCreateCommand
 from vocalance.app.events.command_events import MarkCommandParsedEvent
 from vocalance.app.events.mark_events import MarksChangedEventData
+from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
 from vocalance.app.services.mark_service import MarkService
 
 
 @pytest_asyncio.fixture
 async def mark_service(event_bus, app_config, mock_storage_service, mock_protected_terms_validator):
     """Create mark service with mocked storage."""
+    input_service = KeyboardInputService(event_bus=event_bus)
     service = MarkService(
         event_bus=event_bus,
         config=app_config,
         storage=mock_storage_service,
         protected_terms_validator=mock_protected_terms_validator,
+        input_service=input_service,
     )
     yield service
+    await input_service.shutdown()
 
 
 @pytest.mark.asyncio

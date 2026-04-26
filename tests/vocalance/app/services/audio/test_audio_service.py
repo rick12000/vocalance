@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import pytest_asyncio
@@ -12,7 +12,8 @@ async def audio_service(event_bus, app_config):
     loop = asyncio.new_event_loop()
     dictation = Mock()
     dictation.feed_moonshine_audio_chunk = Mock()
-    with patch("vocalance.app.services.audio.simple_audio_service.AudioRecorder"):
+    with patch("vocalance.app.services.audio.simple_audio_service.AudioRecorder") as recorder_cls:
+        recorder_cls.return_value.wait_deliveries_drained = AsyncMock()
         service = AudioService(
             event_bus,
             app_config,

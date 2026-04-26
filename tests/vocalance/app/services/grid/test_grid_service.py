@@ -18,7 +18,7 @@ async def grid_service(event_bus, app_config):
 async def test_grid_show_default(grid_service, app_config):
     """Test showing grid with default rectangle count."""
     service = grid_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     command = GridShowCommand(num_rects=None)
     event = GridCommandParsedEvent(command=command, source="speech")
@@ -32,7 +32,7 @@ async def test_grid_show_default(grid_service, app_config):
 async def test_grid_show_with_custom_count(grid_service):
     """Test showing grid with custom rectangle count."""
     service = grid_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     command = GridShowCommand(num_rects=9)
     event = GridCommandParsedEvent(command=command, source="speech")
@@ -60,7 +60,7 @@ async def test_grid_dimension_calculation(grid_service):
 async def test_grid_select_cell(grid_service):
     """Test selecting a grid cell by number."""
     service = grid_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     service._visible = True
 
@@ -88,7 +88,7 @@ async def test_grid_select_cell(grid_service):
 async def test_grid_select_cell_drag_mode(grid_service):
     """Selecting a cell after drag-mode show carries click_mode drag."""
     service = grid_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     service._visible = True
     service._current_click_mode = "drag"
@@ -117,7 +117,7 @@ async def test_grid_select_cell_drag_mode(grid_service):
 async def test_grid_visibility_state_tracking(grid_service):
     """Test that grid visibility state is tracked correctly."""
     service = grid_service
-    event_bus = service._event_bus
+    event_bus = service.event_bus
 
     assert service._visible is False
 

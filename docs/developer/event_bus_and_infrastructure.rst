@@ -123,16 +123,17 @@ During initialization, the ``StartupProgressTracker`` updates the startup window
 Graceful Shutdown
 ------------------
 
-Shutdown is managed by the ``ShutdownCoordinator``, which provides a thread-safe, idempotent shutdown gate tied to the GUI asyncio loop.
+Shutdown is managed by ``AppLifecycle`` (``vocalance.app.lifecycle``), which owns the cancellation token, the asyncio shutdown event, the initialization task, every tracked background task, and a LIFO stack of registered ``AsyncCloseable`` resources.
 
-1. **Request Shutdown**: Triggered by user closing the window, or OS signals (SIGINT/SIGTERM).
-2. **Stop Audio Processing**: Halt audio capture to end real-time operations.
-3. **Shutdown Services**: Call ``shutdown()`` on each service in reverse dependency order.
-4. **Stop Event Bus**: Stop accepting new events and cancel the worker task.
-5. **Cleanup Thread Pools**: Shut down shared input executors.
-6. **Exit Process**: Terminate cleanly.
+1. **Request Shutdown**: Triggered by the user closing the main window, OS signals (SIGINT/SIGTERM), or any failure path; ``AppLifecycle.request_shutdown`` is thread-safe and idempotent.
+2. **Cancel Token**: ``CancellationToken`` is set, propagating to every cooperating sync worker and any per-operation events linked via ``link_event``.
+3. **Cancel Init Task**: An in-flight ``initialize`` coroutine is cancelled and awaited under a short grace period.
+4. **Cancel Background Tasks**: Every task tracked via ``track_background_task`` is cancelled and awaited.
+5. **Close Resources (LIFO)**: ``AsyncCloseable.shutdown`` is invoked on each registered resource in reverse registration order, so audio and dictation are torn down before the engines they depend on.
+6. **Drain Default Executor**: ``loop.shutdown_default_executor`` is awaited so non-daemon worker threads from ``asyncio.to_thread``/``run_in_executor`` cannot outlive the lifecycle.
+7. **Stop Signal Timer**: The Qt poll timer that bridges OS signals onto the GUI loop is stopped.
 
-**Signal Handlers**: When the user presses Ctrl+C or the OS sends SIGTERM, signal handlers request graceful shutdown via the ``ShutdownCoordinator``. A Qt timer polls the shutdown event to ensure the Qt event loop processes the shutdown request promptly.
+**Signal Handlers**: When the user presses Ctrl+C or the OS sends SIGTERM, the handlers set an internal event that the Qt poll timer flips into ``AppLifecycle.request_shutdown``, ensuring shutdown runs on the GUI loop.
 
 Infrastructure Summary
 ======================

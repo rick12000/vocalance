@@ -5,7 +5,6 @@ import logging
 import os
 import shutil
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import httpx
@@ -14,6 +13,7 @@ from huggingface_hub.file_download import hf_hub_download
 from huggingface_hub.utils import build_hf_headers, hf_raise_for_status
 
 from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.lifecycle.worker import run_blocking
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,6 @@ class LLMModelDownloader:
 
     def __init__(self, config: GlobalAppConfig) -> None:
         self._config = config
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="LLMDownloader")
         self._download_lock = threading.RLock()
         self._models_dir = os.path.join(config.storage.user_data_root, "llm_models")
         self._temp_dir = os.path.join(config.storage.user_data_root, "llm_models_temp")
@@ -39,8 +38,8 @@ class LLMModelDownloader:
         return self._models_dir
 
     def shutdown(self) -> None:
-        """Shut down the thread pool executor to prevent orphaned processes."""
-        self._executor.shutdown(wait=False)
+        """No-op: download workers are daemon threads owned by the lifecycle."""
+        return None
 
     def model_exists(self, filename: str) -> bool:
         model_path = os.path.join(self._models_dir, filename)
@@ -222,19 +221,19 @@ class LLMModelDownloader:
             return model_path
 
         with self._download_lock:
-            loop = asyncio.get_event_loop()
-
             if cancel_event is not None:
 
                 def _run_stream() -> Optional[str]:
                     return self._sync_stream_download_file(repo_id, filename, cancel_event, progress_message_cb)
 
-                return await loop.run_in_executor(self._executor, _run_stream)
+                return await run_blocking(_run_stream, name=f"llm-stream-{filename}")
 
             for attempt in range(1, max_retries + 1):
                 try:
                     logger.info("Downloading model %s from %s (attempt %s/%s)...", filename, repo_id, attempt, max_retries)
-                    downloaded_path = await loop.run_in_executor(self._executor, self._sync_download_atomic, repo_id, filename)
+                    downloaded_path = await run_blocking(
+                        self._sync_download_atomic, repo_id, filename, name=f"llm-download-{filename}"
+                    )
 
                     if downloaded_path:
                         logger.info("Model downloaded successfully: %s", filename)

@@ -161,7 +161,6 @@ class SoundRecognizer:
         self.mappings: Dict[str, str] = {}
 
         self._model_lock = RLock()
-        self._shutdown_event = asyncio.Event()
 
         self._file_io_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sound-file-io")
 
@@ -818,8 +817,6 @@ class SoundRecognizer:
     async def shutdown(self) -> None:
         try:
             logger.info("Shutting down SoundRecognizer")
-
-            self._shutdown_event.set()
 
             if self._file_io_executor is not None:
                 try:

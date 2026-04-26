@@ -8,6 +8,7 @@ from vocalance.app.events.core_events import (
     CommandAudioSegmentReadyEvent,
     MicLevelMeterPcmChunkEvent,
     ProcessAudioChunkForSoundRecognitionEvent,
+    SettingsChangedEvent,
 )
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
 from vocalance.app.services.audio.audio_utils import AudioProcessor, Clip, Onset, SegmentConfig, SegmentHit, UtteranceSegmenter
@@ -26,7 +27,7 @@ class AudioService(Service):
         main_event_loop: asyncio.AbstractEventLoop,
         dictation: DictationCoordinator,
     ) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.config = config
         self.main_event_loop = main_event_loop
         self.dictation = dictation
@@ -39,7 +40,8 @@ class AudioService(Service):
         self.sound_segmenter = self.create_sound_segmenter()
         self.sound_input_muted = False
         self.dictation_lock = threading.Lock()
-        event_bus.subscribe(DictationModeDisableOthersEvent, self.apply_dictation)
+        self.subscribe(DictationModeDisableOthersEvent, self.apply_dictation)
+        self.subscribe(SettingsChangedEvent, self._handle_settings_changed)
 
         self.recorder = AudioRecorder(
             app_config=config,
@@ -131,13 +133,17 @@ class AudioService(Service):
         if self.recorder is not None:
             await self.recorder.wait_deliveries_drained(timeout_s)
 
-    def on_command_silent_chunks_updated(self, chunks: int) -> None:
-        self.command_segmenter.set_silence_tail(chunks)
+    def _handle_settings_changed(self, event: SettingsChangedEvent) -> None:
+        """Re-read VAD silence-tail from the shared config when it changes."""
+        if "vad.command_silent_chunks_for_end" in event.updated_settings:
+            self.command_segmenter.set_silence_tail(self.config.vad.command_silent_chunks_for_end)
 
     async def shutdown(self) -> None:
         self.stop_processing()
-        self.event_bus.unsubscribe(DictationModeDisableOthersEvent, self.apply_dictation)
+        if self.recorder is not None:
+            await self.recorder.wait_deliveries_drained(timeout_s=3.0)
         self.recorder = None
         self.command_segmenter = None
         self.sound_segmenter = None
         self.chunk_analyzer = None
+        await super().shutdown()

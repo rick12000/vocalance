@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import gc
 import logging
 import time
@@ -26,7 +25,7 @@ class SpeechToTextService(Service):
     """Dual-engine STT: Vosk for commands, Moonshine for dictation (owned by DictationCoordinator)."""
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
-        self._event_bus = event_bus
+        super().__init__(event_bus)
         self._config = config
         self._dictation_active: bool = False
         self._current_dictation_mode: str = "inactive"
@@ -47,11 +46,13 @@ class SpeechToTextService(Service):
         ]
         self._modifier_phrases = sorted(mod_pairs, key=lambda x: -len(x[0]))
 
-        event_bus.subscribe(CommandAudioSegmentReadyEvent, self._handle_command_audio_segment)
-        event_bus.subscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)
+        self.subscribe(CommandAudioSegmentReadyEvent, self._handle_command_audio_segment)
+        self.subscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)
 
     async def initialize(self) -> bool:
-        """Load Vosk and Moonshine on a worker thread."""
+        """Load Vosk and Moonshine on a daemon worker thread."""
+        from vocalance.app.lifecycle.worker import run_blocking
+
         stt_cfg = self._config.stt
 
         def _load_engines() -> tuple[VoskSTT, MoonshineSTT]:
@@ -63,7 +64,7 @@ class SpeechToTextService(Service):
             moonshine = MoonshineSTT(sample_rate=stt_cfg.sample_rate, config=self._config)
             return vosk, moonshine
 
-        self.vosk_engine, self.moonshine_engine = await asyncio.to_thread(_load_engines)
+        self.vosk_engine, self.moonshine_engine = await run_blocking(_load_engines, name="stt-load")
         logger.info("STT engines initialized")
         return True
 
@@ -72,14 +73,14 @@ class SpeechToTextService(Service):
             vosk_result = await self.vosk_engine.recognize(event.audio_bytes, event.sample_rate)
             if self._is_stop_trigger(vosk_result):
                 if self._current_dictation_mode != "inactive":
-                    await self._event_bus.publish(DictationStopWordDetectedEvent(mode=self._current_dictation_mode))
-                await self._event_bus.publish(
+                    await self.event_bus.publish(DictationStopWordDetectedEvent(mode=self._current_dictation_mode))
+                await self.event_bus.publish(
                     CommandTextRecognizedEvent(text=vosk_result, processing_time_ms=0, engine="vosk", mode="command")
                 )
             else:
                 mod = self._match_modifier_phrase(vosk_result)
                 if mod:
-                    await self._event_bus.publish(
+                    await self.event_bus.publish(
                         DictationModifierPhraseEvent(modifier_id=mod, raw_recognized_text=vosk_result or "")
                     )
             return
@@ -88,7 +89,7 @@ class SpeechToTextService(Service):
         recognized_text = await self.vosk_engine.recognize(event.audio_bytes, event.sample_rate)
         processing_time = (time.time() - start) * 1000
         if recognized_text and recognized_text.strip():
-            await self._event_bus.publish(
+            await self.event_bus.publish(
                 CommandTextRecognizedEvent(text=recognized_text, processing_time_ms=processing_time, engine="vosk", mode="command")
             )
 
@@ -109,8 +110,6 @@ class SpeechToTextService(Service):
         self._current_dictation_mode = event.dictation_mode
 
     async def shutdown(self) -> None:
-        self._event_bus.unsubscribe(CommandAudioSegmentReadyEvent, self._handle_command_audio_segment)
-        self._event_bus.unsubscribe(DictationModeDisableOthersEvent, self._handle_dictation_mode_change)
         if self.vosk_engine is not None:
             await self.vosk_engine.shutdown()
             self.vosk_engine = None
@@ -118,3 +117,4 @@ class SpeechToTextService(Service):
             await self.moonshine_engine.shutdown()
             self.moonshine_engine = None
         gc.collect()
+        await super().shutdown()

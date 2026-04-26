@@ -81,7 +81,7 @@ class CentralizedCommandParser(Service):
         storage: StorageService,
         pause_state_manager: Optional[PauseStateManager] = None,
     ) -> None:
-        self.event_bus = event_bus
+        super().__init__(event_bus)
         self.app_config = app_config
         self.storage = storage
         self.sound_to_command_mapping: Dict[str, str] = {}
@@ -90,22 +90,10 @@ class CentralizedCommandParser(Service):
         self._command_interval_lock = asyncio.Lock()
         self._last_command_executed_mono: Optional[float] = None
 
-        event_bus.subscribe(CommandTextRecognizedEvent, self.handle_command_text_recognized)
-        event_bus.subscribe(CustomSoundRecognizedEvent, self.handle_custom_sound_recognized)
-        event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self.handle_sound_mapping_updated)
-        event_bus.subscribe(SoundMappingsResponseEvent, self.handle_sound_mappings_response)
-
-    async def initialize(self) -> bool:
-        return True
-
-    async def shutdown(self) -> None:
-        for event_type, handler in [
-            (CommandTextRecognizedEvent, self.handle_command_text_recognized),
-            (CustomSoundRecognizedEvent, self.handle_custom_sound_recognized),
-            (SoundToCommandMappingUpdatedEvent, self.handle_sound_mapping_updated),
-            (SoundMappingsResponseEvent, self.handle_sound_mappings_response),
-        ]:
-            self.event_bus.unsubscribe(event_type, handler)
+        self.subscribe(CommandTextRecognizedEvent, self.handle_command_text_recognized)
+        self.subscribe(CustomSoundRecognizedEvent, self.handle_custom_sound_recognized)
+        self.subscribe(SoundToCommandMappingUpdatedEvent, self.handle_sound_mapping_updated)
+        self.subscribe(SoundMappingsResponseEvent, self.handle_sound_mappings_response)
 
     async def process_text_input(self, text: str, source: Optional[str] = None) -> None:
         """Normalize text, apply rate limiting and pause rules, parse, and publish when matched."""

@@ -17,7 +17,7 @@ class QtSystemController(QtBaseController):
     def __init__(self, event_bus: EventBus, main_window: Any) -> None:
         super().__init__(event_bus=event_bus, logger=logging.getLogger(self.__class__.__name__))
         self.main_window = main_window
-        self.event_bus.subscribe(AudioDeviceErrorEvent, self._on_audio_device_error)
+        self.subscribe(AudioDeviceErrorEvent, self._on_audio_device_error)
         self.audio_device_error.connect(self._show_microphone_error_dialog)
 
     def _on_audio_device_error(self, device_error: AudioDeviceErrorEvent) -> None:
@@ -32,7 +32,6 @@ class QtSystemController(QtBaseController):
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
 
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(AudioDeviceErrorEvent, self._on_audio_device_error)
+    def shutdown(self) -> None:
         self.main_window = None
-        super().cleanup()
+        super().shutdown()

@@ -39,15 +39,15 @@ class QtDictationController(QtBaseController):
         self.config = config
         self.prompts: List[Dict[str, Any]] = []
         self.current_prompt_id: Optional[str] = None
-        self.event_bus.subscribe(AgenticPromptListUpdatedEvent, self.on_prompts_updated)
-        self.event_bus.subscribe(AgenticPromptUpdatedEvent, self.on_current_prompt_updated)
-        self.event_bus.subscribe(DictationStatusChangedEvent, self.on_dictation_status_changed)
-        self.event_bus.subscribe(DictationSessionEvent, self.on_dictation_session)
-        self.event_bus.subscribe(PartialDictationTextEvent, self.on_partial_text)
-        self.event_bus.subscribe(FinalDictationTextEvent, self.on_final_text)
-        self.event_bus.subscribe(LLMProcessingStartedEvent, self.on_llm_started)
-        self.event_bus.subscribe(LLMProcessingCompletedEvent, self.on_llm_completed)
-        self.event_bus.subscribe(LLMProcessingFailedEvent, self.on_llm_failed)
+        self.subscribe(AgenticPromptListUpdatedEvent, self.on_prompts_updated)
+        self.subscribe(AgenticPromptUpdatedEvent, self.on_current_prompt_updated)
+        self.subscribe(DictationStatusChangedEvent, self.on_dictation_status_changed)
+        self.subscribe(DictationSessionEvent, self.on_dictation_session)
+        self.subscribe(PartialDictationTextEvent, self.on_partial_text)
+        self.subscribe(FinalDictationTextEvent, self.on_final_text)
+        self.subscribe(LLMProcessingStartedEvent, self.on_llm_started)
+        self.subscribe(LLMProcessingCompletedEvent, self.on_llm_completed)
+        self.subscribe(LLMProcessingFailedEvent, self.on_llm_failed)
 
     def prompt_ui(self, op: str, **kwargs: Any) -> None:
         asyncio.create_task(self.event_bus.publish(AgenticPromptUiOperationEvent(op=op, **kwargs)))
@@ -151,14 +151,3 @@ class QtDictationController(QtBaseController):
         self.emit_status(message, is_error)
         if is_error:
             self.operation_error.emit(message)
-
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(AgenticPromptListUpdatedEvent, self.on_prompts_updated)
-        self.event_bus.unsubscribe(AgenticPromptUpdatedEvent, self.on_current_prompt_updated)
-        self.event_bus.unsubscribe(DictationStatusChangedEvent, self.on_dictation_status_changed)
-        self.event_bus.unsubscribe(DictationSessionEvent, self.on_dictation_session)
-        self.event_bus.unsubscribe(PartialDictationTextEvent, self.on_partial_text)
-        self.event_bus.unsubscribe(FinalDictationTextEvent, self.on_final_text)
-        self.event_bus.unsubscribe(LLMProcessingStartedEvent, self.on_llm_started)
-        self.event_bus.unsubscribe(LLMProcessingCompletedEvent, self.on_llm_completed)
-        self.event_bus.unsubscribe(LLMProcessingFailedEvent, self.on_llm_failed)
