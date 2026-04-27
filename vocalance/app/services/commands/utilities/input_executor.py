@@ -4,7 +4,7 @@ import asyncio
 from typing import Any, Callable, TypeVar
 
 from vocalance.app.event_bus import EventBus
-from vocalance.app.lifecycle import run_blocking
+from vocalance.app.lifecycle.worker import run_blocking
 from vocalance.app.services.base_service import Service
 
 T = TypeVar("T")

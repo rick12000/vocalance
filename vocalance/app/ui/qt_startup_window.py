@@ -7,7 +7,7 @@ from PySide6.QtGui import QCloseEvent, QColor, QPainter, QPainterPath, QPaintEve
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import AssetPathsConfig
-from vocalance.app.lifecycle import AppLifecycle
+from vocalance.app.lifecycle.lifecycle import AppLifecycle
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService

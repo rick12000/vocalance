@@ -34,8 +34,8 @@ from vocalance.app.events.dictation_events import (
     LLMProcessingStartedEvent,
     PartialDictationTextEvent,
 )
-from vocalance.app.lifecycle import AppLifecycle
 from vocalance.app.lifecycle.cancellation import CancellationToken
+from vocalance.app.lifecycle.lifecycle import AppLifecycle
 from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
 from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService

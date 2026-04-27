@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 import os
-import sys
 
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w")
-if sys.stderr is None:
-    sys.stderr = open(os.devnull, "w")
-
+os.environ.setdefault("TQDM_DISABLE", "1")
 os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "600")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
@@ -17,14 +12,15 @@ import importlib.util
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtWidgets import QApplication
 
 from vocalance.app.config.app_config import AppInfoConfig, GlobalAppConfig
 from vocalance.app.config.logging_config import setup_logging
 from vocalance.app.event_bus import EventBus
-from vocalance.app.lifecycle import AppLifecycle, CancellationToken, ServiceSpec, build_services, register_services_for_teardown
+from vocalance.app.lifecycle.lifecycle import AppLifecycle
+from vocalance.app.lifecycle.registry import ServiceSpec, build_services, register_services_for_teardown
 from vocalance.app.ui.qt_startup_window import StartupProgressTracker, StartupWindow
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
@@ -46,7 +42,7 @@ def _service_specs() -> List[ServiceSpec]:
     Teardown is the reverse of this order (LIFO), so adding a new service is a
     single-line edit: construction, registration, and teardown are all derived
     from this list. Heavy module imports stay scoped to this function so they
-    only fire when ``build_services`` runs (off the GUI thread).
+    only fire when ``build_services`` runs, not on ``qt_main`` import.
     """
     from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
     from vocalance.app.services.audio.simple_audio_service import AudioService
@@ -140,31 +136,6 @@ def _service_specs() -> List[ServiceSpec]:
     ]
 
 
-def _construct_services_sync(
-    event_bus: EventBus,
-    config: GlobalAppConfig,
-    gui_loop: asyncio.AbstractEventLoop,
-    cancel_token: CancellationToken,
-    lifecycle: AppLifecycle,
-) -> Tuple[Dict[str, Any], List[ServiceSpec]]:
-    """Build every service from the declarative spec list on a worker thread.
-
-    Returns the populated context dict and the spec list used to build it. The
-    caller registers services with the lifecycle on the main thread, since the
-    registration list is not thread-safe.
-    """
-    specs = _service_specs()
-    ctx: Dict[str, Any] = {
-        "event_bus": event_bus,
-        "config": config,
-        "gui_loop": gui_loop,
-        "cancel_token": cancel_token,
-        "lifecycle": lifecycle,
-    }
-    build_services(specs, ctx)
-    return ctx, specs
-
-
 def _moonshine_model_cache_ready() -> bool:
     """Return True if the Moonshine cache directory exists and is non-empty."""
     if importlib.util.find_spec("moonshine_voice.download_file") is None:
@@ -201,7 +172,6 @@ async def _run_initialization(
     await services.click_tracker.initialize()
     await services.centralized_parser.initialize()
     progress.complete_step()
-    lifecycle.raise_if_shutdown_requested()
 
     progress.start_step(step_name="Starting audio processing...")
 
@@ -217,10 +187,10 @@ async def _run_initialization(
         else "Loading YAMNet model. This should take 1-2 minutes on first use."
     )
     await services.sound_service.initialize()
-    lifecycle.track_background_task(
-        lifecycle.run_blocking(services.sound_service.recognizer.warm_start_esc50_samples, name="esc50-warmup")
+    lifecycle.spawn(
+        lifecycle.run_blocking(services.sound_service.recognizer.warm_start_esc50_samples, name="esc50-warmup"),
+        name="esc50-warmup",
     )
-    lifecycle.raise_if_shutdown_requested()
 
     progress.update_status_animated(
         status="Initializing speech-to-text"
@@ -228,7 +198,6 @@ async def _run_initialization(
         else "Fetching Moonshine STT model. This may take several minutes on first use."
     )
     await services.stt.initialize()
-    lifecycle.raise_if_shutdown_requested()
 
     progress.update_sub_step(sub_step_name="Preparing dictation system...")
     allow = config.local_llm_allowlist
@@ -253,7 +222,6 @@ async def _run_initialization(
     progress.update_sub_step(sub_step_name="Initializing dictation", progress=0.55)
     if not await services.dictation.initialize():
         raise RuntimeError("Critical dictation initialization failed")
-    lifecycle.raise_if_shutdown_requested()
 
     progress.complete_step()
 
@@ -274,7 +242,7 @@ async def main() -> None:
     if qt_app is None:
         raise RuntimeError("QApplication instance is missing; create it before calling main()")
 
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
     lifecycle.install_signal_handlers()
 
     startup_window: Optional[StartupWindow] = None
@@ -320,21 +288,20 @@ async def main() -> None:
         progress.start_step(step_name="Loading core components...")
         progress.update_status_animated(status="Initializing services")
 
-        ctx, specs = await lifecycle.run_blocking(
-            _construct_services_sync,
-            event_bus,
-            config,
-            gui_loop,
-            lifecycle.cancel_token,
-            lifecycle,
-            name="construct-services",
-        )
+        specs = _service_specs()
+        ctx: Dict[str, Any] = {
+            "event_bus": event_bus,
+            "config": config,
+            "gui_loop": gui_loop,
+            "cancel_token": lifecycle.cancel_token,
+            "lifecycle": lifecycle,
+        }
+        build_services(specs, ctx)
         services = SimpleNamespace(**{spec.name: ctx[spec.name] for spec in specs})
 
         lifecycle.register_resource(event_bus)
         register_services_for_teardown(specs, ctx, lifecycle)
         progress.complete_step()
-        lifecycle.raise_if_shutdown_requested()
 
         event_bus.start(gui_loop)
 

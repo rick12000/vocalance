@@ -106,7 +106,7 @@ Service Lifecycle: Initialization and Shutdown
 Services are initialized in stages, activated, and finally shut down gracefully. The lifecycle is coordinated in ``qt_main.py``.
 
 Initialization Sequence
----------------------
+-----------------------
 
 1. **Configuration and Logging**: Load ``GlobalAppConfig`` and set up logging.
 2. **UI Setup**: Initialize Qt application, load fonts, apply stylesheet, and show the ``StartupWindow``.
@@ -128,7 +128,7 @@ Shutdown is managed by ``AppLifecycle`` (``vocalance.app.lifecycle``), which own
 1. **Request Shutdown**: Triggered by the user closing the main window, OS signals (SIGINT/SIGTERM), or any failure path; ``AppLifecycle.request_shutdown`` is thread-safe and idempotent.
 2. **Cancel Token**: ``CancellationToken`` is set, propagating to every cooperating sync worker and any per-operation events linked via ``link_event``.
 3. **Cancel Init Task**: An in-flight ``initialize`` coroutine is cancelled and awaited under a short grace period.
-4. **Cancel Background Tasks**: Every task tracked via ``track_background_task`` is cancelled and awaited.
+4. **Cancel Background Tasks**: Every task created via ``AppLifecycle.spawn`` is cancelled and awaited.
 5. **Close Resources (LIFO)**: ``AsyncCloseable.shutdown`` is invoked on each registered resource in reverse registration order, so audio and dictation are torn down before the engines they depend on.
 6. **Drain Default Executor**: ``loop.shutdown_default_executor`` is awaited so non-daemon worker threads from ``asyncio.to_thread``/``run_in_executor`` cannot outlive the lifecycle.
 7. **Stop Signal Timer**: The Qt poll timer that bridges OS signals onto the GUI loop is stopped.

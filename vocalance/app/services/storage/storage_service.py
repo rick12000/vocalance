@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional, Type
 from pydantic import BaseModel, ValidationError
 
 from vocalance.app.config.app_config import GlobalAppConfig, StorageConfig
-from vocalance.app.lifecycle import run_blocking
+from vocalance.app.lifecycle.worker import run_blocking
 from vocalance.app.services.storage.atomic_json import JsonReadError, JsonWriteError, read_json_dict, write_json_atomic
 from vocalance.app.services.storage.storage_models import (
     AgenticPromptsData,

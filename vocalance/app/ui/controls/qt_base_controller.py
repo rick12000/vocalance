@@ -5,9 +5,8 @@ from typing import Any, Callable, Optional, Type
 
 from PySide6.QtCore import QObject, Signal
 
-from vocalance.app.event_bus import EventBus
+from vocalance.app.event_bus import EventBus, SubscriptionTracker
 from vocalance.app.events.base_event import BaseEvent
-from vocalance.app.lifecycle.concurrency import SubscriptionTracker
 
 
 class QtBaseController(QObject):

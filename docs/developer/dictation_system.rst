@@ -357,7 +357,7 @@ Smart, amend, visual, hidden, standard, and type dictation share the Moonshine s
 **Batch API**: ``MoonshineSTT.recognize`` remains for short offline segments; continuous dictation does not use a rolling in-process buffer like the old streaming STT loop.
 
 Two-phase workflow (smart / amend)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Phase 1 — Recording**: Moonshine partial/final events update the UI and ``accumulated_text`` (and the amend instructions column).
 

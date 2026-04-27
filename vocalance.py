@@ -1,3 +1,4 @@
+import os
 import sys
 import warnings
 
@@ -5,6 +6,14 @@ import PySide6.QtAsyncio as QtAsyncio
 from PySide6.QtWidgets import QApplication
 
 from vocalance.qt_main import main
+
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
+os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 if __name__ == "__main__":
     # Known PySide6.QtAsyncio bug: it leaks the shutdown_asyncgens coroutine

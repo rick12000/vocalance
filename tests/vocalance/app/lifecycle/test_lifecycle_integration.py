@@ -7,7 +7,8 @@ from typing import Any, Dict, List
 
 import pytest
 
-from vocalance.app.lifecycle import AppLifecycle, ServiceSpec, build_services, register_services_for_teardown
+from vocalance.app.lifecycle.lifecycle import AppLifecycle
+from vocalance.app.lifecycle.registry import ServiceSpec, build_services, register_services_for_teardown
 
 
 class _RecordingResource:
@@ -42,7 +43,7 @@ class _SlowResource:
 
 @pytest.mark.asyncio
 async def test_resources_torn_down_in_lifo_order() -> None:
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
     sink: List[str] = []
     for tag in ("first", "second", "third"):
         lifecycle.register_resource(_RecordingResource(tag, sink))
@@ -54,7 +55,7 @@ async def test_resources_torn_down_in_lifo_order() -> None:
 
 @pytest.mark.asyncio
 async def test_teardown_is_idempotent() -> None:
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
     sink: List[str] = []
     resource = _RecordingResource("only", sink)
     lifecycle.register_resource(resource)
@@ -68,7 +69,7 @@ async def test_teardown_is_idempotent() -> None:
 
 @pytest.mark.asyncio
 async def test_teardown_handles_sync_and_slow_resources() -> None:
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
     sink: List[str] = []
     lifecycle.register_resource(_SlowResource())
     lifecycle.register_resource(_SyncResource(sink))
@@ -84,7 +85,7 @@ async def test_teardown_handles_sync_and_slow_resources() -> None:
 
 @pytest.mark.asyncio
 async def test_run_blocking_threads_do_not_outlive_teardown() -> None:
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
     started = threading.Event()
     cancelled = threading.Event()
 
@@ -95,9 +96,6 @@ async def test_run_blocking_threads_do_not_outlive_teardown() -> None:
             time.sleep(0.01)
         cancelled.set()
         return "done"
-
-    task = asyncio.create_task(lifecycle.run_blocking(cooperative_worker, name="coop"))
-    lifecycle.track_background_task(task)
 
     assert await asyncio.get_running_loop().run_in_executor(None, started.wait, 2.0)
 
@@ -120,7 +118,7 @@ async def test_run_blocking_threads_do_not_outlive_teardown() -> None:
 
 @pytest.mark.asyncio
 async def test_teardown_cancels_init_task() -> None:
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
     init_started = asyncio.Event()
 
     async def init_routine() -> None:
@@ -138,7 +136,7 @@ async def test_teardown_cancels_init_task() -> None:
 
 @pytest.mark.asyncio
 async def test_request_shutdown_unblocks_wait() -> None:
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
 
     waiter = asyncio.create_task(lifecycle.wait())
     await asyncio.sleep(0)
@@ -155,7 +153,7 @@ async def test_request_shutdown_unblocks_wait() -> None:
 @pytest.mark.asyncio
 async def test_service_spec_registry_drives_lifo_teardown() -> None:
     """Registry order is construction order; lifecycle tears down in reverse."""
-    lifecycle = AppLifecycle(asyncio.get_running_loop())
+    lifecycle = AppLifecycle()
     sink: List[str] = []
 
     def factory(tag: str):

@@ -12,9 +12,8 @@ from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfi
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiRequestEvent, SettingsChangedEvent
 from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent
-from vocalance.app.lifecycle import run_blocking
 from vocalance.app.lifecycle.cancellation import CancellationToken
-from vocalance.app.lifecycle.concurrency import schedule_on_loop
+from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
 from vocalance.app.services.storage.user_configurable_settings import LLM_SESSION_SETTING_PATHS

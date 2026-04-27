@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.events.grid_events import GridClickHistoryChangedEvent
-from vocalance.app.lifecycle import AppLifecycle
+from vocalance.app.lifecycle.lifecycle import AppLifecycle
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService

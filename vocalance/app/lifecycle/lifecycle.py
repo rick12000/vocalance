@@ -6,7 +6,7 @@ import logging
 import signal
 import threading
 from types import FrameType
-from typing import Any, Awaitable, Callable, Coroutine, List, Optional, Protocol, TypeVar, Union, runtime_checkable
+from typing import Any, Callable, Coroutine, List, Optional, Protocol, TypeVar, runtime_checkable
 
 from PySide6.QtCore import QTimer
 
@@ -42,16 +42,13 @@ class AppLifecycle:
     error path.
     """
 
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self) -> None:
         try:
-            running = asyncio.get_running_loop()
+            self._loop = asyncio.get_running_loop()
         except RuntimeError as e:
             raise RuntimeError("AppLifecycle must be constructed from a coroutine running on the target loop.") from e
-        if running is not loop:
-            raise ValueError("loop must be the asyncio loop returned by get_running_loop() in this context.")
 
-        self._loop = loop
-        self.cancel_token = CancellationToken(loop)
+        self.cancel_token = CancellationToken(self._loop)
 
         self._coord_lock = threading.Lock()
         self._requested = False
@@ -122,11 +119,6 @@ class AppLifecycle:
         """Block until shutdown has been requested."""
         await self._shutdown_event.wait()
 
-    def raise_if_shutdown_requested(self) -> None:
-        """Raise ``CancelledError`` if shutdown was requested. Use as init checkpoints."""
-        if self.is_shutdown_requested():
-            raise asyncio.CancelledError("Shutdown requested during initialization")
-
     def register_init_task(self, task: asyncio.Task[Any]) -> None:
         """Track the initialization task so it is cancelled on shutdown."""
         self._init_task = task
@@ -134,19 +126,6 @@ class AppLifecycle:
     def clear_init_task(self) -> None:
         """Drop the init task reference once initialization has completed."""
         self._init_task = None
-
-    def track_background_task(self, target: Union[asyncio.Task[Any], Awaitable[Any]]) -> asyncio.Task[Any]:
-        """Track a background task so it is cancelled and awaited on teardown.
-
-        Args:
-            target: An ``asyncio.Task`` or any awaitable to wrap as a task.
-
-        Returns:
-            The tracked task.
-        """
-        task = target if isinstance(target, asyncio.Task) else asyncio.ensure_future(target)
-        self._background_tasks.append(task)
-        return task
 
     def spawn(self, coro: Coroutine[Any, Any, Any], *, name: str = "task") -> asyncio.Task[Any]:
         """Create, track, and observe a background task.

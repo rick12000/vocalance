@@ -15,7 +15,7 @@ import soundfile as sf
 from scipy.spatial.distance import cosine
 
 from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.lifecycle import run_blocking
+from vocalance.app.lifecycle.worker import run_blocking
 from vocalance.app.services.storage.storage_models import SoundMappingsData
 from vocalance.app.services.storage.storage_service import StorageService
 

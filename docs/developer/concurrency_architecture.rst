@@ -15,7 +15,7 @@ Because both the UI and the asynchronous backend services share this single thre
 If a task takes too long to execute synchronously on the Main Thread, the entire application freezes—the UI stops responding, animations stutter, and audio buffers overflow. We only use background threads when an operation would violate this rule.
 
 The Asynchronous Event Bus
-=========================
+==========================
 
 The ``EventBus`` is the central nervous system of Vocalance. It facilitates communication between decoupled components (e.g., Audio Listeners -> STT Service -> Dictation Coordinator -> UI Controllers).
 

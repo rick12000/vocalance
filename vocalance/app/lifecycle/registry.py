@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List
-
-from pydantic import BaseModel, ConfigDict
+from typing import Any, Callable, Dict, List, NamedTuple
 
 from vocalance.app.lifecycle.lifecycle import AppLifecycle
 
 
-class ServiceSpec(BaseModel):
+class ServiceSpec(NamedTuple):
     """Declarative description of one service in the construction graph.
 
     Spec order in a list defines both construction order and the LIFO teardown
@@ -22,8 +20,6 @@ class ServiceSpec(BaseModel):
             the service's ``initialize`` coroutine; otherwise wrap blocking work
             in ``run_blocking`` so the calling thread is not stalled.
     """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
     name: str
     factory: Callable[[Dict[str, Any]], Any]

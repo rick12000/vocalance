@@ -39,7 +39,7 @@ How Audio Listening Works
        G --> A
 
 Segmenter Comparison
--------------------
+--------------------
 
 .. list-table::
    :header-rows: 1

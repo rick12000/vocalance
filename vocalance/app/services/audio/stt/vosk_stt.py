@@ -8,7 +8,7 @@ from typing import Optional
 import vosk
 
 from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.lifecycle import run_blocking
+from vocalance.app.lifecycle.worker import run_blocking
 
 
 class VoskSTT:

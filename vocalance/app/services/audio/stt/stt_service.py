@@ -14,6 +14,7 @@ from vocalance.app.events.dictation_events import (
     DictationModifierPhraseEvent,
     DictationStopWordDetectedEvent,
 )
+from vocalance.app.lifecycle.worker import run_blocking
 from vocalance.app.services.audio.stt.moonshine_stt import MoonshineSTT
 from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
 from vocalance.app.services.base_service import Service
@@ -51,8 +52,6 @@ class SpeechToTextService(Service):
 
     async def initialize(self) -> bool:
         """Load Vosk and Moonshine on a daemon worker thread."""
-        from vocalance.app.lifecycle.worker import run_blocking
-
         stt_cfg = self._config.stt
 
         def _load_engines() -> tuple[VoskSTT, MoonshineSTT]:

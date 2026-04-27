@@ -6,7 +6,7 @@ from typing import Dict
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import DictationAliasListUpdatedEvent, DictationAliasUiOperationEvent
-from vocalance.app.lifecycle.concurrency import schedule_on_loop
+from vocalance.app.lifecycle.worker import schedule_on_loop
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import DictationAliasData
 from vocalance.app.services.storage.storage_service import StorageService

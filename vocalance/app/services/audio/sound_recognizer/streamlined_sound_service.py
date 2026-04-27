@@ -23,7 +23,7 @@ from vocalance.app.events.sound_events import (
     SoundTrainingProgressEvent,
     SoundUiOperationEvent,
 )
-from vocalance.app.lifecycle import run_blocking
+from vocalance.app.lifecycle.worker import run_blocking
 from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_service import StorageService

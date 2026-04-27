@@ -49,15 +49,19 @@ Pipeline 1: Speech-to-Text Pipeline
 Engines
 -------
 
-+----------+---------------------------+---------------------------+
-|          | Vosk                      | Moonshine                 |
-+==========+===========================+===========================+
-| Role     | Command + stop-word       | Dictation (streaming +   |
-|          | segments                  | batch in coordinator)     |
-+----------+---------------------------+---------------------------+
-| Input    | ``CommandAudioSegment     | PCM from audio callback,  |
-|          | ReadyEvent``              | ingress queue → stream    |
-+----------+---------------------------+---------------------------+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 40 45
+
+   * -
+     - Vosk
+     - Moonshine
+   * - Role
+     - Command + stop-word segments
+     - Dictation (streaming + batch in coordinator)
+   * - Input
+     - ``CommandAudioSegmentReadyEvent``
+     - PCM from audio callback, ingress queue → stream
 
 - **Vosk**: Loaded and used by ``SpeechToTextService`` for command segments.
 - **Moonshine**: Loaded alongside Vosk; streaming sessions are opened by ``DictationCoordinator``. Optional ``moonshine_max_stream_line_duration_seconds`` rotates native streams during long dictation to cap decoder work.

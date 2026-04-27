@@ -10,7 +10,7 @@ import numpy as np
 from moonshine_voice.errors import check_error
 
 from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.lifecycle import run_blocking, schedule_on_loop
+from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.audio.stt.dictation_text_normalize import normalize_dictation_text
 
 logger = logging.getLogger(__name__)

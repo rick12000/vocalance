@@ -6,10 +6,10 @@ This directory contains the Sphinx documentation for the Vocalance voice command
 
 ### Prerequisites
 
-Install the required dependencies:
+Install the project with documentation dependencies (run from the repository root):
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[docs]"
 ```
 
 ### Building HTML Documentation

@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDeviceErrorEvent
-from vocalance.app.lifecycle import schedule_on_loop
+from vocalance.app.lifecycle.worker import schedule_on_loop
 
 
 class AudioRecorder:
