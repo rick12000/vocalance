@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from threading import RLock
 from typing import Any, Dict, List, Optional
@@ -24,6 +23,7 @@ from vocalance.app.events.sound_events import (
     SoundTrainingProgressEvent,
     SoundUiOperationEvent,
 )
+from vocalance.app.lifecycle import run_blocking
 from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_service import StorageService
@@ -100,8 +100,7 @@ class SoundService(Service):
                 await self._collect_training_sample(audio=audio_float32, sample_rate=sample_rate)
                 return
 
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, self.recognizer.recognize_sound, audio_float32, sample_rate)
+            result = await run_blocking(self.recognizer.recognize_sound, audio_float32, sample_rate, name="sound-recognize")
 
             if result:
                 sound_label, confidence = result

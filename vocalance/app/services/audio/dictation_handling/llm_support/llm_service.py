@@ -12,6 +12,7 @@ from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfi
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiRequestEvent, SettingsChangedEvent
 from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent
+from vocalance.app.lifecycle import run_blocking
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.concurrency import schedule_on_loop
 from vocalance.app.services.base_service import Service
@@ -144,9 +145,8 @@ class LLMService(Service):
         self.model_loaded = False
         try:
             async with asyncio.timeout(5.0):
-                loop = asyncio.get_running_loop()
                 if hasattr(llm_ref, "close"):
-                    await loop.run_in_executor(None, llm_ref.close)
+                    await run_blocking(llm_ref.close, name="llm-close")
         except asyncio.TimeoutError:
             logger.warning("LLM close timed out after 5s")
         gc.collect()
@@ -212,9 +212,8 @@ class LLMService(Service):
                 await self.emit_failed("LLM model file missing or empty", fallback_text)
                 return fallback_text.strip()
 
-            loop = asyncio.get_running_loop()
             try:
-                self.llm = await loop.run_in_executor(None, self.load_model, model_path)
+                self.llm = await run_blocking(self.load_model, model_path, name="llm-load")
             except Exception as e:
                 await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
                 return fallback_text.strip()
@@ -311,7 +310,7 @@ class LLMService(Service):
                         loop.call_soon_threadsafe(token_queue.put_nowait, token)
             loop.call_soon_threadsafe(token_queue.put_nowait, None)
 
-        executor_task = loop.run_in_executor(None, sync_generate)
+        executor_task = asyncio.create_task(run_blocking(sync_generate, name="llm-generate"))
 
         try:
             while True:

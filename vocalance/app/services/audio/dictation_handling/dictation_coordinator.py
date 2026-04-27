@@ -34,6 +34,7 @@ from vocalance.app.events.dictation_events import (
     LLMProcessingStartedEvent,
     PartialDictationTextEvent,
 )
+from vocalance.app.lifecycle import AppLifecycle
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
 from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
@@ -373,7 +374,9 @@ class DictationLlmRuntime:
 
             self.coordinator.pending_llm_session = None
 
-        self.coordinator.llm_processing_task = asyncio.create_task(self.start_processing(pending))
+        self.coordinator.llm_processing_task = self.coordinator.lifecycle.spawn(
+            self.start_processing(pending), name="llm-processing"
+        )
 
     async def start_processing(self, llm_session: LLMSession) -> None:
         sid = llm_session.session_id
@@ -408,6 +411,7 @@ class DictationCoordinator(Service):
         gui_event_loop: asyncio.AbstractEventLoop,
         stt_service: SpeechToTextService,
         input_service: KeyboardInputService,
+        lifecycle: AppLifecycle,
         cancel_token: Optional[CancellationToken] = None,
     ) -> None:
         super().__init__(event_bus)
@@ -415,6 +419,7 @@ class DictationCoordinator(Service):
         self.gui_event_loop = gui_event_loop
         self.stt_service = stt_service
         self.input_service = input_service
+        self.lifecycle = lifecycle
         self.cancel_token = cancel_token
 
         self.state_lock = threading.RLock()
@@ -425,7 +430,7 @@ class DictationCoordinator(Service):
         self.type_silence_task: Optional[asyncio.Task] = None
         self.llm_processing_task: Optional[asyncio.Task] = None
 
-        self.text_service = DictationTextInput(config=config.dictation, loop=gui_event_loop, input_service=input_service)
+        self.text_service = DictationTextInput(config=config.dictation, input_service=input_service)
         self.llm_service = LLMService(event_bus=event_bus, config=config, gui_event_loop=gui_event_loop, cancel_token=cancel_token)
         self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
         self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
@@ -786,7 +791,7 @@ class DictationCoordinator(Service):
             await self.event_bus.publish(DictationSessionEvent(mode="hidden", state="started"))
 
         if mode == DictationMode.TYPE:
-            self.type_silence_task = asyncio.create_task(self.monitor_type_silence())
+            self.type_silence_task = self.lifecycle.spawn(self.monitor_type_silence(), name="type-silence-monitor")
 
         await self.publish_status(True, mode)
 

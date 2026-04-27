@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import gc
 import logging
 import os
 import pickle
 import shutil
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -17,6 +15,7 @@ import soundfile as sf
 from scipy.spatial.distance import cosine
 
 from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.lifecycle import run_blocking
 from vocalance.app.services.storage.storage_models import SoundMappingsData
 from vocalance.app.services.storage.storage_service import StorageService
 
@@ -162,8 +161,6 @@ class SoundRecognizer:
 
         self._model_lock = RLock()
 
-        self._file_io_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sound-file-io")
-
         self.target_sr = self.config.target_sample_rate
         self.confidence_threshold = self.config.confidence_threshold
         self.k_neighbors = self.config.k_neighbors
@@ -188,8 +185,7 @@ class SoundRecognizer:
                 logger.error("TensorFlow not available")
                 return False
 
-            loop = asyncio.get_running_loop()
-            success = await loop.run_in_executor(None, self._initialize_yamnet_model)
+            success = await run_blocking(self._initialize_yamnet_model, name="yamnet-init")
             if not success:
                 return False
 
@@ -287,10 +283,7 @@ class SoundRecognizer:
                 scaler_obj = self.scaler
                 mappings = self.mappings.copy()
 
-            loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(
-                self._file_io_executor, self._save_model_files_sync, embeddings, labels, scaler_obj
-            )
+            success = await run_blocking(self._save_model_files_sync, embeddings, labels, scaler_obj, name="sound-save-model")
 
             if not success:
                 return False
@@ -645,10 +638,7 @@ class SoundRecognizer:
             return
 
         try:
-            loop = asyncio.get_event_loop()
-            esc50_embeddings, esc50_labels = await loop.run_in_executor(
-                self._file_io_executor, self._extract_esc50_embeddings_sync
-            )
+            esc50_embeddings, esc50_labels = await run_blocking(self._extract_esc50_embeddings_sync, name="esc50-extract")
 
             if not esc50_embeddings:
                 return
@@ -817,16 +807,6 @@ class SoundRecognizer:
     async def shutdown(self) -> None:
         try:
             logger.info("Shutting down SoundRecognizer")
-
-            if self._file_io_executor is not None:
-                try:
-                    loop = asyncio.get_event_loop()
-                    await asyncio.wait_for(loop.run_in_executor(None, self._file_io_executor.shutdown, True), timeout=5.0)
-                    logger.debug("File I/O executor shutdown complete")
-                except asyncio.TimeoutError:
-                    logger.warning("File I/O executor shutdown timed out, forcing shutdown")
-                except Exception as e:
-                    logger.warning("Error during executor shutdown: %s", e)
 
             if self.yamnet_model is not None:
                 del self.yamnet_model

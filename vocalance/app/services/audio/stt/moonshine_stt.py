@@ -10,6 +10,7 @@ import numpy as np
 from moonshine_voice.errors import check_error
 
 from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.lifecycle import run_blocking, schedule_on_loop
 from vocalance.app.services.audio.stt.dictation_text_normalize import normalize_dictation_text
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ class MoonshineDictationStreamSession:
         segment_id = str(line_update.line.line_id)
         coro = self._on_partial(text, segment_id)
         try:
-            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
+            schedule_on_loop(self._loop, coro)
         except RuntimeError:
             coro.close()
 
@@ -75,7 +76,7 @@ class MoonshineDictationStreamSession:
         segment_id = str(line_completed.line.line_id)
         coro = self._on_final(text, segment_id)
         try:
-            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(coro))
+            schedule_on_loop(self._loop, coro)
         except RuntimeError:
             coro.close()
 
@@ -210,7 +211,7 @@ class MoonshineSTT:
     async def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
         """Run ``recognize_sync`` under ``_model_lock`` on a worker thread."""
         async with self._model_lock:
-            return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
+            return await run_blocking(self.recognize_sync, audio_bytes, sample_rate, name="moonshine-recognize")
 
     def open_dictation_stream(
         self,

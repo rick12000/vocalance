@@ -6,7 +6,7 @@ import logging
 import signal
 import threading
 from types import FrameType
-from typing import Any, Awaitable, Callable, List, Optional, Protocol, TypeVar, Union, runtime_checkable
+from typing import Any, Awaitable, Callable, Coroutine, List, Optional, Protocol, TypeVar, Union, runtime_checkable
 
 from PySide6.QtCore import QTimer
 
@@ -147,6 +147,33 @@ class AppLifecycle:
         task = target if isinstance(target, asyncio.Task) else asyncio.ensure_future(target)
         self._background_tasks.append(task)
         return task
+
+    def spawn(self, coro: Coroutine[Any, Any, Any], *, name: str = "task") -> asyncio.Task[Any]:
+        """Create, track, and observe a background task.
+
+        Combines ``loop.create_task`` with lifecycle tracking and a done-callback
+        that logs any unhandled exception so a fire-and-forget task can never
+        silently swallow errors.
+
+        Args:
+            coro: Coroutine to schedule on this lifecycle's loop.
+            name: Diagnostic task name.
+
+        Returns:
+            The created task.
+        """
+        task = self._loop.create_task(coro, name=name)
+        task.add_done_callback(self._log_task_exception)
+        self._background_tasks.append(task)
+        return task
+
+    @staticmethod
+    def _log_task_exception(task: asyncio.Task[Any]) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("Background task %r failed: %s", task.get_name(), exc, exc_info=exc)
 
     def register_resource(self, resource: AsyncCloseable) -> None:
         """Register a resource to be closed (LIFO) during teardown."""

@@ -1,5 +1,4 @@
 import asyncio
-import threading
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
@@ -39,7 +38,6 @@ class AudioService(Service):
         self.command_segmenter = self.create_command_segmenter()
         self.sound_segmenter = self.create_sound_segmenter()
         self.sound_input_muted = False
-        self.dictation_lock = threading.Lock()
         self.subscribe(DictationModeDisableOthersEvent, self.apply_dictation)
         self.subscribe(SettingsChangedEvent, self._handle_settings_changed)
 
@@ -85,8 +83,7 @@ class AudioService(Service):
         return UtteranceSegmenter(segment_config, self.chunk_analyzer, app_config.audio.sample_rate)
 
     def apply_dictation(self, event: DictationModeDisableOthersEvent) -> None:
-        with self.dictation_lock:
-            self.sound_input_muted = event.dictation_mode_active
+        self.sound_input_muted = event.dictation_mode_active
 
     async def publish_mic_level_meter_chunk(self, pcm: bytes) -> None:
         await self.event_bus.publish(MicLevelMeterPcmChunkEvent(audio_chunk=pcm))
@@ -104,23 +101,20 @@ class AudioService(Service):
 
     def schedule_command_hit(self, hit: SegmentHit) -> None:
         if isinstance(hit, Onset):
-            self.main_event_loop.create_task(self.publish_audio_detected(hit.ts))
+            asyncio.create_task(self.publish_audio_detected(hit.ts))
         elif isinstance(hit, Clip):
-            self.main_event_loop.create_task(self.publish_command_segment_ready(hit))
+            asyncio.create_task(self.publish_command_segment_ready(hit))
 
     def schedule_sound_hit(self, hit: SegmentHit) -> None:
         if isinstance(hit, Clip):
-            self.main_event_loop.create_task(self.publish_sound_recognition_chunk(hit))
+            asyncio.create_task(self.publish_sound_recognition_chunk(hit))
 
     def relay_captured_pcm_to_consumers(self, pcm_bytes: bytes, ts: float) -> None:
         self.dictation.feed_moonshine_audio_chunk(pcm_bytes, self.config.audio.sample_rate)
-        if self.main_event_loop.is_running():
-            self.main_event_loop.create_task(self.publish_mic_level_meter_chunk(pcm_bytes))
+        asyncio.create_task(self.publish_mic_level_meter_chunk(pcm_bytes))
         for hit in self.command_segmenter.feed_pcm_chunk(pcm_bytes, ts, False):
             self.schedule_command_hit(hit)
-        with self.dictation_lock:
-            skip_sound = self.sound_input_muted
-        for hit in self.sound_segmenter.feed_pcm_chunk(pcm_bytes, ts, skip_sound):
+        for hit in self.sound_segmenter.feed_pcm_chunk(pcm_bytes, ts, self.sound_input_muted):
             self.schedule_sound_hit(hit)
 
     def start_processing(self) -> None:

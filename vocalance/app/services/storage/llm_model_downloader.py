@@ -26,7 +26,7 @@ class LLMModelDownloader:
 
     def __init__(self, config: GlobalAppConfig) -> None:
         self._config = config
-        self._download_lock = threading.RLock()
+        self._download_lock = asyncio.Lock()
         self._models_dir = os.path.join(config.storage.user_data_root, "llm_models")
         self._temp_dir = os.path.join(config.storage.user_data_root, "llm_models_temp")
         os.makedirs(self._models_dir, exist_ok=True)
@@ -220,7 +220,7 @@ class LLMModelDownloader:
             logger.info("Model already exists: %s", filename)
             return model_path
 
-        with self._download_lock:
+        async with self._download_lock:
             if cancel_event is not None:
 
                 def _run_stream() -> Optional[str]:

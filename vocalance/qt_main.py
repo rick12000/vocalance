@@ -82,6 +82,7 @@ def _service_specs() -> List[ServiceSpec]:
                 event_bus=c["event_bus"],
                 storage=c["storage"],
                 gui_event_loop=c["gui_loop"],
+                lifecycle=c["lifecycle"],
                 ui_refresh_debounce_s=c["config"].grid.click_history_ui_refresh_debounce_s,
                 persist_debounce_s=c["config"].grid.click_history_persist_debounce_s,
             ),
@@ -122,6 +123,7 @@ def _service_specs() -> List[ServiceSpec]:
                 gui_event_loop=c["gui_loop"],
                 stt_service=c["stt"],
                 input_service=c["input_service"],
+                lifecycle=c["lifecycle"],
                 cancel_token=c["cancel_token"],
             ),
         ),
@@ -143,6 +145,7 @@ def _construct_services_sync(
     config: GlobalAppConfig,
     gui_loop: asyncio.AbstractEventLoop,
     cancel_token: CancellationToken,
+    lifecycle: AppLifecycle,
 ) -> Tuple[Dict[str, Any], List[ServiceSpec]]:
     """Build every service from the declarative spec list on a worker thread.
 
@@ -156,6 +159,7 @@ def _construct_services_sync(
         "config": config,
         "gui_loop": gui_loop,
         "cancel_token": cancel_token,
+        "lifecycle": lifecycle,
     }
     build_services(specs, ctx)
     return ctx, specs
@@ -322,6 +326,7 @@ async def main() -> None:
             config,
             gui_loop,
             lifecycle.cancel_token,
+            lifecycle,
             name="construct-services",
         )
         services = SimpleNamespace(**{spec.name: ctx[spec.name] for spec in specs})

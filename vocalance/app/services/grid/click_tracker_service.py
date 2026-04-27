@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.events.grid_events import GridClickHistoryChangedEvent
+from vocalance.app.lifecycle import AppLifecycle
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import GridClickEvent, GridClicksData
 from vocalance.app.services.storage.storage_service import StorageService
@@ -103,12 +104,14 @@ class ClickTrackerService(Service):
         event_bus: EventBus,
         storage: StorageService,
         gui_event_loop: asyncio.AbstractEventLoop,
+        lifecycle: AppLifecycle,
         ui_refresh_debounce_s: float,
         persist_debounce_s: float,
     ) -> None:
         super().__init__(event_bus)
         self._storage = storage
         self._gui_loop = gui_event_loop
+        self._lifecycle = lifecycle
         self._ui_refresh_debounce_s = ui_refresh_debounce_s
         self._persist_debounce_s = persist_debounce_s
         self._lock = threading.RLock()
@@ -141,8 +144,8 @@ class ClickTrackerService(Service):
         for t in (self._ui_task, self._persist_task):
             if t is not None and not t.done():
                 t.cancel()
-        self._ui_task = asyncio.create_task(self._debounced_ui_notify())
-        self._persist_task = asyncio.create_task(self._debounced_persist())
+        self._ui_task = self._lifecycle.spawn(self._debounced_ui_notify(), name="click-tracker-ui-debounce")
+        self._persist_task = self._lifecycle.spawn(self._debounced_persist(), name="click-tracker-persist-debounce")
 
     def _request_debounce_after_mutation(self) -> None:
         self._run_on_gui_loop(self._reschedule_debounce_tasks)

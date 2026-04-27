@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import threading
@@ -11,6 +10,7 @@ from typing import Any, Dict, Optional, Type
 from pydantic import BaseModel, ValidationError
 
 from vocalance.app.config.app_config import GlobalAppConfig, StorageConfig
+from vocalance.app.lifecycle import run_blocking
 from vocalance.app.services.storage.atomic_json import JsonReadError, JsonWriteError, read_json_dict, write_json_atomic
 from vocalance.app.services.storage.storage_models import (
     AgenticPromptsData,
@@ -92,7 +92,7 @@ class StorageService:
             return result
 
         try:
-            data_dict = await asyncio.to_thread(self.read_dict_from_disk, path)
+            data_dict = await run_blocking(self.read_dict_from_disk, path, name="storage-read")
             instance = model_type.model_validate(data_dict)
             with self.lock:
                 self.cache[cache_key] = CacheEntry(data=instance, timestamp=time.time())
@@ -119,7 +119,7 @@ class StorageService:
 
         try:
             data_dict = data.model_dump()
-            success = await asyncio.to_thread(self.persist_dict_to_disk, path, data_dict)
+            success = await run_blocking(self.persist_dict_to_disk, path, data_dict, name="storage-write")
             if success:
                 with self.lock:
                     self.cache[cache_key] = CacheEntry(data=data, timestamp=time.time())

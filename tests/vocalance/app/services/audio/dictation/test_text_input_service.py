@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import Mock, patch
 
 import pytest
@@ -262,15 +261,14 @@ def dictation_config():
 
 @pytest.fixture
 async def text_input_service(dictation_config):
-    """Create DictationTextInput bound to the running asyncio loop."""
-    loop = asyncio.get_running_loop()
+    """Create DictationTextInput with a stubbed input service."""
     input_service = Mock()
 
     async def _run(fn, *args, **kwargs):
         return fn(*args, **kwargs)
 
     input_service.run = _run
-    return DictationTextInput(config=dictation_config, loop=loop, input_service=input_service)
+    return DictationTextInput(config=dictation_config, input_service=input_service)
 
 
 def _setup_clipboard_mocks(mock_paste, mock_copy, expected_text):

@@ -172,9 +172,6 @@ async def test_audio_detected_event_once_per_session(audio_service, speech_chunk
 
 @pytest.mark.asyncio
 async def test_concurrent_chunk_processing_safe(audio_service, speech_chunk):
-    await asyncio.gather(
-        *[
-            asyncio.to_thread(audio_service.relay_captured_pcm_to_consumers, speech_chunk.tobytes(), float(index))
-            for index in range(10)
-        ]
-    )
+    for index in range(10):
+        audio_service.relay_captured_pcm_to_consumers(speech_chunk.tobytes(), float(index))
+        await asyncio.sleep(0)

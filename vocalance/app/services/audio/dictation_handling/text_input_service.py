@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import threading
 import time
@@ -20,18 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 class DictationTextInput:
-    """Injects dictation text via clipboard or keyboard using the given asyncio loop."""
+    """Injects dictation text via clipboard or keyboard."""
 
     def __init__(
         self,
         config: DictationConfig,
-        loop: asyncio.AbstractEventLoop,
         input_service: KeyboardInputService,
     ) -> None:
         self.config = config
-        self.loop = loop
         self.input_service = input_service
-        self.lock = threading.RLock()
         self.clipboard_lock = threading.Lock()
         self.last_text: str | None = None
         pyautogui.FAILSAFE = True

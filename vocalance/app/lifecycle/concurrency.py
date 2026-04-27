@@ -17,6 +17,21 @@ def schedule_on_loop(loop: asyncio.AbstractEventLoop, coro: Coroutine[Any, Any, 
     loop.call_soon_threadsafe(loop.create_task, coro)
 
 
+def schedule_on_loop_callback(
+    loop: asyncio.AbstractEventLoop,
+    fn: Callable[..., Any],
+    *args: Any,
+) -> None:
+    """Schedule a plain callable to run on ``loop`` from any thread.
+
+    Args:
+        loop: Target asyncio event loop.
+        fn: Synchronous callable to execute on the loop thread.
+        *args: Positional arguments forwarded to ``fn``.
+    """
+    loop.call_soon_threadsafe(fn, *args)
+
+
 class SubscriptionTracker:
     """Records event-bus subscriptions for a component and unsubscribes them in one call.
 

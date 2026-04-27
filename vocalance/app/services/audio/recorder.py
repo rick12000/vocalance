@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDeviceErrorEvent
+from vocalance.app.lifecycle import schedule_on_loop
 
 
 class AudioRecorder:
@@ -80,7 +81,7 @@ class AudioRecorder:
             await self.event_bus.publish(AudioDeviceErrorEvent(error_message=message))
 
         try:
-            self.loop.create_task(publish())
+            schedule_on_loop(self.loop, publish())
         except RuntimeError as e:
             self.logger.error("Could not schedule device error publish: %s", e)
 
@@ -113,10 +114,7 @@ class AudioRecorder:
     def publish_device_error_once(self, error_message: str) -> None:
         if not self.device_error_already_published:
             self.device_error_already_published = True
-            try:
-                self.loop.call_soon_threadsafe(self.schedule_device_error_publish_on_loop, error_message)
-            except RuntimeError as e:
-                self.logger.error("Could not schedule device error: %s", e)
+            self.schedule_device_error_publish_on_loop(error_message)
 
     def close_stream_resources(self) -> None:
         stream = self.stream

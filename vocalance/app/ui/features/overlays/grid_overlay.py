@@ -3,11 +3,10 @@ import logging
 import math
 import threading
 import time
-from functools import partial
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Coroutine, Dict, List, Optional, Tuple
 
 import pyautogui
-from PySide6.QtCore import Q_ARG, QMetaObject, QRect, Qt, QTimer, Slot
+from PySide6.QtCore import QMetaObject, QRect, Qt, QTimer, Slot
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -15,6 +14,7 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.events.grid_events import GridStateEvent
+from vocalance.app.lifecycle import schedule_on_loop
 from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects, rects_with_click_counts
 from vocalance.app.ui.qt_theme import theme
 
@@ -22,12 +22,6 @@ GRID_DRAG_MOVE_MIN_S = 0.22
 GRID_DRAG_MOVE_MAX_S = 0.85
 GRID_DRAG_MOVE_DIST_DIVISOR = 2200.0
 GRID_DRAG_SETTLE_S = 0.05
-
-
-def log_grid_overlay_scheduled_future(logger: logging.Logger, fut: Any) -> None:
-    exc = fut.exception()
-    if exc is not None:
-        logger.error("Grid overlay bus publish failed", exc_info=(type(exc), exc, exc.__traceback__))
 
 
 class QtGridView(QWidget):
@@ -120,9 +114,14 @@ class QtGridView(QWidget):
             snap = list(self.clicks_snapshot)
         return rects_with_click_counts(rect_definitions, snap)
 
-    def schedule_bus_coroutine(self, coro: Any) -> None:
-        fut = asyncio.run_coroutine_threadsafe(coro, self.gui_loop)
-        fut.add_done_callback(partial(log_grid_overlay_scheduled_future, self.logger))
+    def schedule_bus_coroutine(self, coro: Coroutine[Any, Any, Any]) -> None:
+        async def _log_and_run() -> None:
+            try:
+                await coro
+            except Exception as exc:
+                self.logger.error("Grid overlay bus publish failed", exc_info=exc)
+
+        schedule_on_loop(self.gui_loop, _log_and_run())
 
     def calculate_adaptive_font_size(self, num_rects: int) -> int:
         if num_rects <= 0:
@@ -305,24 +304,8 @@ class QtGridView(QWidget):
 
     @Slot()
     def show(self, num_rects: Optional[int] = None, click_mode: str = "click") -> None:
-        """Show the grid overlay - thread-safe via QMetaObject.invokeMethod."""
-        # Use BlockingQueuedConnection for immediate execution when called from main thread
-        # This eliminates the event loop delay while maintaining thread safety
-        from PySide6.QtCore import QThread
-
-        connection_type = (
-            Qt.ConnectionType.DirectConnection
-            if QThread.currentThread() == self.thread()
-            else Qt.ConnectionType.BlockingQueuedConnection
-        )
-
-        QMetaObject.invokeMethod(
-            self,
-            "do_show",
-            connection_type,
-            Q_ARG(int, num_rects if num_rects is not None else self.default_num_rects),
-            Q_ARG(str, click_mode),
-        )
+        """Show the grid overlay. Callers are expected to be on the GUI thread."""
+        self.do_show(num_rects if num_rects is not None else self.default_num_rects, click_mode)
 
     @Slot(int, str)
     def do_show(self, num_rects: int, click_mode: str) -> None:
@@ -665,14 +648,20 @@ class QtGridView(QWidget):
         # This ensures the overlay is fully gone before we click on the screen
         self.hide()
 
-        self.input_service.submit(
-            self.execute_delayed_grid_action,
-            selected_number,
-            center_x,
-            center_y,
-            click_mode,
-            drag_origin,
-        )
+        async def _run_action() -> None:
+            try:
+                await self.input_service.run(
+                    self.execute_delayed_grid_action,
+                    selected_number,
+                    center_x,
+                    center_y,
+                    click_mode,
+                    drag_origin,
+                )
+            except Exception as exc:
+                self.logger.error("Grid input action failed", exc_info=exc)
+
+        asyncio.create_task(_run_action())
 
         return True
 

@@ -8,6 +8,7 @@ from typing import Optional
 import vosk
 
 from vocalance.app.config.app_config import GlobalAppConfig
+from vocalance.app.lifecycle import run_blocking
 
 
 class VoskSTT:
@@ -35,7 +36,7 @@ class VoskSTT:
     async def recognize(self, audio_bytes: bytes, sample_rate: Optional[int] = None) -> str:
         """Thread-off ``recognize_sync`` behind the internal recognizer lock."""
         async with self._recognizer_lock:
-            return await asyncio.to_thread(self.recognize_sync, audio_bytes, sample_rate)
+            return await run_blocking(self.recognize_sync, audio_bytes, sample_rate, name="vosk-recognize")
 
     async def shutdown(self) -> None:
         """Release the Kaldi recognizer and model under lock, then collect."""

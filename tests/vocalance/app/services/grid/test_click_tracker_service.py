@@ -33,10 +33,13 @@ def mock_storage():
 @pytest_asyncio.fixture
 async def click_tracker(mock_event_bus, mock_storage):
     loop = asyncio.get_running_loop()
+    lifecycle = Mock()
+    lifecycle.spawn = Mock(side_effect=lambda coro, name="task": loop.create_task(coro, name=name))
     svc = ClickTrackerService(
         event_bus=mock_event_bus,
         storage=mock_storage,
         gui_event_loop=loop,
+        lifecycle=lifecycle,
         ui_refresh_debounce_s=0.001,
         persist_debounce_s=9999.0,
     )
