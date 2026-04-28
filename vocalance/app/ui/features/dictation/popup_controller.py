@@ -4,7 +4,7 @@ import numpy as np
 from PySide6.QtCore import QTimer
 
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import MicLevelMeterPcmChunkEvent
+from vocalance.app.events.core_events import AudioChunkCapturedEvent
 from vocalance.app.events.dictation_events import (
     DictationModifierStateChangedEvent,
     DictationSessionEvent,
@@ -37,7 +37,7 @@ class QtDictationPopupController(QtBaseController):
         self.subscribe(LLMTokenGeneratedEvent, self.on_llm_token)
         self.subscribe(DictationStopWordDetectedEvent, self.on_stop_word_detected)
         self.subscribe(DictationModifierStateChangedEvent, self.on_modifier_state_changed)
-        self.subscribe(MicLevelMeterPcmChunkEvent, self.on_mic_level_meter_pcm_chunk)
+        self.subscribe(AudioChunkCapturedEvent, self.on_audio_chunk_captured)
 
     def on_dictation_status_changed(self, status_changed: DictationStatusChangedEvent) -> None:
         if status_changed.is_active and status_changed.show_ui:
@@ -101,10 +101,10 @@ class QtDictationPopupController(QtBaseController):
         if stop_word.mode in ("hidden", "visual", "smart", "amend"):
             self.popup_view.set_border_orange()
 
-    def on_mic_level_meter_pcm_chunk(self, event: MicLevelMeterPcmChunkEvent) -> None:
+    def on_audio_chunk_captured(self, event: AudioChunkCapturedEvent) -> None:
         if not self.popup_view.isVisible() or self.popup_view.current_mode != "simple":
             return
-        audio_data = np.frombuffer(event.audio_chunk, dtype=np.int16)
+        audio_data = np.frombuffer(event.pcm_bytes, dtype=np.int16)
         if len(audio_data) == 0:
             return
         rms = float(np.sqrt(np.mean(audio_data.astype(np.float64) ** 2)))

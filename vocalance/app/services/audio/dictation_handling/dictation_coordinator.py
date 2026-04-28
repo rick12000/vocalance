@@ -20,7 +20,7 @@ from vocalance.app.config.command_types import (
 )
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import DictationCommandParsedEvent
-from vocalance.app.events.core_events import DictationTextRecognizedEvent
+from vocalance.app.events.core_events import AudioChunkCapturedEvent, DictationTextRecognizedEvent
 from vocalance.app.events.dictation_events import (
     DictationModeDisableOthersEvent,
     DictationModifierPhraseEvent,
@@ -447,6 +447,10 @@ class DictationCoordinator(Service):
         self.subscribe(DictationCommandParsedEvent, self.handle_dictation_command)
         self.subscribe(LLMProcessingReadyEvent, self.llm_runtime.handle_ready)
         self.subscribe(DictationModifierPhraseEvent, self.handle_dictation_modifier_phrase)
+        self.subscribe(AudioChunkCapturedEvent, self._handle_audio_chunk)
+
+    def _handle_audio_chunk(self, event: AudioChunkCapturedEvent) -> None:
+        self.feed_moonshine_audio_chunk(event.pcm_bytes, event.sample_rate)
 
     @property
     def active_mode(self) -> DictationMode:

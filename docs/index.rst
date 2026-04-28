@@ -1,9 +1,10 @@
-Introduction
-=================================
+Vocalance documentation
+=======================
 
-This documentation serves as the official technical guide for Vocalance. It is intended for developers, contributors, and technically-minded users seeking to understand its architecture and implementation.
-
-For general information, features, or download instructions, please visit `vocalance.com <https://vocalance.com>`_ instead.
+This documentation is the technical guide for Vocalance. It is
+intended for developers and contributors who want to understand the
+architecture and the implementation. End-user information lives at
+`vocalance.com <https://vocalance.com>`_.
 
 .. toctree::
    :maxdepth: 1
@@ -14,18 +15,31 @@ For general information, features, or download instructions, please visit `vocal
 
 .. toctree::
    :maxdepth: 2
-   :caption: Developer Guide
+   :caption: Overview
    :hidden:
 
-   developer/introduction
-   developer/audio_capture_and_listeners
-   developer/speech_and_sound_recognition
-   developer/command_parsing
-   developer/command_execution_services
-   developer/dictation_system
-   developer/user_interface
-   developer/event_bus_and_infrastructure
-   developer/concurrency_architecture
+   developer/overview/introduction
+   developer/overview/architecture
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Features
+   :hidden:
+
+   developer/features/capture
+   developer/features/commands
+   developer/features/dictation
+   developer/features/user_interface
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Foundations
+   :hidden:
+
+   developer/foundations/event_bus
+   developer/foundations/concurrency
+   developer/foundations/lifecycle
+   developer/foundations/storage
 
 .. toctree::
    :maxdepth: 1

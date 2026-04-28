@@ -44,8 +44,10 @@ def _service_specs() -> List[ServiceSpec]:
     from this list. Heavy module imports stay scoped to this function so they
     only fire when ``build_services`` runs, not on ``qt_main`` import.
     """
+    from vocalance.app.services.audio.audio_capture_service import AudioCaptureService
     from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
-    from vocalance.app.services.audio.simple_audio_service import AudioService
+    from vocalance.app.services.audio.segmenting.command_segmenter_service import CommandSegmenterService
+    from vocalance.app.services.audio.segmenting.sound_segmenter_service import SoundSegmenterService
     from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
     from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
     from vocalance.app.services.automation_service import AutomationService
@@ -111,6 +113,18 @@ def _service_specs() -> List[ServiceSpec]:
         ),
         ServiceSpec(name="stt", factory=lambda c: SpeechToTextService(event_bus=c["event_bus"], config=c["config"])),
         ServiceSpec(
+            name="audio_capture",
+            factory=lambda c: AudioCaptureService(event_bus=c["event_bus"], config=c["config"], main_event_loop=c["gui_loop"]),
+        ),
+        ServiceSpec(
+            name="command_segmenter",
+            factory=lambda c: CommandSegmenterService(event_bus=c["event_bus"], config=c["config"]),
+        ),
+        ServiceSpec(
+            name="sound_segmenter",
+            factory=lambda c: SoundSegmenterService(event_bus=c["event_bus"], config=c["config"]),
+        ),
+        ServiceSpec(
             name="dictation",
             factory=lambda c: DictationCoordinator(
                 event_bus=c["event_bus"],
@@ -126,12 +140,6 @@ def _service_specs() -> List[ServiceSpec]:
         ServiceSpec(
             name="sound_service",
             factory=lambda c: SoundService(event_bus=c["event_bus"], config=c["config"], storage=c["storage"]),
-        ),
-        ServiceSpec(
-            name="audio",
-            factory=lambda c: AudioService(
-                event_bus=c["event_bus"], config=c["config"], main_event_loop=c["gui_loop"], dictation=c["dictation"]
-            ),
         ),
     ]
 
@@ -327,7 +335,7 @@ async def main() -> None:
         finally:
             lifecycle.clear_init_task()
 
-        services.audio.start_processing()
+        services.audio_capture.start()
         startup_window.update_progress(1.0, "Ready!", animate=False)
         await asyncio.sleep(0.5)
 
