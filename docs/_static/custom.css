@@ -590,7 +590,9 @@ table.uniform-rows tr:hover,
    Mermaid Diagrams
    ================================================================== */
 
-/* Mermaid container with interactive pan/zoom */
+/* Mermaid container with interactive pan/zoom. The container height is set
+   by layout-manager.js so the SVG fills the container width at its natural
+   aspect ratio — no letterboxing on first render. */
 .mermaid {
   max-width: 100% !important;
   width: 100% !important;
@@ -604,11 +606,18 @@ table.uniform-rows tr:hover,
   position: relative !important;
   user-select: none !important;
   touch-action: none !important;
+  box-sizing: border-box !important;
 }
 
-/* SVG styling for interactive diagrams */
-.mermaid svg {
+/* SVG fills container width; height scales from the diagram's natural
+   aspect ratio (set on the viewBox by layout-manager.js). The `!important`
+   rules override the inline 500px-height styles from sphinxcontrib-mermaid. */
+.mermaid svg,
+pre.mermaid > svg {
   display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100% !important;
   transition: transform 0.1s ease-out !important;
   cursor: grab !important;
 }
@@ -1091,4 +1100,19 @@ abbr[title] {
   background: var(--gray-200);
   color: var(--primary-600);
   border-left: 3px solid var(--primary-600);
+}
+
+/* sectnum injects a <span class="sectnum"> before every numbered heading.
+   Hide every sectnum span by default, then re-enable only inside h2–h6
+   within the main content. This removes numbers from: the h1 document
+   title, sidebar navigation entries, and inline cross-page links. */
+.sectnum {
+  display: none;
+}
+.rst-content h2 .sectnum,
+.rst-content h3 .sectnum,
+.rst-content h4 .sectnum,
+.rst-content h5 .sectnum,
+.rst-content h6 .sectnum {
+  display: inline;
 }

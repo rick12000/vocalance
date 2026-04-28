@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -17,17 +17,26 @@ MarkUiRequestOp = Literal[
 MarkUiResponseKind = Literal["create_result", "overlay_marks"]
 
 
+class MarkData(BaseModel):
+    """Data model for a single mark."""
+
+    name: str
+    x: int
+    y: int
+    description: str = ""
+
+
 class MarksChangedEventData(BaseEvent):
     """Broadcast when the marks collection changes."""
 
-    marks: Dict[str, Dict[str, Any]]
+    marks: Dict[str, MarkData]
 
 
 class MarkVisualizationStateChangedEventData(BaseEvent):
     """Broadcast when mark overlay visibility changes."""
 
     is_visible: bool
-    marks: Optional[Dict[str, Dict[str, Any]]] = None
+    marks: Optional[Dict[str, MarkData]] = None
 
 
 class MarkUiRequestEvent(BaseEvent):
@@ -52,13 +61,4 @@ class MarkUiResponseEvent(BaseEvent):
     name: str = ""
     x: int = 0
     y: int = 0
-    marks: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
-
-
-class MarkData(BaseModel):
-    """Data model for a single mark."""
-
-    name: str
-    x: int
-    y: int
-    description: str = ""
+    marks: Dict[str, MarkData] = Field(default_factory=dict)

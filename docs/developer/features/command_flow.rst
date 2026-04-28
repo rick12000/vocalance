@@ -1,448 +1,310 @@
-Command flow
+Command Flow
 ############
 
-A *command* is any voice or sound input that produces a single
-observable change: a click, a keypress, the appearance of a
-numbered grid, the execution of a saved mark. Two input types
-produce one — spoken words or a trained non-speech sound — but
-both travel through the same pipeline from end to end.
+.. sectnum::
 
-This chapter picks up where :doc:`capture` left off (audio chunks
-arriving on the bus) and follows the path to the OS action.
+This chapter picks up where :doc:`capture` leaves off. Every
+``AudioChunkCapturedEvent`` published by the capture layer is a candidate input
+to the command pipeline. The pipeline's job is to turn that raw audio into a
+single discrete OS action.
 
-Stages at a glance
-==================
+Overview
+=========
 
-The pipeline has four stages.
+When an audio chunk arrives, it is passed to a segmenter. The segmenter
+accumulates successive chunks into a growing buffer, waiting until a condition
+— usually a sustained period of silence — signals that a complete word, phrase,
+or sound has ended. It then emits that complete clip as a new bus event. The
+clip travels to a recognizer, which converts it to either transcribed text
+(speech path) or a named label (sound path). Both paths converge at the parser,
+which matches the text or label against a list of pre-configured commands and
+publishes a structured command event. An executor receives that event and
+produces the final OS input.
 
 .. mermaid::
 
    flowchart LR
-       Chunks[AudioChunkCapturedEvent] --> S1[1. Segment]
-       S1 --> S2[2. Recognize]
-       S2 --> S3[3. Parse]
-       S3 --> S4[4. Execute]
+       Chunks[AudioChunkCapturedEvent] --> S1[Segment]
+       S1 --> S2[Recognize]
+       S2 --> S3[Parse]
+       S3 --> S4[Execute]
        S4 --> OS[OS input]
 
-The speech and sound paths run in parallel through stages 1 and
-2, converge at stage 3, and stay together for stage 4.
-
-Zooming in one level shows that each stage is a pair of services
-in the speech-and-sound stages, and a single service in the
-parse-and-execute stages.
+The two recognition paths run in parallel: speech and sound clips arrive
+independently on the bus and each follows its own recognizer before converging
+at the parser.
 
 .. mermaid::
 
    flowchart LR
-       subgraph S1["1. Segment"]
-           CSeg[CommandSegmenterService]
-           SSeg[SoundSegmenterService]
+       Chunks[AudioChunkCapturedEvent]
+       subgraph Speech["Speech path"]
+           CSeg[CommandSegmenterService] -->|CommandAudioSegmentReadyEvent| CSpeech[CommandSpeechService<br/>Vosk]
        end
-       subgraph S2["2. Recognize"]
-           CSpeech[CommandSpeechService<br/><i>Vosk</i>]
-           SRec[SoundService<br/><i>YAMNet + k-NN</i>]
+       subgraph Sound["Sound path"]
+           SSeg[SoundSegmenterService] -->|ProcessAudioChunkForSoundRecognitionEvent| SRec[SoundService<br/>YAMNet + k-NN]
        end
-       subgraph S3["3. Parse"]
-           Parser[CentralizedCommandParser]
-       end
-       subgraph S4["4. Execute"]
-           Auto[AutomationService]
-           Mark[MarkService]
-           Grid[GridService]
-           Pause[PauseStateManager]
-       end
-       Bus((Event bus))
-       CSeg -->|CommandAudioSegmentReadyEvent| Bus
-       SSeg -->|ProcessAudioChunkForSoundRecognitionEvent| Bus
-       Bus --> CSpeech
-       Bus --> SRec
-       CSpeech -->|CommandTextRecognizedEvent| Bus
-       SRec -->|CustomSoundRecognizedEvent| Bus
-       Bus --> Parser
-       Parser -->|*CommandParsedEvent| Bus
-       Bus --> Auto
-       Bus --> Mark
-       Bus --> Grid
-       Bus --> Pause
+       Chunks --> CSeg
+       Chunks --> SSeg
+       CSpeech -->|CommandTextRecognizedEvent| Parser[CentralizedCommandParser]
+       SRec -->|CustomSoundRecognizedEvent| Parser
+       Parser -->|*CommandParsedEvent| Exec[Executors]
+       Exec --> OS
 
-Every arrow is a publish or a delivery. The remainder of the
-chapter walks through one stage at a time.
+- **Speech path** — ``CommandSegmenterService`` accumulates chunks into
+  utterance clips; ``CommandSpeechService`` runs Vosk offline speech recognition
+  to produce a text string.
+- **Sound path** — ``SoundSegmenterService`` accumulates chunks into transient
+  clips; ``SoundService`` extracts a YAMNet embedding and runs a k-NN vote to
+  produce a named label, which is then mapped to a command phrase.
 
-----
+The remainder of this chapter walks through each stage in turn.
 
-Stage 1 — Segmentation
-======================
+Segmentation
+=============
 
-Both Vosk and YAMNet need a *complete clip*, not a stream. The
-continuous flow of ``AudioChunkCapturedEvent`` therefore has to
-be cut into clips first. Two segmenters do this in parallel, one
-per input type.
+The segmenters solve a fundamental mismatch: recognition models need a complete
+audio clip, but the capture layer delivers a continuous trickle of 30 ms
+buffers. A segmenter bridges this gap by accumulating buffers until it detects
+the boundary of an acoustic event, then emitting the collected clip.
 
-Shared state machine
---------------------
+Voice Activity Detection
+-------------------------
 
-Both segmenters implement the same VAD-driven state machine,
-differing only in the parameters they tune it with.
+The boundary-detection mechanism is **voice activity detection** (VAD). For
+each incoming buffer the segmenter computes its RMS amplitude — a single number
+representing the buffer's energy — and compares it to an adaptive threshold.
+
+The threshold adapts to the ambient noise floor: the segmenter tracks a rolling
+average of recent silent-buffer energies and multiplies it by a configurable
+factor. In a quiet room the threshold is low; in a noisier one it rises
+automatically. This means the same vocal effort triggers recognition in either
+environment.
+
+The segmenter is stateful. It moves through three states:
 
 .. mermaid::
 
    flowchart LR
-       Idle[<b>Idle</b><br/>holding pre-roll buffer] -->|chunk energy<br/>&gt; threshold| Cap[<b>Capturing</b><br/>append chunks]
-       Cap -->|silence streak<br/>&ge; min| Done[Emit clip]
-       Cap -->|duration<br/>&ge; cap| Done
-       Done -->|reset| Idle
+       Idle[Idle<br/>filling pre-roll] -->|buffer energy above threshold| Cap[Capturing<br/>accumulating chunks]
+       Cap -->|silence streak long enough| Done[Emit clip]
+       Cap -->|duration cap reached| Done
+       Done --> Idle
 
-Three things to note:
+**Idle** — the segmenter continuously fills a short **pre-roll buffer**: a
+circular queue holding the last few hundred milliseconds of audio. When a
+buffer crosses the threshold, the segmenter immediately prepends the pre-roll
+contents to the new clip (capturing the onset that would otherwise be missed)
+and enters **Capturing**.
 
-- The **pre-roll buffer** is prepended on entry to ``Capturing``
-  so the first consonant of a phrase is not clipped.
-- The **silence streak** is the configured number of consecutive
-  sub-threshold chunks that ends a clip naturally.
-- The **duration cap** is a hard upper bound; reaching it ends
-  the clip even if the user has not paused.
+**Capturing** — every subsequent buffer is appended to the clip. The segmenter
+exits this state on one of two conditions: a configurable streak of consecutive
+below-threshold buffers (the normal end of a phrase), or a hard duration cap
+(which prevents unbounded accumulation from continuous speech or noise).
 
-The energy threshold is *adaptive*. It tracks a rolling estimate
-of the room's noise floor and applies a configurable multiplier,
-so the same settings work in a quiet room and a noisy café
-without recalibration.
+On either exit, the segmenter emits the collected clip and resets to Idle.
 
-The two segmenters
-------------------
+CommandSegmenterService
+------------------------
 
-The two services use the same machine with different tunings.
+``CommandSegmenterService``
+(``vocalance/app/services/command_flow/segmenting/command_segmenter_service.py``)
+is tuned for spoken utterances. It uses a ~500 ms silence streak and allows
+clips up to several seconds. No extra rejection gate is applied — soft-spoken
+commands must pass through reliably. Output: ``CommandAudioSegmentReadyEvent``.
 
-==================================================================  =================================  =================================
-Parameter                                                           ``CommandSegmenterService``        ``SoundSegmenterService``
-==================================================================  =================================  =================================
-Tuned for                                                           Spoken utterances                  Short transients
-Silence streak                                                      ~500 ms                            ~150 ms
-Max clip duration                                                   several seconds                    ~1 second
-Extra rejection                                                     —                                  Peak-amplitude / baseline ratio
-Disabled while dictation is active                                  no                                 yes
-Output event                                                        ``CommandAudioSegmentReadyEvent``  ``ProcessAudioChunkForSoundRecognitionEvent``
-==================================================================  =================================  =================================
+SoundSegmenterService
+----------------------
 
 ``SoundSegmenterService``
 (``vocalance/app/services/command_flow/segmenting/sound_segmenter_service.py``)
-needs the extra peak-amplitude gate because sustained background
-noise can drift above the energy threshold without actually
-spiking. It also subscribes to
-``DictationModeDisableOthersEvent`` so that every spoken word
-during dictation does not produce a false-positive sound clip.
-``CommandSegmenterService``
-(``vocalance/app/services/command_flow/segmenting/command_segmenter_service.py``)
-has neither of those rules.
+is tuned for short transients — knocks, snaps, claps. Two adjustments reflect
+the different acoustic target:
 
-----
+- **Shorter silence streak (~150 ms)** — transients end abruptly, not with a
+  gradual tail.
+- **Peak-amplitude gate** — sustained background noise can drift above the RMS
+  threshold without ever spiking. The gate rejects steady-state noise that lacks
+  a sharp transient peak, reducing false positives.
 
-Stage 2 — Recognition
-=====================
+Additionally, ``SoundSegmenterService`` subscribes to
+``DictationModeDisableOthersEvent`` and suspends processing while a dictation
+session is active — every spoken word during dictation would otherwise produce a
+false-positive sound clip. Output: ``ProcessAudioChunkForSoundRecognitionEvent``.
 
-The two clip events produced by Stage 1 are now consumed by two
-independent recognizers. They share no state.
+With a complete audio clip in hand, the next stage is to understand what was
+said or heard.
 
-Speech: Vosk
-------------
+Recognition
+============
+
+The two recognizers receive their respective clips independently and publish
+their results to the same parser.
+
+Speech Recognition
+-------------------
 
 ``CommandSpeechService``
 (``vocalance/app/services/command_flow/speech_recognition/command_speech_service.py``)
-wraps an offline Vosk model (~50 MB, bundled). It subscribes to
-``CommandAudioSegmentReadyEvent``, runs Vosk on the PCM, and
-publishes the result.
+wraps **Vosk**, an offline speech-recognition toolkit built on the Kaldi
+acoustic modelling framework. A ~50 MB model is bundled with the application.
 
-.. mermaid::
+The service subscribes to ``CommandAudioSegmentReadyEvent``. When a clip
+arrives, it feeds the PCM bytes to Vosk and receives a plain lower-case text
+string — no punctuation, no confidence score, no alternatives. Recognition
+takes 100–300 ms on typical hardware. To avoid blocking the main thread for
+that duration, the service offloads the call to a background thread via
+``run_blocking`` and awaits the result asynchronously.
 
-   sequenceDiagram
-       participant Seg as CommandSegmenterService
-       participant Bus as Event bus
-       participant Speech as CommandSpeechService
-       participant Vosk as VoskEngine
+Output: ``CommandTextRecognizedEvent(text, processing_time_ms, engine, mode)``.
 
-       Seg->>Bus: CommandAudioSegmentReadyEvent
-       Bus->>Speech: deliver
-       Speech->>Vosk: recognize(pcm)
-       Note over Speech,Vosk: runs on a daemon thread<br/>via run_blocking
-       Vosk-->>Speech: lower-case text
-       Speech->>Bus: CommandTextRecognizedEvent
-
-Recognition is synchronous and blocks for hundreds of
-milliseconds. It runs on a background thread via ``run_blocking``
-so it does not stall the main loop
-(:doc:`../foundations/concurrency`). Output is plain lower-case
-text — no punctuation, no confidence score.
-
-Vosk also plays a secondary role during dictation: it watches
-for the stop trigger and modifier phrases. That role is covered
-in :doc:`dictation_flow`; it is independent of the command path
-described here.
-
-Sound: YAMNet + k-NN
---------------------
+Sound Recognition
+------------------
 
 ``SoundService``
 (``vocalance/app/services/command_flow/sound_recognition/sound_service.py``)
-subscribes to ``ProcessAudioChunkForSoundRecognitionEvent`` and
-runs a two-step pipeline.
+classifies transient sounds and maps them to user-defined command phrases via a
+two-step pipeline.
+
+**Step 1 — YAMNet embedding.** YAMNet is a neural network pre-trained on
+environmental sounds. Given a clip, it produces a fixed 5 120-dimensional
+vector — an *embedding* — that encodes the acoustic character of the clip. The
+user does not need to fine-tune a neural network; a handful of example
+recordings per sound is enough.
+
+**Step 2 — k-NN classification.** The embedding is compared against all stored
+embeddings using k-nearest-neighbour voting. Each stored embedding votes for
+its label; the label with the most votes wins. New sounds are available
+immediately after training — no retraining is needed.
 
 .. mermaid::
 
    flowchart LR
-       Clip[Sound clip] --> Pre[Resample &amp; normalize]
-       Pre --> Emb[YAMNet<br/>embedding<br/><i>5,120-D</i>]
-       Emb --> KNN[k-NN vote<br/>over user samples<br/>+ ESC-50 negatives]
-       KNN --> Gate{Winning label<br/>is user-trained?}
+       Clip[Sound clip] --> Pre[Resample and normalize]
+       Pre --> Emb[YAMNet<br/>5120-D embedding]
+       Emb --> KNN[k-NN vote<br/>user samples + ESC-50 negatives]
+       KNN --> Gate{Winner a<br/>user label?}
        Gate -->|yes| Pub[CustomSoundRecognizedEvent]
-       Gate -->|no, ESC-50 wins| Drop[Drop silently]
+       Gate -->|no| Drop[Drop silently]
 
-**Embedding.** YAMNet is a pre-trained classifier; the recognizer
-ignores its class labels and extracts a 5,120-D vector from a
-hidden layer. That vector encodes the acoustic character of the
-sound in a way that generalizes across recording conditions.
+k-NN has no built-in rejection: it always returns a winner. To prevent every
+unrelated noise from being assigned to a user label, the recognizer keeps a
+background set of embeddings drawn from **ESC-50**, a public library of 50
+environmental sound categories. ESC-50 embeddings participate in the vote; if
+one wins, the clip is silently dropped. The ESC-50 set acts as a statistical
+floor that absorbs generic noise.
 
-**k-NN vote.** The user trains the recognizer by saying ``train
-<label>`` and producing the sound a few times — no model
-fine-tuning is required.
+Output: ``CustomSoundRecognizedEvent(label, confidence, mapped_command)``.
 
-k-NN has no built-in "neither" category. To prevent every door
-slam from being assigned to a user label, the recognizer keeps a
-background set of samples drawn from **ESC-50** (a standard
-library of environmental noises) under internal ``esc50_*``
-labels. They participate in the vote like any other; if an
-ESC-50 label wins, the result is silently dropped.
+Once recognition produces text or a label, the parser maps it to a structured
+command.
 
-The published ``CustomSoundRecognizedEvent(label, confidence,
-mapped_command)`` carries the command phrase the user has mapped
-to the trained label in the Sounds tab.
-
-----
-
-Stage 3 — Parsing
-=================
+Parsing
+========
 
 ``CentralizedCommandParser``
-(``vocalance/app/services/command_flow/parsing/parser.py``) is
-the convergence point. It subscribes to *both*
-``CommandTextRecognizedEvent`` and ``CustomSoundRecognizedEvent``
-and runs them through the same pipeline.
+(``vocalance/app/services/command_flow/parsing/parser.py``) subscribes to both
+``CommandTextRecognizedEvent`` and ``CustomSoundRecognizedEvent``. For sound
+events, the ``mapped_command`` phrase replaces the raw label before any
+processing — from this point forward the parser operates on text regardless of
+origin.
 
-For sounds, the mapped phrase is substituted before parsing, so
-from this point on the parser cannot tell whether the input came
-from speech or sound.
+The parser tries each command family in a fixed priority order. The first family
+that matches claims the input; the remaining families are skipped. Priority
+ordering prevents any family from shadowing commands in a higher-priority one.
 
-.. code-block:: python
+.. list-table::
+   :widths: 20 80
+   :header-rows: 1
+   :class: uniform-rows
 
-   async def handle_custom_sound_recognized(self, sound_recognized):
-       phrase = sound_recognized.mapped_command
-       if not phrase:
-           return
-       await self.process_text_input(text=phrase, source="sound")
+   * - Family
+     - Priority rationale
+   * - **System** — ``pause``, ``resume``
+     - Highest priority. No user-configured command can shadow these.
+   * - **Dictation triggers** — ``dictate``, ``type``, ``smart``, ``visual``,
+       ``hidden``, ``amend``, ``stop``
+     - Before marks. Single-word triggers like "type" must be claimed here or
+       a mark named "type" would shadow them.
+   * - **Marks** — ``mark <label>``, ``visualize``, ``reset``, label fallback
+     - Before grid. A mark named "five" must still work when a grid is shown.
+   * - **Grid** — ``grid show``, ``grid hover``, ``grid drag``, cell numbers
+     - After marks to avoid shadowing named marks.
+   * - **Automation** — all user-configured actions by their trigger phrase
+     - Before the mark fallback.
+   * - **Mark fallback** — any unmatched single word
+     - Lowest priority. Any single word that matches nothing else is treated
+       as a mark-execute command.
 
-Two gates and a cascade
------------------------
+Inputs that match no family are silently dropped.
 
-Every input passes two gates and then a cascade.
-
-.. mermaid::
-
-   flowchart LR
-       In[Text from Vosk<br/>or sound mapping] --> G1{Within<br/>rate-limit<br/>window?}
-       G1 -->|yes| D1[Drop]
-       G1 -->|no| Cas[Family cascade<br/>first match wins]
-       Cas --> M{Matched?}
-       M -->|no| D2[Drop]
-       M -->|yes| G2{Paused<br/>and not Resume?}
-       G2 -->|yes| D3[Drop]
-       G2 -->|no| Out[Publish typed event]
-
-The **rate-limit gate** drops input that arrives within a few
-hundred milliseconds of the previous successful parse, because
-both Vosk and the sound recognizer can double-fire on the same
-utterance.
-
-The **pause gate** runs *after* the cascade so that "resume" can
-still produce a typed command while paused; the pause check
-filters the result, not the input.
-
-The cascade tries the input against six families in a fixed
-order:
-
-#. **System** — ``pause`` / ``resume``. First so neither phrase
-   can be hijacked by a user-defined automation.
-#. **Dictation triggers** — start / stop / type / smart / visual /
-   hidden / amend. Before marks so a single-word trigger like
-   "type" is not consumed as a mark.
-#. **Marks** — ``mark <label>``, ``visualize``, ``reset``, …
-   Before grid so a mark named "five" still works while a grid
-   is on screen.
-#. **Grid** — ``grid show``, ``grid hover``, ``grid drag``, plus
-   numeric selections.
-#. **Automation** — every user-configured action. Before the
-   fallback so a single-word automation can claim the word.
-#. **Single-word mark fallback** — every otherwise-unmatched
-   single word is treated as a mark execute. This is what makes
-   mark navigation feel frictionless.
-
-Inputs that match nothing are dropped silently. Voice input is
-noisy; surfacing a parse error on every misheard syllable would
-be more disruptive than helpful.
-
-What the parser publishes
--------------------------
-
-A successful parse produces one typed event, chosen by the
-matched family.
-
-============================  ===========================================
-Match                         Published event
-============================  ===========================================
-System                        ``SystemControlCommandParsedEvent``
-Dictation                     ``DictationCommandParsedEvent``
-Mark                          ``MarkCommandParsedEvent``
-Grid                          ``GridCommandParsedEvent``
-Automation                    ``AutomationCommandParsedEvent``
-============================  ===========================================
-
-Each event carries the parsed command as a Pydantic value object
-(e.g. ``MarkCreateCommand(label="home", x=540.0, y=720.0)``)
-plus the source (``"stt"`` or ``"sound"``). The original text or
-label is gone.
-
-----
-
-Stage 4 — Execution
-===================
-
-Five subscribers consume the parsed events. The dictation event
-goes to ``DictationCoordinator`` and is covered in
-:doc:`dictation_flow`; the other four are below.
-
-Every executor that touches ``pyautogui`` routes through
-``KeyboardInputService``
-(``vocalance/app/services/keyboard_input_service.py``), which
-serializes OS input via an ``asyncio.Lock``. A sequence of
-"click, click, scroll up" reaches the OS in that order even if
-three different services made the calls. The mechanism lives in
-:doc:`../foundations/concurrency`.
-
-Automation
-----------
-
-``AutomationService``
-(``vocalance/app/services/command_flow/execution/automation_service.py``)
-handles user-configured actions: hotkeys, key sequences, single
-and multi-clicks, scrolls. It subscribes to
-``AutomationCommandParsedEvent`` and dispatches by
-``action_type``.
-
-Two command shapes:
-
-- ``ExactMatchCommand`` — execute the action once.
-- ``ParameterizedCommand`` — execute it ``count`` times
-  (``"scroll down five"``).
-
-Two runtime rules:
-
-- A per-key **cooldown** (default ~0.5 s) prevents the same
-  command double-firing from rapid-fire recognitions.
-- **Stepped scrolls** split large scrolls into a loop of small
-  partial-scrolls with inter-step sleeps; most applications drop
-  scroll deltas that arrive faster than a real mouse wheel
-  produces them.
-
-Marks
------
-
-``MarkService``
-(``vocalance/app/services/command_flow/execution/mark_service.py``)
-maps a short label to a screen position and clicks it on
-request.
-
-==================================  ===============================================
-Command                             Effect
-==================================  ===============================================
-``MarkCreateCommand``               Persist the label at the current cursor
-                                    position.
-``MarkExecuteCommand``              Click the stored position for this label.
-``MarkDeleteCommand``               Remove a single label.
-``MarkResetCommand``                Clear all labels.
-``MarkVisualizeCommand``            Show the on-screen mark overlay.
-``MarkVisualizeCancelCommand``      Hide the overlay.
-==================================  ===============================================
-
-The cursor position for ``MarkCreateCommand`` is captured at
-*parse time* (before the event is published), not at execution
-time:
-
-.. code-block:: python
-
-   label = words[1]
-   x, y = pyautogui.position()
-   return MarkCreateCommand(label=label, x=float(x), y=float(y))
-
-If the cursor moves between the end of the phrase and the run of
-the executor, the saved coordinate is still the one current when
-the phrase ended.
-
-Grid
-----
-
-``GridService``
-(``vocalance/app/services/command_flow/execution/grid/grid_service.py``)
-implements a "show, then pick" interaction.
-
-==========================  =====================================================================
-Command                     Effect
-==========================  =====================================================================
-``GridShowCommand``         Compute rows × cols, publish ``GridStateEvent("visible")``.
-``GridSelectCommand``       If visible, publish ``GridStateEvent("interaction_request")``.
-==========================  =====================================================================
-
-The grid service owns back-end state: visibility, click mode
-(``"click"`` / ``"hover"`` / ``"drag"``), and cell ranking. The
-overlay window that renders the grid lives in the UI layer
-(:doc:`user_interface`).
-
-A naive grid would label cells in row-major order, but the cell
-the user actually wants is rarely the one labeled ``1``.
-Vocalance re-orders labels so the most-clicked regions get the
-lowest numbers next time. The bookkeeping lives in
-``ClickTrackerService``
-(``vocalance/app/services/command_flow/execution/grid/click_tracker_service.py``).
-
-.. mermaid::
-
-   sequenceDiagram
-       participant User
-       participant Grid as GridService
-       participant Tracker as ClickTrackerService
-       participant Disk
-
-       User->>Grid: "grid show 16"
-       Grid->>Tracker: read current ranking
-       Tracker-->>Grid: ordered cell labels
-       User->>Grid: "5"
-       Grid->>Grid: click cell 5
-       Grid->>Tracker: record click
-       Tracker->>Disk: persist (debounced)
-
-Two debouncers smooth the system: a UI re-rank publish that
-batches a flurry of clicks into one snapshot, and a disk write
-that batches a streak of clicks into one file write.
-
-Pause / resume
+Output Events
 --------------
 
-``PauseStateManager``
-(``vocalance/app/services/command_flow/pause_state_manager.py``)
-owns the single shared paused flag. It subscribes to
-``SystemControlCommandParsedEvent`` and toggles on
-``PauseCommand`` / ``ResumeCommand``. The parser's pause gate and
-every executor read this flag.
+A matched command is packaged into a typed event and published for the execution
+layer. Each family produces a distinct event type carrying a structured command
+value object:
 
-Where to read next
-==================
+.. list-table::
+   :widths: 40 60
+   :header-rows: 1
+   :class: uniform-rows
 
-The command flow ends at the OS boundary. The parser's other
-output — ``DictationCommandParsedEvent`` — opens a long-running
-session with its own state machine. That story is in
-:doc:`dictation_flow`.
+   * - Family matched
+     - Event published
+   * - System
+     - ``SystemControlCommandParsedEvent``
+   * - Dictation
+     - ``DictationCommandParsedEvent``
+   * - Mark
+     - ``MarkCommandParsedEvent``
+   * - Grid
+     - ``GridCommandParsedEvent``
+   * - Automation
+     - ``AutomationCommandParsedEvent``
+
+``DictationCommandParsedEvent`` is routed to ``DictationCoordinator`` and kicks
+off the dictation flow described in the next chapter. The remaining four event
+types feed the executors below.
+
+Execution
+==========
+
+All executors that produce OS input route their calls through
+``KeyboardInputService``, which holds an asyncio lock that serializes every OS
+call into a strict FIFO queue. Without it, three quickly-spoken commands could
+each dispatch to the OS on separate background threads and arrive in
+unpredictable order.
+
+Automation
+-----------
+
+``AutomationService`` handles user-configured OS actions: pressing a hotkey,
+typing a key sequence, clicking, scrolling. It dispatches on the command's
+``action_type``, supports counted repetition (e.g. "scroll down five"), and
+applies a per-action cooldown to prevent double-execution from rapid-fire
+recognitions. Large scroll amounts are stepped into small increments to match
+what the OS expects from hardware scroll events.
+
+Marks
+------
+
+``MarkService`` maps short user-defined labels to screen positions and clicks
+them on command. Marks persist via ``StorageService``. Cursor coordinates are
+captured at *parse time* — before the event is published — so the position
+reflects exactly where the cursor was when the user spoke.
+
+Grid
+-----
+
+``GridService`` divides the screen into a numbered grid and lets the user click
+any cell by speaking its number. Cells are ranked by historical click frequency
+so the most common targets receive the lowest numbers. Ranking is maintained by
+``ClickTrackerService``, which batches rapid clicks and debounces disk writes to
+avoid one file write per click.
+
+Pause / Resume
+---------------
+
+``PauseStateManager`` owns a single boolean flag that the parser reads on every
+input. While paused, every parsed command is dropped except ``ResumeCommand``.

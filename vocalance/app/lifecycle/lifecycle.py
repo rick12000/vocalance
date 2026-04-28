@@ -6,7 +6,7 @@ import logging
 import signal
 import threading
 from types import FrameType
-from typing import Any, Callable, Coroutine, List, Optional, Protocol, TypeVar, runtime_checkable
+from typing import Any, Callable, Coroutine, List, Optional, Protocol, Set, TypeVar, runtime_checkable
 
 from PySide6.QtCore import QTimer
 
@@ -56,7 +56,7 @@ class AppLifecycle:
 
         self._shutdown_event = asyncio.Event()
         self._init_task: Optional[asyncio.Task[Any]] = None
-        self._background_tasks: List[asyncio.Task[Any]] = []
+        self._background_tasks: Set[asyncio.Task[Any]] = set()
         self._resources: List[AsyncCloseable] = []
         self._signal_timer: Optional[QTimer] = None
         self._signal_event: Optional[threading.Event] = None
@@ -132,7 +132,9 @@ class AppLifecycle:
 
         Combines ``loop.create_task`` with lifecycle tracking and a done-callback
         that logs any unhandled exception so a fire-and-forget task can never
-        silently swallow errors.
+        silently swallow errors. The done-callback also drops the task from the
+        tracking set, so callers that rotate spawned tasks (e.g. click-tracker
+        debounce) don't accumulate references to completed tasks.
 
         Args:
             coro: Coroutine to schedule on this lifecycle's loop.
@@ -142,12 +144,12 @@ class AppLifecycle:
             The created task.
         """
         task = self._loop.create_task(coro, name=name)
-        task.add_done_callback(self._log_task_exception)
-        self._background_tasks.append(task)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_task_done)
         return task
 
-    @staticmethod
-    def _log_task_exception(task: asyncio.Task[Any]) -> None:
+    def _on_task_done(self, task: asyncio.Task[Any]) -> None:
+        self._background_tasks.discard(task)
         if task.cancelled():
             return
         exc = task.exception()
@@ -206,12 +208,13 @@ class AppLifecycle:
     async def _cancel_and_await_background(self) -> None:
         if not self._background_tasks:
             return
-        for task in self._background_tasks:
+        tasks = list(self._background_tasks)
+        for task in tasks:
             if not task.done():
                 task.cancel()
         try:
             await asyncio.wait_for(
-                asyncio.gather(*self._background_tasks, return_exceptions=True),
+                asyncio.gather(*tasks, return_exceptions=True),
                 timeout=_BACKGROUND_GRACE_S,
             )
         except asyncio.TimeoutError:

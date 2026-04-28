@@ -1,60 +1,63 @@
-Storage and configuration
-#########################
+Storage
+#######
 
-Vocalance is a local application: every piece of state it
-remembers between sessions lives on the user's disk. Marks,
-custom commands, trained sound mappings, click history, dictation
-aliases, agentic prompts, user settings — all of it is stored as
-JSON files in the user's data directory.
+.. sectnum::
 
-Two services own that state. ``StorageService`` provides typed,
-atomic JSON persistence with an in-memory cache.
-``RuntimeConfigurationStore`` sits on top of it and exposes the
-live configuration the rest of the application reads.
+Services read configuration, marks, automations, and other state from disk.
+:doc:`lifecycle` described how services are constructed and torn down; this
+chapter describes how they persist and reload state across those restarts.
 
-Layer at a glance
-=================
+All state Vocalance retains between sessions lives in JSON files on disk. Every
+read and write goes through a single service. On top of that raw persistence
+layer sits a live configuration store that keeps the in-memory application
+configuration in sync with disk and with the user's current UI settings.
+
+The Two Layers
+===============
+
+The storage layer has two distinct responsibilities that are kept in separate
+services.
 
 .. mermaid::
 
    flowchart LR
-       Svcs[Services] -->|read/write typed model| Storage[StorageService]
-       Storage -->|atomic write,<br/>cached read| Disk[(JSON files)]
-       Storage -.boots from.-> Runtime[RuntimeConfigurationStore]
+       subgraph Persistence["Persistence Layer"]
+           Storage[StorageService]
+           Disk[(JSON files)]
+           Storage -->|atomic write, cached read| Disk
+       end
+       subgraph Config["Live Configuration"]
+           Runtime[RuntimeConfigurationStore]
+           Cfg[GlobalAppConfig]
+           Runtime -->|update| Cfg
+       end
+       Svcs[Services] -->|read/write typed model| Storage
+       Storage -.boots from.-> Runtime
        UI[Settings tab] -->|RuntimeConfigRequestEvent| Runtime
-       Runtime -->|update GlobalAppConfig| Cfg[Live config<br/><i>read by all services</i>]
        Runtime -->|persist override| Storage
 
-Every service that needs persistence talks to ``StorageService``;
-nothing reads or writes JSON directly. Everything that needs
-*current* configuration reads from ``GlobalAppConfig``, which the
-runtime store keeps in sync with disk and with the UI.
+**``StorageService``** owns the mapping from domain concepts (marks, sounds,
+automations, aliases) to files on disk. It provides typed reads and writes,
+atomic file replacement, and an in-memory cache. It is not responsible for
+keeping any in-memory data structure up to date — it is purely a persistence
+adapter.
 
-Typed JSON: StorageService
-==========================
+**``RuntimeConfigurationStore``** owns the live ``GlobalAppConfig`` instance
+that every service reads for its current operating parameters. It uses
+``StorageService`` to read and write ``AppUserConfigDocument``, applies the
+stored overrides to the in-memory config at startup, and keeps both the
+in-memory config and the disk file in sync when the user changes a setting.
+
+Raw Persistence: StorageService
+=================================
+
+Typed Models and Files
+-----------------------
 
 ``StorageService``
-(``vocalance/app/services/storage/storage_service.py``) maps each
-domain to one Pydantic model and one file.
-
-==========================  ================================================
-Model                       What it holds
-==========================  ================================================
-``MarksData``               Saved marks (label → coordinate).
-``CommandsData``            User-configured automations.
-``GridClicksData``          Grid click history (for re-ranking).
-``AgenticPromptsData``      LLM rewrite prompts.
-``SoundMappingsData``       Sound label → command phrase.
-``DictationAliasData``      Dictation alias expansions.
-``AppUserConfigDocument``   User-settable configuration overrides.
-==========================  ================================================
-
-Each model is a Pydantic ``BaseModel`` describing the file's
-complete structure. Reading and writing happen at the granularity
-of *the whole file* — there is no partial document update, no
-schema migration, no JSON Patch.
-
-The public surface is small:
+(``vocalance/app/services/storage/storage_service.py``) maps each domain to a
+single Pydantic ``BaseModel`` subclass and a single JSON file. The public
+interface is two coroutines:
 
 .. code-block:: python
 
@@ -62,113 +65,165 @@ The public surface is small:
        async def read(self, model_type: Type[StorageData]) -> StorageData: ...
        async def write(self, data: StorageData) -> bool: ...
 
-A read returns a typed instance; a write commits one.
+Passing a model type to ``read`` returns a fully validated instance of that
+model. Passing an instance to ``write`` serialises it and commits it to the
+corresponding file. There is no partial update, no query language, no schema
+migration — each file is always written and read as a complete document.
 
-Atomic writes
--------------
+The domain models and their files:
 
-A naïve "open, truncate, write" sequence is dangerous: a crash
-between truncate and write leaves an empty file. The storage
-service writes through ``write_json_atomic``.
+.. list-table::
+   :widths: 35 65
+   :header-rows: 1
+   :class: uniform-rows
+
+   * - Model
+     - Contents
+   * - ``MarksData``
+     - Saved mark labels and their screen coordinates.
+   * - ``CommandsData``
+     - User-configured voice automation actions.
+   * - ``GridClicksData``
+     - Click frequency data used to rank grid cells.
+   * - ``AgenticPromptsData``
+     - LLM rewrite prompt templates for Smart and Amend modes.
+   * - ``SoundMappingsData``
+     - Sound label to command phrase mappings.
+   * - ``DictationAliasData``
+     - Alias trigger phrases and their expanded text.
+   * - ``AppUserConfigDocument``
+     - User-applied overrides to the default application configuration.
+
+Atomic Writes
+--------------
+
+Overwriting a file in place is dangerous: a crash or power loss after the
+original content is erased but before the new content is fully written leaves
+an empty or truncated file. The storage service avoids this by never overwriting
+in place.
+
+All writes go through ``write_json_atomic``, which uses a write-then-rename
+strategy:
 
 .. mermaid::
 
    flowchart LR
-       Model[Pydantic model] --> Bytes[Serialize<br/>to JSON bytes]
-       Bytes --> Tmp[Write bytes<br/>to temp file<br/><i>same directory</i>]
-       Tmp --> Repl[os.replace<br/>temp → destination]
-       Repl --> Done[(Final file)]
+       Model[Pydantic model] --> Bytes[Serialise to JSON bytes]
+       Bytes --> Tmp[Write to temp file<br/>same directory as target]
+       Tmp --> Rename[os.replace temp → target]
+       Rename --> Done[(File on disk)]
 
-``os.replace`` is an atomic rename on every supported platform.
-Either the new file is in place or the old one is — never both,
-never neither. A crash anywhere in the sequence leaves the
-filesystem in a consistent state.
+The key step is ``os.replace``. On POSIX systems this is an atomic directory
+operation: the directory entry for the target path is updated to point to the
+new inode in a single kernel call. On Windows, ``os.replace`` is not guaranteed
+atomic at the kernel level, but it is as close as Python can get without using
+transactional NTFS. Either the rename completes and the new file is visible, or
+it does not and the original file is untouched. A crash at any point in the
+sequence leaves the filesystem in a known consistent state.
 
-Cached reads
-------------
+Cached Reads
+-------------
 
-Several services re-read the same file frequently. The parser
-asks for the action map on every utterance; the mark service
-reads marks on every command. A cold disk read every time would
-be wasteful.
+Several services read their domain file on every command. The mark service reads
+mark data on every mark-execute; the parser reads the automation map on every
+input. A full disk read each time would add milliseconds to every command's
+latency.
 
-The storage service keeps an in-memory cache keyed by model
-type, with a per-entry TTL.
+``StorageService`` maintains a per-model-type in-memory cache with a
+configurable TTL (time-to-live). The cache is keyed by model type, so each
+domain has its own entry.
 
-================  ============================================================
-Read happens      Effect
-================  ============================================================
-Within TTL        Return cached instance.
-After TTL         Re-read from disk, refresh entry, return.
-After ``write``   Cache entry is replaced with the just-written instance.
-================  ============================================================
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+   :class: uniform-rows
 
-Cache invalidation in the abstract is hard; here it is bounded
-because the only thing that mutates a file is the storage
-service itself.
+   * - Read condition
+     - What happens
+   * - Cache entry exists and is within TTL
+     - Return the cached Pydantic instance immediately.
+   * - Cache entry is missing or has expired
+     - Read from disk, deserialise, store in cache with a fresh TTL,
+       and return the new instance.
+   * - A ``write`` just completed
+     - Replace the cache entry with the just-written instance
+       immediately, regardless of the TTL. The cache is always
+       consistent with what was last written.
 
-Live configuration: RuntimeConfigurationStore
-=============================================
+The cache invalidation policy is simple and correct because the storage service
+is the *only writer*. No other component writes to these files while the
+application is running; the cache can never be stale relative to an external
+modification.
 
-Storage answers "what is on disk". Runtime configuration answers
-"what is the application running with right now". A user can
-change a setting in the UI, the application uses the new value
-immediately, and only later (or never) is that change persisted
-to ``AppUserConfigDocument``.
+Live Configuration: RuntimeConfigurationStore
+==============================================
 
-The owner of the live configuration is
+What "Live Configuration" Means
+---------------------------------
+
+``StorageService`` answers "what is currently on disk". That is not always
+what the application should be using right now. A user can change a VAD
+sensitivity slider mid-session and expect the new value to take effect
+immediately, before any disk write has occurred. The application's running
+parameters and the on-disk representation can temporarily diverge.
+
 ``RuntimeConfigurationStore``
-(``vocalance/app/services/storage/runtime_configuration.py``). It
-holds the single ``GlobalAppConfig`` instance every other service
-reads from.
+(``vocalance/app/services/storage/runtime_configuration.py``) bridges this gap.
+It owns a single ``GlobalAppConfig`` instance — the authoritative source for
+every parameter that changes the application's behaviour. Every service that
+needs a configuration value reads it from ``GlobalAppConfig``, never from disk
+directly.
 
-Initialization
---------------
+Startup: Loading Stored Overrides
+-----------------------------------
 
-At startup, the runtime store does three things in order.
+At initialization, the runtime store bootstraps ``GlobalAppConfig`` in three
+steps:
 
-#. Read ``AppUserConfigDocument`` from disk via the storage
-   service.
-#. Sanitize the user overrides against an allow-list of
-   permitted setting paths (``ALLOWED_USER_SETTING_PATHS``).
-#. Apply each override to the in-memory ``GlobalAppConfig``.
+1. Read ``AppUserConfigDocument`` from disk via ``StorageService``.
+2. Filter the loaded overrides through ``ALLOWED_USER_SETTING_PATHS`` — a
+   hardcoded allowlist of configuration keys the user is permitted to change.
+   Any key not in the allowlist is silently ignored, preventing arbitrary
+   values from reaching internal parameters.
+3. Apply each permitted override to the in-memory ``GlobalAppConfig`` by
+   traversing the key path and setting the value.
 
-The allow-list is the boundary that protects the application
-from arbitrary user-supplied values: only paths in the list are
-accepted. Anything else is silently ignored.
+After this, ``GlobalAppConfig`` reflects exactly what the user had configured
+at the end of the previous session.
 
-Live updates
-------------
+Live Updates During a Session
+-------------------------------
 
-When the user changes a setting, the runtime store applies the
-change in two parallel streams.
+When the user changes a setting in the Settings tab, the controller publishes
+``RuntimeConfigRequestEvent`` carrying the changed key and new value. The
+runtime store handles this event in three parallel actions:
 
 .. mermaid::
 
    flowchart LR
        Tab[Settings tab] -->|RuntimeConfigRequestEvent| Store[RuntimeConfigurationStore]
-       Store --> Mem[Update in-memory<br/>GlobalAppConfig]
-       Store --> Notify[Publish<br/>SettingsChangedEvent]
-       Store --> Persist[Persist to<br/>AppUserConfigDocument]
-       Notify -->|deliver| Subs[Subscribed services<br/><i>e.g. segmenters re-tune VAD</i>]
+       Store --> Mem[1. Update GlobalAppConfig immediately]
+       Store --> Notify[2. Publish SettingsChangedEvent]
+       Store --> Persist[3. Persist to AppUserConfigDocument]
+       Notify -->|deliver| Subs[Subscribed services]
 
-The two-step pattern is deliberate. Updating ``GlobalAppConfig``
-is the *immediate* change: anything reading the config the next
-time sees the new value. Publishing ``SettingsChangedEvent``
-lets services that cached a derived value re-read it; the
-segmenters, for example, rebuild their threshold parameters in
-response. Persistence happens in the same handler so a restart
-preserves the change.
+**Action 1** takes effect immediately: any service that reads from
+``GlobalAppConfig`` on its next operation sees the new value. No restart, no
+reload.
 
-This is what allows the user to retune VAD parameters or LLM
-prompts mid-session and observe the effect immediately —
-nothing reloads, nothing restarts, the application simply
-applies the new values.
+**Action 2** publishes ``SettingsChangedEvent``. This event exists for services
+that have cached derived values and need to react to a configuration change
+explicitly. For example, the segmenters cache their computed energy threshold
+(noise-floor estimate × multiplier). When ``SettingsChangedEvent`` arrives, they
+recompute the threshold from the new ``GlobalAppConfig`` value. Without this
+event, a service that cached a derived value at construction time would never
+notice the change.
 
-Where to read next
-==================
+**Action 3** persists the override to ``AppUserConfigDocument`` via
+``StorageService``. Because this runs in the same handler as action 1, the
+change is durable as soon as the handler completes. A restart immediately after
+a settings change will load the new value from disk and apply it.
 
-The four foundation chapters end here. With the bus, the
-threading model, the lifecycle, and the storage layer all in
-place, every sentence in the *features* chapters has a concrete
-underpinning. The guide ends; the codebase is the next read.
+The net effect is that a user adjusting VAD sensitivity sees the recognition
+behaviour change on the next phrase, without any restart or mode switch, and
+the change survives a restart.

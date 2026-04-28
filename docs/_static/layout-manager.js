@@ -166,34 +166,27 @@
         if (!svg) return;
 
         try {
-          // Get dimensions
-          const containerWidth = container.clientWidth - 32;
           const svgBBox = svg.getBBox();
           const svgWidth = svgBBox.width;
           const svgHeight = svgBBox.height;
+          if (svgWidth <= 0 || svgHeight <= 0) return;
 
-          // Set viewBox to ensure full diagram is visible
+          // Tight viewBox + removed width/height attributes lets CSS govern
+          // displayed size. CSS sets `width: 100%; height: auto`, so the SVG
+          // fills the container width and grows in height to match the
+          // diagram's natural aspect ratio. No letterboxing on first render.
           svg.setAttribute('viewBox', `${svgBBox.x} ${svgBBox.y} ${svgWidth} ${svgHeight}`);
+          svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
           svg.removeAttribute('width');
           svg.removeAttribute('height');
 
-          // Calculate initial scale to fit perfectly
-          let initialScale = 1;
-          if (svgWidth > containerWidth) {
-            initialScale = containerWidth / svgWidth; // Exact fit
-          }
-
-          // Center the diagram
-          const scaledWidth = svgWidth * initialScale;
-          const centerOffset = (containerWidth - scaledWidth) / 2;
-
-          // Setup pan/zoom state
+          // Pan/zoom state. Initial transform is identity so the SVG sits at
+          // its CSS-fitted size. Pan/zoom apply on top of that.
           let isPanning = false;
           let startPoint = { x: 0, y: 0 };
-          let currentTranslate = { x: centerOffset, y: 0 };
-          let currentScale = initialScale;
+          let currentTranslate = { x: 0, y: 0 };
+          let currentScale = 1;
 
-          // Apply initial transform
           const updateTransform = () => {
             svg.style.transform = `translate(${currentTranslate.x}px, ${currentTranslate.y}px) scale(${currentScale})`;
             svg.style.transformOrigin = '0 0';
@@ -261,10 +254,10 @@
           container.addEventListener('touchend', endPan);
           container.addEventListener('wheel', doZoom, { passive: false });
 
-          // Double-click to reset
+          // Double-click resets pan/zoom; CSS keeps the diagram fit-to-width.
           container.addEventListener('dblclick', () => {
-            currentScale = initialScale;
-            currentTranslate = { x: centerOffset, y: 0 };
+            currentScale = 1;
+            currentTranslate = { x: 0, y: 0 };
             updateTransform();
           });
 

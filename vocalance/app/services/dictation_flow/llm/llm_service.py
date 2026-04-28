@@ -4,7 +4,7 @@ import logging
 import multiprocessing
 import os
 import threading
-from typing import AsyncGenerator, Callable, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set, Tuple
 
 from llama_cpp import Llama
 
@@ -53,6 +53,7 @@ class LLMService(Service):
         self.request_lock = asyncio.Lock()
         self.download_cancel_events: Dict[str, threading.Event] = {}
         self.active_download_request_id: Optional[str] = None
+        self.active_download_tasks: Set[asyncio.Task[Any]] = set()
         self.subscribe(LlmUiRequestEvent, self.handle_llm_ui_request)
         self.subscribe(SettingsChangedEvent, self._handle_settings_changed)
 
@@ -86,19 +87,12 @@ class LLMService(Service):
             self.download_cancel_events[event.request_id] = cancel
             self.active_download_request_id = event.request_id
             progress_cb = self.download_progress_callback(event.request_id)
-            try:
-                ok, msg = await self.download_whitelisted_model_cancellable(event.model_id, cancel, progress_cb)
-            except Exception:
-                logger.exception("Whitelisted model download failed")
-                ok, msg = False, "Download failed"
-            finally:
-                unlink()
-            await self.event_bus.publish(
-                LlmUiNotificationEvent(kind="download_finished", request_id=event.request_id, ok=ok, message=msg)
+            task = asyncio.create_task(
+                self._run_download_workflow(event, cancel, progress_cb, unlink),
+                name=f"llm-download-{event.request_id}",
             )
-            self.download_cancel_events.pop(event.request_id, None)
-            if self.active_download_request_id == event.request_id:
-                self.active_download_request_id = None
+            self.active_download_tasks.add(task)
+            task.add_done_callback(self.active_download_tasks.discard)
         elif op == "cancel_download":
             rid = event.request_id or self.active_download_request_id
             if not rid:
@@ -106,6 +100,34 @@ class LLMService(Service):
             ev = self.download_cancel_events.get(rid)
             if ev is not None:
                 ev.set()
+
+    async def _run_download_workflow(
+        self,
+        event: LlmUiRequestEvent,
+        cancel: threading.Event,
+        progress_cb: Optional[Callable[[str], None]],
+        unlink: Callable[[], None],
+    ) -> None:
+        """Drive one whitelisted-model download to completion off the bus dispatcher.
+
+        The handler that triggers this returns immediately so the event bus stays
+        free to dispatch other events (audio chunks, dictation, settings) while
+        the download runs for minutes.
+        """
+        try:
+            try:
+                ok, msg = await self.download_whitelisted_model_cancellable(event.model_id, cancel, progress_cb)
+            except Exception:
+                logger.exception("Whitelisted model download failed")
+                ok, msg = False, "Download failed"
+            await self.event_bus.publish(
+                LlmUiNotificationEvent(kind="download_finished", request_id=event.request_id, ok=ok, message=msg)
+            )
+        finally:
+            unlink()
+            self.download_cancel_events.pop(event.request_id, None)
+            if self.active_download_request_id == event.request_id:
+                self.active_download_request_id = None
 
     def active_spec(self) -> Optional[LocalLLMArtifact]:
         spec = get_whitelisted_llm_model(self.config.llm.selected_model_id)
@@ -332,6 +354,12 @@ class LLMService(Service):
         return self.model_loaded and self.llm is not None
 
     async def shutdown(self) -> None:
+        for task in list(self.active_download_tasks):
+            task.cancel()
+        for ev in self.download_cancel_events.values():
+            ev.set()
+        if self.active_download_tasks:
+            await asyncio.gather(*self.active_download_tasks, return_exceptions=True)
         await self.dispose_loaded_model()
         if hasattr(self, "model_downloader") and self.model_downloader:
             self.model_downloader.shutdown()

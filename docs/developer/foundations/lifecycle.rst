@@ -1,73 +1,76 @@
 Lifecycle
 #########
 
-The application starts, runs for a while, and stops. Between
-those three moments the lifecycle controls every resource
-Vocalance owns: the services, the background tasks, the asyncio
-executor, the signal handlers.
+.. sectnum::
 
-Lifecycle at a glance
-=====================
+:doc:`concurrency` described the threading model. This chapter describes what
+wraps around it: how every service, background task, and thread is constructed,
+initialized, and torn down in a coordinated sequence.
 
-One object — ``AppLifecycle``
-(``vocalance/app/lifecycle/lifecycle.py``) — owns four phases.
+The lifecycle owns every resource Vocalance allocates: services, background
+tasks, threads, and OS signal handlers. It controls the order in which they are
+created and the order in which they are destroyed. Both orders matter —
+constructing in the wrong order produces services that depend on something not
+yet ready; destroying in the wrong order produces races between components that
+are still running and components that have already released their resources.
 
-.. mermaid::
+``AppLifecycle`` (``vocalance/app/lifecycle/lifecycle.py``) implements the
+four phases: build, initialize, run, and teardown.
 
-   flowchart LR
-       Specs[Service specs<br/><i>declarative list</i>] --> Build[Build phase<br/>realize specs in order]
-       Build --> Init[Init phase<br/>await initialize() per service]
-       Init --> Run[Run phase<br/>application is live]
-       Run -->|trigger| Tear[Teardown phase<br/>LIFO shutdown]
+Building the Application
+=========================
 
-The lifecycle exposes the operations each phase needs.
+The Service Spec Pattern
+-------------------------
 
-===================================  =========================================================
-Operation                            Purpose
-===================================  =========================================================
-``register_resource``                Add a service or other resource that must be torn down.
-``register_init_task``               Track the in-flight initialization task.
-``spawn``                            Create and track a long-running background task.
-``request_shutdown`` / ``teardown``  Drive the orderly shutdown.
-===================================  =========================================================
-
-Holding all four in one object is what allows the rest of the
-application to ignore lifetime entirely. A service registers
-itself once, opts into an init task once, and never thinks about
-teardown again.
-
-The service spec
-================
-
-Construction is *declarative*. ``qt_main`` does not instantiate
-services in a hand-written sequence; it builds a list of
-``ServiceSpec`` records and lets the lifecycle realize them in
-order.
+Service construction is **declarative**. ``qt_main`` builds a list of
+``ServiceSpec`` objects — each a name and a factory function — and hands the
+list to the lifecycle. The lifecycle calls the factories in order, passing each
+one a *container* dictionary of already-constructed services so that
+dependencies resolve by name:
 
 .. code-block:: python
 
-   ServiceSpec(name="audio_capture", factory=lambda c: AudioCaptureService(...))
+   ServiceSpec(
+       name="command_speech",
+       factory=lambda c: CommandSpeechService(
+           event_bus=c["event_bus"],
+           config=c["config"],
+           vosk_engine=c["vosk_engine"],
+       )
+   )
 
-Each spec is a name and a factory. The factory receives a
-container with previously built services so that dependencies
-resolve by name (``c["event_bus"]``, ``c["config"]``,
-``c["storage"]``).
+The full spec list in ``qt_main._service_specs`` is the single source of truth
+for the service graph. Every service's dependencies are expressed as string keys
+into the container; there are no circular imports, no global singletons, and no
+implicit coupling between service files. Adding a new service is one edit:
+append a ``ServiceSpec``.
 
-The full list lives in ``qt_main._service_specs`` and is the
-source of truth for the service graph. Three guarantees follow
-from a single declarative list:
+Construction order is the order specs appear. Teardown order is the reverse.
+This guarantee is the foundation that makes LIFO teardown work correctly.
 
-- Construction order is the order specs appear.
-- Teardown order is the reverse (LIFO over registration).
-- Adding a service is one edit: appending a spec.
+Initialization
+---------------
 
-Background tasks
-================
+After all services are constructed, each one's ``initialize`` coroutine runs in
+the same order as construction:
 
-Some services need long-running asyncio tasks: the click tracker
-debounces persistence, the dictation coordinator monitors silence
-in Type mode, the LLM service streams tokens. Each is started
-with ``lifecycle.spawn``.
+.. code-block:: python
+
+   async def initialize(self) -> bool: ...
+
+``initialize`` is where async setup lives — loading a model file from disk,
+opening a device stream, reading stored configuration. These operations cannot
+run in ``__init__`` because they are either coroutines (requiring an event loop)
+or blocking (requiring a background thread). Any service whose
+``initialize`` returns ``False`` or raises triggers a shutdown before the
+application reaches the run phase.
+
+Background Tasks
+-----------------
+
+Some services need long-running tasks that continue for the life of the
+application. These are registered with ``lifecycle.spawn``:
 
 .. code-block:: python
 
@@ -77,49 +80,63 @@ with ``lifecycle.spawn``.
        self._background_tasks.append(task)
        return task
 
-Three properties:
+The done-callback logs any unhandled exception, so a fire-and-forget task cannot
+silently fail. The task handle is stored so teardown can cancel it.
 
-- The task is created on the lifecycle's loop.
-- A done-callback logs any unhandled exception, so a
-  fire-and-forget task cannot silently swallow errors.
-- The task is recorded for cooperative cancellation during
-  teardown.
-
-Cancellation token
-==================
-
-Shutdown is *cooperative*. The lifecycle does not kill threads;
-it asks running work to return. The mechanism is a
-``CancellationToken``
-(``vocalance/app/lifecycle/cancellation.py``) with two faces — an
-``asyncio.Event`` and a ``threading.Event`` — that mirror each
-other.
-
-================  ============================================================
-Caller            Side it polls
-================  ============================================================
-Awaiting code     ``asyncio.Event`` (``await token.wait_async()``)
-Daemon workers    ``threading.Event`` (``token.is_set()`` between iterations)
-================  ============================================================
-
-Setting the token from any thread wakes both sides.
-
-The lifecycle holds one token, exposes it as ``cancel_token``,
-and sets it as the very first step of teardown.
-
-Teardown order
+Shutting Down
 ==============
 
-Teardown is a fixed six-step sequence. Each step is run to
-completion before the next begins.
+Three paths lead to shutdown. All three converge on the same teardown function.
+
+Shutdown Triggers
+------------------
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+   :class: uniform-rows
+
+   * - Trigger
+     - Path
+   * - User closes the main window
+     - Qt's ``lastWindowClosed`` signal calls ``lifecycle.request_shutdown``.
+   * - ``SIGINT`` / ``SIGTERM``
+     - A Python signal handler sets a ``threading.Event``. A Qt ``QTimer``
+       polls that event every 100 ms and calls ``lifecycle.request_shutdown``
+       when it is set. (Signal handlers cannot touch the asyncio loop directly.)
+   * - Init failure
+     - A service's ``initialize`` returns ``False`` or raises; ``qt_main``
+       calls ``lifecycle.request_shutdown``.
+
+``request_shutdown`` sets the cancellation token, signals the asyncio shutdown
+event, and returns. ``teardown`` is called by whatever is awaiting
+``lifecycle.wait()``.
+
+Cooperative Cancellation
+-------------------------
+
+Shutdown is cooperative — the lifecycle signals threads to stop rather than
+killing them. The signal is a ``CancellationToken`` (described fully in
+:doc:`concurrency`). The lifecycle holds one token for the entire application
+and exposes it as ``cancel_token``. Setting it is the first step of teardown.
+
+Any service or background task that needs to run code during shutdown should
+check ``cancel_token.is_set()`` in its loop, or ``await cancel_token.wait()``
+at a suspension point. The lifecycle does not provide any stronger guarantee
+than "the token will be set before resources are released".
+
+The Teardown Sequence
+----------------------
+
+Teardown runs six steps, each completing fully before the next begins:
 
 .. mermaid::
 
    flowchart TD
-       T0[teardown called] --> T1[1. Set cancel token<br/><i>cooperating workers wind down</i>]
-       T1 --> T2[2. Cancel and await init task]
-       T2 --> T3[3. Cancel and await background tasks]
-       T3 --> T4[4. Close registered resources<br/><i>LIFO over registration</i>]
+       T0[teardown called] --> T1[1. Set cancel token]
+       T1 --> T2[2. Cancel init task, await it]
+       T2 --> T3[3. Cancel background tasks, await all]
+       T3 --> T4[4. Close resources in LIFO order]
        T4 --> T5[5. Drain asyncio default executor]
        T5 --> T6[6. Stop signal-poll timer]
 
@@ -139,60 +156,38 @@ In code:
        await self._shutdown_default_executor()
        self._stop_signal_timer()
 
-``teardown`` is idempotent: a second call returns immediately.
-Every error path (signal, init failure, user-initiated quit)
-funnels into the same method.
+``teardown`` is idempotent — a second call returns immediately. All three
+shutdown triggers funnel into the same method, so whichever fires first runs
+teardown, and any subsequent trigger is a no-op.
 
-Why LIFO matters
-----------------
+Why LIFO Order Matters
+~~~~~~~~~~~~~~~~~~~~~~
 
-Reverse-registration teardown is a correctness requirement, not
-aesthetics. Consider the capture path:
+Destroying resources in reverse-construction order is a correctness requirement.
+Consider the capture path. ``AudioCaptureService`` is registered early because
+the segmenters and dictation coordinator subscribe to its bus event during their
+own construction — they need the bus and the event type definition to exist, but
+they do not need the capture service to exist yet. ``CommandSegmenterService``,
+``SoundSegmenterService``, and ``DictationCoordinator`` are registered later.
 
-- ``AudioCaptureService`` is registered early because the
-  segmenters and the dictation coordinator subscribe to its bus
-  event during construction.
-- ``CommandSegmenterService``, ``SoundSegmenterService``, and
-  ``DictationCoordinator`` are registered later.
+LIFO teardown means the segmenters and coordinator shut down *first*. Each
+``Service.shutdown`` releases all bus subscriptions through the
+``SubscriptionTracker``. By the time ``AudioCaptureService`` shuts down,
+no subscriber is left for ``AudioChunkCapturedEvent``. The capture service stops
+the PortAudio stream and exits cleanly.
 
-LIFO teardown means the segmenters and the coordinator shut
-down *first*. The base ``Service.shutdown`` releases every bus
-subscription each one holds, so by the time the capture service
-itself shuts down there are no subscribers left for
-``AudioChunkCapturedEvent``. The capture service then stops the
-PortAudio stream and the path is fully torn down.
+If the order were reversed — capture service first — the PortAudio stream would
+stop while the segmenters and coordinator were still alive and subscribed.
+Further, if any of those services published an event during their own shutdown,
+the bus would attempt to deliver it to components that have already released
+their resources.
 
-Reverse the order and the capture service would stop first,
-leaking chunks onto the bus while subscribers are mid-teardown
-— exactly the kind of race LIFO is designed to avoid.
+This pattern generalises: any service that *produces* data should be shut down
+*after* all services that *consume* its data. LIFO over construction order
+satisfies this requirement automatically, as long as producers are constructed
+before consumers — which is exactly what the dependency-ordered spec list
+guarantees.
 
-Triggers
-========
-
-Three things can start a shutdown.
-
-================================  ===========================================================
-Trigger                           Path
-================================  ===========================================================
-User closes the main window       Qt's ``lastWindowClosed`` calls ``request_shutdown``.
-``SIGINT`` / ``SIGTERM``          Python signal handler sets a ``threading.Event`` polled
-                                  by a Qt ``QTimer`` every 100 ms.
-Init failure                      ``initialize`` returns ``False`` or raises;
-                                  ``qt_main`` calls ``request_shutdown`` itself.
-================================  ===========================================================
-
-The signal-via-timer indirection exists because
-``signal.signal`` callbacks are not allowed to touch the asyncio
-loop directly.
-
-All three funnel through ``request_shutdown``, which sets the
-cancel token and signals the asyncio shutdown event. Whatever
-was awaiting ``lifecycle.wait()`` wakes up and runs ``teardown``.
-
-Where to read next
-==================
-
-The lifecycle owns *resources*; some of those resources own
-*persisted state*. The storage and configuration layer that sits
-underneath the services — atomic JSON, a TTL-cached reader, a
-live configuration store — is the subject of :doc:`storage`.
+The final foundations chapter — :doc:`storage` — covers how state persists
+between sessions: the typed JSON persistence layer and the live configuration
+store that keeps every service's parameters in sync with the user's settings.

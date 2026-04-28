@@ -19,7 +19,6 @@ architecture and the implementation. End-user information lives at
    :hidden:
 
    developer/overview/introduction
-   developer/overview/architecture
 
 .. toctree::
    :maxdepth: 2

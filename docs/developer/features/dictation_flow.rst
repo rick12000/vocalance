@@ -1,109 +1,181 @@
-Dictation flow
+Dictation Flow
 ##############
 
-Dictation is the one feature that does not fit the "phrase in,
-action out" shape of every other command. Saying ``dictate`` does
-not produce a single OS event; it opens a *session* that streams
-audio to a streaming speech model, watches for a stop phrase,
-optionally rewrites the result with a local large language model,
-and finally types the resulting text into whatever application is
-focused. Sessions can last seconds or minutes.
+.. sectnum::
 
-This chapter picks up where :doc:`command_flow` ended — the
-parser has just emitted a ``DictationCommandParsedEvent`` — and
-follows the session to the keystrokes the user sees.
+The command flow described in :doc:`command_flow` handles short, discrete
+inputs. Dictation is the other consumer of ``AudioChunkCapturedEvent``: a
+long-running session that transcribes continuous speech, optionally rewrites
+it with a local language model, and types the result. Sessions can last
+anywhere from a few seconds to several minutes.
 
-Flow at a glance
-================
+The Session Model
+==================
 
-A session has three states. Audio flows through *two* recognizers
-in parallel; their outputs converge inside the coordinator.
+The key design choice is that dictation uses **two separate recognizers running
+in parallel**. One produces the dictated prose; the other watches for control
+words (stop trigger, formatting modifiers). The outputs of both feed into a
+single coordinator that decides what to do with them.
+
+This separation exists because the two recognition tasks have opposite
+requirements. Dictation requires a model that handles continuous natural speech,
+manages its own phrase boundaries, and produces a stream of progressively refined
+partial results. Command recognition requires a model that is fast, deterministic,
+and precise on a small vocabulary of exact phrases. No single speech model is
+optimally suited to both; using two specialised ones is simpler than compromising
+with a single general one.
 
 .. mermaid::
 
    flowchart LR
        Cmd[DictationCommandParsedEvent] --> Coord[DictationCoordinator]
-       Chunks[AudioChunkCapturedEvent] --> Coord
-       Chunks --> CSpeech[CommandSpeechService<br/><i>Vosk side channel</i>]
-       Coord --> Moon[MoonshineEngine<br/><i>streaming dictation</i>]
-       CSpeech -->|stop trigger or<br/>modifier phrase| Coord
-       Moon -->|partials and finals| Coord
-       Coord --> Type[Typed text]
-       Coord --> LLM[LLMService<br/><i>Smart / Amend only</i>]
-       LLM --> Type
+       subgraph Audio["Audio routing"]
+           Chunks[AudioChunkCapturedEvent] --> Coord
+           Chunks --> CSpeech[CommandSpeechService<br/>Vosk side channel]
+       end
+       subgraph Recognition["Recognition"]
+           Moon[MoonshineEngine<br/>streaming dictation]
+           Coord --> Moon
+           Moon -->|partials and finals| Coord
+           CSpeech -->|stop trigger or<br/>modifier phrase| Coord
+       end
+       subgraph Output["Output"]
+           Coord --> LLM[LLMService<br/>Smart / Amend]
+           Coord --> Type[Typed text]
+           LLM --> Type
+       end
 
-The coordinator orchestrates. Moonshine produces the prose. The
-Vosk side channel produces the control phrases. The LLM, if any,
-rewrites the accumulated text before typing.
+``DictationCoordinator`` is the central hub. It receives the start command from
+the parser, feeds audio to the Moonshine streaming engine, monitors the Vosk
+side channel, and applies all text transformations before typing the final result.
 
-The rest of the chapter unpacks each piece.
+The Speech Engine: Moonshine
+-----------------------------
 
-The six modes
-=============
+The primary recognizer for dictation is **Moonshine**, an offline speech-to-text
+model optimised for streaming inference on consumer hardware. Unlike the Vosk
+model used for commands — which waits for a complete audio clip — Moonshine
+receives a continuous stream of PCM samples and produces results in two forms:
 
-A session has a *mode* fixed at the moment it starts. All modes
-share the same audio path and the same modifier system; they
-differ in what they do with the finalized text.
+- **Partials**: the engine's current best guess for the phrase it is hearing,
+  updated frequently as more audio arrives. A partial can change character
+  by character as the user speaks.
+- **Finals**: a phrase the engine has decided is complete, typically bounded by
+  a natural pause in speech. Once a phrase is finalised, Moonshine moves on
+  and the text is fixed.
 
-==========  =================================================================
-Mode        What it does on stop
-==========  =================================================================
-Standard    Type each finalized utterance immediately, as it comes in.
-Type        Like Standard, plus auto-stop after a configurable silence.
-Visual      Hold streaming text in a popup; type the whole block on stop.
-Hidden      Like Visual, but never show the streaming text.
-Smart       Like Visual, then rewrite via the LLM before typing.
-Amend       Like Smart, but rewrite the user's pre-existing selection.
-==========  =================================================================
+The application feeds Moonshine one audio chunk at a time directly on the main
+thread via ``MoonshineStreamSession.add_audio_pcm16``. The Moonshine native
+library releases Python's GIL during inference, so the call does not block
+other Python threads while running, but the main thread is occupied for a few
+milliseconds per chunk. This is acceptable given the chunk size (~30 ms).
 
-Two of the six (Smart and Amend) enter an extra LLM stage on
-stop. The other four go straight back to idle.
+The Vosk Side Channel
+----------------------
 
-The mode is chosen by the *start command* the parser emitted:
-``DictationStartCommand`` for Standard,
-``DictationSmartStartCommand`` for Smart, and so on. There is no
-in-session mode switch.
+``CommandSpeechService`` — the same service used for command recognition —
+continues to receive audio clips from ``CommandSegmenterService`` while
+dictation is active. During a session, it ignores all recognitions except two
+specific patterns: the configured **stop trigger** phrase and any **modifier
+phrases**. Everything else is silently dropped.
 
-The state machine
-=================
+The stop trigger travels through the parser like a normal command
+(``→ DictationStopCommand``), which is why it can also be activated by a sound
+mapped to the stop phrase. Modifier phrases bypass the parser entirely; they
+carry no command meaning and are delivered as ``DictationModifierPhraseEvent``
+directly to the coordinator.
 
-Three states are reachable during a session, plus a one-way
-``SHUTTING_DOWN`` for application teardown.
+Session Modes and the State Machine
+=====================================
+
+Session Modes
+--------------
+
+A **mode** is fixed when the session starts and cannot change during the session.
+All six modes share the same audio routing and the same modifier and alias
+system; they differ only in what happens to the recognised text during and after
+the session.
+
+The fundamental split is between **immediate** modes (Standard and Type), which
+type each finalised Moonshine phrase as soon as it is committed, and **buffered**
+modes (Visual, Hidden, Smart, Amend), which hold the text in a popup buffer and
+act on the complete transcript when the session stops.
+
+.. list-table::
+   :widths: 15 85
+   :header-rows: 1
+   :class: uniform-rows
+
+   * - Mode
+     - Behaviour
+   * - Standard
+     - Type each Moonshine final immediately as it is committed. The user
+       sees text appearing word-by-word as they speak.
+   * - Type
+     - Identical to Standard with one addition: a configurable silence timer.
+       If no Moonshine final arrives within the timeout, the session stops
+       automatically. Useful for dictating into fields where a stop command
+       would be disruptive.
+   * - Visual
+     - Buffer all finals in the popup. Display streaming partials as live
+       preview text. On stop: type the complete buffer as a single block.
+   * - Hidden
+     - Same as Visual but partials and finals are not shown in the popup —
+       the user cannot see what was captured until it is typed on stop.
+   * - Smart
+     - Same as Visual but on stop: pass the buffer to the local LLM for
+       rewriting before typing. The LLM can fix grammar, change tone, or
+       apply any transformation defined by the user's rewrite prompt.
+   * - Amend
+     - Same as Smart with a different input: instead of the session
+       transcript, the LLM receives the user's *currently selected text* as
+       the text to rewrite. The spoken dictation becomes the rewrite
+       instruction (e.g. "make this more formal").
+
+The State Machine
+------------------
+
+The coordinator tracks three active states plus ``SHUTTING_DOWN``.
 
 .. mermaid::
 
    flowchart LR
-       Idle[<b>IDLE</b><br/><i>discarding audio</i>] -->|start trigger,<br/>any mode| Rec[<b>RECORDING</b><br/><i>Moonshine streaming</i>]
-       Rec -->|stop,<br/>Standard / Type / Visual / Hidden| Idle
-       Rec -->|stop,<br/>Smart / Amend| Proc[<b>PROCESSING_LLM</b><br/><i>LLM rewriting</i>]
-       Proc -->|LLM completed| Idle
+       Idle[IDLE] -->|start command, any mode| Rec[RECORDING<br/>Moonshine active]
+       Rec -->|stop — Standard, Type, Visual, Hidden| Idle
+       Rec -->|stop — Smart or Amend| Proc[PROCESSING_LLM<br/>LLM rewriting]
+       Proc -->|LLM done| Idle
 
-Transitions are validated against an explicit table inside
-``DictationCoordinator``
-(``vocalance/app/services/dictation_flow/dictation_coordinator.py``):
+State transitions are validated against an explicit table. Any invalid
+transition raises immediately, which lets the rest of the coordinator rely on
+invariants ("at most one active session", "no LLM run while recording") without
+defensive checks:
 
 .. code-block:: python
 
    VALID_DICTATION_STATE_TRANSITIONS = {
-       DictationState.IDLE: frozenset({DictationState.RECORDING, DictationState.SHUTTING_DOWN}),
-       DictationState.RECORDING: frozenset({DictationState.PROCESSING_LLM, DictationState.IDLE, DictationState.SHUTTING_DOWN}),
-       DictationState.PROCESSING_LLM: frozenset({DictationState.IDLE, DictationState.SHUTTING_DOWN}),
+       DictationState.IDLE: frozenset({
+           DictationState.RECORDING, DictationState.SHUTTING_DOWN
+       }),
+       DictationState.RECORDING: frozenset({
+           DictationState.PROCESSING_LLM,
+           DictationState.IDLE,
+           DictationState.SHUTTING_DOWN,
+       }),
+       DictationState.PROCESSING_LLM: frozenset({
+           DictationState.IDLE, DictationState.SHUTTING_DOWN
+       }),
        DictationState.SHUTTING_DOWN: frozenset(),
    }
 
-Anything outside the table raises immediately. The rest of the
-coordinator can therefore assume invariants ("at most one active
-session", "no LLM run starts before recording ends") without
-explicit locking.
+Audio Routing
+==============
 
-----
+Routing to Moonshine
+---------------------
 
-Audio routing
-=============
-
-The coordinator does not own an audio stream. It subscribes to
-``AudioChunkCapturedEvent`` like everyone else and forwards each
-chunk to Moonshine while a session is active.
+The coordinator subscribes to ``AudioChunkCapturedEvent`` and forwards each
+chunk to the Moonshine streaming engine while a session is in the ``RECORDING``
+state:
 
 .. code-block:: python
 
@@ -112,241 +184,233 @@ chunk to Moonshine while a session is active.
    def _handle_audio_chunk(self, event):
        self.feed_moonshine_audio_chunk(event.pcm_bytes, event.sample_rate)
 
-The forward is unconditional; the inner moonshine controller
-checks state and drops chunks when no recording session is
-active.
+The forward is unconditional at the coordinator level. The inner Moonshine
+controller checks the session state and drops chunks when no session is active,
+so the coordinator does not need to gate on state here.
 
-Moonshine returns transcripts through *line callbacks*. A "line"
-is its unit of finalization, roughly a phrase between natural
-pauses. The coordinator registers two callbacks per stream.
+Moonshine surfaces its output through two callbacks registered per stream:
 
-================  ==================================================================
-Callback          Fires when                                  Used for
-================  ==================================================================
-``on_partial``    Moonshine refines the current line          Popup live text (Visual, Smart, Amend, Hidden)
-``on_final``      Moonshine commits a line                    Append to the session transcript
-================  ==================================================================
+- ``on_partial(text)`` — called frequently while the user is mid-phrase. The
+  text is Moonshine's current best transcription and may change on every call.
+  In buffered modes (Visual, Smart, Amend, Hidden) this drives the live preview
+  text in the popup.
+- ``on_final(text)`` — called when Moonshine commits a phrase. In Standard and
+  Type modes, this text is typed immediately via ``KeyboardInputService``. In
+  buffered modes, it is appended to the session buffer.
 
-In Standard and Type, only finals matter: each finalized line
-publishes a ``DictationTextRecognizedEvent`` and is typed
-immediately. In the streaming modes, partials drive the popup
-through ``PartialDictationTextEvent`` and finals are accumulated
-into a buffer that becomes the input to either direct typing
-(Visual / Hidden) or the LLM (Smart / Amend).
+The Vosk Side Channel During Dictation
+----------------------------------------
 
-Vosk as a side channel
-======================
-
-While a session is active, ``CommandSpeechService`` interprets
-every Vosk recognition differently. The same command segmenter
-keeps cutting clips and Vosk keeps recognizing them, but the
-service ignores everything except two things: the configured
-*stop trigger* and the configured *modifier phrases*.
+While ``RECORDING``, ``CommandSpeechService`` continues to receive Vosk
+recognitions because the command segmenter does not stop running during
+dictation. The service filters its output: during a session, only two categories
+of Vosk output are acted on.
 
 .. mermaid::
 
    flowchart LR
-       Vosk[Vosk recognition] --> Q1{Contains<br/>stop trigger?}
-       Q1 -->|yes| Stop[Publish<br/>CommandTextRecognizedEvent<br/>→ parser → DictationStopCommand]
-       Q1 -->|no| Q2{Contains<br/>modifier phrase?}
-       Q2 -->|yes| Mod[Publish<br/>DictationModifierPhraseEvent<br/><i>parser bypassed</i>]
+       Vosk[Vosk recognition] --> Q1{Stop trigger<br/>present?}
+       Q1 -->|yes| Stop[CommandTextRecognizedEvent<br/>→ parser → DictationStopCommand]
+       Q1 -->|no| Q2{Modifier phrase<br/>present?}
+       Q2 -->|yes| Mod[DictationModifierPhraseEvent<br/>direct to coordinator]
        Q2 -->|no| Drop[Drop]
 
-The stop trigger goes through the parser like any other command,
-which is why it can also be activated by a sound mapped to that
-phrase. The modifier phrases bypass the parser because they are
-not commands; they belong to the dictation system specifically.
+The stop trigger goes through the full parser pipeline, which makes it
+indistinguishable from any other stop command — including one triggered by a
+mapped sound. Modifier phrases bypass the parser because they are not commands;
+they are formatting instructions specific to the dictation system.
 
-----
+Text Shaping
+=============
 
-Stopping a session
-==================
+Between Moonshine committing a final phrase and that phrase reaching the output,
+two transformations can be applied: modifiers reformat the text, and aliases
+substitute known trigger phrases with stored expansions.
 
-A session ends in one of three ways.
+Modifiers
+----------
 
-#. **The user says the stop trigger.** Vosk → parser →
-   ``DictationStopCommand`` → coordinator's command handler.
-#. **Type-mode silence.** A background timer started at session
-   creation watches the timestamp of the last finalized line. If
-   the gap exceeds the configured threshold, the timer triggers
-   ``stop_session`` itself.
-#. **Application shutdown.** ``DictationCoordinator.shutdown``
-   drives any in-flight session to completion.
+A **modifier** changes the formatting of all subsequent text without altering
+its content. Modifiers are toggled by speaking a modifier phrase during the
+session (e.g. ``snake case``). Speaking the same phrase again toggles the
+modifier off; speaking a different modifier in the same exclusion group replaces
+the active one.
 
-Whichever path triggered it, the coordinator branches on the
-mode at stop time.
+Modifiers belong to two independent exclusion groups:
 
-.. mermaid::
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
+   :class: uniform-rows
 
-   flowchart TD
-       Stop[stop_session] --> Halt[Halt Moonshine,<br/>collect text]
-       Halt --> Mode{Mode?}
-       Mode -->|Standard / Type| End1[Set IDLE,<br/>exit popup]
-       Mode -->|Visual| End2[Type final text,<br/>exit popup]
-       Mode -->|Hidden| End3[Type final text,<br/>no popup]
-       Mode -->|Smart / Amend| Proc[Set PROCESSING_LLM,<br/>publish<br/>LLMProcessingStartedEvent]
+   * - Group
+     - Members
+   * - Casing
+     - ``upper``, ``capitals``, ``camel``, ``snake``, ``kebab``, ``diminish``
+   * - Punctuation
+     - ``spelling``, ``strip``
 
-Smart and Amend do not run the LLM inline at this point. They
-publish the started event and wait. The reason is the popup
-handshake described below.
+Within a group, at most one modifier can be active at a time. Activating a new
+casing modifier deactivates any previous casing modifier. The two groups are
+independent — a session can simultaneously be in ``snake`` casing and
+``spelling`` punctuation mode.
 
-----
+When the user speaks a modifier phrase, both recognizers process the same audio.
+Vosk picks up the phrase and fires ``DictationModifierPhraseEvent`` so the
+modifier activates. Moonshine, processing the same audio slightly later, will
+also produce a final that contains the modifier phrase as plain text. Without
+intervention, that plain text would appear in the dictated output.
 
-The modifier system
-===================
-
-Modifiers transform the *formatting* of dictated text without
-changing its content. ``snake case`` puts subsequent words in
-``snake_case``; ``all caps`` upper-cases them; ``spelling``
-treats each word as a sequence of letters. A modifier stays
-active until the user toggles it off (saying the same phrase) or
-until another modifier in the same group replaces it.
-
-Mutual exclusion
-----------------
-
-Modifiers belong to two independent groups.
-
-================  ============================================================
-Group             Members
-================  ============================================================
-Casing            ``upper``, ``capitals``, ``camel``, ``snake``, ``kebab``,
-                  ``diminish``
-Punctuation       ``spelling``, ``strip``
-================  ============================================================
-
-Within a group, only one modifier can be active at a time;
-activating one removes any other in the same group. The two
-groups are independent — a session can be in ``snake`` casing
-and ``spelling`` punctuation simultaneously.
-
-The Moonshine suppression window
---------------------------------
-
-When the user says a modifier phrase, two things happen:
-``CommandSpeechService`` publishes
-``DictationModifierPhraseEvent`` (so the modifier system
-reacts), but the same audio is also flowing into Moonshine,
-which will eventually emit a final line containing the phrase as
-plain prose. Without intervention, the phrase would leak into
-the dictated text.
-
-The coordinator solves this with a short suppression window. On
-``DictationModifierPhraseEvent``, the controller records a
-"suppress until" timestamp ~500 ms in the future:
+The coordinator prevents this with a **suppression window**: on receiving
+``DictationModifierPhraseEvent`` it sets a "suppress until" timestamp ~500 ms
+in the future. While the window is open, every Moonshine partial and final is
+discarded. The window is long enough to swallow the phrase and short enough that
+the next phrase begins cleanly:
 
 .. code-block:: python
 
    def output_suppressed(self) -> bool:
        return time.monotonic() < self.moonshine_suppress_until
 
-While the window is open, every Moonshine partial and final is
-discarded. The window is long enough to swallow the phrase and
-short enough to keep the next phrase intact. This is the *only*
-place where the two recognizers' outputs interact with each
-other.
-
-----
+This is the only point where the outputs of the two recognizers are coupled.
 
 Aliases
-=======
+--------
 
-Aliases are user-configured shorthand expansions: ``insert
-address`` emits a stored block, ``insert signature`` emits
-another. The substitution is handled by
-``DictationAliasService``
-(``vocalance/app/services/dictation_flow/dictation_alias_service.py``)
-inside the coordinator's segment pipeline.
+An **alias** is a short trigger phrase that expands to a longer stored text
+block. For example, ``insert address`` might expand to a full postal address.
+Aliases are configured in the Dictation tab and handled by ``DictationAliasService``
+(``vocalance/app/services/dictation_flow/dictation_alias_service.py``).
 
-The substitution is two-pass to interact correctly with
-modifiers:
+Substitution runs as a two-pass process to interact correctly with active
+modifiers. Without the two-pass approach, a modifier like ``snake_case`` would
+also apply to the *contents* of the alias body, which is almost never what the
+user wants.
 
-#. The alias trigger is replaced with a placeholder.
-#. Modifier-aware post-processing runs on the placeholder
-   version, so snake-casing does not snake-case the placeholder.
-#. The placeholder is replaced with the alias body.
+1. The alias trigger phrase in the text is replaced with a unique placeholder.
+2. Modifier post-processing runs on the surrounding text, including the
+   placeholder. The placeholder itself is immune to casing transformation.
+3. The placeholder is replaced with the alias body verbatim.
 
-A snake-cased session does not snake-case the contents of an
-alias, even though both went through the same pipeline.
+Stopping a Session
+===================
 
-----
+A session can end in three ways:
 
-The LLM handshake (Smart and Amend)
-===================================
+1. **Stop trigger.** The user speaks the stop phrase. Vosk's side channel
+   delivers it as ``DictationStopCommand`` via the parser.
+2. **Type-mode timeout.** In Type mode only: a background timer monitors the
+   timestamp of the last Moonshine final. If the silence gap exceeds the
+   configured threshold, the timer calls ``stop_session`` directly.
+3. **Application shutdown.** ``DictationCoordinator.shutdown`` drives any
+   in-flight session to completion before releasing resources.
 
-Smart and Amend hand the accumulated text to the LLM and replace
-the popup's contents with streaming LLM tokens. The popup must
-finish its UI swap before the first token arrives, or the first
-few tokens render in the wrong widget.
-
-The coordination is a small handshake on the bus.
+In all three cases, ``stop_session`` branches on the session's mode:
 
 .. mermaid::
 
-   sequenceDiagram
-       participant Coord as DictationCoordinator
-       participant Bus as Event bus
-       participant Popup as Dictation popup
-       participant LLM as LLMService
+   flowchart TD
+       Stop[stop_session] --> Halt[Halt Moonshine, collect buffer]
+       Halt --> Mode{Mode?}
+       Mode -->|Standard / Type| End1[Set IDLE, exit popup]
+       Mode -->|Visual| End2[Type buffer, exit popup]
+       Mode -->|Hidden| End3[Type buffer, no popup shown]
+       Mode -->|Smart / Amend| Proc[Set PROCESSING_LLM<br/>publish LLMProcessingStartedEvent]
 
-       Coord->>Bus: LLMProcessingStartedEvent
-       Bus->>Popup: deliver
-       Popup->>Popup: swap to streaming UI
-       Popup->>Bus: LLMProcessingReadyEvent
-       Bus->>Coord: deliver
-       Coord->>LLM: run streaming
-       loop each token
-           LLM->>Bus: partial token event
-           Bus->>Popup: deliver
-       end
-       LLM->>Bus: LLMProcessingCompletedEvent
-       Bus->>Coord: deliver
-       Coord->>Coord: type final text into focused app
+Smart and Amend do not invoke the LLM inline at this point. They publish
+``LLMProcessingStartedEvent`` and suspend, waiting for the popup to confirm that
+its UI transition is complete before the first token arrives.
 
-Three properties follow:
+LLM Rewriting
+==============
 
-- The coordinator never drives the popup directly. It publishes
-  one event and waits for the popup's reply on the bus.
-- Tokens stream straight from the LLM service to the popup,
-  without going through the coordinator. The coordinator only
-  sees the completed text, which it types as a single block.
-- Amend mode adds one extra step *before* recording starts: the
-  coordinator copies the user's current selection, stashes it,
-  and passes it to the LLM as the text to rewrite. The spoken
-  text becomes the *instructions*.
+Smart and Amend pass the session buffer to ``LLMService`` (which wraps
+``llama-cpp-python``) for rewriting. The rewritten text replaces the popup
+content as it streams in token by token, and is typed as a single block when
+generation completes.
 
-----
+The coordination problem is timing: the popup must complete its UI swap (from
+transcript view to token-stream view) *before* the first token arrives.
+Publishing tokens to a popup that is still mid-transition causes tokens to
+render in the wrong widget. The coordinator solves this with an explicit
+readiness exchange on the bus.
 
-Popup as a back-end mirror
-==========================
+.. mermaid::
 
-The dictation popup is the most visible piece of front end, but
-it owns no state of its own. Every change in the coordinator's
-state is published on the bus; the popup's controllers subscribe
-and re-render.
+   flowchart LR
+       Coord[DictationCoordinator]
+       Popup[Dictation popup]
+       LLM[LLMService]
+       App[Focused app]
 
-================================================  ===============================================
-Event                                             Popup reaction
-================================================  ===============================================
-``DictationStatusChangedEvent``                   Show / hide the popup, set the active mode.
-``DictationModifierStateChangedEvent``            Update the active-modifier label.
-``PartialDictationTextEvent``                     Update the streaming text widget.
-``FinalDictationTextEvent``                       Append a finalized line.
-``DictationSessionEvent``                         Drive the visual / smart / amend transitions.
-``LLMProcessingStartedEvent``                     Begin the LLM-mode UI swap.
-``LLMProcessingCompletedEvent``                   Hide.
-================================================  ===============================================
+       Coord -->|1. LLMProcessingStartedEvent| Popup
+       Popup -->|2. complete UI swap<br/>LLMProcessingReadyEvent| Coord
+       Coord -->|3. start streaming inference| LLM
+       LLM -.->|4. LLMPartialTokenEvent<br/>per token| Popup
+       LLM -->|5. LLMProcessingCompletedEvent| Coord
+       Coord -->|6. type complete text| App
 
-There are no method calls between the coordinator and the popup
-in either direction — only events. The popup could be replaced
-with a CLI display, or removed entirely, and the coordinator
-would not notice.
+Steps in detail:
 
-Where to read next
-==================
+1. The coordinator publishes ``LLMProcessingStartedEvent`` and suspends on the
+   bus, awaiting the popup's reply.
+2. The popup receives the event, swaps to token-stream view, and publishes
+   ``LLMProcessingReadyEvent``.
+3. The coordinator resumes and calls ``LLMService`` to begin streaming
+   inference. The LLM receives the session buffer as input (Smart) or the
+   selection as input plus the spoken text as instructions (Amend).
+4. As the model generates tokens, ``LLMService`` publishes
+   ``LLMPartialTokenEvent`` for each one. These go directly from the LLM
+   service to the popup — the coordinator is not in this path.
+5. When generation completes, ``LLMService`` publishes
+   ``LLMProcessingCompletedEvent`` with the full rewritten text.
+6. The coordinator receives the completed event and types the full text as a
+   single block into the focused application via ``KeyboardInputService``.
 
-The user interface — the popup, the main window, the overlays —
-is covered in :doc:`user_interface`. After that, the *foundations*
-chapters explain how the audio chunks, the LLM tokens, and the
-OS input calls actually move between threads and through the
-queue without blocking each other.
+The coordinator never addresses the popup directly. It publishes an event and
+awaits a reply on the bus. This means the popup is entirely optional — the
+coordinator would function identically with no popup present, typing the result
+after generation finishes.
+
+**Amend vs Smart.** Before step 1, Amend performs one extra action: it copies
+the user's currently selected text (the text to rewrite), stashes it, and passes
+it to the LLM alongside the dictated instructions. The ``LLMService`` receives
+both pieces and formulates the rewrite accordingly. From step 1 onward, the flow
+is identical to Smart.
+
+The Popup as a State Mirror
+============================
+
+The dictation popup owns no state. Everything it displays is a reflection of
+events the coordinator publishes. The popup's controllers subscribe and re-render
+on each event; there are no direct method calls between the coordinator and the
+popup in either direction.
+
+.. list-table::
+   :widths: 45 55
+   :header-rows: 1
+   :class: uniform-rows
+
+   * - Event
+     - Popup reaction
+   * - ``DictationStatusChangedEvent``
+     - Show or hide the popup; display the active mode label.
+   * - ``DictationModifierStateChangedEvent``
+     - Update the active modifier indicator.
+   * - ``PartialDictationTextEvent``
+     - Replace the live preview text.
+   * - ``FinalDictationTextEvent``
+     - Append a committed line to the transcript.
+   * - ``LLMProcessingStartedEvent``
+     - Begin the UI swap to token-stream view.
+   * - ``LLMPartialTokenEvent``
+     - Append the new token to the streaming display.
+   * - ``LLMProcessingCompletedEvent``
+     - Hide the popup.
+
+The coordinator could run without any popup present, and a different popup
+implementation could be substituted without changing a line of coordinator code.
+
+With both pipeline chapters covered, the next chapter — :doc:`user_interface` —
+describes how the Qt front end renders this back-end state and how the
+three-role architecture keeps views and services from coupling directly.

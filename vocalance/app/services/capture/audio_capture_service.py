@@ -4,7 +4,7 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
 import sounddevice as sd
@@ -125,8 +125,8 @@ class AudioCaptureService(Service):
         self,
         indata: NDArray[np.int16],
         frames: int,
-        time_info: Any,
-        status: Optional[Any],
+        time_info: sd.CallbackTimeInfo,
+        status: sd.CallbackFlags,
     ) -> None:
         """PortAudio thread entry point: copy bytes and hop to the main loop."""
         if status:

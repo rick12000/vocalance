@@ -4,7 +4,7 @@ import asyncio
 import ctypes
 import logging
 import time
-from typing import Any, Awaitable, Callable, List, Optional
+from typing import TYPE_CHECKING, Awaitable, Callable, List, Optional
 
 import numpy as np
 from moonshine_voice.errors import check_error
@@ -12,6 +12,10 @@ from moonshine_voice.errors import check_error
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.dictation_flow.speech_recognition.dictation_text_normalize import normalize_dictation_text
+
+if TYPE_CHECKING:
+    from moonshine_voice.moonshine_api import ModelArch
+    from moonshine_voice.transcriber import Transcriber
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +25,7 @@ class MoonshineStreamSession:
 
     def __init__(
         self,
-        transcriber: Any,
+        transcriber: Transcriber,
         update_interval: float,
         loop: asyncio.AbstractEventLoop,
         on_partial: Callable[[str, str], Awaitable[None]],
@@ -132,11 +136,11 @@ class MoonshineEngine:
         """Load the configured model (with retries)."""
         self._sample_rate = sample_rate
         self._config = config
-        self._transcriber: Optional[Any] = None
+        self._transcriber: Optional[Transcriber] = None
         self._model_lock = asyncio.Lock()
         self._load_model_with_retry()
 
-    def _resolve_model_arch(self) -> Any:
+    def _resolve_model_arch(self) -> Optional[ModelArch]:
         """Return a ``ModelArch`` enum value from config, or None for default."""
         from moonshine_voice.moonshine_api import string_to_model_arch
 

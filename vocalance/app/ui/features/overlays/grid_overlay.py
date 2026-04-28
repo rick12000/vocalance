@@ -15,7 +15,14 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.events.grid_events import GridStateEvent
 from vocalance.app.lifecycle.worker import schedule_on_loop
-from vocalance.app.services.command_flow.execution.grid.click_tracker_service import prioritize_grid_rects, rects_with_click_counts
+from vocalance.app.services.command_flow.execution.grid.click_tracker_service import (
+    RectDefinition,
+    RectWithClickCount,
+    prioritize_grid_rects,
+    rects_with_click_counts,
+)
+from vocalance.app.services.keyboard_input_service import KeyboardInputService
+from vocalance.app.services.storage.storage_models import GridClickEvent
 from vocalance.app.ui.qt_theme import theme
 
 GRID_DRAG_MOVE_MIN_S = 0.22
@@ -32,7 +39,7 @@ class QtGridView(QWidget):
         event_bus: EventBus,
         config: GlobalAppConfig,
         gui_event_loop: asyncio.AbstractEventLoop,
-        input_service: Any,
+        input_service: KeyboardInputService,
         default_num_rects: Optional[int] = None,
     ):
         super().__init__()
@@ -46,12 +53,12 @@ class QtGridView(QWidget):
         self.default_num_rects = default_num_rects or self.DEFAULT_NUM_RECTS
 
         self.state_lock = threading.RLock()
-        self.clicks_snapshot: List[Dict[str, Any]] = []
-        self.pending_clicks_snapshot: Optional[List[Dict[str, Any]]] = None
+        self.clicks_snapshot: List[GridClickEvent] = []
+        self.pending_clicks_snapshot: Optional[List[GridClickEvent]] = None
 
         self.overlay_active = False
         self.current_num_rects_displayed: Optional[int] = None
-        self.ui_to_rect_data_map: Dict[int, Dict[str, Any]] = {}
+        self.ui_to_rect_data_map: Dict[int, RectDefinition] = {}
         self.current_click_mode: str = "click"
         self.drag_origin: Optional[Tuple[int, int]] = None
         self.layout_num_rects_requested: Optional[int] = None
@@ -95,8 +102,8 @@ class QtGridView(QWidget):
         self.screen_width = 1920
         self.screen_height = 1080
 
-    def set_clicks_snapshot(self, clicks: List[Dict[str, Any]]) -> None:
-        self.pending_clicks_snapshot = [dict(c) for c in clicks]
+    def set_clicks_snapshot(self, clicks: List[GridClickEvent]) -> None:
+        self.pending_clicks_snapshot = list(clicks)
         QMetaObject.invokeMethod(self, "apply_clicks_snapshot", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
@@ -109,7 +116,7 @@ class QtGridView(QWidget):
             self.clicks_snapshot = pending
         self.refresh_click_labels_if_active()
 
-    def calculate_click_counts_sync(self, rect_definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def calculate_click_counts_sync(self, rect_definitions: List[RectDefinition]) -> List[RectWithClickCount]:
         with self.state_lock:
             snap = list(self.clicks_snapshot)
         return rects_with_click_counts(rect_definitions, snap)
@@ -139,7 +146,7 @@ class QtGridView(QWidget):
 
         return clamped_size
 
-    def calculate_grid_layout(self, num_rects_requested: int) -> Tuple[List[Dict[str, Any]], float, float]:
+    def calculate_grid_layout(self, num_rects_requested: int) -> Tuple[List[RectDefinition], float, float]:
         if num_rects_requested <= 0:
             return [], 0, 0
 
@@ -167,14 +174,14 @@ class QtGridView(QWidget):
                 center_y = y + rect_h / 2
 
                 rect_definitions.append(
-                    {
-                        "x": x,
-                        "y": y,
-                        "w": rect_w,
-                        "h": rect_h,
-                        "center_x": center_x,
-                        "center_y": center_y,
-                    }
+                    RectDefinition(
+                        x=x,
+                        y=y,
+                        w=rect_w,
+                        h=rect_h,
+                        center_x=center_x,
+                        center_y=center_y,
+                    )
                 )
 
         self.logger.debug(

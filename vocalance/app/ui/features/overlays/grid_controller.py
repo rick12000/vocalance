@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.grid_events import GridClickHistoryChangedEvent, GridStateEvent
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
+if TYPE_CHECKING:
+    pass
 
-class QtGridController(QtBaseController):
+
+class QtGridController(QtBaseController["QtGridView"]):
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         super().__init__(event_bus=event_bus, logger=logging.getLogger("QtGridController"))
         self.config = config

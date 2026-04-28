@@ -12,7 +12,10 @@ import importlib.util
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from vocalance.app.services.command_flow.management.protected_terms_validator import ProtectedTermsValidator
 
 from PySide6.QtWidgets import QApplication
 
@@ -28,7 +31,7 @@ from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
 logger = logging.getLogger(__name__)
 
 
-def _build_validator(c: Dict[str, Any]) -> Any:
+def _build_validator(c: Dict[str, Any]) -> ProtectedTermsValidator:
     from vocalance.app.services.command_flow.management.protected_terms_validator import ProtectedTermsValidator
 
     validator = ProtectedTermsValidator(config=c["config"], storage=c["storage"])
@@ -42,7 +45,8 @@ def _service_specs() -> List[ServiceSpec]:
     Teardown is the reverse of this order (LIFO), so adding a new service is a
     single-line edit: construction, registration, and teardown are all derived
     from this list. Heavy module imports stay scoped to this function so they
-    only fire when ``build_services`` runs, not on ``qt_main`` import.
+    only fire when ``_construct_services`` runs (on a worker thread), not on
+    ``qt_main`` import and not on the GUI thread.
     """
     from vocalance.app.services.capture.audio_capture_service import AudioCaptureService
     from vocalance.app.services.command_flow.execution.automation_service import AutomationService
@@ -144,6 +148,20 @@ def _service_specs() -> List[ServiceSpec]:
             factory=lambda c: SoundService(event_bus=c["event_bus"], config=c["config"], storage=c["storage"]),
         ),
     ]
+
+
+def _construct_services(ctx: Dict[str, Any]) -> List[ServiceSpec]:
+    """Resolve heavy service module imports and run synchronous constructors.
+
+    Invoked through ``lifecycle.run_blocking`` so the GUI thread is free to keep
+    painting the startup window while the worker thread imports tensorflow,
+    vosk, llama_cpp, moonshine, and constructs every service. Service factories
+    only touch event-bus subscriptions and plain Python state in ``__init__``,
+    none of which require a running asyncio loop or the GUI thread.
+    """
+    specs = _service_specs()
+    build_services(specs, ctx)
+    return specs
 
 
 def _moonshine_model_cache_ready() -> bool:
@@ -299,7 +317,6 @@ async def main() -> None:
         progress.start_step(step_name="Loading core components...")
         progress.update_status_animated(status="Initializing services")
 
-        specs = _service_specs()
         ctx: Dict[str, Any] = {
             "event_bus": event_bus,
             "config": config,
@@ -307,7 +324,7 @@ async def main() -> None:
             "cancel_token": lifecycle.cancel_token,
             "lifecycle": lifecycle,
         }
-        build_services(specs, ctx)
+        specs = await lifecycle.run_blocking(_construct_services, ctx, name="services-build")
         services = SimpleNamespace(**{spec.name: ctx[spec.name] for spec in specs})
 
         lifecycle.register_resource(event_bus)
@@ -321,6 +338,8 @@ async def main() -> None:
             name="initialize-services",
         )
         lifecycle.register_init_task(init_task)
+        if lifecycle.is_shutdown_requested():
+            init_task.cancel()
         try:
             await init_task
         except asyncio.CancelledError:

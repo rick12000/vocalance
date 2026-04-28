@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import pyautogui
 
@@ -17,6 +17,7 @@ from vocalance.app.config.command_types import (
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import MarkCommandParsedEvent
 from vocalance.app.events.mark_events import (
+    MarkData,
     MarksChangedEventData,
     MarkUiRequestEvent,
     MarkUiResponseEvent,
@@ -172,7 +173,7 @@ class MarkService(Service):
         return num_cleared
 
     async def publish_marks_changed(self) -> None:
-        all_marks: Dict[str, Dict[str, Any]] = await self.get_all_marks()
+        all_marks: Dict[str, MarkData] = await self.get_all_marks()
         await self.event_bus.publish(MarksChangedEventData(marks=all_marks))
 
     async def set_visualization(self, show: bool) -> None:
@@ -182,7 +183,7 @@ class MarkService(Service):
             show: When True, include current marks in the visualization event payload.
         """
         self.is_viz_active = show
-        marks_payload: Optional[Dict[str, Dict[str, Any]]] = None
+        marks_payload: Optional[Dict[str, MarkData]] = None
         if show:
             marks_payload = await self.get_all_marks()
         await self.event_bus.publish(MarkVisualizationStateChangedEventData(is_visible=show, marks=marks_payload))
@@ -214,7 +215,7 @@ class MarkService(Service):
         elif op == "refresh_list":
             await self.publish_marks_changed()
         elif op == "prepare_overlay":
-            marks: Dict[str, Dict[str, Any]] = await self.get_all_marks()
+            marks: Dict[str, MarkData] = await self.get_all_marks()
             await self.event_bus.publish(MarkUiResponseEvent(kind="overlay_marks", marks=marks))
 
     async def create_mark(self, name: Optional[str], x: int, y: int) -> Tuple[bool, str]:
@@ -261,10 +262,10 @@ class MarkService(Service):
         """Return stored coordinates for ``name``, or None."""
         return await self.get_mark_coordinates_internal(name)
 
-    async def get_all_marks(self) -> Dict[str, Dict[str, Any]]:
-        """Return marks as UI-friendly dicts keyed by name."""
+    async def get_all_marks(self) -> Dict[str, MarkData]:
+        """Return marks keyed by name."""
         marks: Dict[str, Tuple[int, int]] = await self.get_all_marks_internal()
-        return {name: {"name": name, "x": coords[0], "y": coords[1]} for name, coords in marks.items()}
+        return {name: MarkData(name=name, x=coords[0], y=coords[1]) for name, coords in marks.items()}
 
     async def shutdown(self) -> None:
         await asyncio.sleep(self.config.mark.shutdown_grace_period_seconds)

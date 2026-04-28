@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from PySide6.QtCore import Signal
 
@@ -15,8 +17,11 @@ from vocalance.app.events.mark_events import (
 )
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
+if TYPE_CHECKING:
+    from vocalance.app.ui.features.overlays.mark_overlay import QtMarkView
 
-class QtMarksController(QtBaseController):
+
+class QtMarksController(QtBaseController["QtMarkView"]):
     marks_loaded = Signal(list)
     mark_overlay_shown = Signal()
     mark_overlay_hidden = Signal()
@@ -36,19 +41,14 @@ class QtMarksController(QtBaseController):
     def refresh_marks(self) -> None:
         self._mark_ui(op="refresh_list")
 
-    def update_marks_list(self, marks: dict) -> None:
-        if marks:
-            self.marks_list = [
-                MarkData(name=m["name"], x=m["x"], y=m["y"], description=m.get("description", "")) for m in marks.values()
-            ]
-        else:
-            self.marks_list = []
+    def update_marks_list(self, marks: Dict[str, MarkData]) -> None:
+        self.marks_list = list(marks.values())
         self.marks_loaded.emit(self.marks_list)
         overlay = self.get_view()
         if overlay:
             overlay.update_marks(self.marks_list)
 
-    def _push_positions_to_overlay(self, overlay: Any) -> None:
+    def _push_positions_to_overlay(self, overlay: QtMarkView) -> None:
         overlay.marks = {mark.name: (mark.x, mark.y) for mark in self.marks_list}
 
     def create_mark(self, name: Optional[str], x: int, y: int, description: Optional[str] = None) -> None:

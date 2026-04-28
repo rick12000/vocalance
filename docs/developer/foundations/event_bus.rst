@@ -1,18 +1,21 @@
-Event bus
+Event Bus
 #########
 
-The feature chapters described publishers and subscribers without
-saying *how* the bus delivers an event between them. This chapter
-fills that gap: what it means to "deliver an event", what
-guarantees the bus makes about ordering and concurrency, and how
-the small subscription-tracking helper keeps the codebase free of
-manual unsubscribe calls.
+.. sectnum::
 
-Surface
-=======
+The event bus is the only communication channel between services. It is the
+mechanism that lets every service in :doc:`../features/capture`,
+:doc:`../features/command_flow`, :doc:`../features/dictation_flow`, and the UI
+layer interact without holding references to each other.
 
-The bus is one object, ``EventBus``
-(``vocalance/app/event_bus.py``), constructed once and shared
+This chapter explains how the bus delivers events: the queue that separates
+publishing from dispatching, the ordering guarantees that follow, and the
+subscription tracking that makes teardown automatic.
+
+The Publish / Subscribe Model
+==============================
+
+The bus is one object, ``EventBus`` (``vocalance/app/event_bus.py``), shared
 across the application:
 
 .. code-block:: python
@@ -22,72 +25,113 @@ across the application:
        def unsubscribe(self, event_type, handler) -> None: ...
        async def publish(self, event) -> None: ...
 
-A handler is any callable. Synchronous and asynchronous handlers
-are both accepted; the bus inspects each with
-``asyncio.iscoroutinefunction`` and dispatches accordingly. A
-handler subscribed to a parent event type also receives every
-subclass event, because dispatch walks ``type(event).__mro__`` to
-collect handlers.
+A **handler** is any callable — synchronous or asynchronous. The bus inspects
+each handler with ``asyncio.iscoroutinefunction`` at subscription time and
+stores the kind alongside the callable so dispatch does not have to re-inspect.
 
-Queue and worker
-================
+Event types form a hierarchy via normal Python inheritance. A handler subscribed
+to ``BaseEvent`` receives every event in the system; a handler subscribed to
+``CommandParsedEvent`` receives every event that is a subclass of it. The bus
+implements this by walking ``type(event).__mro__`` at dispatch time and
+collecting all handlers registered for any type in the chain.
 
-A naive bus would invoke every subscriber the moment ``publish``
-is called. That couples the publisher's runtime to the slowest
-subscriber and loses ordering as soon as a subscriber awaits
-anything. The Vocalance bus separates publishing from delivery
-with a queue.
+The Queue and the Worker
+=========================
 
-.. mermaid::
+Naive Publish Semantics and Their Problems
+-------------------------------------------
 
-   flowchart LR
-       Pub[Publishers] -->|publish: enqueue| Q[(Bounded<br/>asyncio.Queue<br/><i>cap = 500</i>)]
-       Q -->|one event<br/>at a time| Worker[Single worker task]
-       Worker -->|dispatch| Subs[All subscribers<br/>of this event type]
+A straightforward bus would call every subscriber synchronously inside
+``publish``. Two problems arise:
 
-Three properties follow:
+- **Coupling.** If subscriber B is slow — it awaits a disk read, for example —
+  publisher A is stuck waiting for B to finish before it can continue. The
+  publisher's execution is coupled to the slowest subscriber.
+- **Ordering.** If a handler awaits anything, another event can be published
+  and start dispatching before the first event's handlers have all finished.
+  Two events published in order A then B can interleave in ways that make final
+  state depend on scheduling, not publication order.
 
-- ``publish`` returns as soon as the event is on the queue.
-- A single worker task pulls events one at a time and dispatches
-  each to its handlers.
-- Sequential delivery between events is therefore guaranteed:
-  while the worker is dispatching event A, it is not dispatching
-  event B.
+Queue-Backed Delivery
+----------------------
 
-If the queue cap is reached, ``publish`` blocks until the worker
-drains. Events are never silently discarded while the bus is
-running — the bus uses backpressure, not drops.
-
-Within a single event
----------------------
-
-Sequential between events does not preclude concurrency *within*
-an event. The worker splits subscribers into two groups and
-treats them differently.
+The Vocalance bus solves both problems by inserting a queue between publishing
+and dispatching.
 
 .. mermaid::
 
    flowchart LR
-       Worker[Worker pulls<br/>event from queue] --> Split{Handler kind?}
-       Split -->|sync| Sync[Run inline,<br/>one after another]
-       Split -->|async| Async[asyncio.gather all,<br/>await as a group]
-       Sync --> Done[Wait until all<br/>handlers finished]
+       Pub[Publishers] -->|enqueue| Q[Bounded asyncio.Queue<br/>cap = 500]
+       Q --> Worker[Worker task<br/>pulls one at a time]
+       Worker --> Dispatch[Dispatch to all<br/>subscribers of this type]
+       Dispatch --> Next[Pull next event]
+
+``publish`` places the event on the queue and returns immediately. The caller
+is not blocked by anything a subscriber does. A single **worker task** runs in
+an asyncio loop, pulling one event at a time and dispatching it to all matching
+subscribers. Only after every subscriber has finished handling that event does
+the worker pull the next one.
+
+This gives a hard guarantee: **event A is fully dispatched before event B
+begins**. Causal ordering is preserved regardless of what subscribers do
+internally.
+
+The queue's capacity is capped at 500 events. If publishing ever fills the
+queue — which would indicate a serious backlog — ``publish`` blocks until the
+worker drains a slot rather than silently discarding events. The 500-event cap
+is large enough to absorb the audio stream (~30 events/second) indefinitely
+under normal load.
+
+Within-Event Concurrency
+--------------------------
+
+Sequential delivery *between* events does not prevent concurrency *within* an
+event. When the worker dispatches an event, it splits the subscriber list by
+handler type and treats the two groups differently.
+
+Synchronous handlers run one after another in registration order. Each must
+complete before the next begins.
+
+Asynchronous handlers are gathered with ``asyncio.gather`` and awaited as a
+group. All async handlers for a given event can interleave at their respective
+``await`` points — they are concurrent with each other. However, the worker does
+not pull the next event until ``asyncio.gather`` returns, which is after the
+slowest async handler finishes. The event is still fully dispatched before the
+next begins.
+
+.. mermaid::
+
+   flowchart LR
+       Worker[Worker pulls event] --> Split{Handler kind?}
+       Split -->|sync| Sync[Run sequentially]
+       Split -->|async| Async[asyncio.gather all]
+       Sync --> Done[All done]
        Async --> Done
        Done --> Next[Pull next event]
 
-The worker only proceeds to the next event after every handler
-of the current one has finished. The bus is sequential
-*between* events, concurrent *within* one. A failing handler is
-logged and skipped; it cannot prevent the other handlers — or
-the next event — from running.
+A handler that raises an exception is logged and skipped. It cannot prevent
+remaining handlers from running, and it cannot prevent the worker from pulling
+the next event.
 
-Subscription tracking
-=====================
+Audio on the Bus
+-----------------
 
-Services and UI controllers subscribe to many events between
-them. Releasing those subscriptions on shutdown by hand would be
-a chore and a source of bugs. The bus ships a helper:
-``SubscriptionTracker``.
+The audio stream — roughly thirty ``AudioChunkCapturedEvent`` messages per
+second — travels through the same queue as every other event. There is no
+priority lane, no shortcut, no separate audio channel. The 500-event buffer is
+large enough that audio events do not back up even when recognition takes longer
+than a single chunk interval.
+
+Subscription Tracking
+======================
+
+Services and UI controllers together hold many active subscriptions. Releasing
+each one manually at shutdown is error-prone; forgotten subscriptions cause
+handlers to fire on a half-torn-down service. The bus provides a helper that
+tracks and bulk-releases subscriptions automatically.
+
+The ``SubscriptionTracker``
+----------------------------
 
 .. code-block:: python
 
@@ -101,35 +145,15 @@ a chore and a source of bugs. The bus ships a helper:
                self.event_bus.unsubscribe(event_type, handler)
            self._subscriptions.clear()
 
-The base ``Service`` class owns one of these and exposes
-``self.subscribe(event_type, handler)``. Every service registers
-its handlers through that helper at construction;
-``await super().shutdown()`` calls ``unsubscribe_all`` on the way
-out. The result is that no service in the codebase contains a
-manual ``event_bus.unsubscribe`` call.
+Every call to ``subscribe`` is recorded in a list. ``unsubscribe_all`` releases
+all of them in one call. The base ``Service`` class owns a
+``SubscriptionTracker`` and exposes ``self.subscribe(event_type, handler)``
+as a shortcut. ``await super().shutdown()`` calls ``unsubscribe_all`` on the
+way out. There is not a single manual ``event_bus.unsubscribe`` call anywhere
+in the codebase. The same tracker is embedded in ``QtBaseController`` for UI
+controllers.
 
-The same helper is used by ``QtBaseController`` for UI
-controllers, so every Qt controller's teardown follows the same
-pattern.
-
-The audio stream is on the bus too
-==================================
-
-There is no shortcut path that bypasses the bus. The captured
-audio stream — about thirty events per second, one per microphone
-buffer — flows through the same queue as every other event. The
-segmenters, the dictation coordinator, and the popup wave meter
-are all ordinary subscribers to ``AudioChunkCapturedEvent``. The
-queue's 500-event cap and sequential dispatch handle that traffic
-comfortably, and treating audio like any other event removes the
-only plausible reason a service might own a callback registry of
-its own.
-
-Where to read next
-==================
-
-The bus delivers events sequentially on a single worker task
-that runs on a single thread. *Which* thread that is, why every
-other service runs on the same one, and how the few services
-that genuinely need a different thread cooperate, is the subject
-of :doc:`concurrency`.
+Understanding the bus's delivery guarantees is the foundation for understanding
+the concurrency model. The next chapter — :doc:`concurrency` — explains how the
+event loop, threads, and blocking work interact beneath the surface of every
+``publish`` and ``await``.

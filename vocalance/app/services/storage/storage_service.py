@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class CacheEntry:
     """Cache entry with timestamp-based expiration tracking."""
 
-    def __init__(self, data: Any, timestamp: float) -> None:
+    def __init__(self, data: StorageData, timestamp: float) -> None:
         self.data = data
         self.timestamp = timestamp
 

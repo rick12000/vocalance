@@ -1,21 +1,20 @@
 Capture
 #######
 
-The capture layer is the entry point of the pipeline. One service
-owns the microphone; for every buffer the device delivers, it
-publishes one event on the bus. Every consumer that needs raw audio
-— the two segmenters, the dictation coordinator, the popup
-wave-meter — subscribes to that event the same way it subscribes
-to anything else.
+.. sectnum::
 
-This chapter describes capture as a dataflow problem. Threading
-questions are deferred to :doc:`../foundations/concurrency`.
+The capture layer is the microphone end of the pipeline. One service owns
+the audio device; every other component that needs audio subscribes to receive
+it from the bus.
 
-Layer at a glance
-=================
+The Capture Layer
+==================
 
-One publisher, four subscribers, one event type. Each arrow on the
-diagram is a real call site.
+The single entry point for all audio is ``AudioCaptureService``
+(``vocalance/app/services/capture/audio_capture_service.py``). It opens the
+default input device, listens continuously, and publishes each buffer of audio
+as an event on the bus. There are no callbacks between the capture service and
+its consumers — every downstream component simply subscribes to the event type.
 
 .. mermaid::
 
@@ -25,31 +24,15 @@ diagram is a real call site.
        Bus --> Cmd[CommandSegmenterService]
        Bus --> Snd[SoundSegmenterService]
        Bus --> Dic[DictationCoordinator]
-       Bus --> UI[QtDictationPopupController<br/><i>wave meter</i>]
+       Bus --> UI[Dictation popup<br/>wave meter]
 
-Each subscriber treats the chunk differently:
+Each subscriber reacts to the same event independently. The capture service does
+not know they exist, and they do not know about each other.
 
-================================  ========================================
-Subscriber                        What it does with each chunk
-================================  ========================================
-``CommandSegmenterService``       VAD-segments speech utterances
-                                  (:doc:`command_flow`).
-``SoundSegmenterService``         VAD-segments short transients
-                                  (:doc:`command_flow`).
-``DictationCoordinator``          Forwards to the streaming engine while
-                                  a session is active
-                                  (:doc:`dictation_flow`).
-``QtDictationPopupController``    Computes RMS to drive the wave meter
-                                  (:doc:`user_interface`).
-================================  ========================================
+AudioChunkCapturedEvent
+------------------------
 
-None of them holds a reference to ``AudioCaptureService``. Wiring
-is the bus event, nothing else.
-
-The unit of audio
-=================
-
-The bus event is ``AudioChunkCapturedEvent``
+The event published for every buffer is ``AudioChunkCapturedEvent``
 (``vocalance/app/events/core_events.py``):
 
 .. code-block:: python
@@ -59,19 +42,16 @@ The bus event is ``AudioChunkCapturedEvent``
        timestamp: float
        sample_rate: int
 
-One event represents one mono PCM buffer delivered by the audio
-device — typically about 30 milliseconds, so roughly thirty events
-per second while capture is running. ``timestamp`` is wall-clock
-time at delivery; ``sample_rate`` is the rate the bytes were
-captured at.
+``pcm_bytes`` is a block of 16-bit mono PCM samples — the raw amplitude values
+the microphone's analogue-to-digital converter produced, uncompressed and
+unencoded. At a 44 100 Hz sample rate with a block size of 1 323 frames, one
+block covers exactly 30 milliseconds. The application receives roughly thirty
+events per second while capture is running.
 
-The capture service
-===================
+Audio Capture Service
+----------------------
 
-``AudioCaptureService``
-(``vocalance/app/services/capture/audio_capture_service.py``) is
-the only component that talks to ``sounddevice``. Its public
-surface is three methods:
+``AudioCaptureService`` has a minimal public surface:
 
 .. code-block:: python
 
@@ -80,31 +60,56 @@ surface is three methods:
        def stop(self) -> None: ...
        async def shutdown(self) -> None: ...
 
-``start`` opens an input stream and arms the PortAudio callback.
-``stop`` closes the stream. ``shutdown`` is what the lifecycle
-calls during teardown; it is ``stop`` plus the standard
-``Service.shutdown`` cleanup.
+``start`` opens the input stream and registers the PortAudio callback. ``stop``
+closes the stream. ``shutdown`` calls ``stop`` and releases bus subscriptions
+through the standard ``Service`` teardown.
 
-Inside the service, the work splits in two by thread of execution.
+The rest of the service is two private methods: the PortAudio callback and the
+publish method. They live on separate threads, which is why they are separate.
+
+The Thread Crossing
+~~~~~~~~~~~~~~~~~~~~
+
+The audio hardware driver operates on a dedicated OS thread it controls — not
+the main application thread. Its constraint is strict: the callback it invokes
+must copy the buffer and return within a few hundred microseconds, or the
+driver's internal ring buffer overflows and audio frames are dropped. Any work
+that takes longer — touching a lock, publishing an event, calling any model —
+cannot happen inside the callback.
+
+The callback's only permitted work is:
+
+1. **Copy** the raw bytes. The buffer pointer is only valid for the duration of
+   the callback; the driver may overwrite that memory as soon as it returns.
+2. **Record the timestamp.** A single ``time.time()`` call.
+3. **Schedule publish** on the main thread via ``loop.call_soon_threadsafe``
+   and return immediately.
+
+``call_soon_threadsafe`` places a callable into a thread-safe internal queue
+that the main thread's event loop reads on its next tick, waking the loop if
+it is currently idle. The callable runs on the main thread — in the same
+single-thread context as all services and bus dispatch — with no threading
+hazards.
 
 .. mermaid::
 
    flowchart LR
-       PA[PortAudio thread] -->|raw PCM buffer| CB[_portaudio_callback]
-       CB -->|copy bytes,<br/>schedule| Loop[asyncio loop]
-       Loop --> Pub[_publish_chunk]
-       Pub -->|AudioChunkCapturedEvent| Bus((Event bus))
-
-The callback's only job is to copy and schedule. Anything heavier
-on the audio thread — running a model, taking a lock, allocating
-a large object — would risk dropping audio.
+       subgraph Foreign["Driver Thread (PortAudio)"]
+           PA[PortAudio driver] -->|PCM buffer| CB[_portaudio_callback<br/>1. copy bytes<br/>2. record timestamp<br/>3. schedule publish]
+       end
+       subgraph Main["Main Thread"]
+           Pub[_publish_chunk] -->|AudioChunkCapturedEvent| Bus((Event bus))
+       end
+       CB -.->|call_soon_threadsafe| Pub
 
 .. code-block:: python
 
    def _portaudio_callback(self, indata, frames, time_info, status):
        pcm_bytes = indata.tobytes()
        timestamp = time.time()
-       self.loop.call_soon_threadsafe(self._publish_chunk, pcm_bytes, timestamp)
+       self.loop.call_soon_threadsafe(
+           self._publish_chunk, pcm_bytes, timestamp
+       )
 
    def _publish_chunk(self, pcm_bytes, timestamp):
        asyncio.create_task(
@@ -117,35 +122,17 @@ a large object — would risk dropping audio.
            )
        )
 
-The hop between callback and publish is a single
-``loop.call_soon_threadsafe`` call.
-:doc:`../foundations/concurrency` explains the primitive from
-first principles. From the rest of the application's perspective
-the hop is invisible: events arrive on the bus, in order, like
-any other event.
+The full mechanics of ``call_soon_threadsafe`` and the asyncio event loop are
+covered in :doc:`../foundations/concurrency`.
 
-Device errors take the same two-step path. If the stream fails to
-open, the service publishes one ``AudioDeviceErrorEvent`` and
-stops; subsequent failures are suppressed so the user is not
-flooded with dialogs.
+Error Handling
+~~~~~~~~~~~~~~~
 
-What leaves the layer
-=====================
+If the device stream fails to open or encounters a fatal error, the service
+publishes one ``AudioDeviceErrorEvent`` and halts. The UI system controller
+displays a modal dialog on this event.
 
-For every buffer the device delivers, the capture layer:
-
-#. Hops from the audio thread to the asyncio loop.
-#. Publishes one ``AudioChunkCapturedEvent``.
-#. (On failure) publishes one ``AudioDeviceErrorEvent``.
-
-Segmentation, streaming dictation, and wave-meter rendering live
-in the chapters that follow.
-
-Where to read next
-==================
-
-Two flows fan out from this layer:
-
-- :doc:`command_flow` — segmenters, recognizers, parser,
-  executors.
-- :doc:`dictation_flow` — the streaming session.
+With audio chunks flowing on the bus, two independent pipelines take over from
+here: the command flow, which segments and classifies each clip as speech or
+sound, and the dictation flow, which streams audio directly to a transcription
+engine. Both are described in the chapters that follow.

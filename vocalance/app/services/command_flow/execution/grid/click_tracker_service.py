@@ -4,7 +4,9 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
+
+from typing_extensions import TypedDict
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
@@ -17,42 +19,50 @@ from vocalance.app.services.storage.storage_service import StorageService
 logger = logging.getLogger(__name__)
 
 
-def click_point_in_rect(click: Dict[str, Any], rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
-    """Return True if ``click`` has integer x/y inside the axis-aligned rectangle."""
-    try:
-        click_x, click_y = click.get("x", 0), click.get("y", 0)
-        return rect_x <= click_x <= rect_x + rect_w and rect_y <= click_y <= rect_y + rect_h
-    except (TypeError, ValueError):
-        return False
+class RectDefinition(TypedDict):
+    x: float
+    y: float
+    w: float
+    h: float
+    center_x: float
+    center_y: float
 
 
-def rects_with_click_counts(rect_definitions: List[Dict[str, Any]], all_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+class RectWithClickCount(TypedDict):
+    data: RectDefinition
+    clicks: int
+
+
+def click_point_in_rect(click: GridClickEvent, rect_x: int, rect_y: int, rect_w: int, rect_h: int) -> bool:
+    """Return True if ``click`` x/y falls inside the axis-aligned rectangle."""
+    return rect_x <= click.x <= rect_x + rect_w and rect_y <= click.y <= rect_y + rect_h
+
+
+def rects_with_click_counts(rect_definitions: List[RectDefinition], all_clicks: List[GridClickEvent]) -> List[RectWithClickCount]:
     """Attach per-rectangle click counts using spatial bucketing for performance."""
     if not rect_definitions:
         return []
     if not all_clicks:
-        return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+        return [RectWithClickCount(data=rect_def, clicks=0) for rect_def in rect_definitions]
 
     first_rect = rect_definitions[0]
     try:
         bucket_w = int(first_rect["w"])
         bucket_h = int(first_rect["h"])
     except (KeyError, TypeError, ValueError):
-        return [{"data": rect_def, "clicks": 0} for rect_def in rect_definitions]
+        return [RectWithClickCount(data=rect_def, clicks=0) for rect_def in rect_definitions]
 
-    click_buckets: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
+    click_buckets: Dict[Tuple[int, int], List[GridClickEvent]] = {}
     for click in all_clicks:
         try:
-            click_x = click.get("x", 0)
-            click_y = click.get("y", 0)
-            bucket_x = int(click_x // bucket_w)
-            bucket_y = int(click_y // bucket_h)
+            bucket_x = int(click.x // bucket_w)
+            bucket_y = int(click.y // bucket_h)
             key = (bucket_x, bucket_y)
             click_buckets.setdefault(key, []).append(click)
         except (TypeError, ValueError):
             continue
 
-    processed_rects = []
+    processed_rects: List[RectWithClickCount] = []
     for rect_def in rect_definitions:
         try:
             rect_x, rect_y = int(rect_def["x"]), int(rect_def["y"])
@@ -67,18 +77,18 @@ def rects_with_click_counts(rect_definitions: List[Dict[str, Any]], all_clicks: 
                         for click in click_buckets[key]:
                             if click_point_in_rect(click, rect_x, rect_y, rect_w, rect_h):
                                 count += 1
-            processed_rects.append({"data": rect_def, "clicks": count})
+            processed_rects.append(RectWithClickCount(data=rect_def, clicks=count))
         except (KeyError, ValueError, TypeError):
-            processed_rects.append({"data": rect_def, "clicks": 0})
+            processed_rects.append(RectWithClickCount(data=rect_def, clicks=0))
     return processed_rects
 
 
-def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def prioritize_grid_rects(rect_details_with_clicks: List[RectWithClickCount]) -> List[RectWithClickCount]:
     """Sort rectangles by descending click count, then position and id for stability."""
     if not rect_details_with_clicks:
         return []
 
-    def sort_key(rect: Dict[str, Any]) -> tuple[float, float, float, int]:
+    def sort_key(rect: RectWithClickCount) -> Tuple[float, float, float, int]:
         clicks = rect.get("clicks", 0)
         if not isinstance(clicks, (int, float)):
             clicks = 0
@@ -87,11 +97,7 @@ def prioritize_grid_rects(rect_details_with_clicks: List[Dict[str, Any]]) -> Lis
             x, y = float(data.get("x", 0)), float(data.get("y", 0))
         except (TypeError, ValueError):
             x, y = 0.0, 0.0
-        try:
-            tie = int(rect.get("id", 0))
-        except (TypeError, ValueError):
-            tie = 0
-        return (-float(clicks), y, x, tie)
+        return (-float(clicks), y, x, 0)
 
     return sorted(rect_details_with_clicks, key=sort_key)
 
@@ -156,7 +162,7 @@ class ClickTrackerService(Service):
 
     async def publish_click_history_snapshot(self) -> None:
         with self._lock:
-            snap = [c.model_dump(mode="json") for c in self._clicks]
+            snap = list(self._clicks)
         await self.event_bus.publish(GridClickHistoryChangedEvent(clicks_snapshot=snap))
 
     async def _debounced_ui_notify(self) -> None:

@@ -1,79 +1,191 @@
 Concurrency
 ###########
 
-The feature chapters spoke about events being delivered,
-callbacks being invoked, and OS calls being made, without saying
-*which thread* any of it ran on. This chapter answers that
-question.
+.. sectnum::
 
-Threading model at a glance
+:doc:`event_bus` described what the bus guarantees — sequential delivery,
+within-event concurrency — but not *how* those guarantees are achievable given
+that some work takes hundreds of milliseconds and the audio device invokes
+callbacks on a thread the application does not own. This chapter explains the
+concurrency model from first principles.
+
+Vocalance has three hard timing constraints that cannot all be satisfied on a
+single naive thread:
+
+- The microphone delivers audio **every ~30 ms**. A late read drops frames.
+- The UI must repaint at **~60 fps**, meaning no single task can take more than
+  ~16 ms between repaints.
+- Speech recognition takes **100–300 ms**. LLM generation takes **seconds**.
+
+This chapter explains, from first principles, the two concurrency tools Python
+provides, why Vocalance chooses one as the default and uses the other
+selectively, and how the two communicate safely.
+
+The Two Concurrency Models
 ===========================
 
-Almost everything in Vocalance runs on one thread. The two
-exceptions are the audio device callback and any synchronous
-work that would block the main thread for too long.
+asyncio: One Thread, Many Tasks
+---------------------------------
+
+asyncio is a *cooperative* concurrency system. It runs entirely on a single OS
+thread. On that thread lives an **event loop** that maintains a list of
+*coroutines* — functions defined with ``async def`` that can be suspended and
+resumed. The loop picks one coroutine, runs it until it encounters an ``await``,
+suspends it, picks another, and so on.
+
+The critical property is where suspensions happen: **only at ``await``**. A
+coroutine that never awaits runs to completion without interruption. Nothing
+else can execute while it runs. This makes it safe to read and write shared
+state between two ``await`` points without any locking — no other coroutine
+can observe partial state during that window.
+
+The flip side: a coroutine that never yields *blocks everything else*. A tight
+loop that runs for 300 ms freezes the event loop — and everything that depends
+on it, including the UI — for the entire 300 ms. asyncio gives safety and
+simplicity for anything that spends most of its time waiting; it is harmful for
+anything that spends most of its time computing.
+
+Threads: Multiple Threads, Preemptive Switching
+-------------------------------------------------
+
+Threads are the OS's mechanism for running multiple execution flows. Unlike
+asyncio, the OS scheduler decides when to switch between threads and does so
+without any cooperation from the running code — a thread can be preempted
+mid-statement.
+
+The advantage is that multiple threads can genuinely run in parallel on separate
+CPU cores. Python's **Global Interpreter Lock** (GIL) limits this: the GIL
+allows only one thread to execute Python bytecode at a time. However, the GIL
+is released for blocking system calls (file I/O, network I/O) and for most
+C-extension calls. Every heavy model used in Vocalance — Vosk, YAMNet, Moonshine,
+and the LLM — is a C extension that releases the GIL during inference. Threads
+running those models run in true parallel with the main Python thread.
+
+The cost is that preemptive switching makes shared mutable state dangerous.
+Two threads reading and writing the same variable without coordination can
+produce results that depend on thread scheduling. Synchronization primitives
+(locks, queues, futures) are needed wherever threads share state.
+
+The Vocalance Concurrency Model
+=================================
+
+The Default: asyncio on One Thread
+------------------------------------
+
+Almost everything in Vocalance runs on a single OS thread shared by two
+cooperating event loops: the Qt event loop (which drives the UI) and the asyncio
+event loop (which drives all services and the bus). The integration is one call:
+
+.. code-block:: python
+
+   QtAsyncio.run(start_app())
+
+``QtAsyncio`` (from PySide6) installs an asyncio event loop implementation that
+schedules its turns through Qt's existing event loop. The two loops interleave
+on one thread: Qt paints a frame, yields to asyncio, asyncio runs a few
+coroutines, yields back to Qt, and so on.
 
 .. mermaid::
 
    flowchart LR
-       subgraph Main["Main thread<br/>(Qt + asyncio)"]
-           Bus((Event bus))
-           Svcs[All services]
-           UI[Qt views]
-       end
-       PA[PortAudio thread<br/><i>OS-owned</i>] -->|call_soon_threadsafe| Bus
-       Heavy[Daemon threads<br/><i>spawned per call</i>] -->|call_soon_threadsafe| Bus
-       Bus -. dispatch .-> Svcs
-       Bus -. dispatch .-> UI
-       Svcs -->|run_blocking| Heavy
+       Thread[Single OS Thread]
+       Thread --> Qt[Qt event loop<br/>paints, signals]
+       Thread --> Aio[asyncio event loop<br/>tasks, awaits]
+       Qt -. yields to .- Aio
+       Aio -. yields to .- Qt
 
-The single main thread is what makes the bus contract from the
-previous chapter useful. "Event A finishes before event B begins"
-is automatic on a single thread: no two handlers can run at the
-same instant in the first place.
+Every bus dispatch, every service handler, every Qt signal, every coroutine
+suspension happens on this one thread, in a single total order. This is what
+gives the bus's sequential-delivery guarantee its meaning: only one thing can
+execute at a time.
 
-The single-thread model
-=======================
+The Exceptions: Two Categories of Off-Thread Work
+---------------------------------------------------
 
-For the vast majority of the code, Vocalance is single-threaded.
-One operating-system thread runs both the Qt event loop and the
-asyncio event loop in cooperation. Almost everything happens on
-this thread:
+Two categories of work cannot run on the main thread without violating the
+timing constraints.
 
-- Every event-bus dispatch.
-- Every service handler.
-- Every UI controller and Qt signal.
-- Every ``await``.
+**Category 1: A foreign thread the application does not own.** The PortAudio
+audio driver invokes its callback on a thread it manages. The application cannot
+avoid this; it is how the audio API works. The callback must copy the audio
+buffer and return in microseconds, or the driver's internal buffer overflows
+and frames are dropped.
 
-Qt and asyncio share the thread because they are integrated
-through PySide6's ``QtAsyncio``: ``QtAsyncio.run(...)`` schedules
-the asyncio worker on Qt's main event loop. The two loops yield
-to each other; from the application's perspective there is only
-one place work happens.
+**Category 2: CPU-heavy synchronous work.** Speech recognition, sound
+embedding, LLM generation, and OS input calls are all blocking operations that
+take far longer than a UI frame. Running them on the main thread would freeze the
+loop.
 
-Crossing into the main thread
-=============================
+Both categories require getting work *off* the main thread and getting results
+*back* to it.
 
-Both kinds of foreign thread (PortAudio and the daemon spawn)
-eventually need to invoke code that expects to run on the main
-thread (a service handler, a bus publish, a callback). The
-mechanism for that crossing is one asyncio primitive:
+The CPU-Heavy Jobs
+===================
+
+The following table lists every operation in the application that is too slow to
+run on the main thread and must be dispatched to a background thread.
+
+.. list-table::
+   :widths: 27 27 23 23
+   :header-rows: 1
+   :class: uniform-rows
+
+   * - Job
+     - Where in the code
+     - Cost
+     - Frequency
+   * - Vosk command recognition
+     - ``VoskEngine.recognize``
+     - 100–300 ms (C++ Kaldi decoder)
+     - Once per spoken command clip
+   * - YAMNet sound embedding
+     - ``SoundRecognizer.recognize_sound``
+     - 50–100 ms (TensorFlow CPU)
+     - Once per sound clip
+   * - LLM token generation
+     - ``LLMService`` (llama-cpp-python)
+     - Seconds total, token-by-token streaming
+     - Once per Smart / Amend session
+   * - ``pyautogui`` OS input
+     - ``KeyboardInputService``
+     - 5–50 ms per call (OS-blocking)
+     - Per executed command
+   * - Storage I/O
+     - ``StorageService``
+     - Low single-digit ms
+     - Per JSON read or write
+   * - Model loading (all four)
+     - Service ``initialize``
+     - Seconds to tens of seconds
+     - Once at startup
+
+One notable absence from the table is **Moonshine streaming inference**.
+``MoonshineStreamSession.add_audio_pcm16`` runs on the main thread. The
+Moonshine native library releases the GIL during inference, so it does not block
+other Python threads, but the main thread is occupied for a few milliseconds per
+chunk. The chunks are small enough that this is below the frame budget.
+
+The Thread Crossing Primitives
+================================
+
+Moving Results from a Foreign Thread to the Main Thread
+---------------------------------------------------------
+
+The only asyncio API that is safe to call from a thread other than the one
+running the event loop is ``loop.call_soon_threadsafe``:
 
 .. code-block:: python
 
    loop.call_soon_threadsafe(callable, *args)
 
-It does two things:
+When called from any thread, it places ``callable`` into a thread-safe internal
+queue that the event loop reads on its next tick, and wakes the loop if it is
+currently idle. The callable runs on the main thread, in the same single-thread
+context as everything else. The foreign thread returns immediately after
+scheduling; it does not wait for the callable to execute.
 
-- Records the callable in a queue the loop reads from.
-- Wakes the loop if it is currently idle.
-
-When the loop next ticks, it picks up the callable and runs it
-on its own thread. From the callable's perspective, it is back
-on the main thread; nothing it touches has to be thread-safe.
-
-Two helpers in
-``vocalance/app/lifecycle/worker.py`` wrap this primitive:
+Two wrappers in ``vocalance/app/lifecycle/worker.py`` cover the two typical
+cases:
 
 .. code-block:: python
 
@@ -83,59 +195,42 @@ Two helpers in
    def schedule_on_loop_callback(loop, fn, *args) -> None:
        loop.call_soon_threadsafe(fn, *args)
 
-The first runs a coroutine, the second a synchronous callable.
-Together they cover every "I am on a foreign thread and I need
-to hand something to the main thread" case in the codebase.
+The first wraps a coroutine in a task; the second schedules a synchronous
+callable. Together they cover every "I am on a foreign thread and need to hand
+something to the main thread" case in the codebase.
 
-The PortAudio crossing
-----------------------
+The PortAudio Crossing
+-----------------------
 
-The audio capture service is the only component that runs on
-PortAudio's thread. Its callback is invoked by the audio driver
-directly. The callback's job is to do the bare minimum on the
-foreign thread and hop the result over to the main thread.
+The capture service is the one place where a foreign thread must hand data to
+the main thread on every audio frame — roughly thirty times per second.
 
 .. mermaid::
 
-   sequenceDiagram
-       participant Drv as PortAudio driver
-       participant CB as _portaudio_callback
-       participant Loop as asyncio loop
-       participant Pub as _publish_chunk
-       participant Bus as Event bus
+   flowchart LR
+       subgraph Foreign["Driver Thread (PortAudio)"]
+           Drv[PortAudio driver] -->|PCM buffer| CB[_portaudio_callback<br/>copy bytes, record timestamp]
+       end
+       subgraph Main["Main Thread"]
+           Pub[_publish_chunk] -->|AudioChunkCapturedEvent| Bus((Event bus))
+       end
+       CB -.->|call_soon_threadsafe| Pub
 
-       Drv->>CB: input buffer
-       CB->>CB: copy bytes,<br/>take timestamp
-       CB->>Loop: call_soon_threadsafe(_publish_chunk, ...)
-       CB-->>Drv: return
-       Loop->>Pub: invoke on main thread
-       Pub->>Bus: publish AudioChunkCapturedEvent
+The callback's three-step contract: copy the bytes (the buffer pointer is only
+valid for the duration of the callback), record the timestamp, and schedule
+``_publish_chunk`` on the main thread. The callback returns in microseconds.
+``_publish_chunk`` runs on the main thread, constructs the event, and publishes
+to the bus. All subscriber dispatch happens on the main thread with no
+threading hazards.
 
-Three properties of this callback matter:
+``run_blocking``: Dispatching Heavy Work to a Background Thread
+================================================================
 
-- It copies the bytes (it must — PortAudio's buffer is only
-  valid for the duration of the callback). After return,
-  nothing on the audio thread retains a reference.
-- ``_publish_chunk`` runs on the main thread; it is what
-  actually publishes the bus event.
-- The callback returns within microseconds.
+When the main thread needs to run blocking work, the pattern is the inverse of
+the audio crossing: spawn a thread, let it run the blocking call, and have it
+hand the result back to the main thread when done.
 
-Anything heavier on the audio thread — running a model, taking
-a lock, allocating a large object — would risk dropping audio.
-Rule of thumb: copy and schedule, nothing else.
-
-Heavy synchronous work
-======================
-
-The other category of off-main-thread work is the opposite
-direction: code that *runs on* the main thread but cannot afford
-to *stay* there. Vosk recognition takes hundreds of
-milliseconds. ``pyautogui.click`` blocks until the OS confirms.
-LLM token generation blocks for as long as the model takes. Any
-of that on the main thread freezes the UI loop.
-
-The helper for this case is ``run_blocking``
-(``vocalance/app/lifecycle/worker.py``):
+``run_blocking`` (``vocalance/app/lifecycle/worker.py``) implements this:
 
 .. code-block:: python
 
@@ -152,46 +247,66 @@ The helper for this case is ``run_blocking``
                loop.call_soon_threadsafe(future.set_result, result)
 
        threading.Thread(target=worker, daemon=True, name=name).start()
-       return await future
 
-The mechanics are tight:
+       try:
+           return await future
+       except asyncio.CancelledError:
+           if cancel_token is not None:
+               cancel_token.set()
+           raise
 
-- A fresh daemon thread is spawned for the call.
-- The synchronous function runs on that thread.
-- The result hops back to the main thread via the same
-  ``call_soon_threadsafe`` primitive.
-- The caller's coroutine awaits a future that completes when the
-  result lands.
+The calling coroutine creates a ``Future`` — a placeholder that will be resolved
+when the result is ready. A daemon thread is spawned to run the blocking
+function. When the thread finishes, it calls ``call_soon_threadsafe`` to resolve
+the future on the main thread. The calling coroutine was suspended on
+``await future``; resolving the future schedules it to resume on the next loop
+tick. From the caller's perspective this looks like a normal ``await``.
 
-Two design choices justify themselves:
+.. mermaid::
 
-- **Daemon threads.** A daemon thread cannot keep the
-  interpreter alive past process exit. If a native call fails to
-  return, it cannot stop the application from shutting down —
-  Python kills the thread when the process exits.
-- **One thread per call.** No shared pool. A pool would
-  introduce the question of pool starvation; one-thread-per-call
-  has no upper bound on concurrency, and the cost of spawning a
-  thread is negligible compared to the work that follows.
+   flowchart LR
+       Caller[Caller coroutine<br/>main thread] -->|1. create future, spawn thread| W[Daemon thread<br/>runs fn]
+       W -->|2. call_soon_threadsafe<br/>resolve future| Loop[Event loop<br/>main thread]
+       Loop -->|3. resume caller| Caller
 
-If the awaiting coroutine is cancelled (typically during
-shutdown), ``run_blocking`` sets a cancellation token before
-re-raising. Cooperating workers — the speech and LLM engines —
-poll the token and return early when it is set. The token
-mechanism itself belongs to :doc:`lifecycle`.
+Why Daemon Threads
+-------------------
 
-Ordering OS input
-=================
+``daemon=True`` means the interpreter does not wait for these threads to finish
+before exiting. If a C-extension call misbehaves — segfault, deadlock, infinite
+loop — it cannot keep the process alive past shutdown. The graceful path is
+cooperative cancellation via ``CancellationToken`` (below). Daemon is the safety
+net when graceful cancellation does not complete.
 
-A subtle problem follows from "one thread per blocking call".
-The grid service, the mark service, and the automation service
-can all reach for ``pyautogui`` at roughly the same time. If
-three calls each spawn their own thread, the OS receives the
-clicks in whatever order the three threads land — which is not
-the order the user spoke the commands.
+Why One Thread Per Call
+------------------------
 
-The fix is one shared service, ``KeyboardInputService``
-(``vocalance/app/services/keyboard_input_service.py``):
+The alternative to one-per-call is a shared thread pool
+(``ThreadPoolExecutor``). The codebase avoids this for two reasons.
+
+First, **pool starvation**. If the LLM occupies all pool workers for thirty
+seconds, every other blocking call queues behind it. With one-per-call there is
+no upper bound on concurrency — Vosk, YAMNet, and a click can all start
+simultaneously on their own threads.
+
+Second, **simplicity of reasoning**. Each ``run_blocking`` call is independent;
+there is no shared pool state to reason about, no worker lifecycle to manage,
+and no risk of one call affecting another's latency.
+
+The cost is slightly higher thread-spawn overhead (~tens of microseconds per
+call), which is negligible compared to the hundreds of milliseconds of work each
+thread performs.
+
+Serializing OS Input
+---------------------
+
+One consequence of one-thread-per-call is that multiple callers can dispatch
+``pyautogui`` calls simultaneously. If three spoken commands each spawn a thread
+for OS input, the OS receives them in thread-scheduling order — not speech order.
+
+``KeyboardInputService``
+(``vocalance/app/services/keyboard_input_service.py``) solves this by combining
+``run_blocking`` with an ``asyncio.Lock``:
 
 .. code-block:: python
 
@@ -204,33 +319,61 @@ The fix is one shared service, ``KeyboardInputService``
            async with self._serial:
                return await run_blocking(fn, *args, name="vocalance-input", **kwargs)
 
-Two ideas combine in those four lines:
+The lock is acquired by a coroutine on the main thread before the daemon thread
+is spawned, and released after the future resolves. At any moment, at most one
+``pyautogui`` call is in flight. ``asyncio.Lock`` is used rather than
+``threading.Lock`` because the contention is between coroutines on the main
+thread, not between threads; an asyncio lock is compatible with
+``async with`` and does not block the event loop when waiting.
 
-- ``run_blocking`` provides the off-main-thread execution.
-- The ``asyncio.Lock`` is acquired *before* the thread is
-  spawned, released *after* it joins. Only one ``run`` call is
-  in flight at a time, in strict FIFO order.
+Cancellation
+=============
 
-Every executor that touches ``pyautogui`` routes through this
-service. A sequence of "click, click, scroll up" reaches the OS
-in that order, even though three different services made the
-calls.
+During shutdown, background threads must stop cooperatively. The mechanism is
+``CancellationToken`` (``vocalance/app/lifecycle/cancellation.py``), an object
+that wraps both an ``asyncio.Event`` and a ``threading.Event`` and keeps them
+in sync.
 
-Three rules
-===========
+.. mermaid::
 
-Every line of concurrent code in the application reduces to
-three rules.
+   flowchart LR
+       subgraph CT["CancellationToken"]
+           AE[asyncio.Event]
+           TE[threading.Event]
+       end
+       Aio[Awaiting coroutine] -->|await token.wait| AE
+       Worker[Daemon worker] -->|token.is_set or<br/>threading_event().wait| TE
+       Set[token.set] --> AE
+       Set --> TE
 
-#. Almost everything runs on the main thread, which hosts both
-   the Qt loop and the asyncio loop.
-#. Anything arriving from a foreign thread (the audio device)
-   re-enters the main thread via ``loop.call_soon_threadsafe``.
-#. Anything synchronous that would block the main thread for too
-   long is dispatched to a daemon thread via ``run_blocking``,
-   and its result re-enters via the same primitive.
+Setting the token from any thread sets both internal events simultaneously.
+Coroutines waiting on ``await token.wait()`` unblock on the next loop tick.
+Daemon workers polling ``token.is_set()`` between iterations see the change on
+their next poll. Workers that are blocking on a long operation can use
+``token.threading_event().wait(timeout)`` to block for at most ``timeout``
+seconds before checking again.
 
-The remaining foundations chapters use those rules without
-re-explaining them. :doc:`lifecycle` describes the orchestration
-that builds the services and tears them down; :doc:`storage`
-describes the persistence layer underneath them.
+``run_blocking`` propagates cancellation automatically: if the awaiting coroutine
+is cancelled while the daemon thread is still running, ``run_blocking`` calls
+``cancel_token.set()`` so the daemon thread can observe the cancellation and
+return early.
+
+Summary: Three Rules
+=====================
+
+Every concurrency decision in the codebase follows three rules:
+
+1. **Default: asyncio on one thread.** Services, handlers, UI controllers, and
+   the bus all run on the asyncio loop, sharing one OS thread with Qt.
+
+2. **Foreign thread → main thread via ``call_soon_threadsafe``.** The audio
+   driver's callback is the only foreign thread. It copies, schedules, and
+   returns in microseconds.
+
+3. **Heavy blocking work → daemon thread via ``run_blocking``.** Model
+   inference, LLM generation, and OS input calls run on per-call daemon
+   threads. Results return to the main thread through a resolved future.
+
+With the concurrency model established, the next chapter — :doc:`lifecycle` —
+explains how all of these services, tasks, and threads are constructed, started,
+and torn down in the correct order.
