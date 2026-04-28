@@ -3,22 +3,22 @@
 
 version: 2
 
-# Set the version of Python and other tools you might need
 build:
   os: ubuntu-22.04
   tools:
+    # RTD's asdf images do not provide the exact patch (3.13.9) that the
+    # project requires for reproducible builds. We pin to the 3.13 minor
+    # series here and pass --ignore-requires-python below so docs can build
+    # without weakening the application's strict pin in pyproject.toml.
     python: "3.13"
   jobs:
     post_install:
-      # Install the package with documentation dependencies, ignoring strict python version
       - pip install --ignore-requires-python -e ".[docs]"
 
-# Build documentation in the docs/ directory with Sphinx
 sphinx:
   configuration: docs/conf.py
   fail_on_warning: true
 
-# Build formats
 formats:
   - pdf
   - epub

@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Optional, Union
 
 from PySide6.QtGui import QFont, QFontDatabase
 
@@ -326,7 +326,12 @@ class ThemeManager:
         return self.config.font_family_primary
 
     def get_font(
-        self, size: Any = "medium", weight: str = "regular", italic: bool = False, bold: bool = False, display: bool = False
+        self,
+        size: Union[int, str] = "medium",
+        weight: str = "regular",
+        italic: bool = False,
+        bold: bool = False,
+        display: bool = False,
     ) -> QFont:
         """Get a QFont object based on tokens.
 
@@ -361,7 +366,7 @@ class ThemeManager:
 
         return font
 
-    def get_monospace_font(self, size: Any = None) -> QFont:
+    def get_monospace_font(self, size: Optional[Union[int, str]] = None) -> QFont:
         """Get monospace font."""
         if size is None:
             font_size = self.config.fonts.medium

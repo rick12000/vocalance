@@ -36,14 +36,14 @@ class QtSoundController(QtBaseController):
         self.available_sounds: List[str] = []
         self.sound_mappings_cache: Dict[str, str] = {}
         self.marks_cache: List[str] = []
-        self.event_bus.subscribe(SoundListUpdatedEvent, self.on_sound_list_updated)
-        self.event_bus.subscribe(SoundMappingsResponseEvent, self.on_sound_mappings_response)
-        self.event_bus.subscribe(SoundToCommandMappingUpdatedEvent, self.on_sound_mapping_updated)
-        self.event_bus.subscribe(SoundTrainingInitiatedEvent, self.on_training_initiated)
-        self.event_bus.subscribe(SoundTrainingProgressEvent, self.on_training_progress)
-        self.event_bus.subscribe(SoundTrainingCompleteEvent, self.on_training_complete)
-        self.event_bus.subscribe(SoundTrainingFailedEvent, self.on_training_failed)
-        self.event_bus.subscribe(MarksChangedEventData, self.on_marks_changed)
+        self.subscribe(SoundListUpdatedEvent, self.on_sound_list_updated)
+        self.subscribe(SoundMappingsResponseEvent, self.on_sound_mappings_response)
+        self.subscribe(SoundToCommandMappingUpdatedEvent, self.on_sound_mapping_updated)
+        self.subscribe(SoundTrainingInitiatedEvent, self.on_training_initiated)
+        self.subscribe(SoundTrainingProgressEvent, self.on_training_progress)
+        self.subscribe(SoundTrainingCompleteEvent, self.on_training_complete)
+        self.subscribe(SoundTrainingFailedEvent, self.on_training_failed)
+        self.subscribe(MarksChangedEventData, self.on_marks_changed)
 
     def sound_op(self, op: str, **kwargs: object) -> None:
         asyncio.create_task(self.event_bus.publish(SoundUiOperationEvent(op=op, **kwargs)))
@@ -119,14 +119,3 @@ class QtSoundController(QtBaseController):
 
     def get_mapping_command_types(self) -> List[str]:
         return ["Commands", "Marks", "Grid"]
-
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(SoundListUpdatedEvent, self.on_sound_list_updated)
-        self.event_bus.unsubscribe(SoundMappingsResponseEvent, self.on_sound_mappings_response)
-        self.event_bus.unsubscribe(SoundToCommandMappingUpdatedEvent, self.on_sound_mapping_updated)
-        self.event_bus.unsubscribe(SoundTrainingInitiatedEvent, self.on_training_initiated)
-        self.event_bus.unsubscribe(SoundTrainingProgressEvent, self.on_training_progress)
-        self.event_bus.unsubscribe(SoundTrainingCompleteEvent, self.on_training_complete)
-        self.event_bus.unsubscribe(SoundTrainingFailedEvent, self.on_training_failed)
-        self.event_bus.unsubscribe(MarksChangedEventData, self.on_marks_changed)
-        super().cleanup()

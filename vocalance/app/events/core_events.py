@@ -77,10 +77,18 @@ class AudioDeviceErrorEvent(BaseEvent):
     error_message: str = Field(description="User-facing message for the warning dialog")
 
 
-class MicLevelMeterPcmChunkEvent(BaseEvent):
-    """Mono int16 PCM chunk for UI level metering (dictation popup simple mode)."""
+class AudioChunkCapturedEvent(BaseEvent):
+    """Single mono PCM buffer captured from the microphone.
 
-    audio_chunk: bytes = Field(description="Raw PCM bytes, mono int16, host sample rate")
+    Published by ``AudioCaptureService`` once per buffer delivered by the audio
+    device (~30 times per second). Every consumer that needs raw audio — the
+    two segmenters, the dictation coordinator, the popup wave-meter — receives
+    the same event through ordinary bus subscription.
+    """
+
+    pcm_bytes: bytes = Field(description="Raw PCM bytes, mono int16, host sample rate")
+    timestamp: float = Field(description="Wall-clock timestamp at delivery")
+    sample_rate: int = Field(description="Sample rate at which the bytes were captured")
 
 
 RuntimeConfigRequestOp = Literal["get_effective", "update", "reset_defaults", "reset_section"]

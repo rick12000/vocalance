@@ -1,23 +1,22 @@
 import logging
-from typing import Any
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox, QWidget
 
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioDeviceErrorEvent
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 
-class QtSystemController(QtBaseController):
+class QtSystemController(QtBaseController[QWidget]):
     """Surfaces global audio-device failures as a modal on ``main_window``."""
 
     audio_device_error = Signal(str)
 
-    def __init__(self, event_bus: EventBus, main_window: Any) -> None:
+    def __init__(self, event_bus: EventBus, main_window: QWidget) -> None:
         super().__init__(event_bus=event_bus, logger=logging.getLogger(self.__class__.__name__))
         self.main_window = main_window
-        self.event_bus.subscribe(AudioDeviceErrorEvent, self._on_audio_device_error)
+        self.subscribe(AudioDeviceErrorEvent, self._on_audio_device_error)
         self.audio_device_error.connect(self._show_microphone_error_dialog)
 
     def _on_audio_device_error(self, device_error: AudioDeviceErrorEvent) -> None:
@@ -32,7 +31,6 @@ class QtSystemController(QtBaseController):
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
 
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(AudioDeviceErrorEvent, self._on_audio_device_error)
+    def shutdown(self) -> None:
         self.main_window = None
-        super().cleanup()
+        super().shutdown()

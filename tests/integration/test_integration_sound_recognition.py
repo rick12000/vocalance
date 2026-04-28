@@ -3,7 +3,7 @@ import pytest
 import pytest_asyncio
 from scipy.spatial.distance import cosine
 
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
+from vocalance.app.services.command_flow.sound_recognition.sound_recognizer import SoundRecognizer
 
 
 class TestSoundRecognitionIntegration:

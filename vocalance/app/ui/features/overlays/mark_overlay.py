@@ -230,8 +230,8 @@ class QtMarkView(QWidget):
     def is_active(self) -> bool:
         return self.overlay_active and self.isVisible()
 
-    def cleanup(self) -> None:
+    def shutdown(self) -> None:
         self.cancel_focus_timers()
         self.hide()
         self.marks.clear()
-        self.logger.debug("QtMarkView cleanup completed")
+        self.logger.debug("QtMarkView shutdown completed")

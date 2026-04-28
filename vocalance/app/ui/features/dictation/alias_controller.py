@@ -16,7 +16,7 @@ class QtDictationAliasController(QtBaseController):
     def __init__(self, event_bus: EventBus) -> None:
         super().__init__(event_bus=event_bus, logger=logging.getLogger("QtDictationAliasController"))
         self.alias_entries: Dict[str, str] = {}
-        self.event_bus.subscribe(DictationAliasListUpdatedEvent, self.on_aliases_updated)
+        self.subscribe(DictationAliasListUpdatedEvent, self.on_aliases_updated)
 
     def alias_ui(self, op: str, **kwargs: str) -> None:
         asyncio.create_task(self.event_bus.publish(DictationAliasUiOperationEvent(op=op, **kwargs)))
@@ -68,7 +68,3 @@ class QtDictationAliasController(QtBaseController):
         self.emit_status(message, is_error)
         if is_error:
             self.operation_error.emit(message)
-
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(DictationAliasListUpdatedEvent, self.on_aliases_updated)
-        super().cleanup()

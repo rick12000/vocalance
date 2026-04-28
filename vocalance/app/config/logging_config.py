@@ -3,7 +3,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -88,7 +88,7 @@ class LoggingConfigModel(BaseModel):
     )
 
 
-def setup_logging(config: Any) -> None:
+def setup_logging(config: LoggingConfigModel) -> None:
     """Setup logging infrastructure with dual console and file handlers.
 
     Configures Python's logging system based on the provided configuration. When

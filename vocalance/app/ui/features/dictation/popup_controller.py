@@ -4,7 +4,7 @@ import numpy as np
 from PySide6.QtCore import QTimer
 
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import MicLevelMeterPcmChunkEvent
+from vocalance.app.events.core_events import AudioChunkCapturedEvent
 from vocalance.app.events.dictation_events import (
     DictationModifierStateChangedEvent,
     DictationSessionEvent,
@@ -27,17 +27,17 @@ class QtDictationPopupController(QtBaseController):
         super().__init__(event_bus=event_bus, logger=logging.getLogger(self.__class__.__name__))
         self.popup_view = QtDictationPopupView()
         self.llm_stream_session_id: str | None = None
-        self.event_bus.subscribe(DictationStatusChangedEvent, self.on_dictation_status_changed)
-        self.event_bus.subscribe(DictationSessionEvent, self.on_dictation_session)
-        self.event_bus.subscribe(PartialDictationTextEvent, self.on_partial_text)
-        self.event_bus.subscribe(FinalDictationTextEvent, self.on_final_text)
-        self.event_bus.subscribe(LLMProcessingStartedEvent, self.on_llm_started)
-        self.event_bus.subscribe(LLMProcessingCompletedEvent, self.on_llm_completed)
-        self.event_bus.subscribe(LLMProcessingFailedEvent, self.on_llm_failed)
-        self.event_bus.subscribe(LLMTokenGeneratedEvent, self.on_llm_token)
-        self.event_bus.subscribe(DictationStopWordDetectedEvent, self.on_stop_word_detected)
-        self.event_bus.subscribe(DictationModifierStateChangedEvent, self.on_modifier_state_changed)
-        self.event_bus.subscribe(MicLevelMeterPcmChunkEvent, self.on_mic_level_meter_pcm_chunk)
+        self.subscribe(DictationStatusChangedEvent, self.on_dictation_status_changed)
+        self.subscribe(DictationSessionEvent, self.on_dictation_session)
+        self.subscribe(PartialDictationTextEvent, self.on_partial_text)
+        self.subscribe(FinalDictationTextEvent, self.on_final_text)
+        self.subscribe(LLMProcessingStartedEvent, self.on_llm_started)
+        self.subscribe(LLMProcessingCompletedEvent, self.on_llm_completed)
+        self.subscribe(LLMProcessingFailedEvent, self.on_llm_failed)
+        self.subscribe(LLMTokenGeneratedEvent, self.on_llm_token)
+        self.subscribe(DictationStopWordDetectedEvent, self.on_stop_word_detected)
+        self.subscribe(DictationModifierStateChangedEvent, self.on_modifier_state_changed)
+        self.subscribe(AudioChunkCapturedEvent, self.on_audio_chunk_captured)
 
     def on_dictation_status_changed(self, status_changed: DictationStatusChangedEvent) -> None:
         if status_changed.is_active and status_changed.show_ui:
@@ -101,27 +101,16 @@ class QtDictationPopupController(QtBaseController):
         if stop_word.mode in ("hidden", "visual", "smart", "amend"):
             self.popup_view.set_border_orange()
 
-    def on_mic_level_meter_pcm_chunk(self, event: MicLevelMeterPcmChunkEvent) -> None:
+    def on_audio_chunk_captured(self, event: AudioChunkCapturedEvent) -> None:
         if not self.popup_view.isVisible() or self.popup_view.current_mode != "simple":
             return
-        audio_data = np.frombuffer(event.audio_chunk, dtype=np.int16)
+        audio_data = np.frombuffer(event.pcm_bytes, dtype=np.int16)
         if len(audio_data) == 0:
             return
         rms = float(np.sqrt(np.mean(audio_data.astype(np.float64) ** 2)))
         normalized_level = min(1.0, rms / 5000.0)
         self.popup_view.update_audio_level(normalized_level)
 
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(DictationStatusChangedEvent, self.on_dictation_status_changed)
-        self.event_bus.unsubscribe(DictationSessionEvent, self.on_dictation_session)
-        self.event_bus.unsubscribe(PartialDictationTextEvent, self.on_partial_text)
-        self.event_bus.unsubscribe(FinalDictationTextEvent, self.on_final_text)
-        self.event_bus.unsubscribe(LLMProcessingStartedEvent, self.on_llm_started)
-        self.event_bus.unsubscribe(LLMProcessingCompletedEvent, self.on_llm_completed)
-        self.event_bus.unsubscribe(LLMProcessingFailedEvent, self.on_llm_failed)
-        self.event_bus.unsubscribe(LLMTokenGeneratedEvent, self.on_llm_token)
-        self.event_bus.unsubscribe(DictationStopWordDetectedEvent, self.on_stop_word_detected)
-        self.event_bus.unsubscribe(DictationModifierStateChangedEvent, self.on_modifier_state_changed)
-        self.event_bus.unsubscribe(MicLevelMeterPcmChunkEvent, self.on_mic_level_meter_pcm_chunk)
+    def shutdown(self) -> None:
         self.popup_view.hide_popup()
-        super().cleanup()
+        super().shutdown()

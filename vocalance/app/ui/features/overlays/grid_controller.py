@@ -1,17 +1,23 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.grid_events import GridClickHistoryChangedEvent, GridStateEvent
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
+if TYPE_CHECKING:
+    pass
 
-class QtGridController(QtBaseController):
+
+class QtGridController(QtBaseController["QtGridView"]):
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         super().__init__(event_bus=event_bus, logger=logging.getLogger("QtGridController"))
         self.config = config
-        self.event_bus.subscribe(GridStateEvent, self.on_grid_state)
-        self.event_bus.subscribe(GridClickHistoryChangedEvent, self.on_click_history_changed)
+        self.subscribe(GridStateEvent, self.on_grid_state)
+        self.subscribe(GridClickHistoryChangedEvent, self.on_click_history_changed)
 
     def show_grid_overlay(self, num_rects=None, click_mode: str = "click") -> None:
         view = self.get_view()
@@ -55,10 +61,8 @@ class QtGridController(QtBaseController):
             return
         view.handle_selection(cfg.get("cell_label"), cfg.get("click_mode", "click"))
 
-    def cleanup(self) -> None:
-        self.event_bus.unsubscribe(GridStateEvent, self.on_grid_state)
-        self.event_bus.unsubscribe(GridClickHistoryChangedEvent, self.on_click_history_changed)
+    def shutdown(self) -> None:
         view = self.get_view()
         if view:
-            view.cleanup()
-        super().cleanup()
+            view.shutdown()
+        super().shutdown()

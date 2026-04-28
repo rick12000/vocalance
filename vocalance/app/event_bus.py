@@ -4,11 +4,35 @@ import asyncio
 import logging
 import threading
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Type
+from typing import Any, Callable, Dict, List, Tuple, Type
 
 from vocalance.app.events.base_event import BaseEvent
 
 logger = logging.getLogger(__name__)
+
+
+class SubscriptionTracker:
+    """Records event-bus subscriptions for a component and unsubscribes them in one call.
+
+    Owned by the ``Service`` and ``QtBaseController`` bases. Subclasses register
+    handlers via ``self.subscribe(EventType, handler)`` in ``__init__``;
+    ``super().shutdown()`` releases everything.
+    """
+
+    def __init__(self, event_bus: "EventBus") -> None:
+        self.event_bus = event_bus
+        self._subscriptions: List[Tuple[Type[BaseEvent], Callable[..., Any]]] = []
+
+    def subscribe(self, event_type: Type[BaseEvent], handler: Callable[..., Any]) -> None:
+        """Subscribe ``handler`` to ``event_type`` and record it for later cleanup."""
+        self.event_bus.subscribe(event_type, handler)
+        self._subscriptions.append((event_type, handler))
+
+    def unsubscribe_all(self) -> None:
+        """Unsubscribe every handler previously registered via ``subscribe``."""
+        for event_type, handler in self._subscriptions:
+            self.event_bus.unsubscribe(event_type, handler)
+        self._subscriptions.clear()
 
 
 class EventBus:

@@ -70,6 +70,14 @@ mermaid.initialize({
         rankSpacing: 50,
         nodeSpacing: 50
     },
+    sequence: {
+        mirrorActors: false,
+        actorMargin: 50,
+        boxMargin: 10,
+        noteMargin: 10,
+        messageMargin: 35,
+        wrap: true
+    },
     themeVariables: {
         fontSize: '14px',
         fontFamily: 'arial',

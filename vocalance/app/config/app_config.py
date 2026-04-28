@@ -542,6 +542,30 @@ class VADConfig(BaseModel):
         default=7,
         description="Pre-roll buffers for command mode (210ms at 30ms chunks) - captures word attack.",
     )
+    command_min_recording_duration: float = Field(
+        default=0.05, description="Minimum recording duration for command mode in seconds"
+    )
+    command_max_threshold: float = Field(default=0.1, description="Upper clamp on the adaptive speech threshold for command mode.")
+
+    sound_silent_chunks_for_end: int = Field(
+        default=5,
+        description="Number of consecutive silent chunks to end recording in sound mode (5 chunks = 150ms at 30ms/chunk).",
+    )
+    sound_max_recording_duration: float = Field(
+        default=1.02, description="Maximum recording duration for sound mode in seconds (~34 chunks at 30ms/chunk)."
+    )
+    sound_pre_roll_buffers: int = Field(
+        default=5,
+        description="Pre-roll buffers for sound mode (150ms at 30ms chunks) - captures the leading edge of a transient.",
+    )
+    sound_min_recording_duration: float = Field(
+        default=0.15, description="Minimum recording duration for sound mode in seconds (~5 chunks at 30ms/chunk)."
+    )
+    sound_min_peak_ratio: float = Field(
+        default=1.5,
+        description="Minimum ratio of clip peak energy to speech threshold for sound clips - filters background noise.",
+    )
+    sound_max_threshold: float = Field(default=0.15, description="Upper clamp on the adaptive speech threshold for sound mode.")
 
     silence_threshold_multiplier: float = Field(
         default=0.45, description="Multiplier for silence threshold relative to speech threshold"
@@ -558,10 +582,6 @@ class VADConfig(BaseModel):
     )
     adaptive_silence_threshold_multiplier: float = Field(
         default=0.65, description="Adjustment factor for silence threshold after adaptation (legacy, kept for compatibility)"
-    )
-
-    command_min_recording_duration: float = Field(
-        default=0.05, description="Minimum recording duration for command mode in seconds"
     )
 
     max_noise_samples: int = Field(
