@@ -53,7 +53,7 @@ The capture service
 ===================
 
 ``AudioCaptureService``
-(``vocalance/app/services/audio/audio_capture_service.py``) is the
+(``vocalance/app/services/capture/audio_capture_service.py``) is the
 only component that talks to ``sounddevice``. Its public surface is
 three methods:
 

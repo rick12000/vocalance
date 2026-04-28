@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
+from vocalance.app.services.keyboard_input_service import KeyboardInputService
 from vocalance.app.ui.application.system_controller import QtSystemController
 from vocalance.app.ui.components.labels import LargeLabel
 from vocalance.app.ui.features.commands.controller import QtCommandsController

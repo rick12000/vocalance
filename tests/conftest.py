@@ -11,8 +11,8 @@ import soundfile as sf
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
-from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
+from vocalance.app.services.command_flow.speech_recognition.command_speech_service import CommandSpeechService
+from vocalance.app.services.command_flow.speech_recognition.vosk_engine import VoskEngine
 
 
 @pytest.fixture
@@ -263,10 +263,10 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     import sys
 
     monkeypatch.setitem(sys.modules, "tensorflow", tf_mock)
-    monkeypatch.setattr("vocalance.app.services.audio.command.sound_recognition.streamlined_sound_recognizer.tf", tf_mock)
+    monkeypatch.setattr("vocalance.app.services.command_flow.sound_recognition.sound_recognizer.tf", tf_mock)
 
     # Import after mocking
-    from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_recognizer import SoundRecognizer
+    from vocalance.app.services.command_flow.sound_recognition.sound_recognizer import SoundRecognizer
 
     recognizer = SoundRecognizer(config=mock_config, storage=mock_storage_factory)
     recognizer.yamnet_model = mock_yamnet_model
@@ -287,9 +287,9 @@ def stt_config():
 
 
 @pytest.fixture
-def vosk_stt(vosk_model_path, sample_rate, stt_config):
-    """Initialize Vosk STT instance."""
-    return VoskSTT(model_path=vosk_model_path, sample_rate=sample_rate, config=stt_config)
+def vosk_engine(vosk_model_path, sample_rate, stt_config):
+    """Initialize VoskEngine instance."""
+    return VoskEngine(model_path=vosk_model_path, sample_rate=sample_rate, config=stt_config)
 
 
 @pytest.fixture
@@ -306,11 +306,11 @@ def vosk_test_files(audio_samples_path):
 
 
 @pytest.fixture(scope="module")
-def moonshine_stt(sample_rate, stt_config):
-    """Real Moonshine STT (downloads model on first use — keep for integration tests)."""
-    from vocalance.app.services.audio.stt.moonshine_stt import MoonshineSTT
+def moonshine_engine(sample_rate, stt_config):
+    """Real MoonshineEngine (downloads model on first use - keep for integration tests)."""
+    from vocalance.app.services.dictation_flow.speech_recognition.moonshine_engine import MoonshineEngine
 
-    return MoonshineSTT(sample_rate=sample_rate, config=stt_config)
+    return MoonshineEngine(sample_rate=sample_rate, config=stt_config)
 
 
 @pytest.fixture
@@ -369,7 +369,7 @@ async def event_bus():
 @pytest_asyncio.fixture
 async def stt_service(event_bus, app_config):
     """Create and initialize STT service."""
-    service = SpeechToTextService(event_bus, app_config)
+    service = CommandSpeechService(event_bus, app_config)
     await service.initialize()
     yield service
 
@@ -478,21 +478,24 @@ def mock_duplicate_filter():
 
 
 @pytest.fixture
-def vosk_stt_instance(mock_vosk_model, mock_vosk_recognizer, stt_config):
+def vosk_engine_instance(mock_vosk_model, mock_vosk_recognizer, stt_config):
     """Create Vosk STT instance with mocked dependencies."""
-    with patch("vocalance.app.services.audio.stt.vosk_stt.vosk.Model", return_value=mock_vosk_model), patch(
-        "vocalance.app.services.audio.stt.vosk_stt.vosk.KaldiRecognizer", return_value=mock_vosk_recognizer
+    with patch(
+        "vocalance.app.services.command_flow.speech_recognition.vosk_engine.vosk.Model", return_value=mock_vosk_model
+    ), patch(
+        "vocalance.app.services.command_flow.speech_recognition.vosk_engine.vosk.KaldiRecognizer",
+        return_value=mock_vosk_recognizer,
     ):
-        from vocalance.app.services.audio.stt.vosk_stt import VoskSTT
+        from vocalance.app.services.command_flow.speech_recognition.vosk_engine import VoskEngine
 
-        instance = VoskSTT(model_path="fake_model_path", sample_rate=16000, config=stt_config)
+        instance = VoskEngine(model_path="fake_model_path", sample_rate=16000, config=stt_config)
         instance._recognizer = mock_vosk_recognizer
         return instance
 
 
 @pytest.fixture
-def moonshine_stt_instance(stt_config):
-    """MoonshineSTT with model load and Transcriber mocked."""
+def moonshine_engine_instance(stt_config):
+    """MoonshineEngine with model load and Transcriber mocked."""
     from moonshine_voice.moonshine_api import ModelArch
 
     mock_line = Mock()
@@ -502,9 +505,9 @@ def moonshine_stt_instance(stt_config):
         with patch("moonshine_voice.transcriber.Transcriber") as transcriber_cls:
             mock_tb = transcriber_cls.return_value
             mock_tb.transcribe_without_streaming = Mock(return_value=Mock(lines=[mock_line]))
-            from vocalance.app.services.audio.stt.moonshine_stt import MoonshineSTT
+            from vocalance.app.services.dictation_flow.speech_recognition.moonshine_engine import MoonshineEngine
 
-            return MoonshineSTT(sample_rate=16000, config=stt_config)
+            return MoonshineEngine(sample_rate=16000, config=stt_config)
 
 
 @pytest.fixture
@@ -539,7 +542,7 @@ def mock_recognizer():
 @pytest.fixture
 def preprocessor(mock_config):
     """Create a standard AudioPreprocessor instance."""
-    from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_recognizer import AudioPreprocessor
+    from vocalance.app.services.command_flow.sound_recognition.sound_recognizer import AudioPreprocessor
 
     return AudioPreprocessor(config=mock_config.sound_recognizer)
 

@@ -68,7 +68,7 @@ work in a quiet room and a noisy café without recalibration.
 ------------------------------------------------------
 
 ``CommandSegmenterService``
-(``vocalance/app/services/audio/command/segmenting/command_segmenter_service.py``)
+(``vocalance/app/services/command_flow/segmenting/command_segmenter_service.py``)
 is tuned for spoken utterances. Speech has natural mid-utterance
 pauses — a brief silence does not mean the speaker has finished. The
 segmenter therefore uses a longer silence streak (~half a second) and
@@ -82,7 +82,7 @@ is the handoff to Stage 2 speech recognition.
 ---------------------------------------------------
 
 ``SoundSegmenterService``
-(``vocalance/app/services/audio/command/segmenting/sound_segmenter_service.py``)
+(``vocalance/app/services/command_flow/segmenting/sound_segmenter_service.py``)
 is tuned for short, transient sounds: claps, snaps, lip-pops. These
 events are tightly bounded in time, so the segmenter uses a much
 shorter silence streak (~150 ms) and a much shorter maximum duration
@@ -116,8 +116,8 @@ awareness of each other. Their outputs converge only at Stage 3.
 2.1 Speech recognition: Vosk
 -----------------------------
 
-``SpeechToTextService``
-(``vocalance/app/services/audio/stt/stt_service.py``) wraps an
+``CommandSpeechService``
+(``vocalance/app/services/command_flow/speech_recognition/command_speech_service.py``) wraps an
 offline Vosk model. It subscribes to ``CommandAudioSegmentReadyEvent``,
 feeds the PCM to Vosk, and publishes the result.
 
@@ -126,7 +126,7 @@ feeds the PCM to Vosk, and publishes the result.
    sequenceDiagram
        participant Seg as CommandSegmenterService
        participant Bus
-       participant STT as SpeechToTextService
+       participant STT as CommandSpeechService
        participant Vosk
 
        Seg->>Bus: CommandAudioSegmentReadyEvent
@@ -149,7 +149,7 @@ the stop trigger and modifier phrases. That role is covered in
 --------------------------------------
 
 ``SoundService``
-(``vocalance/app/services/audio/command/sound_recognition/streamlined_sound_service.py``)
+(``vocalance/app/services/command_flow/sound_recognition/sound_service.py``)
 subscribes to ``ProcessAudioChunkForSoundRecognitionEvent`` and runs
 a two-step recognition pipeline.
 
@@ -194,7 +194,7 @@ Stage 3 — Parsing
 =================
 
 ``CentralizedCommandParser``
-(``vocalance/app/services/commands/parser.py``) is the convergence
+(``vocalance/app/services/command_flow/parsing/parser.py``) is the convergence
 point. It subscribes to both ``CommandTextRecognizedEvent`` (from Vosk)
 and ``CustomSoundRecognizedEvent`` (from the sound recognizer) and runs
 them through the same pipeline.
@@ -286,7 +286,7 @@ is covered in :doc:`dictation`.
 
 All OS-touching executors share one rule: every call to ``pyautogui``
 is routed through ``KeyboardInputService``
-(``vocalance/app/services/commands/utilities/input_executor.py``),
+(``vocalance/app/services/keyboard_input_service.py``),
 which serialises OS input via an ``asyncio.Lock``. A sequence of
 "click, click, scroll up" arrives at the OS in that order regardless
 of which service made each call. The mechanism is explained in
@@ -296,7 +296,7 @@ of which service made each call. The mechanism is explained in
 --------------
 
 ``AutomationService``
-(``vocalance/app/services/automation_service.py``)
+(``vocalance/app/services/command_flow/execution/automation_service.py``)
 handles the user's configured actions: hotkeys, key sequences, single
 and multi-clicks, and scrolls. It subscribes to
 ``AutomationCommandParsedEvent`` and dispatches based on
@@ -320,7 +320,7 @@ Two runtime rules apply:
 ---------
 
 ``MarkService``
-(``vocalance/app/services/mark_service.py``)
+(``vocalance/app/services/command_flow/execution/mark_service.py``)
 maps a short label to a screen position and clicks it on request.
 
 ==================================  ================================================
@@ -352,7 +352,7 @@ phrase ended.
 --------
 
 ``GridService``
-(``vocalance/app/services/grid/grid_service.py``)
+(``vocalance/app/services/command_flow/execution/grid/grid_service.py``)
 implements a two-step "show, then pick" interaction.
 
 =======================  =====================================================================
@@ -372,7 +372,7 @@ actually wants is rarely the one labelled ``1``. Vocalance re-orders
 the labels so the most-clicked regions get the lowest numbers on the
 next invocation. The bookkeeping lives in
 ``ClickTrackerService``
-(``vocalance/app/services/grid/click_tracker_service.py``).
+(``vocalance/app/services/command_flow/execution/grid/click_tracker_service.py``).
 
 .. mermaid::
 
@@ -398,7 +398,7 @@ streak of clicks into one file write.
 ----------------------------
 
 ``PauseStateManager``
-(``vocalance/app/services/pause_state_manager.py``)
+(``vocalance/app/services/command_flow/pause_state_manager.py``)
 owns the single shared paused flag. It subscribes to
 ``SystemControlCommandParsedEvent`` and toggles on ``PauseCommand`` /
 ``ResumeCommand``. The parser and all executors check this flag before

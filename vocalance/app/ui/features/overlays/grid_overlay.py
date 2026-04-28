@@ -15,7 +15,7 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import PerformMouseClickEventData
 from vocalance.app.events.grid_events import GridStateEvent
 from vocalance.app.lifecycle.worker import schedule_on_loop
-from vocalance.app.services.grid.click_tracker_service import prioritize_grid_rects, rects_with_click_counts
+from vocalance.app.services.command_flow.execution.grid.click_tracker_service import prioritize_grid_rects, rects_with_click_counts
 from vocalance.app.ui.qt_theme import theme
 
 GRID_DRAG_MOVE_MIN_S = 0.22

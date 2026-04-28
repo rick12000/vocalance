@@ -202,7 +202,7 @@ clicks in whatever order the three threads happen to land — which
 is not the order the user spoke the commands.
 
 The fix is a single shared service, ``KeyboardInputService``
-(``vocalance/app/services/commands/utilities/input_executor.py``):
+(``vocalance/app/services/keyboard_input_service.py``):
 
 .. code-block:: python
 

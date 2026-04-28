@@ -111,7 +111,7 @@ The two recognizers play complementary roles:
   not run audio through the command segmenter on the way in.
 - **Vosk** stays live as a side channel. The same command segmenter
   used by command mode keeps producing clips during dictation; the
-  speech-to-text service interprets each clip differently while a
+  ``CommandSpeechService`` interprets each clip differently while a
   session is active, looking specifically for the stop trigger and
   for modifier phrases.
 
@@ -154,7 +154,7 @@ into a buffer that becomes the input to either direct typing
 Vosk as a side channel
 ----------------------
 
-While a dictation session is active, the speech-to-text service
+While a dictation session is active, the ``CommandSpeechService``
 inspects every Vosk recognition and reacts in one of three ways:
 
 - If the result contains the configured stop trigger, the service

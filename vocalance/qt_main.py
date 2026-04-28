@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_validator(c: Dict[str, Any]) -> Any:
-    from vocalance.app.services.protected_terms_validator import ProtectedTermsValidator
+    from vocalance.app.services.command_flow.management.protected_terms_validator import ProtectedTermsValidator
 
     validator = ProtectedTermsValidator(config=c["config"], storage=c["storage"])
     validator.setup_invalidation_subscriptions(c["event_bus"])
@@ -44,20 +44,20 @@ def _service_specs() -> List[ServiceSpec]:
     from this list. Heavy module imports stay scoped to this function so they
     only fire when ``build_services`` runs, not on ``qt_main`` import.
     """
-    from vocalance.app.services.audio.audio_capture_service import AudioCaptureService
-    from vocalance.app.services.audio.command.segmenting.command_segmenter_service import CommandSegmenterService
-    from vocalance.app.services.audio.command.segmenting.sound_segmenter_service import SoundSegmenterService
-    from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_service import SoundService
-    from vocalance.app.services.audio.dictation.dictation_coordinator import DictationCoordinator
-    from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
-    from vocalance.app.services.automation_service import AutomationService
-    from vocalance.app.services.commands.management import CommandManagementService
-    from vocalance.app.services.commands.parser import CentralizedCommandParser
-    from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService
-    from vocalance.app.services.grid.click_tracker_service import ClickTrackerService
-    from vocalance.app.services.grid.grid_service import GridService
-    from vocalance.app.services.mark_service import MarkService
-    from vocalance.app.services.pause_state_manager import PauseStateManager
+    from vocalance.app.services.capture.audio_capture_service import AudioCaptureService
+    from vocalance.app.services.command_flow.execution.automation_service import AutomationService
+    from vocalance.app.services.command_flow.execution.grid.click_tracker_service import ClickTrackerService
+    from vocalance.app.services.command_flow.execution.grid.grid_service import GridService
+    from vocalance.app.services.command_flow.execution.mark_service import MarkService
+    from vocalance.app.services.command_flow.management.command_management_service import CommandManagementService
+    from vocalance.app.services.command_flow.parsing.parser import CentralizedCommandParser
+    from vocalance.app.services.command_flow.pause_state_manager import PauseStateManager
+    from vocalance.app.services.command_flow.segmenting.command_segmenter_service import CommandSegmenterService
+    from vocalance.app.services.command_flow.segmenting.sound_segmenter_service import SoundSegmenterService
+    from vocalance.app.services.command_flow.sound_recognition.sound_service import SoundService
+    from vocalance.app.services.command_flow.speech_recognition.command_speech_service import CommandSpeechService
+    from vocalance.app.services.dictation_flow.dictation_coordinator import DictationCoordinator
+    from vocalance.app.services.keyboard_input_service import KeyboardInputService
     from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore
     from vocalance.app.services.storage.storage_service import StorageService
 
@@ -111,7 +111,10 @@ def _service_specs() -> List[ServiceSpec]:
                 pause_state_manager=c["pause_state_manager"],
             ),
         ),
-        ServiceSpec(name="stt", factory=lambda c: SpeechToTextService(event_bus=c["event_bus"], config=c["config"])),
+        ServiceSpec(
+            name="command_speech",
+            factory=lambda c: CommandSpeechService(event_bus=c["event_bus"], config=c["config"]),
+        ),
         ServiceSpec(
             name="audio_capture",
             factory=lambda c: AudioCaptureService(event_bus=c["event_bus"], config=c["config"], main_event_loop=c["gui_loop"]),
@@ -131,7 +134,6 @@ def _service_specs() -> List[ServiceSpec]:
                 config=c["config"],
                 storage=c["storage"],
                 gui_event_loop=c["gui_loop"],
-                stt_service=c["stt"],
                 input_service=c["input_service"],
                 lifecycle=c["lifecycle"],
                 cancel_token=c["cancel_token"],
@@ -200,18 +202,14 @@ async def _run_initialization(
         name="esc50-warmup",
     )
 
-    progress.update_status_animated(
-        status="Initializing speech-to-text"
-        if _moonshine_model_cache_ready()
-        else "Fetching Moonshine STT model. This may take several minutes on first use."
-    )
-    await services.stt.initialize()
+    progress.update_status_animated(status="Initializing command speech recognition")
+    await services.command_speech.initialize()
 
     progress.update_sub_step(sub_step_name="Preparing dictation system...")
     allow = config.local_llm_allowlist
     spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
     if spec is not None:
-        from vocalance.app.services.storage.llm_model_downloader import LLMModelDownloader
+        from vocalance.app.services.dictation_flow.llm.llm_model_downloader import LLMModelDownloader
 
         downloader = LLMModelDownloader(config)
         if not downloader.model_bundle_complete(spec.gguf_filenames):
@@ -227,7 +225,12 @@ async def _run_initialization(
             if not ok:
                 raise RuntimeError("Critical asset download failed: LLM model")
 
-    progress.update_sub_step(sub_step_name="Initializing dictation", progress=0.55)
+    progress.update_sub_step(
+        sub_step_name="Initializing dictation"
+        if _moonshine_model_cache_ready()
+        else "Fetching Moonshine STT model. This may take several minutes on first use.",
+        progress=0.55,
+    )
     if not await services.dictation.initialize():
         raise RuntimeError("Critical dictation initialization failed")
 
