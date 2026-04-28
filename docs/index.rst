@@ -28,7 +28,7 @@ architecture and the implementation. End-user information lives at
 
    developer/features/capture
    developer/features/command_flow
-   developer/features/dictation
+   developer/features/dictation_flow
    developer/features/user_interface
 
 .. toctree::

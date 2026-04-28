@@ -1,192 +1,218 @@
-Command Flow
+Command flow
 ############
 
-A *command* in Vocalance is any instruction that produces a single
-observable change: a click, a keypress, the appearance of a numbered
-grid, or the execution of a saved mark. Two kinds of input can produce
-one — spoken words or a trained non-speech sound — but both travel
-through the same pipeline from end to end.
+A *command* is any voice or sound input that produces a single
+observable change: a click, a keypress, the appearance of a
+numbered grid, the execution of a saved mark. Two input types
+produce one — spoken words or a trained non-speech sound — but
+both travel through the same pipeline from end to end.
 
 This chapter picks up where :doc:`capture` left off (audio chunks
-arriving on the bus) and follows the command path all the way to the
-OS action. The chapter is arranged as a journey with four stages.
+arriving on the bus) and follows the path to the OS action.
+
+Stages at a glance
+==================
+
+The pipeline has four stages.
 
 .. mermaid::
 
    flowchart LR
-       Chunks[AudioChunkCapturedEvent] --> Seg[1. Segment]
-       Seg --> Rec[2. Recognize]
-       Rec --> Par[3. Parse]
-       Par --> Exec[4. Execute]
-       Exec --> OS[OS input]
+       Chunks[AudioChunkCapturedEvent] --> S1[1. Segment]
+       S1 --> S2[2. Recognize]
+       S2 --> S3[3. Parse]
+       S3 --> S4[4. Execute]
+       S4 --> OS[OS input]
 
-Each stage transforms the data: the segmenters cut the stream into
-clips, the recognizers turn clips into text or a label, the parser
-turns text or a label into a typed command object, and the executors
-turn typed commands into OS calls. The speech and sound paths run in
-parallel through stages 1 and 2, converge at stage 3, and stay
-together for stage 4.
+The speech and sound paths run in parallel through stages 1 and
+2, converge at stage 3, and stay together for stage 4.
+
+Zooming in one level shows that each stage is a pair of services
+in the speech-and-sound stages, and a single service in the
+parse-and-execute stages.
+
+.. mermaid::
+
+   flowchart LR
+       subgraph S1["1. Segment"]
+           CSeg[CommandSegmenterService]
+           SSeg[SoundSegmenterService]
+       end
+       subgraph S2["2. Recognize"]
+           CSpeech[CommandSpeechService<br/><i>Vosk</i>]
+           SRec[SoundService<br/><i>YAMNet + k-NN</i>]
+       end
+       subgraph S3["3. Parse"]
+           Parser[CentralizedCommandParser]
+       end
+       subgraph S4["4. Execute"]
+           Auto[AutomationService]
+           Mark[MarkService]
+           Grid[GridService]
+           Pause[PauseStateManager]
+       end
+       Bus((Event bus))
+       CSeg -->|CommandAudioSegmentReadyEvent| Bus
+       SSeg -->|ProcessAudioChunkForSoundRecognitionEvent| Bus
+       Bus --> CSpeech
+       Bus --> SRec
+       CSpeech -->|CommandTextRecognizedEvent| Bus
+       SRec -->|CustomSoundRecognizedEvent| Bus
+       Bus --> Parser
+       Parser -->|*CommandParsedEvent| Bus
+       Bus --> Auto
+       Bus --> Mark
+       Bus --> Grid
+       Bus --> Pause
+
+Every arrow is a publish or a delivery. The remainder of the
+chapter walks through one stage at a time.
 
 ----
 
 Stage 1 — Segmentation
-=======================
+======================
 
-Commands are *clip-based*: both Vosk (speech) and YAMNet (sound) take
-a complete audio clip and return a single answer. The continuous stream
-of ``AudioChunkCapturedEvent`` must therefore be cut into clips first.
-Two services do this in parallel, one per input type.
+Both Vosk and YAMNet need a *complete clip*, not a stream. The
+continuous flow of ``AudioChunkCapturedEvent`` therefore has to
+be cut into clips first. Two segmenters do this in parallel, one
+per input type.
 
-The shared segmentation model
-------------------------------
+Shared state machine
+--------------------
 
-Both segmenters implement the same state machine, differing only in
-the parameters used to tune it.
+Both segmenters implement the same VAD-driven state machine,
+differing only in the parameters they tune it with.
 
 .. mermaid::
 
    flowchart LR
-       Idle[Idle<br/>pre-roll buffer only] -->|energy &gt; threshold| Cap[Capturing<br/>append chunks]
-       Cap -->|silence streak| Done[Clip ready]
-       Cap -->|max duration| Done
-       Done -->|publish| Idle
+       Idle[<b>Idle</b><br/>holding pre-roll buffer] -->|chunk energy<br/>&gt; threshold| Cap[<b>Capturing</b><br/>append chunks]
+       Cap -->|silence streak<br/>&ge; min| Done[Emit clip]
+       Cap -->|duration<br/>&ge; cap| Done
+       Done -->|reset| Idle
 
-The segmenter starts idle, holding a short *pre-roll buffer* of recent
-chunks. When a chunk's energy crosses an adaptive threshold it
-transitions to capturing: it prepends the pre-roll (so the first
-consonant is not clipped) and starts appending every incoming chunk.
-Capture ends when either a configurable streak of sub-threshold chunks
-(the sound stopped) or a hard duration cap (something sustained tricked
-the energy gate) is reached. The finished buffer is emitted as a bus
-event and the segmenter returns to idle.
+Three things to note:
 
-The threshold is adaptive. It tracks a rolling estimate of the room's
-noise floor and applies a configurable multiplier, so the same settings
-work in a quiet room and a noisy café without recalibration.
+- The **pre-roll buffer** is prepended on entry to ``Capturing``
+  so the first consonant of a phrase is not clipped.
+- The **silence streak** is the configured number of consecutive
+  sub-threshold chunks that ends a clip naturally.
+- The **duration cap** is a hard upper bound; reaching it ends
+  the clip even if the user has not paused.
 
-1.1 Speech segmentation (``CommandSegmenterService``)
-------------------------------------------------------
+The energy threshold is *adaptive*. It tracks a rolling estimate
+of the room's noise floor and applies a configurable multiplier,
+so the same settings work in a quiet room and a noisy café
+without recalibration.
 
-``CommandSegmenterService``
-(``vocalance/app/services/command_flow/segmenting/command_segmenter_service.py``)
-is tuned for spoken utterances. Speech has natural mid-utterance
-pauses — a brief silence does not mean the speaker has finished. The
-segmenter therefore uses a longer silence streak (~half a second) and
-a longer maximum duration (several seconds).
+The two segmenters
+------------------
 
-When the clip is ready the service publishes
-``CommandAudioSegmentReadyEvent(audio_bytes, sample_rate)``. That event
-is the handoff to Stage 2 speech recognition.
+The two services use the same machine with different tunings.
 
-1.2 Sound segmentation (``SoundSegmenterService``)
----------------------------------------------------
+==================================================================  =================================  =================================
+Parameter                                                           ``CommandSegmenterService``        ``SoundSegmenterService``
+==================================================================  =================================  =================================
+Tuned for                                                           Spoken utterances                  Short transients
+Silence streak                                                      ~500 ms                            ~150 ms
+Max clip duration                                                   several seconds                    ~1 second
+Extra rejection                                                     —                                  Peak-amplitude / baseline ratio
+Disabled while dictation is active                                  no                                 yes
+Output event                                                        ``CommandAudioSegmentReadyEvent``  ``ProcessAudioChunkForSoundRecognitionEvent``
+==================================================================  =================================  =================================
 
 ``SoundSegmenterService``
 (``vocalance/app/services/command_flow/segmenting/sound_segmenter_service.py``)
-is tuned for short, transient sounds: claps, snaps, lip-pops. These
-events are tightly bounded in time, so the segmenter uses a much
-shorter silence streak (~150 ms) and a much shorter maximum duration
-(roughly 1 second).
-
-An extra quality gate applies: the clip's peak amplitude must be some
-minimum ratio above the baseline energy. Sustained background noise
-can drift above the energy threshold without actually spiking; this
-gate rejects those false triggers.
-
-There is one additional rule: while a dictation session is active,
-every spoken word would produce a false-positive sound clip. The
-service subscribes to ``DictationModeDisableOthersEvent`` and mutes
-itself for the duration of any dictation session. The capture layer
-and the command segmenter are entirely unaware of this; it is a
-self-contained rule inside the sound segmenter.
-
-When the clip is ready the service publishes
-``ProcessAudioChunkForSoundRecognitionEvent(audio_chunk, sample_rate)``.
-That event is the handoff to Stage 2 sound recognition.
+needs the extra peak-amplitude gate because sustained background
+noise can drift above the energy threshold without actually
+spiking. It also subscribes to
+``DictationModeDisableOthersEvent`` so that every spoken word
+during dictation does not produce a false-positive sound clip.
+``CommandSegmenterService``
+(``vocalance/app/services/command_flow/segmenting/command_segmenter_service.py``)
+has neither of those rules.
 
 ----
 
 Stage 2 — Recognition
-======================
+=====================
 
-The two clip events produced by Stage 1 are now processed by two
-completely independent recognizers. They share no state and have no
-awareness of each other. Their outputs converge only at Stage 3.
+The two clip events produced by Stage 1 are now consumed by two
+independent recognizers. They share no state.
 
-2.1 Speech recognition: Vosk
------------------------------
+Speech: Vosk
+------------
 
 ``CommandSpeechService``
-(``vocalance/app/services/command_flow/speech_recognition/command_speech_service.py``) wraps an
-offline Vosk model. It subscribes to ``CommandAudioSegmentReadyEvent``,
-feeds the PCM to Vosk, and publishes the result.
+(``vocalance/app/services/command_flow/speech_recognition/command_speech_service.py``)
+wraps an offline Vosk model (~50 MB, bundled). It subscribes to
+``CommandAudioSegmentReadyEvent``, runs Vosk on the PCM, and
+publishes the result.
 
 .. mermaid::
 
    sequenceDiagram
        participant Seg as CommandSegmenterService
-       participant Bus
-       participant STT as CommandSpeechService
-       participant Vosk
+       participant Bus as Event bus
+       participant Speech as CommandSpeechService
+       participant Vosk as VoskEngine
 
        Seg->>Bus: CommandAudioSegmentReadyEvent
-       Bus->>STT: deliver
-       STT->>Vosk: recognize(pcm)
-       Vosk-->>STT: plain lower-case text
-       STT->>Bus: CommandTextRecognizedEvent
+       Bus->>Speech: deliver
+       Speech->>Vosk: recognize(pcm)
+       Note over Speech,Vosk: runs on a daemon thread<br/>via run_blocking
+       Vosk-->>Speech: lower-case text
+       Speech->>Bus: CommandTextRecognizedEvent
 
-Vosk runs offline on a bundled model (~50 MB). Recognition is
-synchronous and blocks for a few hundred milliseconds; it runs on a
-background thread via ``run_blocking`` so it does not stall the main
-event loop (see :doc:`../foundations/concurrency`). The output is
-plain lower-case text with no punctuation or confidence score.
+Recognition is synchronous and blocks for hundreds of
+milliseconds. It runs on a background thread via ``run_blocking``
+so it does not stall the main loop
+(:doc:`../foundations/concurrency`). Output is plain lower-case
+text — no punctuation, no confidence score.
 
-Vosk also plays a secondary role during dictation: it watches for
-the stop trigger and modifier phrases. That role is covered in
-:doc:`dictation`; it does not affect the command path described here.
+Vosk also plays a secondary role during dictation: it watches
+for the stop trigger and modifier phrases. That role is covered
+in :doc:`dictation_flow`; it is independent of the command path
+described here.
 
-2.2 Sound recognition: YAMNet + k-NN
---------------------------------------
+Sound: YAMNet + k-NN
+--------------------
 
 ``SoundService``
 (``vocalance/app/services/command_flow/sound_recognition/sound_service.py``)
-subscribes to ``ProcessAudioChunkForSoundRecognitionEvent`` and runs
-a two-step recognition pipeline.
+subscribes to ``ProcessAudioChunkForSoundRecognitionEvent`` and
+runs a two-step pipeline.
 
 .. mermaid::
 
    flowchart LR
        Clip[Sound clip] --> Pre[Resample &amp; normalize]
-       Pre --> Emb[YAMNet embedding<br/>5120-D vector]
-       Emb --> KNN[k-NN vote<br/>over user samples]
-       KNN --> Gate{User label<br/>wins?}
+       Pre --> Emb[YAMNet<br/>embedding<br/><i>5,120-D</i>]
+       Emb --> KNN[k-NN vote<br/>over user samples<br/>+ ESC-50 negatives]
+       KNN --> Gate{Winning label<br/>is user-trained?}
        Gate -->|yes| Pub[CustomSoundRecognizedEvent]
-       Gate -->|ESC-50 wins| Drop[drop silently]
+       Gate -->|no, ESC-50 wins| Drop[Drop silently]
 
-**Step 1 — embedding.** YAMNet is a pre-trained audio-classification
-model. The recognizer does not use its class labels; it extracts a
-5,120-dimensional embedding from a hidden layer. That vector encodes
-the acoustic character of the sound in a way that generalises across
-recording conditions.
+**Embedding.** YAMNet is a pre-trained classifier; the recognizer
+ignores its class labels and extracts a 5,120-D vector from a
+hidden layer. That vector encodes the acoustic character of the
+sound in a way that generalizes across recording conditions.
 
-**Step 2 — k-NN vote.** A k-nearest-neighbours lookup compares the
-embedding against the user's own trained samples. The user trains the
-recognizer by saying "train <label>" and making the sound three to five
-times; no model fine-tuning is required.
+**k-NN vote.** The user trains the recognizer by saying ``train
+<label>`` and producing the sound a few times — no model
+fine-tuning is required.
 
-k-NN has no built-in "neither" category. Without help it would assign
-every door slam or keystroke to one of the user's labels. The
-recognizer therefore keeps a background set of samples drawn from
-**ESC-50**, a standard library of environmental noises, stored under
-internal ``esc50_*`` labels. Those samples participate in the vote like
-any other; if the winner is an ESC-50 label the result is silently
-dropped. This creates a practical "neither" basket without requiring
-the user to train it explicitly.
+k-NN has no built-in "neither" category. To prevent every door
+slam from being assigned to a user label, the recognizer keeps a
+background set of samples drawn from **ESC-50** (a standard
+library of environmental noises) under internal ``esc50_*``
+labels. They participate in the vote like any other; if an
+ESC-50 label wins, the result is silently dropped.
 
-When a user label wins, the service publishes a
-``CustomSoundRecognizedEvent(label, confidence, mapped_command)``.
-The ``mapped_command`` field carries the command phrase the user has
-mapped to that label in the Sounds tab.
+The published ``CustomSoundRecognizedEvent(label, confidence,
+mapped_command)`` carries the command phrase the user has mapped
+to the trained label in the Sounds tab.
 
 ----
 
@@ -194,14 +220,14 @@ Stage 3 — Parsing
 =================
 
 ``CentralizedCommandParser``
-(``vocalance/app/services/command_flow/parsing/parser.py``) is the convergence
-point. It subscribes to both ``CommandTextRecognizedEvent`` (from Vosk)
-and ``CustomSoundRecognizedEvent`` (from the sound recognizer) and runs
-them through the same pipeline.
+(``vocalance/app/services/command_flow/parsing/parser.py``) is
+the convergence point. It subscribes to *both*
+``CommandTextRecognizedEvent`` and ``CustomSoundRecognizedEvent``
+and runs them through the same pipeline.
 
-For sounds, the mapped command phrase is substituted before parsing, so
-from here onward the parser cannot tell whether the input came from
-speech or sound.
+For sounds, the mapped phrase is substituted before parsing, so
+from this point on the parser cannot tell whether the input came
+from speech or sound.
 
 .. code-block:: python
 
@@ -211,132 +237,141 @@ speech or sound.
            return
        await self.process_text_input(text=phrase, source="sound")
 
-The two gates
--------------
+Two gates and a cascade
+-----------------------
 
-Every input passes two checks before parsing.
-
-A **rate-limit gate** drops input that arrives within a short
-configurable window (a few hundred milliseconds) of the previous
-successful parse. Both Vosk and the sound recognizer can double-fire
-on the same utterance; this gate prevents the duplicate reaching the
-executor.
-
-A **pause gate** drops everything except ``ResumeCommand`` while the
-system is paused. The parse still runs so "resume" can produce a typed
-command; the gate acts on the parsed result.
-
-The cascade
------------
-
-After the gates, the parser tries the input against five families in
-a fixed order. The first match wins.
-
-.. mermaid::
-
-   flowchart TD
-       In[Normalized text] --> S1[1. System: pause / resume]
-       S1 --> S2[2. Dictation triggers]
-       S2 --> S3[3. Marks]
-       S3 --> S4[4. Grid]
-       S4 --> S5[5. Automation]
-       S5 --> S6[6. Single-word mark fallback]
-       S6 --> Out[First match wins]
-
-The order is deliberate. ``pause`` must always be safe to say; it
-cannot be hijacked by a user-defined automation. Dictation triggers
-come next so they cannot be consumed by a single-word mark. Marks come
-before grid so a mark named "five" still works while a grid is on
-screen. Automation comes before the fallback so a user-defined
-automation can claim a single word. The fallback catches every
-remaining single word and treats it as a mark-execute attempt, which
-is what makes mark navigation feel frictionless.
-
-Inputs that match nothing are silently discarded. Voice input is noisy,
-and surfacing a parse error on every misheard syllable would be more
-disruptive than helpful.
-
-What the parser publishes
--------------------------
-
-A successful parse produces a typed event, one per family:
+Every input passes two gates and then a cascade.
 
 .. mermaid::
 
    flowchart LR
-       P[Parser] --> SCE[SystemControlCommandParsedEvent]
-       P --> DCE[DictationCommandParsedEvent]
-       P --> MCE[MarkCommandParsedEvent]
-       P --> GCE[GridCommandParsedEvent]
-       P --> ACE[AutomationCommandParsedEvent]
+       In[Text from Vosk<br/>or sound mapping] --> G1{Within<br/>rate-limit<br/>window?}
+       G1 -->|yes| D1[Drop]
+       G1 -->|no| Cas[Family cascade<br/>first match wins]
+       Cas --> M{Matched?}
+       M -->|no| D2[Drop]
+       M -->|yes| G2{Paused<br/>and not Resume?}
+       G2 -->|yes| D3[Drop]
+       G2 -->|no| Out[Publish typed event]
 
-Each event carries the parsed command as a Pydantic value object (e.g.
-``MarkCreateCommand(label="home", x=540.0, y=720.0)``) plus the source
-("stt" or "sound"). The original text or label is gone.
+The **rate-limit gate** drops input that arrives within a few
+hundred milliseconds of the previous successful parse, because
+both Vosk and the sound recognizer can double-fire on the same
+utterance.
+
+The **pause gate** runs *after* the cascade so that "resume" can
+still produce a typed command while paused; the pause check
+filters the result, not the input.
+
+The cascade tries the input against six families in a fixed
+order:
+
+#. **System** — ``pause`` / ``resume``. First so neither phrase
+   can be hijacked by a user-defined automation.
+#. **Dictation triggers** — start / stop / type / smart / visual /
+   hidden / amend. Before marks so a single-word trigger like
+   "type" is not consumed as a mark.
+#. **Marks** — ``mark <label>``, ``visualize``, ``reset``, …
+   Before grid so a mark named "five" still works while a grid
+   is on screen.
+#. **Grid** — ``grid show``, ``grid hover``, ``grid drag``, plus
+   numeric selections.
+#. **Automation** — every user-configured action. Before the
+   fallback so a single-word automation can claim the word.
+#. **Single-word mark fallback** — every otherwise-unmatched
+   single word is treated as a mark execute. This is what makes
+   mark navigation feel frictionless.
+
+Inputs that match nothing are dropped silently. Voice input is
+noisy; surfacing a parse error on every misheard syllable would
+be more disruptive than helpful.
+
+What the parser publishes
+-------------------------
+
+A successful parse produces one typed event, chosen by the
+matched family.
+
+============================  ===========================================
+Match                         Published event
+============================  ===========================================
+System                        ``SystemControlCommandParsedEvent``
+Dictation                     ``DictationCommandParsedEvent``
+Mark                          ``MarkCommandParsedEvent``
+Grid                          ``GridCommandParsedEvent``
+Automation                    ``AutomationCommandParsedEvent``
+============================  ===========================================
+
+Each event carries the parsed command as a Pydantic value object
+(e.g. ``MarkCreateCommand(label="home", x=540.0, y=720.0)``)
+plus the source (``"stt"`` or ``"sound"``). The original text or
+label is gone.
 
 ----
 
 Stage 4 — Execution
-====================
+===================
 
-Four services subscribe to the parsed-event types: **automation**,
-**mark**, **grid**, and **pause-state manager**. The
-``DictationCommandParsedEvent`` goes to the dictation coordinator and
-is covered in :doc:`dictation`.
+Five subscribers consume the parsed events. The dictation event
+goes to ``DictationCoordinator`` and is covered in
+:doc:`dictation_flow`; the other four are below.
 
-All OS-touching executors share one rule: every call to ``pyautogui``
-is routed through ``KeyboardInputService``
-(``vocalance/app/services/keyboard_input_service.py``),
-which serialises OS input via an ``asyncio.Lock``. A sequence of
-"click, click, scroll up" arrives at the OS in that order regardless
-of which service made each call. The mechanism is explained in
+Every executor that touches ``pyautogui`` routes through
+``KeyboardInputService``
+(``vocalance/app/services/keyboard_input_service.py``), which
+serializes OS input via an ``asyncio.Lock``. A sequence of
+"click, click, scroll up" reaches the OS in that order even if
+three different services made the calls. The mechanism lives in
 :doc:`../foundations/concurrency`.
 
-4.1 Automation
---------------
+Automation
+----------
 
 ``AutomationService``
 (``vocalance/app/services/command_flow/execution/automation_service.py``)
-handles the user's configured actions: hotkeys, key sequences, single
-and multi-clicks, and scrolls. It subscribes to
-``AutomationCommandParsedEvent`` and dispatches based on
-``action_type`` / ``action_value``.
+handles user-configured actions: hotkeys, key sequences, single
+and multi-clicks, scrolls. It subscribes to
+``AutomationCommandParsedEvent`` and dispatches by
+``action_type``.
 
-Two command shapes exist:
+Two command shapes:
 
-- ``ExactMatchCommand`` executes the action once.
-- ``ParameterizedCommand`` executes it ``count`` times ("scroll down five").
+- ``ExactMatchCommand`` — execute the action once.
+- ``ParameterizedCommand`` — execute it ``count`` times
+  (``"scroll down five"``).
 
-Two runtime rules apply:
+Two runtime rules:
 
-- A per-key **cooldown** (default ~0.5 s, configurable) prevents the
-  same command double-firing from two rapid-fire recognitions.
+- A per-key **cooldown** (default ~0.5 s) prevents the same
+  command double-firing from rapid-fire recognitions.
 - **Stepped scrolls** split large scrolls into a loop of small
-  partial-scrolls with inter-step sleeps, because most applications
-  drop scroll deltas that arrive faster than a real mouse wheel produces
-  them.
+  partial-scrolls with inter-step sleeps; most applications drop
+  scroll deltas that arrive faster than a real mouse wheel
+  produces them.
 
-4.2 Marks
----------
+Marks
+-----
 
 ``MarkService``
 (``vocalance/app/services/command_flow/execution/mark_service.py``)
-maps a short label to a screen position and clicks it on request.
+maps a short label to a screen position and clicks it on
+request.
 
-==================================  ================================================
+==================================  ===============================================
 Command                             Effect
-==================================  ================================================
-``MarkCreateCommand``               Persist the label at the current cursor position.
+==================================  ===============================================
+``MarkCreateCommand``               Persist the label at the current cursor
+                                    position.
 ``MarkExecuteCommand``              Click the stored position for this label.
 ``MarkDeleteCommand``               Remove a single label.
 ``MarkResetCommand``                Clear all labels.
 ``MarkVisualizeCommand``            Show the on-screen mark overlay.
 ``MarkVisualizeCancelCommand``      Hide the overlay.
-==================================  ================================================
+==================================  ===============================================
 
-One detail is worth pointing out about mark creation. The parser
-captures the cursor position at *parse time* (before the event is
-published), not at execution time:
+The cursor position for ``MarkCreateCommand`` is captured at
+*parse time* (before the event is published), not at execution
+time:
 
 .. code-block:: python
 
@@ -344,33 +379,33 @@ published), not at execution time:
    x, y = pyautogui.position()
    return MarkCreateCommand(label=label, x=float(x), y=float(y))
 
-If the cursor moves between when the phrase ends and when the executor
-runs, the saved coordinate is still the one that was current when the
-phrase ended.
+If the cursor moves between the end of the phrase and the run of
+the executor, the saved coordinate is still the one current when
+the phrase ended.
 
-4.3 Grid
---------
+Grid
+----
 
 ``GridService``
 (``vocalance/app/services/command_flow/execution/grid/grid_service.py``)
-implements a two-step "show, then pick" interaction.
+implements a "show, then pick" interaction.
 
-=======================  =====================================================================
-Command                  Effect
-=======================  =====================================================================
-``GridShowCommand``      Compute rows × cols, publish ``GridStateEvent("visible")``.
-``GridSelectCommand``    If visible, publish ``GridStateEvent("interaction_request")``.
-=======================  =====================================================================
+==========================  =====================================================================
+Command                     Effect
+==========================  =====================================================================
+``GridShowCommand``         Compute rows × cols, publish ``GridStateEvent("visible")``.
+``GridSelectCommand``       If visible, publish ``GridStateEvent("interaction_request")``.
+==========================  =====================================================================
 
-The grid service owns the back-end state: visibility, click mode
+The grid service owns back-end state: visibility, click mode
 (``"click"`` / ``"hover"`` / ``"drag"``), and cell ranking. The
 overlay window that renders the grid lives in the UI layer
 (:doc:`user_interface`).
 
-A naive grid would label cells in row-major order. The cell the user
-actually wants is rarely the one labelled ``1``. Vocalance re-orders
-the labels so the most-clicked regions get the lowest numbers on the
-next invocation. The bookkeeping lives in
+A naive grid would label cells in row-major order, but the cell
+the user actually wants is rarely the one labeled ``1``.
+Vocalance re-orders labels so the most-clicked regions get the
+lowest numbers next time. The bookkeeping lives in
 ``ClickTrackerService``
 (``vocalance/app/services/command_flow/execution/grid/click_tracker_service.py``).
 
@@ -378,37 +413,36 @@ next invocation. The bookkeeping lives in
 
    sequenceDiagram
        participant User
-       participant Grid
-       participant Tracker as ClickTracker
+       participant Grid as GridService
+       participant Tracker as ClickTrackerService
        participant Disk
 
        User->>Grid: "grid show 16"
-       Grid->>Tracker: ask for current ranking
-       Tracker-->>Grid: cell label order
+       Grid->>Tracker: read current ranking
+       Tracker-->>Grid: ordered cell labels
        User->>Grid: "5"
-       Grid->>Grid: click cell "5"
-       Grid->>Tracker: click event
+       Grid->>Grid: click cell 5
+       Grid->>Tracker: record click
        Tracker->>Disk: persist (debounced)
 
-Two debouncers smooth the system: a UI re-rank publish that batches a
-flurry of clicks into one snapshot, and a disk write that batches a
-streak of clicks into one file write.
+Two debouncers smooth the system: a UI re-rank publish that
+batches a flurry of clicks into one snapshot, and a disk write
+that batches a streak of clicks into one file write.
 
-4.4 System (pause / resume)
-----------------------------
+Pause / resume
+--------------
 
 ``PauseStateManager``
 (``vocalance/app/services/command_flow/pause_state_manager.py``)
 owns the single shared paused flag. It subscribes to
-``SystemControlCommandParsedEvent`` and toggles on ``PauseCommand`` /
-``ResumeCommand``. The parser and all executors check this flag before
-acting.
-
-----
+``SystemControlCommandParsedEvent`` and toggles on
+``PauseCommand`` / ``ResumeCommand``. The parser's pause gate and
+every executor read this flag.
 
 Where to read next
 ==================
 
-The command flow ends at the OS boundary. The other output of the
-parser — ``DictationCommandParsedEvent`` — starts a long-running
-session with its own state machine. That story is in :doc:`dictation`.
+The command flow ends at the OS boundary. The parser's other
+output — ``DictationCommandParsedEvent`` — opens a long-running
+session with its own state machine. That story is in
+:doc:`dictation_flow`.

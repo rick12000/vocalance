@@ -2,64 +2,50 @@ Introduction
 ############
 
 Vocalance is a desktop voice-control application. It listens to the
-microphone, converts what it hears into either a short command or a
+microphone, turns what it hears into either a short command or a
 stream of dictated text, and acts on the operating system on the
-user's behalf. The whole system runs locally — no cloud, no network
-calls during normal use.
+user's behalf. Everything runs locally; no network calls are made
+during normal use.
 
-What this guide covers
-======================
+This guide is for developers. It covers architecture, the parts the
+architecture is built from, and the conventions that hold them
+together. End-user features and installation live elsewhere.
 
-This is the developer guide. It explains the architecture, the parts
-the architecture is built from, and the conventions that hold them
-together. It does *not* cover end-user features or installation;
-those live elsewhere.
+The guide assumes Python, Pydantic, and the publish-subscribe
+pattern. It does not assume prior knowledge of asyncio internals,
+Qt, or the speech / sound libraries Vocalance uses; each is
+introduced where it matters.
 
-The guide assumes:
+Guide layout
+============
 
-- Comfort with Python, type hints, and Pydantic.
-- Basic familiarity with the publish-subscribe pattern.
-- No prior knowledge of Vocalance, asyncio internals, Qt, or any of
-  the speech / sound libraries it uses. Each is introduced where it
-  matters.
-
-How the guide is organized
-==========================
-
-The chapters are arranged in three layers, each one zooming in on
-the one above.
+The chapters are stacked in three layers.
 
 .. mermaid::
 
    flowchart TB
-       O[Overview<br/><i>what Vocalance is, how it is composed</i>]
-       F[Features<br/><i>each user-facing capability, end to end</i>]
-       I[Foundations<br/><i>the systems that make all of it work</i>]
-       O --> F
-       F --> I
+       O[<b>Overview</b><br/><i>what Vocalance is<br/>and how it is composed</i>]
+       F[<b>Features</b><br/><i>each user-facing capability,<br/>end to end</i>]
+       I[<b>Foundations</b><br/><i>the systems that make<br/>everything work</i>]
+       O --> F --> I
 
-**Overview.** :doc:`introduction` (this page) and :doc:`architecture`.
-After these two chapters you will know what Vocalance does, what its
-moving parts are, and the vocabulary the rest of the guide uses.
+**Overview** (this chapter and :doc:`architecture`) introduces the
+vocabulary used throughout the rest of the guide.
 
-**Features.** One chapter per user-facing capability:
+**Features** has one chapter per user-facing capability:
 :doc:`../features/capture`, :doc:`../features/command_flow`,
-:doc:`../features/dictation`, :doc:`../features/user_interface`. Each
-chapter tells the end-to-end story of a single feature, written at the
-level of *what happens*, not *how it is scheduled*. Concurrency,
-threading, and lifecycle questions are deliberately deferred.
+:doc:`../features/dictation_flow`, :doc:`../features/user_interface`.
+Each tells the end-to-end story of one feature in terms of *what
+happens*. Threading and lifecycle questions are deferred.
 
-**Foundations.** :doc:`../foundations/event_bus`,
-:doc:`../foundations/concurrency`, :doc:`../foundations/lifecycle`,
-:doc:`../foundations/storage`. These chapters answer the questions
-the feature chapters left open: how the bus actually delivers events,
-which thread runs what, how the application starts and stops cleanly,
-and where state lives on disk.
+**Foundations** answers what the feature chapters left open:
+:doc:`../foundations/event_bus`,
+:doc:`../foundations/concurrency`,
+:doc:`../foundations/lifecycle`,
+:doc:`../foundations/storage`.
 
 Reading order
 =============
 
-Read top to bottom. Every chapter assumes the chapters before it and
-introduces the vocabulary it needs the first time it uses it. If you
-come back later for reference, the index at the end of each chapter
-points to the related chapters around it.
+Read top to bottom. Every chapter assumes the chapters before it.
+For reference, each chapter ends with a pointer to the next.
