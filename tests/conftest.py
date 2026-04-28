@@ -263,10 +263,10 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
     import sys
 
     monkeypatch.setitem(sys.modules, "tensorflow", tf_mock)
-    monkeypatch.setattr("vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer.tf", tf_mock)
+    monkeypatch.setattr("vocalance.app.services.audio.command.sound_recognition.streamlined_sound_recognizer.tf", tf_mock)
 
     # Import after mocking
-    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import SoundRecognizer
+    from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_recognizer import SoundRecognizer
 
     recognizer = SoundRecognizer(config=mock_config, storage=mock_storage_factory)
     recognizer.yamnet_model = mock_yamnet_model
@@ -539,7 +539,7 @@ def mock_recognizer():
 @pytest.fixture
 def preprocessor(mock_config):
     """Create a standard AudioPreprocessor instance."""
-    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
+    from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_recognizer import AudioPreprocessor
 
     return AudioPreprocessor(config=mock_config.sound_recognizer)
 

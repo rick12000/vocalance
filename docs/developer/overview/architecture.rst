@@ -142,7 +142,7 @@ order. The recommended sequence, however, is the order audio actually
 flows through the system:
 
 1. :doc:`../features/capture` — the microphone end of the pipeline.
-2. :doc:`../features/commands` — the command path.
+2. :doc:`../features/command_flow` — the command path.
 3. :doc:`../features/dictation` — the dictation path.
 4. :doc:`../features/user_interface` — what the user sees.
 

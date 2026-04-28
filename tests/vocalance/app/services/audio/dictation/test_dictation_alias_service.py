@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
+from vocalance.app.services.audio.dictation.dictation_alias_service import DictationAliasService
 from vocalance.app.services.storage.storage_models import DictationAliasData
 
 

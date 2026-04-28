@@ -45,10 +45,10 @@ def _service_specs() -> List[ServiceSpec]:
     only fire when ``build_services`` runs, not on ``qt_main`` import.
     """
     from vocalance.app.services.audio.audio_capture_service import AudioCaptureService
-    from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
-    from vocalance.app.services.audio.segmenting.command_segmenter_service import CommandSegmenterService
-    from vocalance.app.services.audio.segmenting.sound_segmenter_service import SoundSegmenterService
-    from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
+    from vocalance.app.services.audio.command.segmenting.command_segmenter_service import CommandSegmenterService
+    from vocalance.app.services.audio.command.segmenting.sound_segmenter_service import SoundSegmenterService
+    from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_service import SoundService
+    from vocalance.app.services.audio.dictation.dictation_coordinator import DictationCoordinator
     from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
     from vocalance.app.services.automation_service import AutomationService
     from vocalance.app.services.commands.management import CommandManagementService

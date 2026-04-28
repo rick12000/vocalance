@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Optional
 
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.audio.dictation_handling.utils.base_postprocess import apply_base_postprocess
-from vocalance.app.services.audio.dictation_handling.utils.modifier_postprocess import apply_modifier_transform
+from vocalance.app.services.audio.dictation.utils.base_postprocess import apply_base_postprocess
+from vocalance.app.services.audio.dictation.utils.modifier_postprocess import apply_modifier_transform
 
 
 def apply_dictation_postprocess(

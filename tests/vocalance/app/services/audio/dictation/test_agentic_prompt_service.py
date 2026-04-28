@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
+from vocalance.app.services.audio.dictation.llm_support.agentic_prompt_service import AgenticPromptService
 from vocalance.app.services.storage.storage_models import AgenticPrompt, AgenticPromptsData
 
 

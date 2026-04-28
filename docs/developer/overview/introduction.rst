@@ -43,7 +43,7 @@ After these two chapters you will know what Vocalance does, what its
 moving parts are, and the vocabulary the rest of the guide uses.
 
 **Features.** One chapter per user-facing capability:
-:doc:`../features/capture`, :doc:`../features/commands`,
+:doc:`../features/capture`, :doc:`../features/command_flow`,
 :doc:`../features/dictation`, :doc:`../features/user_interface`. Each
 chapter tells the end-to-end story of a single feature, written at the
 level of *what happens*, not *how it is scheduled*. Concurrency,

@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_recognizer import AudioPreprocessor
+from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_recognizer import AudioPreprocessor
 
 
 def test_preprocessor_handles_mono_audio(sample_rate, mock_config):

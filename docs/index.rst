@@ -27,7 +27,7 @@ architecture and the implementation. End-user information lives at
    :hidden:
 
    developer/features/capture
-   developer/features/commands
+   developer/features/command_flow
    developer/features/dictation
    developer/features/user_interface
 

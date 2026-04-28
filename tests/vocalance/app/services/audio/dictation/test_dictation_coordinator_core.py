@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
-from vocalance.app.services.audio.dictation_handling.types import DictationMode, DictationSession, DictationState, LLMSession
+from vocalance.app.services.audio.dictation.dictation_coordinator import DictationCoordinator
+from vocalance.app.services.audio.dictation.types import DictationMode, DictationSession, DictationState, LLMSession
 
 
 @pytest.fixture
@@ -37,10 +37,10 @@ async def coordinator(mock_event_bus, mock_storage, app_config):
     """Create DictationCoordinator instance for testing."""
     mock_stt = Mock()
     loop = asyncio.get_running_loop()
-    with patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationTextInput"), patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.LLMService"
-    ), patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.AgenticPromptService"), patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationAliasService"
+    with patch("vocalance.app.services.audio.dictation.dictation_coordinator.DictationTextInput"), patch(
+        "vocalance.app.services.audio.dictation.dictation_coordinator.LLMService"
+    ), patch("vocalance.app.services.audio.dictation.dictation_coordinator.AgenticPromptService"), patch(
+        "vocalance.app.services.audio.dictation.dictation_coordinator.DictationAliasService"
     ):
 
         coord = DictationCoordinator(
@@ -248,12 +248,12 @@ async def test_get_state_returns_copy_of_state(coordinator):
 @pytest.mark.asyncio
 async def test_initialization_with_all_services(mock_event_bus, mock_storage, app_config):
     """Test initialization with all services initialized."""
-    with patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationTextInput") as mock_text, patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.LLMService"
+    with patch("vocalance.app.services.audio.dictation.dictation_coordinator.DictationTextInput") as mock_text, patch(
+        "vocalance.app.services.audio.dictation.dictation_coordinator.LLMService"
     ) as mock_llm, patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.AgenticPromptService"
+        "vocalance.app.services.audio.dictation.dictation_coordinator.AgenticPromptService"
     ) as mock_agentic, patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationAliasService"
+        "vocalance.app.services.audio.dictation.dictation_coordinator.DictationAliasService"
     ) as mock_alias:
 
         mock_text.return_value.initialize = Mock(return_value=True)
@@ -279,12 +279,12 @@ async def test_initialization_with_all_services(mock_event_bus, mock_storage, ap
 @pytest.mark.asyncio
 async def test_initialization_failure_returns_false(mock_event_bus, mock_storage, app_config):
     """Test that initialization failure is properly reported."""
-    with patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationTextInput") as mock_text, patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.LLMService"
+    with patch("vocalance.app.services.audio.dictation.dictation_coordinator.DictationTextInput") as mock_text, patch(
+        "vocalance.app.services.audio.dictation.dictation_coordinator.LLMService"
     ) as mock_llm, patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.AgenticPromptService"
+        "vocalance.app.services.audio.dictation.dictation_coordinator.AgenticPromptService"
     ) as mock_agentic, patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationAliasService"
+        "vocalance.app.services.audio.dictation.dictation_coordinator.DictationAliasService"
     ) as mock_alias:
 
         mock_text.return_value.initialize = Mock(return_value=False)

@@ -3,15 +3,12 @@ from typing import Optional
 import pytest
 
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.audio.dictation_handling.utils.base_postprocess import (
+from vocalance.app.services.audio.dictation.utils.base_postprocess import (
     apply_base_postprocess,
     strip_trailing_period_after_numbers,
 )
-from vocalance.app.services.audio.dictation_handling.utils.modifier_postprocess import (
-    apply_modifier_transform,
-    modifier_display_label,
-)
-from vocalance.app.services.audio.dictation_handling.utils.postprocess_pipeline import (
+from vocalance.app.services.audio.dictation.utils.modifier_postprocess import apply_modifier_transform, modifier_display_label
+from vocalance.app.services.audio.dictation.utils.postprocess_pipeline import (
     apply_dictation_postprocess,
     apply_dictation_postprocess_partial,
 )

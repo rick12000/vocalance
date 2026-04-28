@@ -36,24 +36,24 @@ from vocalance.app.events.dictation_events import (
 )
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.lifecycle import AppLifecycle
-from vocalance.app.services.audio.dictation_handling.dictation_alias_service import DictationAliasService
-from vocalance.app.services.audio.dictation_handling.llm_support.agentic_prompt_service import AgenticPromptService
-from vocalance.app.services.audio.dictation_handling.llm_support.llm_service import LLMService
-from vocalance.app.services.audio.dictation_handling.text_input_service import DictationTextInput
-from vocalance.app.services.audio.dictation_handling.types import DictationMode, DictationSession, DictationState, LLMSession
-from vocalance.app.services.audio.dictation_handling.utils.coordinator_segment_filters import (
+from vocalance.app.services.audio.dictation.dictation_alias_service import DictationAliasService
+from vocalance.app.services.audio.dictation.llm_support.agentic_prompt_service import AgenticPromptService
+from vocalance.app.services.audio.dictation.llm_support.llm_service import LLMService
+from vocalance.app.services.audio.dictation.text_input_service import DictationTextInput
+from vocalance.app.services.audio.dictation.types import DictationMode, DictationSession, DictationState, LLMSession
+from vocalance.app.services.audio.dictation.utils.coordinator_segment_filters import (
     dictation_segment_input_options,
     is_isolated_stt_noise_fragment,
     is_likely_hallucination_fragment,
     remove_stop_trigger_word,
 )
-from vocalance.app.services.audio.dictation_handling.utils.modifier_postprocess import modifier_display_label
-from vocalance.app.services.audio.dictation_handling.utils.postprocess_pipeline import (
+from vocalance.app.services.audio.dictation.utils.modifier_postprocess import modifier_display_label
+from vocalance.app.services.audio.dictation.utils.postprocess_pipeline import (
     apply_dictation_postprocess,
     apply_dictation_postprocess_partial,
 )
-from vocalance.app.services.audio.dictation_handling.utils.segment_text import remove_formatting
-from vocalance.app.services.audio.dictation_handling.utils.trigger_strip import strip_dictation_triggers
+from vocalance.app.services.audio.dictation.utils.segment_text import remove_formatting
+from vocalance.app.services.audio.dictation.utils.trigger_strip import strip_dictation_triggers
 from vocalance.app.services.audio.stt.stt_service import SpeechToTextService
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.commands.utilities.input_executor import KeyboardInputService

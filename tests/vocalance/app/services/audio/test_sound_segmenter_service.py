@@ -7,7 +7,7 @@ import pytest_asyncio
 
 from vocalance.app.events.core_events import AudioChunkCapturedEvent, ProcessAudioChunkForSoundRecognitionEvent
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
-from vocalance.app.services.audio.segmenting.sound_segmenter_service import SoundSegmenterService
+from vocalance.app.services.audio.command.segmenting.sound_segmenter_service import SoundSegmenterService
 
 _SAMPLE_RATE = 16000
 

@@ -6,7 +6,7 @@ import pyautogui
 import pyperclip
 
 from vocalance.app.config.app_config import DictationConfig
-from vocalance.app.services.audio.dictation_handling.utils.segment_text import (
+from vocalance.app.services.audio.dictation.utils.segment_text import (
     clean_dictation_text,
     get_trailing_whitespace_count,
     lowercase_first_letter,

@@ -11,7 +11,7 @@ application is focused. Sessions can last seconds or minutes; the
 application stays responsive throughout.
 
 This chapter is the end-to-end story for that feature. It picks up
-where :doc:`commands` ended — the parser has just emitted a
+where :doc:`command_flow` ended — the parser has just emitted a
 ``DictationCommandParsedEvent`` — and follows the session all the
 way to the keystrokes the user sees.
 

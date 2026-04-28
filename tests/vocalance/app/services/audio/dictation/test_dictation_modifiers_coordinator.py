@@ -7,13 +7,13 @@ import pytest
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.audio.dictation_handling.dictation_coordinator import DictationCoordinator
-from vocalance.app.services.audio.dictation_handling.types import DictationMode
-from vocalance.app.services.audio.dictation_handling.utils.coordinator_segment_filters import (
+from vocalance.app.services.audio.dictation.dictation_coordinator import DictationCoordinator
+from vocalance.app.services.audio.dictation.types import DictationMode
+from vocalance.app.services.audio.dictation.utils.coordinator_segment_filters import (
     dictation_segment_input_options,
     is_isolated_stt_noise_fragment,
 )
-from vocalance.app.services.audio.dictation_handling.utils.trigger_strip import strip_config_phrases_case_insensitive
+from vocalance.app.services.audio.dictation.utils.trigger_strip import strip_config_phrases_case_insensitive
 
 
 @pytest.fixture
@@ -24,10 +24,10 @@ def coordinator_minimal() -> Iterator[DictationCoordinator]:
     bus.subscribe = Mock()
     bus.publish = AsyncMock()
     storage = Mock()
-    with patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationTextInput"), patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.LLMService"
-    ), patch("vocalance.app.services.audio.dictation_handling.dictation_coordinator.AgenticPromptService"), patch(
-        "vocalance.app.services.audio.dictation_handling.dictation_coordinator.DictationAliasService"
+    with patch("vocalance.app.services.audio.dictation.dictation_coordinator.DictationTextInput"), patch(
+        "vocalance.app.services.audio.dictation.dictation_coordinator.LLMService"
+    ), patch("vocalance.app.services.audio.dictation.dictation_coordinator.AgenticPromptService"), patch(
+        "vocalance.app.services.audio.dictation.dictation_coordinator.DictationAliasService"
     ):
         coord = DictationCoordinator(
             event_bus=bus,

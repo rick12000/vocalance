@@ -4,7 +4,7 @@ import re
 from typing import Optional
 
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.audio.dictation_handling.types import DictationMode
+from vocalance.app.services.audio.dictation.types import DictationMode
 
 
 def dictation_segment_input_options(mode: DictationMode, modifiers: Optional[set[DictationModifierId]]) -> tuple[bool, bool]:

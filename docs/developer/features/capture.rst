@@ -122,7 +122,7 @@ Subscriber                        What it does with each event
                                   visible.
 ================================  =====================================
 
-The first two are the subject of :doc:`commands`; the third belongs to
+The first two are the subject of :doc:`command_flow`; the third belongs to
 :doc:`dictation`; the popup belongs to :doc:`user_interface`. None of
 them know anything about the audio device. None of them holds a
 reference to the capture service. They are wired in only by the bus

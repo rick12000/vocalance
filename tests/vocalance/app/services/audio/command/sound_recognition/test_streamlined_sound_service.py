@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from vocalance.app.events.core_events import CustomSoundRecognizedEvent
-from vocalance.app.services.audio.sound_recognizer.streamlined_sound_service import SoundService
+from vocalance.app.services.audio.command.sound_recognition.streamlined_sound_service import SoundService
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def sound_service(mock_event_bus, mock_config, mock_storage_factory, mock_recogn
     mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
 
     with patch(
-        "vocalance.app.services.audio.sound_recognizer.streamlined_sound_service.SoundRecognizer",
+        "vocalance.app.services.audio.command.sound_recognition.streamlined_sound_service.SoundRecognizer",
         return_value=mock_recognizer,
     ):
         service = SoundService(mock_event_bus, mock_config, mock_storage_factory)

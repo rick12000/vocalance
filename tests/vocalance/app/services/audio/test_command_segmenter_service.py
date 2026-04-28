@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 
 from vocalance.app.events.core_events import AudioChunkCapturedEvent, AudioDetectedEvent, CommandAudioSegmentReadyEvent
-from vocalance.app.services.audio.segmenting.command_segmenter_service import CommandSegmenterService
+from vocalance.app.services.audio.command.segmenting.command_segmenter_service import CommandSegmenterService
 
 _SAMPLE_RATE = 16000
 
