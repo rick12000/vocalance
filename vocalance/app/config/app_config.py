@@ -120,7 +120,7 @@ class MoonshineStreamingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     stream_update_interval: float = Field(
-        default=1.5,
+        default=1,
         ge=0.05,
         le=5.0,
         description=(
@@ -129,7 +129,7 @@ class MoonshineStreamingConfig(BaseModel):
         ),
     )
     transcription_interval: float = Field(
-        default=1.5,
+        default=1,
         ge=0.05,
         le=5.0,
         description=(
@@ -138,7 +138,7 @@ class MoonshineStreamingConfig(BaseModel):
         ),
     )
     vad_threshold: float = Field(
-        default=0.4,
+        default=0.6,
         ge=0.0,
         le=1.0,
         description=(
@@ -148,7 +148,7 @@ class MoonshineStreamingConfig(BaseModel):
         ),
     )
     vad_window_duration: float = Field(
-        default=0.6,
+        default=0.5,
         ge=0.05,
         le=1.0,
         description=(
@@ -180,7 +180,7 @@ class MoonshineStreamingConfig(BaseModel):
         ),
     )
     vad_max_segment_duration: float = Field(
-        default=20.0,
+        default=10.0,
         ge=3.0,
         le=30.0,
         description=(
@@ -235,7 +235,7 @@ class STTConfig(BaseModel):
 
     moonshine_language: str = Field(default="en", description="Two-letter language code for Moonshine models")
     moonshine_model_arch: str = Field(
-        default="medium-streaming",
+        default="small-streaming",
         description=(
             "Moonshine architecture id: tiny, base, tiny-streaming, base-streaming, small-streaming, medium-streaming. "
             "medium-streaming is larger than small-streaming and usually more accurate (higher latency, bigger download)."
