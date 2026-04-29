@@ -192,38 +192,6 @@ class DictationMoonshineController:
         )
         self.moonshine_ingress_epoch += 1
 
-    def rotate_line(self) -> None:
-        loop = self.coordinator.gui_event_loop
-
-        with self.moonshine_feed_lock:
-            self.moonshine_ingress_epoch += 1
-            old = self.moonshine_session
-            self.moonshine_session = None
-
-        if old is not None:
-            old.stop()
-
-        with self.coordinator.state_lock:
-            session = self.coordinator.current_session
-            state = self.coordinator.current_state
-
-        if session is None or session.mode not in MOONSHINE_CHUNK_DICTATION_MODES or state != DictationState.RECORDING:
-            return
-
-        engine = self.coordinator.moonshine_engine
-        if not engine:
-            return
-
-        new_sess = engine.open_stream(
-            loop,
-            self.on_partial,
-            self.on_final,
-        )
-
-        with self.moonshine_feed_lock:
-            self.moonshine_session = new_sess
-            self.moonshine_ingress_epoch += 1
-
     def feed_moonshine_audio_chunk(self, audio_bytes: bytes, sample_rate: int) -> None:
         if not audio_bytes:
             return
@@ -237,7 +205,6 @@ class DictationMoonshineController:
                 return
             epoch = self.moonshine_ingress_epoch
 
-        rotate = False
         with self.moonshine_feed_lock:
             with self.coordinator.state_lock:
                 if epoch != self.moonshine_ingress_epoch:
@@ -245,10 +212,7 @@ class DictationMoonshineController:
                 ms = self.moonshine_session
 
             if ms is not None:
-                rotate = ms.add_audio_pcm16(audio_bytes, sample_rate)
-
-        if rotate:
-            self.rotate_line()
+                ms.add_audio_pcm16(audio_bytes, sample_rate)
 
     async def on_partial(self, text: str, segment_id: str) -> None:
         if self.output_suppressed():
