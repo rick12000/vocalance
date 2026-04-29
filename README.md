@@ -121,6 +121,11 @@ The recommended approach is to install Vocalance with uv, since the developers c
 
 If you're more familiar with a mixture of a virtual environment manager (eg. `venv` or `conda` or `pyenv`) + `pip` however, you can absolutely replace above uv steps with your environment manager and replace `uv sync --active` with `pip install .` to install Vocalance as a package. Note this is at your discretion, and license disclosures in this repository pertain to pinned package versions in `uv.lock`.
 
+
+## 📚 Disclaimers
+
+Vocalance is distributed under a GPLv3 license. It makes use of your microphone and, at startup, downloads required assets (such as AI models or text to speech models) from the internet. For a full set of disclaimers and usage warnings, refer to the [disclaimer notes](DISCLAIMER.md).
+
 ## 🔧 System Requirements
 
 - **Operating System**: Windows 10/11 (macOS and Linux support planned)
