@@ -73,64 +73,156 @@ class AudioConfig(BaseModel):
 
 
 class MoonshineStreamingConfig(BaseModel):
-    """Tuning for Moonshine streaming dictation (partial cadence, native VAD, decode gating).
+    """Tuning for Moonshine streaming dictation.
 
-    Values map to string options passed to ``moonshine_load_transcriber_from_files`` (see Moonshine
-    ``parse_transcriber_options``). ``stream_update_interval`` is the Python transcriber/stream
-    update cadence, not a native option key.
+    The Moonshine VAD and decoder have many tunable parameters. This config exposes the most
+    impactful ones for real-time dictation, with sensible defaults that balance latency,
+    quality, and performance.
+
+    **Decoder tuning (affects per-refresh computational cost and latency):**
+    - ``transcription_interval`` (default 1.5 s): How often the decoder runs. Raised from
+      the library default (0.5 s) to substantially reduce per-segment O(D²) decoder work
+      with no effect on final transcription quality.
+    - ``max_tokens_per_second`` (default 6.5): Tokens per second hallucination ceiling for
+      English. Decoder is force-stopped if it generates >this rate for the segment duration.
+      The default (6.5) is designed for English. Non-Latin languages need higher values
+      (e.g. 13.0) but English dictation benefits from the aggressive default.
+
+    **VAD tuning (affects segment boundaries, latency, and noise sensitivity):**
+    - ``vad_threshold`` (default 0.4): Voice probability threshold (0–1) for segment start/end
+      detection. Higher values (0.6–0.8) reduce noise sensitivity, better for noisy environments
+      but risk clipping weak syllables. Lower values (0.2–0.4) are more inclusive but pick up
+      background noise. 0.4 captures soft speech well; raise toward 0.6 for noisy environments.
+    - ``vad_window_duration`` (default 0.75 s): Time window for VAD probability smoothing. Shorter
+      (0.1–0.3 s) reacts faster to speech/silence transitions but with lower accuracy. Longer
+      (0.5–1.0 s) is more accurate but lags behind real transitions. 0.75 s reduces false positives
+      on brief pauses mid-sentence.
+    - ``vad_hop_size`` (default 512 samples = 32 ms at 16 kHz): The VAD runs this often. Larger
+      hops (1024) reduce CPU but miss fast transitions. Smaller hops (256) react faster but cost
+      more CPU. 512 is the balanced default. Only change if you need faster VAD reaction.
+    - ``vad_look_behind_sample_count`` (default 8192 = 0.512 s): Samples pre-pended when a new
+      segment begins, to recover audio just before the VAD threshold was crossed. On natural
+      pauses this is silence (no effect). On force-closes at continuous speech, this becomes
+      padding that can cause hallucination. Kept at full default for natural-pause quality;
+      application-layer deduplication handles force-close overlap.
+    - ``vad_max_segment_duration`` (default 20 s): Hard cap on segment length. The VAD begins
+      a graceful fade at 2/3 of this value (~13.3 s) and force-closes at the cap. Higher values
+      (20–30 s) allow long sentences to finish naturally; lower values (10–15 s) reduce peak
+      decoder cost for continuous non-stop speech at the cost of more forced cuts.
+
+    **Feature control (affects inference cost):**
+    - ``identify_speakers`` (default False): Whether to run the speaker-embedding model. Disabled
+      because dictation doesn't use speaker IDs and embedding inference is expensive.
+    - ``return_audio_data`` (default False): Whether to copy segment audio back to Python. Disabled
+      because we transcribe-and-discard; keeping audio copies wastes memory and CPU.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     stream_update_interval: float = Field(
-        default=0.5,
+        default=1.5,
         ge=0.05,
-        le=2.0,
-        description="Seconds of stream time between partial refresh calls (higher = fewer partials, less CPU).",
+        le=5.0,
+        description=(
+            "Seconds of stream time between partial refresh calls (Python wrapper cadence). "
+            "Typically set equal to transcription_interval so the Python cadence aligns with the native decode cadence."
+        ),
     )
     transcription_interval: float = Field(
-        default=0.6,
+        default=1.5,
         ge=0.05,
-        le=2.0,
-        description="Native transcription_interval: minimum seconds of buffered audio before each stream decode pass.",
+        le=5.0,
+        description=(
+            "Native transcription_interval (seconds): minimum buffered audio before each decoder pass. "
+            "Raised from the library default (0.5 s) to substantially reduce per-segment O(D²) decoder work."
+        ),
     )
     vad_threshold: float = Field(
-        default=0.2,
+        default=0.4,
         ge=0.0,
         le=1.0,
-        description="Native vad_threshold; lower than 0.5 tends to reduce premature line finals on short pauses.",
+        description=(
+            "Voice probability threshold (0–1) for VAD segment start/end detection. Higher values (0.6–0.8) "
+            "reduce noise sensitivity at the cost of clipping weak syllables. Lower values (0.2–0.4) are more "
+            "inclusive but pick up background noise. 0.4 captures soft speech well; raise toward 0.6 for noisy environments."
+        ),
     )
-    vad_window_duration: Optional[float] = Field(
-        default=None,
+    vad_window_duration: float = Field(
+        default=0.6,
         ge=0.05,
-        le=2.0,
-        description="Optional native vad_window_duration (seconds); omit for library default.",
+        le=1.0,
+        description=(
+            "VAD probability smoothing window (seconds). Shorter windows (0.1–0.3 s) react faster to speech/silence "
+            "transitions but with lower accuracy. Longer windows (0.5–1.0 s) are more accurate but lag behind real "
+            "transitions. 0.6 s reduces false positives on brief pauses mid-sentence."
+        ),
+    )
+    vad_hop_size: int = Field(
+        default=512,
+        ge=256,
+        le=1024,
+        description=(
+            "VAD processing hop size (samples at 16 kHz). The VAD runs every hop_size / 16000 seconds. "
+            "512 samples = 32 ms (default). Larger hops (1024) reduce CPU but miss fast transitions. "
+            "Smaller hops (256) react faster but cost more CPU. Only change if you need faster VAD reaction."
+        ),
+    )
+    vad_look_behind_sample_count: int = Field(
+        default=8192,
+        ge=0,
+        le=16000,
+        description=(
+            "Samples of audio pre-pended to a new segment when voice activity begins (at 16 kHz). "
+            "Default 8192 samples = 0.512 s. On natural-pause closes the look-behind buffer is zeroed "
+            "before reuse (no effect). On force-closes mid-speech, the buffer contains real audio from the "
+            "tail of the closing segment, which can cause hallucination at the start of the next segment. "
+            "Kept at full default for natural-pause quality; application-layer deduplication handles force-close overlap."
+        ),
     )
     vad_max_segment_duration: float = Field(
-        default=32.0,
-        ge=5.0,
-        le=120.0,
-        description="Native vad_max_segment_duration (seconds) before a forced VAD segment split; default raised from library ~15s.",
+        default=20.0,
+        ge=3.0,
+        le=30.0,
+        description=(
+            "Hard ceiling on one VAD segment (seconds). The VAD begins a graceful fade at 2/3 of this value "
+            "and force-closes the segment at the cap. Lower values (10–15 s) reduce peak decoder cost for "
+            "pathological non-stop speech. Higher values (20–30 s) allow longer natural sentences to complete "
+            "before a forced cut. Tune to typical speaking patterns and available hardware."
+        ),
     )
-    max_tokens_per_second: Optional[float] = Field(
-        default=None,
+    max_tokens_per_second: float = Field(
+        default=6.5,
         ge=1.0,
         le=30.0,
-        description="Optional native max_tokens_per_second; omit for library default.",
+        description=(
+            "Tokens-per-second hallucination ceiling. Decoder is force-stopped if it generates more tokens than "
+            "this rate × segment_duration. Default 6.5 is designed for English and aggressively catches the "
+            "infinite-repetition hallucination pattern. Non-Latin languages often need 13.0 or higher due to "
+            "different tokenization. For English dictation, keep at the default."
+        ),
+    )
+    identify_speakers: bool = Field(
+        default=False,
+        description="Disable the native speaker-embedding stage; dictation doesn't use speaker IDs and this inference is expensive.",
+    )
+    return_audio_data: bool = Field(
+        default=False,
+        description="Disable copying segment audio back to Python; we transcribe-and-discard and never read the audio buffer.",
     )
 
     def transcriber_load_options(self) -> dict[str, str]:
         """Key/value strings for ``Transcriber(..., options=...)`` at model load."""
-        opts: dict[str, str] = {
+        return {
             "transcription_interval": str(self.transcription_interval),
             "vad_threshold": str(self.vad_threshold),
+            "vad_window_duration": str(self.vad_window_duration),
+            "vad_hop_size": str(self.vad_hop_size),
+            "vad_look_behind_sample_count": str(self.vad_look_behind_sample_count),
+            "vad_max_segment_duration": str(self.vad_max_segment_duration),
+            "max_tokens_per_second": str(self.max_tokens_per_second),
+            "identify_speakers": "true" if self.identify_speakers else "false",
+            "return_audio_data": "true" if self.return_audio_data else "false",
         }
-        if self.vad_window_duration is not None:
-            opts["vad_window_duration"] = str(self.vad_window_duration)
-        opts["vad_max_segment_duration"] = str(self.vad_max_segment_duration)
-        if self.max_tokens_per_second is not None:
-            opts["max_tokens_per_second"] = str(self.max_tokens_per_second)
-        return opts
 
 
 class STTConfig(BaseModel):
@@ -151,17 +243,7 @@ class STTConfig(BaseModel):
     )
     moonshine_streaming: MoonshineStreamingConfig = Field(
         default_factory=MoonshineStreamingConfig,
-        description="Streaming partial cadence and native Moonshine transcriber options (VAD, decode interval).",
-    )
-    moonshine_max_stream_line_duration_seconds: float = Field(
-        default=45.0,
-        ge=0.0,
-        le=600.0,
-        description=(
-            "After this many seconds of audio on one Moonshine stream line, start a new native stream. "
-            "Decoder cost grows with unbounded line length; rotation keeps partial latency stable. "
-            "0 disables rotation."
-        ),
+        description="Streaming partial cadence and native Moonshine transcriber options (VAD, decode interval, silence-aware rotation).",
     )
     moonshine_max_retries: int = Field(default=3, description="Maximum retry attempts for Moonshine model loading")
     moonshine_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Moonshine load retries")

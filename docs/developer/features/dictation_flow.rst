@@ -64,11 +64,37 @@ receives a continuous stream of PCM samples and produces results in two forms:
   a natural pause in speech. Once a phrase is finalised, Moonshine moves on
   and the text is fixed.
 
-The application feeds Moonshine one audio chunk at a time directly on the main
-thread via ``MoonshineStreamSession.add_audio_pcm16``. The Moonshine native
-library releases Python's GIL during inference, so the call does not block
-other Python threads while running, but the main thread is occupied for a few
-milliseconds per chunk. This is acceptable given the chunk size (~30 ms).
+The application enqueues each audio chunk into the Moonshine session via
+``MoonshineStreamSession.add_audio_pcm16``. The call is non-blocking; a
+dedicated worker thread inside the session drains the queue in batches and
+runs the native ``add_audio_to_stream`` and ``update_transcription`` calls.
+This off-load matters because a continuously-spoken segment causes the native
+streaming decoder to re-decode from scratch on every partial refresh — the
+cost grows with segment duration, and on weaker hardware a single refresh on a
+long segment can stall for hundreds of milliseconds. With the worker thread
+the asyncio loop, the popup, and the modifier suppression timer all remain
+responsive regardless of how long a refresh takes.
+
+Segment boundaries are owned entirely by the Moonshine native VAD. The library
+breaks audio into lines at natural pauses (configurable via ``vad_threshold``
+and ``vad_window_duration`` in ``MoonshineStreamingConfig``) and force-closes
+any line that grows past ``vad_max_segment_duration``, which puts a hard
+ceiling on per-refresh decoder cost without relying on any Python-side
+rotation. The streaming session therefore feeds audio into a single long-lived
+native stream for the duration of the dictation; running the C VAD as the only
+segmenter avoids races that would otherwise split a single utterance across two
+streams and produce duplicated or missing words at the boundary. All tunable
+parameters (thresholds, window durations, segment caps, look-behind, etc.) are
+exposed in ``MoonshineStreamingConfig`` with documented defaults and ranges.
+
+When the session is stopped, the worker drains all queued chunks into the
+native stream. ``MoonshineStreamSession.stop`` then deactivates the native VAD
+directly via the C API, issues a forced ``update_transcription`` to capture any
+tail audio, and finally closes the stream. This order is deliberate: the Python
+``Stream.stop()`` wrapper calls ``update_transcription`` a second time
+internally, which would re-emit ``LineCompleted`` for every already-finalized
+segment and produce duplicate output. Bypassing the wrapper and calling the C
+stop primitive directly avoids that second emission entirely.
 
 The Vosk Side Channel
 ----------------------

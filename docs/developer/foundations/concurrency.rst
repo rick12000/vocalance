@@ -160,10 +160,15 @@ run on the main thread and must be dispatched to a background thread.
      - Once at startup
 
 One notable absence from the table is **Moonshine streaming inference**.
-``MoonshineStreamSession.add_audio_pcm16`` runs on the main thread. The
-Moonshine native library releases the GIL during inference, so it does not block
-other Python threads, but the main thread is occupied for a few milliseconds per
-chunk. The chunks are small enough that this is below the frame budget.
+``MoonshineStreamSession.add_audio_pcm16`` is called on the main thread but is
+non-blocking: it only enqueues the PCM bytes onto a bounded thread-safe queue.
+A dedicated worker thread (``moonshine-feeder``) owned by the session drains
+the queue in batches and runs the native ``add_audio_to_stream`` and
+``update_transcription`` calls. The decoder cost of a refresh on a long live
+segment can scale super-linearly with the segment duration, so isolating it
+from the event loop is essential — the main thread is never blocked by
+inference even when a refresh takes hundreds of milliseconds on weaker
+hardware.
 
 The Thread Crossing Primitives
 ================================

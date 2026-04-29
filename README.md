@@ -4,7 +4,7 @@
 
 <div align="center">
   <a href="https://vocalance.com">Website</a> |
-  <a href="https://vocalance.readthedocs.io/en/latest/developer/introduction.html">Documentation</a> |
+  <a href="https://vocalance.readthedocs.io/en/latest/developer/overview/introduction.html">Documentation</a> |
   <a href="https://vocalance.readthedocs.io/en/latest/contact.html">Contact</a>
 </div>
 
@@ -139,14 +139,14 @@ For now, contributions will be handled on an ad-hoc basis, but in future contrib
 
 ## 📚 Technical Documentation
 
-If you want to find out more about Vocalance's architecture, refer to the technical documentation pages:
+If you want to find out more about Vocalance's architecture, refer to the technical documentation on [Read the Docs](https://vocalance.readthedocs.io/en/latest/developer/overview/introduction.html):
 
-- **[Developer Introduction](https://vocalance.readthedocs.io/en/latest/developer/introduction.html)** - Brief overview of the main architecture and component flow
-- **[Audio Processing](https://vocalance.readthedocs.io/en/latest/developer/audio_capture_and_listeners.html)** - Audio capture and speech recognition
-- **[Command System](https://vocalance.readthedocs.io/en/latest/developer/command_parsing.html)** - Command parsing and execution
-- **[Dictation](https://vocalance.readthedocs.io/en/latest/developer/dictation_system.html)** - Transcription and formatting
-- **[User Interface](https://vocalance.readthedocs.io/en/latest/developer/user_interface.html)** - UI components and interactions
-- **[Infrastructure](https://vocalance.readthedocs.io/en/latest/developer/event_bus_and_infrastructure.html)** - Event bus and service communication
+- **[Overview](https://vocalance.readthedocs.io/en/latest/developer/overview/introduction.html)** — End-to-end architecture, the audio pipeline, and how capture, command flow, and dictation relate
+- **[Capture](https://vocalance.readthedocs.io/en/latest/developer/features/capture.html)** — Microphone capture, `AudioCaptureService`, and how audio reaches the rest of the app
+- **[Command flow](https://vocalance.readthedocs.io/en/latest/developer/features/command_flow.html)** — Segmenting, recognition, parsing, and executing voice commands as OS actions
+- **[Dictation flow](https://vocalance.readthedocs.io/en/latest/developer/features/dictation_flow.html)** — Long-running dictation sessions, recognizers, and typing pipeline
+- **[User interface](https://vocalance.readthedocs.io/en/latest/developer/features/user_interface.html)** — How pipeline events reach the screen and how UI input returns to the bus
+- **[Event bus](https://vocalance.readthedocs.io/en/latest/developer/foundations/event_bus.html)** — Publish/subscribe model, dispatch, and how services stay decoupled
 
 
 ## 📈 Upcoming Features
