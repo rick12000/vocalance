@@ -250,8 +250,8 @@ librosa==0.11.0 \
     --hash=sha256:0b6415c4fd68bff4c29288abe67c6d80b587e0e1e2cfb0aad23e4559504a7fa1 \
     --hash=sha256:f5ed951ca189b375bbe2e33b2abd7e040ceeee302b9bbaeeffdfddb8d0ace908
     # via vocalance
-llama-cpp-python==0.3.16 \
-    --hash=sha256:34ed0f9bd9431af045bb63d9324ae620ad0536653740e9bb163a2e1fcb973be6
+llama-cpp-python==0.3.20 \
+    --hash=sha256:70f01b7d915d31c617dc66610a332cb2d51cde84c8b152d09a352206323616f5
     # via vocalance
 llvmlite==0.45.1 \
     --hash=sha256:080e6f8d0778a8239cd47686d402cb66eb165e421efa9391366a9b7e5810a38b \
