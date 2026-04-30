@@ -55,6 +55,7 @@ class QtSettingsView(QWidget):
         self.controller.setting_changed.connect(self.on_setting_changed)
         self.controller.all_settings_changed.connect(self.on_all_settings_changed)
         self.controller.operation_error.connect(self.on_error)
+        self.controller.llm_bundle_status_updated.connect(self.sync_llm_model_ui_state)
 
         # Load initial settings
         self.logger.info("Loading settings from controller")

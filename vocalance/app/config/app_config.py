@@ -446,6 +446,7 @@ class LocalLLMArtifact(BaseModel):
     repo_id: str
     gguf_filenames: tuple[str, ...]
     model_card_url: str
+    disable_thinking: bool = False
 
     @property
     def load_path_filename(self) -> str:
@@ -478,27 +479,26 @@ def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
         artifacts=(
             LocalLLMArtifact(
                 id="qwen2.5-1.5b-q5km",
-                label="Qwen 2.5 1.5B Instruct (Q5_K_M, CPU)",
+                label="Qwen 2.5 1.5B (Q5_K_M, CPU)",
                 repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
                 gguf_filenames=("qwen2.5-1.5b-instruct-q5_k_m.gguf",),
                 model_card_url="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
             ),
             LocalLLMArtifact(
-                id="qwen2.5-3b-q5km",
-                label="Qwen 2.5 3B Instruct (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen2.5-3B-Instruct-GGUF",
-                gguf_filenames=("qwen2.5-3b-instruct-q5_k_m.gguf",),
-                model_card_url="https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF",
+                id="qwen3-4b-q5km",
+                label="Qwen3 4B (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen3-4B-GGUF",
+                gguf_filenames=("Qwen3-4B-Q5_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3-4B-GGUF",
+                disable_thinking=True,
             ),
             LocalLLMArtifact(
-                id="qwen2.5-7b-q5km",
-                label="Qwen 2.5 7B Instruct (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen2.5-7B-Instruct-GGUF",
-                gguf_filenames=(
-                    "qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf",
-                    "qwen2.5-7b-instruct-q5_k_m-00002-of-00002.gguf",
-                ),
-                model_card_url="https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF",
+                id="qwen3-8b-q5km",
+                label="Qwen3 8B (Q5_K_M, CPU)",
+                repo_id="Qwen/Qwen3-8B-GGUF",
+                gguf_filenames=("Qwen3-8B-Q5_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3-8B-GGUF",
+                disable_thinking=True,
             ),
         )
     )
