@@ -138,9 +138,9 @@ class LLMService(Service):
     def initialize(self) -> bool:
         return True
 
-    def load_model(self, model_path: str) -> Llama:
+    def load_model(self, model_path: str, disable_thinking: bool = False) -> Llama:
         cfg = self.config.llm
-        return Llama(
+        model = Llama(
             model_path=model_path,
             n_ctx=cfg.context_length,
             n_threads=self.n_threads,
@@ -150,12 +150,24 @@ class LLMService(Service):
             flash_attn=cfg.flash_attn,
             use_mmap=True,
             use_mlock=cfg.use_mlock,
-            chat_format="chatml",
+            chat_format=None if disable_thinking else "chatml",
             seed=-1,
             type_k=cfg.type_k,
             type_v=cfg.type_v,
             verbose=cfg.verbose,
         )
+        if disable_thinking:
+            base_handler = model.chat_handler or model._chat_handlers.get(model.chat_format)
+            if base_handler is not None:
+                _h = base_handler
+
+                def _no_think(*args: Any, **kwargs: Any) -> Any:
+                    return _h(*args, **{"enable_thinking": False, **kwargs})
+
+                model.chat_handler = _no_think
+            else:
+                logger.warning("Could not locate chat handler for thinking model; thinking will not be suppressed")
+        return model
 
     async def dispose_loaded_model(self) -> None:
         if not self.llm:
@@ -234,7 +246,7 @@ class LLMService(Service):
                 return fallback_text.strip()
 
             try:
-                self.llm = await run_blocking(self.load_model, model_path, name="llm-load")
+                self.llm = await run_blocking(self.load_model, model_path, spec.disable_thinking, name="llm-load")
             except Exception as e:
                 await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
                 return fallback_text.strip()

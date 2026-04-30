@@ -1,6 +1,6 @@
 # Disclaimer and Legal Notices
 
-> This document is provided to give users clear, plain-language information about how Vocalance works, what it does on your machine, and the limitations of any guarantees. It supplements — and does not replace — the [GNU General Public License v3](LICENSE.txt) under which Vocalance is distributed.
+> This document is provided to give users clear, plain-language information about how Vocalance works, what it does on your machine, and the limitations of any guarantees. It supplements — and does not replace — the [GNU General Public License v3](https://github.com/rick12000/vocalance/blob/main/LICENSE.txt) under which Vocalance is distributed.
 
 ---
 
@@ -12,7 +12,7 @@ Vocalance is distributed **"AS IS"**, without warranty of any kind. To the maxim
 - There is **no guarantee** of fitness for any purpose, including medical, accessibility, or professional use.
 - There is **no guarantee** of accuracy from any speech recognition, language model, or sound recognition component.
 
-The complete formal warranty disclaimer is in [LICENSE.txt §§15–16](LICENSE.txt).
+The complete formal warranty disclaimer is in [LICENSE.txt §§15–16](https://github.com/rick12000/vocalance/blob/main/LICENSE.txt).
 
 ---
 
@@ -162,7 +162,7 @@ Vocalance does **not** collect, store, or transmit any of the following:
 
 ## 8. Third-Party Software
 
-Vocalance is built on and integrates with a number of third-party open-source libraries and models. Full licence texts for all dependencies are provided in [NOTICES/NOTICE.txt](NOTICES/NOTICE.txt) and the individual files under [NOTICES/PYPI_LICENSES/](NOTICES/PYPI_LICENSES/).
+Vocalance is built on and integrates with a number of third-party open-source libraries and models. Full licence texts for all dependencies are provided in [NOTICES/NOTICE.txt](https://github.com/rick12000/vocalance/blob/main/NOTICES/NOTICE.txt) and the individual files under [NOTICES/PYPI_LICENSES/](https://github.com/rick12000/vocalance/blob/main/NOTICES/PYPI_LICENSES/).
 
 Key third-party components:
 

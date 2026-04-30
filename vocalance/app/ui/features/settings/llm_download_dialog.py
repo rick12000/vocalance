@@ -18,7 +18,7 @@ class LlmDownloadProgressDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None, model_label: str = "") -> None:
         super().__init__(parent)
         self.setWindowTitle("Download language model")
-        self.setModal(True)
+        self.setWindowModality(Qt.WindowModality.WindowModal)
         self.spinner_frame_index = 0
         self.spinner_timer = QTimer(self)
         self.spinner_timer.timeout.connect(self.tick_spinner)

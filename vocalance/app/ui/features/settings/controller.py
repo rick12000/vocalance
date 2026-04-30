@@ -22,6 +22,7 @@ class QtSettingsController(QtBaseController):
     setting_changed = Signal(str, object)
     all_settings_changed = Signal(dict)
     operation_error = Signal(str)
+    llm_bundle_status_updated = Signal()
     llm_download_progress = Signal(str)
     llm_cancellable_download_finished = Signal(bool, str)
 
@@ -58,6 +59,7 @@ class QtSettingsController(QtBaseController):
     def on_llm_ui_notification(self, event: LlmUiNotificationEvent) -> None:
         if event.kind == "bundle_status":
             self.llm_bundle_status = dict(event.status)
+            self.llm_bundle_status_updated.emit()
         elif event.kind == "download_progress":
             if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
                 self.llm_download_progress.emit(event.message)
