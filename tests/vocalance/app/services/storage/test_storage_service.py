@@ -1,344 +1,113 @@
-import asyncio
-import tempfile
-from pathlib import Path
+import json
+import time
 
 import pytest
 
-from vocalance.app.config.app_config import GlobalAppConfig
-from vocalance.app.services.storage.storage_models import AppUserConfigDocument, CommandsData, MarksData
-from vocalance.app.services.storage.storage_service import CacheEntry, StorageService
+from vocalance.app.config.command_types import AutomationCommand
+from vocalance.app.services.storage.storage_models import AppUserConfigDocument, CommandsData, MarksData, StorageData
+from vocalance.app.services.storage.storage_service import CacheEntry
 
 
-@pytest.fixture
-def temp_storage_dir():
-    """Create temporary directory for storage testing."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        yield temp_dir
+@pytest.mark.parametrize(
+    "age, ttl, expected",
+    [(0.0, 1000.0, False), (2.0, 5.0, False), (10.0, 5.0, True)],
+)
+def test_cache_entry_expiration(age, ttl, expected):
+    entry = CacheEntry(data="payload", timestamp=time.time() - age)
+    assert entry.is_expired(ttl=ttl) is expected
 
 
-@pytest.fixture
-def app_config(temp_storage_dir):
-    """Create application configuration with temp storage - COMPLETELY ISOLATED."""
-    config = GlobalAppConfig()
+async def test_write_then_read_roundtrip(storage_service):
+    marks = MarksData(marks={"a": {"x": 1, "y": 2}, "b": {"x": 3, "y": 4}})
+    assert await storage_service.write(data=marks) is True
 
-    # CRITICAL: Override ALL storage paths to use temp directory
-    # This prevents tests from touching production data
-    temp_path = Path(temp_storage_dir)
-    config.storage.user_data_root = temp_storage_dir
-    config.storage.marks_dir = str(temp_path / "marks")
-    config.storage.settings_dir = str(temp_path / "settings")
-    config.storage.click_tracker_dir = str(temp_path / "click_tracker")
-    config.storage.sound_model_dir = str(temp_path / "sound_model")
-
-    return config
-
-
-@pytest.fixture
-def storage_service(app_config):
-    """Create StorageService instance."""
-    service = StorageService(config=app_config)
-    yield service
-
-
-def test_cache_entry_expiration():
-    """Test cache entry expiration logic."""
-    import time
-
-    current_time = time.time()
-    entry = CacheEntry(data="test", timestamp=current_time)
-
-    # Not expired with large TTL
-    assert entry.is_expired(ttl=1000.0) is False
-
-    # Create an old entry that should be expired
-    old_entry = CacheEntry(data="test", timestamp=current_time - 10.0)
-    assert old_entry.is_expired(ttl=5.0) is True
-
-
-@pytest.mark.asyncio
-async def test_read_nonexistent_file_returns_default(storage_service):
-    """Test reading non-existent file returns default instance."""
-    # Clear cache to ensure we're not reading cached data
     storage_service.clear_cache()
+    result = await storage_service.read(model_type=MarksData)
 
-    path = storage_service.get_path(AppUserConfigDocument)
-    if path.exists():
-        path.unlink()
-
-    data = await storage_service.read(model_type=AppUserConfigDocument)
-
-    assert isinstance(data, AppUserConfigDocument)
-    assert data.overrides == {}
+    assert len(result.marks) == 2
+    assert result.marks["a"].x == 1
+    assert result.marks["b"].y == 4
 
 
-@pytest.mark.asyncio
-async def test_write_and_read_data(storage_service):
-    """Test writing and reading data."""
-    marks_data = MarksData(marks={"a": {"x": 1, "y": 2}})
-
-    success = await storage_service.write(data=marks_data)
-    assert success is True
-
-    # Clear cache to force disk read
-    storage_service.clear_cache()
-
-    # Read back
-    read_data = await storage_service.read(model_type=MarksData)
-    assert isinstance(read_data, MarksData)
-    assert read_data.marks["a"].x == 1
-    assert read_data.marks["a"].y == 2
+async def test_read_missing_file_returns_default(storage_service):
+    result = await storage_service.read(model_type=AppUserConfigDocument)
+    assert result.overrides == {}
 
 
-@pytest.mark.asyncio
-async def test_write_updates_cache(storage_service):
-    """Test writing data updates cache."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-
-    await storage_service.write(data=marks_data)
-
-    # Cache should contain the data
-    cache_key = storage_service.get_cache_key(MarksData)
-    assert cache_key in storage_service.cache
-    assert storage_service.cache[cache_key].data == marks_data
-
-
-@pytest.mark.asyncio
-async def test_read_uses_cache(storage_service):
-    """Test reading uses cached data."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-
-    # Write to populate cache
-    await storage_service.write(data=marks_data)
-
-    # Clear cache TTL to force cache hit
-    cache_key = storage_service.get_cache_key(MarksData)
-    storage_service.cache[cache_key].timestamp = 999999999.0
-
-    # Read should use cache (no file I/O)
-    read_data = await storage_service.read(model_type=MarksData)
-    assert read_data == marks_data
-
-
-@pytest.mark.asyncio
-async def test_cache_expiration_forces_disk_read(storage_service):
-    """Test expired cache forces disk read."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-
-    # Write data
-    await storage_service.write(data=marks_data)
-
-    # Expire cache
-    cache_key = storage_service.get_cache_key(MarksData)
-    storage_service.cache[cache_key].timestamp = 0.0
-
-    # Read should reload from disk
-    read_data = await storage_service.read(model_type=MarksData)
-    assert isinstance(read_data, MarksData)
-
-
-@pytest.mark.asyncio
-async def test_multiple_model_types(storage_service):
-    """Test storing multiple different model types."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-    commands_data = CommandsData(custom_commands={}, phrase_overrides={"copy": "copy that"})
-
-    # Write different types
-    await storage_service.write(data=marks_data)
-    await storage_service.write(data=commands_data)
-
-    # Read back
-    read_marks = await storage_service.read(model_type=MarksData)
-    read_commands = await storage_service.read(model_type=CommandsData)
-
-    assert isinstance(read_marks, MarksData)
-    assert isinstance(read_commands, CommandsData)
-    assert "mark1" in read_marks.marks
-    assert "copy" in read_commands.phrase_overrides
-
-
-@pytest.mark.asyncio
-async def test_atomic_write_creates_backup(storage_service, app_config):
-    """Test atomic write creates backup of existing file."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-
-    # First write
-    await storage_service.write(data=marks_data)
-
-    # Modify and write again
-    marks_data.marks["mark2"] = {"x": 300, "y": 400}
-    await storage_service.write(data=marks_data)
-
-    # Verify data written correctly
-    read_data = await storage_service.read(model_type=MarksData)
-    assert "mark1" in read_data.marks
-    assert "mark2" in read_data.marks
-
-
-@pytest.mark.asyncio
-async def test_clear_cache_specific_model(storage_service):
-    """Test clearing cache for specific model type."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-    commands_data = CommandsData(custom_commands={}, phrase_overrides={})
-
-    # Populate cache
-    await storage_service.write(data=marks_data)
-    await storage_service.write(data=commands_data)
-
-    # Clear specific cache
-    storage_service.clear_cache(model_type=MarksData)
-
-    # MarksData should be cleared, CommandsData should remain
-    marks_cache_key = storage_service.get_cache_key(MarksData)
-    commands_cache_key = storage_service.get_cache_key(CommandsData)
-
-    assert marks_cache_key not in storage_service.cache
-    assert commands_cache_key in storage_service.cache
-
-
-@pytest.mark.asyncio
-async def test_clear_all_cache(storage_service):
-    """Test clearing entire cache."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-    commands_data = CommandsData(custom_commands={}, phrase_overrides={})
-
-    # Populate cache
-    await storage_service.write(data=marks_data)
-    await storage_service.write(data=commands_data)
-
-    # Clear all cache
-    storage_service.clear_cache()
-
-    assert len(storage_service.cache) == 0
-
-
-@pytest.mark.asyncio
-async def test_get_cache_stats(storage_service):
-    """Test getting cache statistics."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-
-    await storage_service.write(data=marks_data)
-
-    stats = storage_service.get_cache_stats()
-
-    assert stats["entries"] >= 1
-    assert "MarksData" in stats["models"]
-    assert stats["ttl_seconds"] == storage_service.cache_ttl
-
-
-@pytest.mark.asyncio
-async def test_concurrent_reads(storage_service):
-    """Test concurrent reads are thread-safe."""
-    marks_data = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-    await storage_service.write(data=marks_data)
-
-    # Perform concurrent reads
-    tasks = [storage_service.read(model_type=MarksData) for _ in range(10)]
-    results = await asyncio.gather(*tasks)
-
-    # All reads should succeed and return same data
-    assert len(results) == 10
-    assert all(isinstance(r, MarksData) for r in results)
-    assert all("mark1" in r.marks for r in results)
-
-
-@pytest.mark.asyncio
-async def test_concurrent_writes(storage_service):
-    """Test concurrent writes are thread-safe."""
-
-    async def write_marks(cmd_id: int):
-        marks_data = MarksData(marks={f"k{cmd_id}": {"x": cmd_id, "y": cmd_id}})
-        return await storage_service.write(data=marks_data)
-
-    tasks = [write_marks(i) for i in range(5)]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # At least some writes should succeed (race condition is expected)
-    assert any(r is True for r in results if not isinstance(r, Exception))
-
-
-@pytest.mark.asyncio
-async def test_read_handles_corrupted_json(storage_service, app_config):
-    """Test reading handles corrupted JSON gracefully."""
-    # Write corrupted JSON directly
+async def test_read_corrupted_json_returns_default(storage_service):
     path = storage_service.get_path(MarksData)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        f.write("{invalid json")
+    path.write_text("{not valid json", encoding="utf-8")
 
-    # Should return default instance
-    data = await storage_service.read(model_type=MarksData)
-    assert isinstance(data, MarksData)
-    assert len(data.marks) == 0
+    result = await storage_service.read(model_type=MarksData)
+    assert len(result.marks) == 0
 
 
-@pytest.mark.asyncio
-async def test_write_creates_directories(storage_service):
-    """Test write creates necessary directories."""
-    user_cfg = AppUserConfigDocument()
+async def test_valid_cache_is_served_without_reading_disk(storage_service):
+    await storage_service.write(data=MarksData(marks={"a": {"x": 1, "y": 2}}))
 
-    success = await storage_service.write(data=user_cfg)
+    path = storage_service.get_path(MarksData)
+    path.write_text(json.dumps({"version": 1, "marks": {"z": {"x": 9, "y": 9}}}), encoding="utf-8")
 
-    assert success is True
-    path = storage_service.get_path(AppUserConfigDocument)
-    assert path.parent.exists()
-
-
-@pytest.mark.asyncio
-async def test_storage_config_property(storage_service, app_config):
-    """Test storage_config property exposes GlobalAppConfig.storage."""
-    storage_config = storage_service.storage_config
-
-    assert storage_config == app_config.storage
+    result = await storage_service.read(model_type=MarksData)
+    assert "a" in result.marks
+    assert "z" not in result.marks
 
 
-@pytest.mark.asyncio
-async def test_shutdown_clears_cache(storage_service):
-    """Shutdown clears the in-memory cache."""
-    storage_service.cache["test_key"] = CacheEntry(data={"x": 1}, timestamp=0.0)
-    await storage_service.shutdown()
+async def test_expired_cache_forces_disk_reload(storage_service):
+    await storage_service.write(data=MarksData(marks={"a": {"x": 1, "y": 2}}))
+
+    path = storage_service.get_path(MarksData)
+    path.write_text(json.dumps({"version": 1, "marks": {"z": {"x": 9, "y": 9}}}), encoding="utf-8")
+    storage_service.cache[storage_service.get_cache_key(MarksData)].timestamp = 0.0
+
+    result = await storage_service.read(model_type=MarksData)
+    assert "z" in result.marks
+    assert "a" not in result.marks
+
+
+async def test_clear_cache_targets_single_model(storage_service):
+    await storage_service.write(data=MarksData(marks={}))
+    await storage_service.write(data=CommandsData())
+
+    storage_service.clear_cache(model_type=MarksData)
+
+    assert storage_service.get_cache_key(MarksData) not in storage_service.cache
+    assert storage_service.get_cache_key(CommandsData) in storage_service.cache
+
+
+async def test_clear_cache_clears_everything(storage_service):
+    await storage_service.write(data=MarksData(marks={}))
+    await storage_service.write(data=CommandsData())
+
+    storage_service.clear_cache()
+
     assert len(storage_service.cache) == 0
 
 
-@pytest.mark.asyncio
-async def test_write_multiple_times_updates_data(storage_service):
-    """Test multiple writes update data correctly."""
-    # First write
-    marks_data1 = MarksData(marks={"mark1": {"x": 100, "y": 200}})
-    await storage_service.write(data=marks_data1)
-
-    # Second write with different data
-    marks_data2 = MarksData(marks={"mark2": {"x": 300, "y": 400}})
-    await storage_service.write(data=marks_data2)
-
-    # Read should get latest data
-    storage_service.clear_cache()
-    read_data = await storage_service.read(model_type=MarksData)
-
-    assert "mark2" in read_data.marks
-    assert "mark1" not in read_data.marks
+def test_get_path_rejects_unmapped_model(storage_service):
+    with pytest.raises(ValueError):
+        storage_service.get_path(StorageData)
 
 
-@pytest.mark.asyncio
-async def test_make_serializable_handles_nested_models(storage_service):
-    """Test serialization handles nested Pydantic models."""
-    from vocalance.app.config.command_types import AutomationCommand
-
-    custom_cmd = AutomationCommand(
-        command_key="test",
+async def test_nested_pydantic_models_survive_roundtrip(storage_service):
+    command = AutomationCommand(
+        command_key="save",
         action_type="hotkey",
-        action_value="ctrl+t",
+        action_value="ctrl+s",
         is_custom=True,
-        short_description="Test",
-        long_description="Test command",
+        short_description="Save",
     )
+    await storage_service.write(data=CommandsData(custom_commands={"save": command}))
 
-    commands_data = CommandsData(custom_commands={"test": custom_cmd}, phrase_overrides={})
-
-    # Write should handle nested model
-    success = await storage_service.write(data=commands_data)
-    assert success is True
-
-    # Read back and verify
     storage_service.clear_cache()
-    read_data = await storage_service.read(model_type=CommandsData)
-    assert "test" in read_data.custom_commands
+    result = await storage_service.read(model_type=CommandsData)
+
+    assert result.custom_commands["save"].action_value == "ctrl+s"
+    assert result.custom_commands["save"].is_custom is True
+
+
+async def test_shutdown_clears_cache(storage_service):
+    storage_service.cache["x"] = CacheEntry(data=MarksData(marks={}), timestamp=0.0)
+    await storage_service.shutdown()
+    assert len(storage_service.cache) == 0

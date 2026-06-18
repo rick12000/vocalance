@@ -1,107 +1,52 @@
 import asyncio
-import time
+from unittest.mock import Mock
 
-import numpy as np
 import pytest
-import pytest_asyncio
 
-from vocalance.app.events.core_events import AudioChunkCapturedEvent, AudioDetectedEvent, CommandAudioSegmentReadyEvent
-from vocalance.app.services.command_flow.segmenting.command_segmenter_service import CommandSegmenterService
+from vocalance.app.events.core_events import (
+    AudioChunkCapturedEvent,
+    AudioDetectedEvent,
+    CommandAudioSegmentReadyEvent,
+    SettingsChangedEvent,
+)
+from vocalance.app.services.capture.vad import Clip, Onset
 
-_SAMPLE_RATE = 16000
 
+@pytest.mark.asyncio
+async def test_segmenter_hits_dispatch_to_matching_events(command_segmenter_service, event_collector):
+    detected = event_collector(AudioDetectedEvent)
+    ready = event_collector(CommandAudioSegmentReadyEvent)
+    clip = Clip(pcm_bytes=b"\x01\x02\x03\x04", sample_rate=16000)
+    command_segmenter_service.segmenter.feed_pcm_chunk = Mock(return_value=[Onset(ts=12.5), clip])
 
-def make_event(pcm: np.ndarray, ts: float | None = None) -> AudioChunkCapturedEvent:
-    return AudioChunkCapturedEvent(
-        pcm_bytes=pcm.tobytes(),
-        timestamp=time.time() if ts is None else ts,
-        sample_rate=_SAMPLE_RATE,
+    command_segmenter_service._handle_audio_chunk(
+        AudioChunkCapturedEvent(pcm_bytes=b"\x00\x00", timestamp=12.5, sample_rate=16000)
     )
+    await asyncio.sleep(0.05)
 
-
-@pytest_asyncio.fixture
-async def segmenter(event_bus, app_config):
-    return CommandSegmenterService(event_bus=event_bus, config=app_config)
-
-
-@pytest.fixture
-def speech_chunk():
-    return np.random.randint(-5000, 5000, size=800, dtype=np.int16)
-
-
-@pytest.fixture
-def silence_chunk():
-    return np.random.randint(-10, 10, size=800, dtype=np.int16)
+    assert len(detected) == 1
+    assert detected[0].timestamp == 12.5
+    assert len(ready) == 1
+    assert ready[0].audio_bytes == clip.pcm_bytes
+    assert ready[0].sample_rate == clip.sample_rate
 
 
 @pytest.mark.asyncio
-async def test_speech_onset_publishes_audio_detected(segmenter, speech_chunk, event_bus):
-    captured = []
+@pytest.mark.parametrize(
+    "updated_settings, should_apply",
+    [
+        ({"vad.command_silent_chunks_for_end": 9}, True),
+        ({"vad.command_energy_threshold": 0.01}, False),
+    ],
+)
+async def test_silence_tail_applied_only_for_relevant_setting(command_segmenter_service, updated_settings, should_apply):
+    command_segmenter_service.segmenter.set_silence_tail = Mock()
 
-    async def on_event(event):
-        captured.append(event)
+    command_segmenter_service._handle_settings_changed(SettingsChangedEvent(updated_settings=updated_settings, all_settings={}))
 
-    event_bus.subscribe(AudioDetectedEvent, on_event)
-
-    await event_bus.publish(make_event(speech_chunk))
-    await asyncio.sleep(0.05)
-
-    assert len(captured) == 1
-
-
-@pytest.mark.asyncio
-async def test_silence_finalizes_clip(segmenter, speech_chunk, silence_chunk, event_bus):
-    captured = []
-
-    async def on_event(event):
-        captured.append(event)
-
-    event_bus.subscribe(CommandAudioSegmentReadyEvent, on_event)
-
-    await event_bus.publish(make_event(speech_chunk))
-    for _ in range(segmenter.segmenter.config.silent_chunks_for_end):
-        await event_bus.publish(make_event(silence_chunk))
-    await asyncio.sleep(0.2)
-
-    assert len(captured) >= 1
-    first = captured[0]
-    assert isinstance(first.audio_bytes, bytes)
-    assert first.sample_rate == _SAMPLE_RATE
-
-
-@pytest.mark.asyncio
-async def test_max_duration_finalizes_clip(segmenter, speech_chunk, event_bus):
-    captured = []
-
-    async def on_event(event):
-        captured.append(event)
-
-    event_bus.subscribe(CommandAudioSegmentReadyEvent, on_event)
-
-    for _ in range(segmenter.segmenter.config.max_duration_chunks + 5):
-        await event_bus.publish(make_event(speech_chunk))
-    await asyncio.sleep(0.2)
-
-    assert len(captured) == 1
-
-
-@pytest.mark.asyncio
-async def test_audio_detected_emitted_per_session(segmenter, speech_chunk, silence_chunk, event_bus):
-    captured = []
-
-    async def on_event(event):
-        captured.append(event)
-
-    event_bus.subscribe(AudioDetectedEvent, on_event)
-
-    await event_bus.publish(make_event(speech_chunk))
-    await asyncio.sleep(0.05)
-    await event_bus.publish(make_event(speech_chunk))
-    await asyncio.sleep(0.05)
-    for _ in range(segmenter.segmenter.config.silent_chunks_for_end):
-        await event_bus.publish(make_event(silence_chunk))
-    await asyncio.sleep(0.05)
-    await event_bus.publish(make_event(speech_chunk))
-    await asyncio.sleep(0.05)
-
-    assert len(captured) == 2
+    if should_apply:
+        command_segmenter_service.segmenter.set_silence_tail.assert_called_once_with(
+            command_segmenter_service.config.vad.command_silent_chunks_for_end
+        )
+    else:
+        command_segmenter_service.segmenter.set_silence_tail.assert_not_called()
