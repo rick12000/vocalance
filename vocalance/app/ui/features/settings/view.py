@@ -15,6 +15,7 @@ from vocalance.app.ui.components.labels import BoxTitleLabel, SectionTitle, Smal
 from vocalance.app.ui.components.layouts import Box, FormField, ScrollableContainer
 from vocalance.app.ui.features.settings.llm_download_dialog import LlmDownloadProgressDialog
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.utils.llm_dep_check import llm_deps_available
 
 
 class QtSettingsView(QWidget):
@@ -34,6 +35,7 @@ class QtSettingsView(QWidget):
         super().__init__(parent)
 
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._llm_enabled = llm_deps_available()
         self.llm_persist_finished.connect(self.on_llm_persist_finished_main)
         self.controller = None
         self.settings: Dict[str, Any] = {}
@@ -55,7 +57,8 @@ class QtSettingsView(QWidget):
         self.controller.setting_changed.connect(self.on_setting_changed)
         self.controller.all_settings_changed.connect(self.on_all_settings_changed)
         self.controller.operation_error.connect(self.on_error)
-        self.controller.llm_bundle_status_updated.connect(self.sync_llm_model_ui_state)
+        if self._llm_enabled:
+            self.controller.llm_bundle_status_updated.connect(self.sync_llm_model_ui_state)
 
         # Load initial settings
         self.logger.info("Loading settings from controller")
@@ -110,7 +113,8 @@ class QtSettingsView(QWidget):
         self.setting_widgets.clear()
         self.section_widgets.clear()
 
-        self.build_llm_model_section()
+        if self._llm_enabled:
+            self.build_llm_model_section()
 
         # Define which settings to display
         visible_settings = {
@@ -492,11 +496,7 @@ class QtSettingsView(QWidget):
 
     def get_setting_types(self) -> Dict[str, type]:
         """Define the expected type for each setting."""
-        return {
-            # LLM model
-            "llm.selected_model_id": str,
-            "llm.context_length": int,
-            "llm.max_tokens": int,
+        types: Dict[str, type] = {
             # Grid Settings
             "grid.default_rect_count": int,
             # Sound Recognizer Settings
@@ -505,6 +505,15 @@ class QtSettingsView(QWidget):
             # Voice Settings
             "vad.command_silent_chunks_for_end": int,
         }
+        if self._llm_enabled:
+            types.update(
+                {
+                    "llm.selected_model_id": str,
+                    "llm.context_length": int,
+                    "llm.max_tokens": int,
+                }
+            )
+        return types
 
     def show_error(self, message: str) -> None:
         """Show error message dialog."""

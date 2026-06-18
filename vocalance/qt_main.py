@@ -238,24 +238,27 @@ async def _run_initialization(
     await services.command_speech.initialize()
 
     progress.update_sub_step(sub_step_name="Preparing dictation system...")
-    allow = config.local_llm_allowlist
-    spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
-    if spec is not None:
-        from vocalance.app.services.dictation_flow.llm.llm_model_downloader import LLMModelDownloader
+    from vocalance.app.utils.llm_dep_check import llm_deps_available
 
-        downloader = LLMModelDownloader(config)
-        if not downloader.model_bundle_complete(spec.gguf_filenames):
-            progress.update_sub_step(
-                sub_step_name="Fetching AI Model. First launch may take several minutes.",
-                progress=0.35,
-            )
-            ok = await downloader.download_model_bundle(
-                repo_id=spec.repo_id,
-                filenames=list(spec.gguf_filenames),
-                cancel_event=lifecycle.cancel_token.threading_event(),
-            )
-            if not ok:
-                raise RuntimeError("Critical asset download failed: LLM model")
+    if llm_deps_available():
+        allow = config.local_llm_allowlist
+        spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
+        if spec is not None:
+            from vocalance.app.services.dictation_flow.llm.llm_model_downloader import LLMModelDownloader
+
+            downloader = LLMModelDownloader(config)
+            if not downloader.model_bundle_complete(spec.gguf_filenames):
+                progress.update_sub_step(
+                    sub_step_name="Fetching AI Model. First launch may take several minutes.",
+                    progress=0.35,
+                )
+                ok = await downloader.download_model_bundle(
+                    repo_id=spec.repo_id,
+                    filenames=list(spec.gguf_filenames),
+                    cancel_event=lifecycle.cancel_token.threading_event(),
+                )
+                if not ok:
+                    raise RuntimeError("Critical asset download failed: LLM model")
 
     progress.update_sub_step(
         sub_step_name="Initializing dictation"

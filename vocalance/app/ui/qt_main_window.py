@@ -19,6 +19,7 @@ from vocalance.app.ui.qt_theme import theme
 from vocalance.app.ui.utils.qt_assets import QtAssetCache
 from vocalance.app.ui.utils.qt_logo_service import QtLogoService
 from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
+from vocalance.app.utils.llm_dep_check import llm_deps_available
 
 
 class VocalanceMainWindow(QMainWindow):
@@ -318,7 +319,7 @@ class VocalanceMainWindow(QMainWindow):
         "Sounds": "Use custom sounds to control your computer",
         "Marks": "Pinpoint important locations on your screen",
         "Commands": "Manage voice commands and their actions",
-        "Dictation": "Configure smart dictation with AI prompts",
+        "Dictation": "Configure smart dictation with AI prompts" if llm_deps_available() else "Configure dictation aliases",
         "Settings": "Configure default Vocalance settings",
     }
 

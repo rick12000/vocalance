@@ -1028,9 +1028,10 @@ def dictation_coordinator(mock_event_bus, app_config, mock_storage_service):
 
     loop = asyncio.new_event_loop()
     with patch("vocalance.app.services.dictation_flow.dictation_coordinator.DictationTextInput"), patch(
-        "vocalance.app.services.dictation_flow.dictation_coordinator.LLMService"
-    ), patch("vocalance.app.services.dictation_flow.dictation_coordinator.AgenticPromptService"), patch(
         "vocalance.app.services.dictation_flow.dictation_coordinator.DictationAliasService"
+    ), patch(
+        "vocalance.app.services.dictation_flow.dictation_coordinator.llm_deps_available",
+        return_value=False,
     ):
         coordinator = DictationCoordinator(
             event_bus=mock_event_bus,

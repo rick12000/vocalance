@@ -151,10 +151,28 @@ if (-not (Test-Path -LiteralPath $pyExe)) {
     uv venv --python 3.13.9 $venvPath
 }
 
-Write-Host 'Installing dependencies (uv sync)...'
+Write-Host ''
+Write-Host 'Vocalance supports an optional LLM (AI) feature set that enables smart dictation and'
+Write-Host 'text-amend modes powered by a local language model.'
+Write-Host ''
+Write-Host 'LLM features require:'
+Write-Host '  - Microsoft C++ Build Tools (for compiling llama-cpp-python)'
+Write-Host '  - An additional ~2 GB of disk space for the model download'
+Write-Host '  - Longer first-launch startup while the model downloads'
+Write-Host ''
+$llmAnswer = Read-Host 'Enable LLM features? Type yes or no'
+$installLlm = Test-YesAnswer $llmAnswer
+
+Write-Host 'Installing dependencies...'
 $env:VIRTUAL_ENV = $venvPath
 $env:UV_PROJECT_ENVIRONMENT = $venvPath
-uv sync
+if ($installLlm) {
+    Write-Host 'Installing with LLM features...'
+    uv sync --extra llm
+} else {
+    Write-Host 'Installing without LLM features...'
+    uv sync
+}
 
 $mainScript = Join-Path $repoRoot 'vocalance.py'
 $iconPath = Join-Path $repoRoot 'vocalance\app\assets\logo\icon.ico'

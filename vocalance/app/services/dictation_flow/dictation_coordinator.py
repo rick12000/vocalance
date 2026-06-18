@@ -40,8 +40,6 @@ from vocalance.app.lifecycle.worker import run_blocking
 from vocalance.app.services.activity_tracker import ActivityTracker
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.dictation_flow.dictation_alias_service import DictationAliasService
-from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import AgenticPromptService
-from vocalance.app.services.dictation_flow.llm.llm_service import LLMService
 from vocalance.app.services.dictation_flow.postprocess.coordinator_segment_filters import (
     dictation_segment_input_options,
     is_isolated_stt_noise_fragment,
@@ -60,6 +58,7 @@ from vocalance.app.services.dictation_flow.text_input_service import DictationTe
 from vocalance.app.services.dictation_flow.types import DictationMode, DictationSession, DictationState, LLMSession
 from vocalance.app.services.keyboard_input_service import KeyboardInputService
 from vocalance.app.services.storage.storage_service import StorageService
+from vocalance.app.utils.llm_dep_check import llm_deps_available
 
 MOONSHINE_CHUNK_DICTATION_MODES: tuple[DictationMode, ...] = (
     DictationMode.STANDARD,
@@ -410,8 +409,21 @@ class DictationCoordinator(Service):
         self.moonshine_engine: Optional[MoonshineEngine] = None
 
         self.text_service = DictationTextInput(config=config.dictation, input_service=input_service)
-        self.llm_service = LLMService(event_bus=event_bus, config=config, gui_event_loop=gui_event_loop, cancel_token=cancel_token)
-        self.agentic_service = AgenticPromptService(event_bus=event_bus, config=config, storage=storage)
+
+        if llm_deps_available():
+            from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import AgenticPromptService
+            from vocalance.app.services.dictation_flow.llm.llm_service import LLMService
+
+            self.llm_service: Optional[LLMService] = LLMService(
+                event_bus=event_bus, config=config, gui_event_loop=gui_event_loop, cancel_token=cancel_token
+            )
+            self.agentic_service: Optional[AgenticPromptService] = AgenticPromptService(
+                event_bus=event_bus, config=config, storage=storage
+            )
+        else:
+            self.llm_service = None
+            self.agentic_service = None
+
         self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
 
         self.segment_pipeline = DictationSegmentPipeline(config.dictation, self.alias_service)
@@ -466,14 +478,22 @@ class DictationCoordinator(Service):
             return False
 
         text_init_result = self.text_service.initialize()
-        llm_init_result = self.llm_service.initialize()
-        results = await asyncio.gather(
-            self.agentic_service.initialize(),
-            self.alias_service.initialize(),
-            return_exceptions=True,
-        )
-        results.append(text_init_result)
-        results.append(llm_init_result)
+
+        if self.llm_service is not None and self.agentic_service is not None:
+            llm_init_result = self.llm_service.initialize()
+            results = await asyncio.gather(
+                self.agentic_service.initialize(),
+                self.alias_service.initialize(),
+                return_exceptions=True,
+            )
+            results.append(text_init_result)
+            results.append(llm_init_result)
+        else:
+            results = await asyncio.gather(
+                self.alias_service.initialize(),
+                return_exceptions=True,
+            )
+            results.append(text_init_result)
 
         if any(isinstance(r, Exception) or not r for r in results):
             logger.error("Service initialization failed")
@@ -482,7 +502,7 @@ class DictationCoordinator(Service):
         return True
 
     @property
-    def prompts(self) -> AgenticPromptService:
+    def prompts(self):
         return self.agentic_service
 
     @property
@@ -609,13 +629,15 @@ class DictationCoordinator(Service):
         elif isinstance(command, DictationTypeCommand):
             await self.start_session(DictationMode.TYPE)
         elif isinstance(command, DictationSmartStartCommand):
-            await self.start_session(DictationMode.SMART)
+            if self.llm_service is not None:
+                await self.start_session(DictationMode.SMART)
         elif isinstance(command, DictationVisualStartCommand):
             await self.start_session(DictationMode.VISUAL)
         elif isinstance(command, DictationHiddenStartCommand):
             await self.start_session(DictationMode.HIDDEN)
         elif isinstance(command, DictationAmendStartCommand):
-            await self.start_amend_session()
+            if self.llm_service is not None:
+                await self.start_amend_session()
 
     async def start_amend_session(self) -> None:
         captured = await self.input_service.run(self.text_service.capture_selection_via_copy)
@@ -660,7 +682,9 @@ class DictationCoordinator(Service):
                         if session.mode == DictationMode.SMART
                         else "Follow the spoken instructions when transforming the text."
                     )
-                    agentic_prompt = self.agentic_service.get_current_prompt() or default_prompt
+                    agentic_prompt = (
+                        self.agentic_service.get_current_prompt() if self.agentic_service is not None else None
+                    ) or default_prompt
                     llm_session_id = str(uuid.uuid4())
                     self.pending_llm_session = LLMSession(
                         session_id=llm_session_id,
@@ -876,8 +900,10 @@ class DictationCoordinator(Service):
             await self.stop_session()
 
         self.text_service.shutdown()
-        await self.llm_service.shutdown()
-        await self.agentic_service.shutdown()
+        if self.llm_service is not None:
+            await self.llm_service.shutdown()
+        if self.agentic_service is not None:
+            await self.agentic_service.shutdown()
         await self.alias_service.shutdown()
 
         if self.moonshine_engine is not None:

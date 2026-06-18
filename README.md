@@ -32,7 +32,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
 > Ensure Git is installed. If not, download the latest Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
 
 > [!IMPORTANT]
-> Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
+> If you want to enable AI features, ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed — download the installer, run it, and tick "**Desktop development with C++**" under workloads.
 
 To get started with installation, either follow the steps below or watch the [installation walkthrough on YouTube](https://www.youtube.com/watch?v=p2_gPICZ9x8).
 
@@ -46,6 +46,8 @@ To get started with installation, either follow the steps below or watch the [in
 
    *If you'd like to inspect what the script will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.*
 
+   During setup you will be asked whether to enable LLM features. Answer **yes** if you want to enable AI dictation and AI text editing functionality, otherwise answer **no**.
+
 3. Open Vocalance from the Start Menu (search "vocalance" if not featured):
 
 <p align="center">
@@ -53,7 +55,7 @@ To get started with installation, either follow the steps below or watch the [in
 </p>
 
    - If the application doesn't appear immediately after you clicked it, *wait 10-15 seconds before retrying*, it may be loading in the background.
-   - On first use, the application needs to **download** your local AI model from a trusted *Hugging Face* repository (among other essential downloads). **Do not close** the start up window during this process and allow up to 30 minutes for it to complete depending on internet connection (but should take around 5 minutes for most users).
+   - If you enabled LLM features, the application needs to **download** your local AI model from a trusted *Hugging Face* repository on first use. **Do not close** the startup window during this process — allow up to 30 minutes depending on your internet connection (around 5 minutes for most users).
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
 
@@ -64,7 +66,7 @@ Having issues with the installation steps? Reach out at: vocalance.contact@gmail
 ### 🛠️ **Developer Setup**
 
 > [!IMPORTANT]
-> Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
+> If you want to enable AI features, ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed — download the installer, run it, and tick "**Desktop development with C++**" under workloads. Then install with `uv sync --extra llm` instead of `uv sync --active`.
 
 #### 1. Set Up UV
 
@@ -105,12 +107,17 @@ Having issues with the installation steps? Reach out at: vocalance.contact@gmail
    uv sync --active
    ```
 
+   To include LLM features (smart dictation, text-amend), install with:
+   ```bash
+   uv sync --active --extra llm
+   ```
+
 6. Run the application:
    ```bash
    python vocalance.py
    ```
 
-The application will start up and download any required models (like speech recognition models) on first run (these are downloaded from Hugging Face or other reputable hosts). This may take several minutes depending on your internet connection.
+The application will start up and download any required models (like speech recognition models) on first run. If LLM features are enabled, the local AI model is also downloaded on first launch. This may take several minutes depending on your internet connection.
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how to get started.
 
