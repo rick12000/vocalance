@@ -13,6 +13,8 @@ jobs:
   lint:
     name: Linting
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
     - uses: actions/checkout@v4
@@ -81,6 +83,8 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: security-scan
+    permissions:
+      contents: read
 
     steps:
     - uses: actions/checkout@v4
@@ -102,6 +106,8 @@ jobs:
   verify-logging-default-off:
     name: Verify enable_logs defaults to false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
