@@ -22,7 +22,6 @@ class GridService(Service):
         self._visible: bool = False
         self._current_click_mode: str = "click"
         self.subscribe(GridCommandParsedEvent, self._handle_grid_command)
-        self.subscribe(GridStateEvent, self._handle_grid_state_event)
 
     def _calculate_grid_dimensions(self, num_rects: int) -> tuple[int, int]:
         cols = math.ceil(math.sqrt(num_rects))
@@ -50,26 +49,6 @@ class GridService(Service):
             )
         else:
             logger.warning("Unknown grid command type: %s", type(command).__name__)
-
-    async def _handle_grid_state_event(self, event: GridStateEvent) -> None:
-        if event.state == "config_updated" and event.config:
-            for field in (
-                "rows",
-                "cols",
-                "cell_width",
-                "cell_height",
-                "line_color",
-                "label_color",
-                "font_size",
-                "font_name",
-                "show_labels",
-                "default_rect_count",
-            ):
-                value = event.config.get(field)
-                if value is not None and hasattr(self._config.grid, field):
-                    if field == "cancel_phrases" and isinstance(value, list):
-                        value = list(set(value))
-                    setattr(self._config.grid, field, value)
 
     def is_grid_visible(self) -> bool:
         return self._visible

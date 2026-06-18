@@ -276,6 +276,7 @@ class SoundRecognizerConfig(BaseModel):
     default_samples_per_sound: int = Field(
         12, description="Default training samples per sound (increased for better discrimination)"
     )
+    max_training_samples: int = Field(1000, description="Hard upper bound on samples collected in a single training session")
     sample_duration_sec: float = Field(2.0, description="Duration of training samples in seconds")
 
     max_esc50_samples_per_category: int = Field(15, description="Max samples per ESC-50 category")
@@ -689,6 +690,10 @@ class AutomationServiceConfig(BaseModel):
     """Configuration for automation command execution."""
 
     thread_pool_max_workers: int = Field(default=2, description="Maximum number of worker threads for automation action execution")
+
+    max_repeat_count: int = Field(
+        default=100, description="Upper bound on how many times a single parameterized command may repeat in one invocation"
+    )
 
     key_sequence_delay_seconds: float = Field(
         default=0.25, description="Delay in seconds between individual key presses in a key sequence"

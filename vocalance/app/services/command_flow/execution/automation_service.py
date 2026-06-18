@@ -28,6 +28,7 @@ class AutomationService(Service):
         count = getattr(command, "count", 1)
         if isinstance(command, ParameterizedCommand) and count <= 0:
             return
+        count = min(count, self.config.automation_service.max_repeat_count)
         if not self.check_cooldown(command.command_key):
             return
         action_fn = self.create_action_function(command.action_type, command.action_value)

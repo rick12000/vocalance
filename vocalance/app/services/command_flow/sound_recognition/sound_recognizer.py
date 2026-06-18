@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import gc
+import json
 import logging
 import os
-import pickle
 import shutil
 from collections import Counter
 from threading import RLock
@@ -51,6 +51,25 @@ class SimpleStandardScaler:
 
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
         return self.fit(X).transform(X)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize scaler state to JSON-compatible primitives."""
+        return {
+            "mean": self.mean.tolist() if self.mean is not None else None,
+            "std": self.std.tolist() if self.std is not None else None,
+            "is_fitted": self._is_fitted,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SimpleStandardScaler":
+        """Reconstruct a scaler from :meth:`to_dict` output."""
+        scaler = cls()
+        mean = data.get("mean")
+        std = data.get("std")
+        scaler.mean = np.asarray(mean, dtype=np.float32) if mean is not None else None
+        scaler.std = np.asarray(std, dtype=np.float32) if std is not None else None
+        scaler._is_fitted = bool(data.get("is_fitted", False))
+        return scaler
 
 
 class AudioPreprocessor:
@@ -212,8 +231,8 @@ class SoundRecognizer:
     async def _load_model_data_async(self) -> None:
         try:
             embeddings_path = os.path.join(self.model_path, "embeddings.npy")
-            labels_path = os.path.join(self.model_path, "labels.joblib")
-            scaler_path = os.path.join(self.model_path, "scaler.joblib")
+            labels_path = os.path.join(self.model_path, "labels.json")
+            scaler_path = os.path.join(self.model_path, "scaler.json")
 
             all_exist = all(os.path.exists(path) for path in [embeddings_path, labels_path, scaler_path])
 
@@ -222,11 +241,11 @@ class SoundRecognizer:
                 return
 
             with self._model_lock:
-                self.embeddings = np.load(embeddings_path)
-                with open(labels_path, "rb") as f:
-                    self.labels = pickle.load(f)
-                with open(scaler_path, "rb") as f:
-                    self.scaler = pickle.load(f)
+                self.embeddings = np.load(embeddings_path, allow_pickle=False)
+                with open(labels_path, "r", encoding="utf-8") as f:
+                    self.labels = json.load(f)
+                with open(scaler_path, "r", encoding="utf-8") as f:
+                    self.scaler = SimpleStandardScaler.from_dict(json.load(f))
 
             unique_sounds = len(set(self.labels))
             if unique_sounds > 0:
@@ -265,10 +284,10 @@ class SoundRecognizer:
     def _save_model_files_sync(self, embeddings: np.ndarray, labels: List[str], scaler_obj: "SimpleStandardScaler") -> bool:
         try:
             np.save(os.path.join(self.model_path, "embeddings.npy"), embeddings)
-            with open(os.path.join(self.model_path, "labels.joblib"), "wb") as f:
-                pickle.dump(labels, f)
-            with open(os.path.join(self.model_path, "scaler.joblib"), "wb") as f:
-                pickle.dump(scaler_obj, f)
+            with open(os.path.join(self.model_path, "labels.json"), "w", encoding="utf-8") as f:
+                json.dump(list(labels), f)
+            with open(os.path.join(self.model_path, "scaler.json"), "w", encoding="utf-8") as f:
+                json.dump(scaler_obj.to_dict(), f)
             logger.debug("Saved model files: %s embeddings, %s labels", len(embeddings), len(labels))
             return True
         except Exception as e:
@@ -684,7 +703,7 @@ class SoundRecognizer:
                 self.mappings = {}
                 self.scaler = SimpleStandardScaler()
 
-            model_files = ["embeddings.npy", "labels.joblib", "scaler.joblib"]
+            model_files = ["embeddings.npy", "labels.json", "scaler.json"]
             for filename in model_files:
                 filepath = os.path.join(self.model_path, filename)
                 if os.path.exists(filepath):

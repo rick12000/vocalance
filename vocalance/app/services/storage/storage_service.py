@@ -46,6 +46,8 @@ class StorageService:
         self.cache_ttl = config.storage.cache_ttl_seconds
         self.lock = threading.RLock()
         self.cache: Dict[str, CacheEntry] = {}
+        self._file_locks_guard = threading.Lock()
+        self._file_locks: Dict[str, threading.Lock] = {}
         self.path_map: Dict[Type[StorageData], str] = {
             MarksData: os.path.join(config.storage.marks_dir, "marks.json"),
             AppUserConfigDocument: os.path.join(config.storage.settings_dir, "app_user_config.json"),
@@ -139,12 +141,24 @@ class StorageService:
             return [self.materialize_for_json(item) for item in data]
         return data
 
+    def file_lock_for(self, path: Path) -> threading.Lock:
+        """Return a process-wide lock unique to ``path`` so reads/writes never interleave."""
+        key = os.path.abspath(str(path))
+        with self._file_locks_guard:
+            lock = self._file_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._file_locks[key] = lock
+            return lock
+
     def read_dict_from_disk(self, path: Path) -> Dict[str, Any]:
-        return read_json_dict(path)
+        with self.file_lock_for(path):
+            return read_json_dict(path)
 
     def persist_dict_to_disk(self, path: Path, data: Dict[str, Any]) -> bool:
         try:
-            write_json_atomic(path, self.materialize_for_json(data))
+            with self.file_lock_for(path):
+                write_json_atomic(path, self.materialize_for_json(data))
             return True
         except JsonWriteError as e:
             logger.error("Error writing JSON to %s: %s", path, e)

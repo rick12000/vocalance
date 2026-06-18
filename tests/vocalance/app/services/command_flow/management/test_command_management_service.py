@@ -191,7 +191,7 @@ async def test_get_command_mappings_includes_custom_and_defaults(command_managem
     custom_cmd = AutomationCommand(
         command_key="custom",
         action_type="hotkey",
-        action_value="ctrl+custom",
+        action_value="ctrl+k",
         is_custom=True,
         short_description="Custom",
         long_description="Custom command",

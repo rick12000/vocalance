@@ -226,6 +226,29 @@ async def test_invalid_repeat_count_rejected(automation_service):
 
 @pytest.mark.asyncio
 @patch("pyautogui.hotkey")
+async def test_repeat_count_capped_at_max(mock_hotkey, automation_service, app_config):
+    """Repeat count above max_repeat_count is silently clamped to the configured cap."""
+    app_config.automation_service.max_repeat_count = 3
+    automation_service.config = app_config
+
+    command = ParameterizedCommand(
+        command_key="copy",
+        action_type="hotkey",
+        action_value="ctrl+c",
+        count=999,
+        is_custom=False,
+        short_description="Copy",
+        long_description="Copy text",
+    )
+
+    await automation_service.event_bus.publish(AutomationCommandParsedEvent(command=command, source="speech"))
+    await asyncio.sleep(0.3)
+
+    assert mock_hotkey.call_count == 3
+
+
+@pytest.mark.asyncio
+@patch("pyautogui.hotkey")
 async def test_command_mappings_update_clears_cooldowns(mock_hotkey, automation_service):
     """Test that command mapping updates clear cooldown timers."""
     service = automation_service
