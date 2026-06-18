@@ -37,6 +37,7 @@ from vocalance.app.events.dictation_events import (
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.lifecycle import AppLifecycle
 from vocalance.app.lifecycle.worker import run_blocking
+from vocalance.app.services.activity_tracker import ActivityTracker
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.dictation_flow.dictation_alias_service import DictationAliasService
 from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import AgenticPromptService
@@ -322,7 +323,18 @@ class DictationLlmRuntime:
         if not self.coordinator.config.dictation.enable_dictation_formatting:
             processed_text = remove_formatting(text=processed_text, is_first_word_of_session=True)
 
+        with self.coordinator.state_lock:
+            session = self.coordinator.current_session
+
         await self.coordinator.text_service.input_text(processed_text)
+
+        self.coordinator.activity_tracker.log_dictation(
+            text=processed_text,
+            mode=str(session.mode) if session else "smart",
+            session_id=session.session_id if session else "",
+            llm_enhanced=True,
+            active_modifiers=set(session.active_modifiers) if session else set(),
+        )
 
         await self.cleanup_session()
 
@@ -376,6 +388,7 @@ class DictationCoordinator(Service):
         gui_event_loop: asyncio.AbstractEventLoop,
         input_service: KeyboardInputService,
         lifecycle: AppLifecycle,
+        activity_tracker: ActivityTracker,
         cancel_token: Optional[CancellationToken] = None,
     ) -> None:
         super().__init__(event_bus)
@@ -384,6 +397,7 @@ class DictationCoordinator(Service):
         self.input_service = input_service
         self.lifecycle = lifecycle
         self.cancel_token = cancel_token
+        self.activity_tracker = activity_tracker
 
         self.state_lock = threading.RLock()
 
@@ -578,6 +592,13 @@ class DictationCoordinator(Service):
             add_trailing_space=add_trailing,
             skip_prose_segment_join_rules=skip_join,
         )
+        self.activity_tracker.log_dictation(
+            text=cleaned_text,
+            mode=str(session.mode),
+            session_id=session.session_id,
+            llm_enhanced=False,
+            active_modifiers=set(session.active_modifiers),
+        )
 
     async def handle_dictation_command(self, parsed_dictation: DictationCommandParsedEvent) -> None:
         command = parsed_dictation.command
@@ -671,6 +692,13 @@ class DictationCoordinator(Service):
             if final_text:
                 await self.event_bus.publish(DictationSessionEvent(mode="visual", state="stopped", accumulated_text=final_text))
                 await self.text_service.input_text(final_text)
+                self.activity_tracker.log_dictation(
+                    text=final_text,
+                    mode=str(session.mode),
+                    session_id=session.session_id,
+                    llm_enhanced=False,
+                    active_modifiers=set(session.active_modifiers),
+                )
             else:
                 await self.event_bus.publish(DictationSessionEvent(mode="visual", state="stopped", accumulated_text=""))
             await self.exit_dictation_ui(reset_modifiers=True)
@@ -678,6 +706,13 @@ class DictationCoordinator(Service):
             if final_text:
                 await self.event_bus.publish(DictationSessionEvent(mode="hidden", state="stopped", accumulated_text=final_text))
                 await self.text_service.input_text(final_text)
+                self.activity_tracker.log_dictation(
+                    text=final_text,
+                    mode=str(session.mode),
+                    session_id=session.session_id,
+                    llm_enhanced=False,
+                    active_modifiers=set(session.active_modifiers),
+                )
             else:
                 await self.event_bus.publish(DictationSessionEvent(mode="hidden", state="stopped", accumulated_text=""))
             await self.exit_dictation_ui(reset_modifiers=True)

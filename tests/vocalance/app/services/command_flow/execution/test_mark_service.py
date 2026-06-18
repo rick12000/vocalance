@@ -1,6 +1,9 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 from vocalance.app.config.command_types import MarkCreateCommand, MarkDeleteCommand, MarkExecuteCommand
 from vocalance.app.events.command_events import MarkCommandParsedEvent

@@ -3,3 +3,11 @@ max-line-length = 131
 ignore = E203,W503,E501
 per-file-ignores =
     vocalance/qt_main.py:E402
+    tests/vocalance/app/services/command_flow/execution/test_automation_service.py:E402
+    tests/vocalance/app/services/command_flow/execution/test_mark_service.py:E402
+    tests/vocalance/app/services/command_flow/parsing/test_centralized_command_parser.py:E402
+    tests/vocalance/app/services/command_flow/parsing/test_text_command_parse.py:E402
+    tests/vocalance/app/services/dictation_flow/test_dictation_coordinator_core.py:E402
+    tests/vocalance/app/services/dictation_flow/test_text_input_service.py:E402
+    tests/vocalance/app/services/capture/test_audio_capture_service.py:E402
+    tests/conftest.py:E402

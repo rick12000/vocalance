@@ -1,4 +1,7 @@
 import pytest
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 
 @pytest.mark.asyncio

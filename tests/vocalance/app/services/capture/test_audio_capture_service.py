@@ -3,6 +3,9 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 from vocalance.app.events.core_events import AudioChunkCapturedEvent, AudioDeviceErrorEvent
 from vocalance.app.services.capture.audio_capture_service import AudioCaptureService

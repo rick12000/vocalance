@@ -97,11 +97,14 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@v5
 
+    - name: Install system dependencies
+      run: sudo apt-get install -y libportaudio2 xvfb
+
     - name: Install application with dev dependencies
       run: uv pip install --system -e ".[dev]"
 
     - name: Run unit tests
-      run: pytest -m "not slow and not integration and not memory and not stress"
+      run: xvfb-run --auto-servernum pytest --ignore=tests/integration -m "not slow and not integration and not memory and not stress"
 
   verify-logging-default-off:
     name: Verify enable_logs defaults to false
@@ -114,3 +117,15 @@ jobs:
 
       - name: Assert LoggingConfigModel.enable_logs is default False
         run: python3 scripts/ci/assert_logging_disabled_by_default.py
+
+  verify-activity-tracking-default-off:
+    name: Verify activity tracking defaults to false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert ActivityTrackingConfig.enabled is default False
+        run: python3 scripts/ci/assert_activity_tracking_disabled_by_default.py

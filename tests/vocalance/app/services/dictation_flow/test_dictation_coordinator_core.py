@@ -1,4 +1,7 @@
 import pytest
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 from vocalance.app.services.dictation_flow.dictation_coordinator import DictationSegmentPipeline, substitute_alias_placeholders
 from vocalance.app.services.dictation_flow.types import DictationMode, DictationSession, DictationState

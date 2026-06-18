@@ -48,6 +48,7 @@ def _service_specs() -> List[ServiceSpec]:
     only fire when ``_construct_services`` runs (on a worker thread), not on
     ``qt_main`` import and not on the GUI thread.
     """
+    from vocalance.app.services.activity_tracker import ActivityTracker
     from vocalance.app.services.capture.audio_capture_service import AudioCaptureService
     from vocalance.app.services.command_flow.execution.automation_service import AutomationService
     from vocalance.app.services.command_flow.execution.grid.click_tracker_service import ClickTrackerService
@@ -66,6 +67,13 @@ def _service_specs() -> List[ServiceSpec]:
     from vocalance.app.services.storage.storage_service import StorageService
 
     return [
+        ServiceSpec(
+            name="activity_tracker",
+            factory=lambda c: ActivityTracker(
+                config=c["config"].activity_tracking,
+                activity_logs_dir=c["config"].storage.activity_logs_dir,
+            ),
+        ),
         ServiceSpec(name="input_service", factory=lambda c: KeyboardInputService(event_bus=c["event_bus"])),
         ServiceSpec(name="storage", factory=lambda c: StorageService(config=c["config"])),
         ServiceSpec(
@@ -76,7 +84,12 @@ def _service_specs() -> List[ServiceSpec]:
         ServiceSpec(name="grid", factory=lambda c: GridService(event_bus=c["event_bus"], config=c["config"])),
         ServiceSpec(
             name="automation",
-            factory=lambda c: AutomationService(event_bus=c["event_bus"], config=c["config"], input_service=c["input_service"]),
+            factory=lambda c: AutomationService(
+                event_bus=c["event_bus"],
+                config=c["config"],
+                input_service=c["input_service"],
+                activity_tracker=c["activity_tracker"],
+            ),
         ),
         ServiceSpec(
             name="click_tracker",
@@ -140,6 +153,7 @@ def _service_specs() -> List[ServiceSpec]:
                 gui_event_loop=c["gui_loop"],
                 input_service=c["input_service"],
                 lifecycle=c["lifecycle"],
+                activity_tracker=c["activity_tracker"],
                 cancel_token=c["cancel_token"],
             ),
         ),

@@ -8,6 +8,7 @@ from vocalance.app.config.command_types import ActionType, ParameterizedCommand
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_events import AutomationCommandParsedEvent
 from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
+from vocalance.app.services.activity_tracker import ActivityTracker
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.keyboard_input_service import KeyboardInputService
 
@@ -15,10 +16,13 @@ from vocalance.app.services.keyboard_input_service import KeyboardInputService
 class AutomationService(Service):
     """Runs automation commands (hotkeys, clicks, scrolls) via pyautogui on a thread pool."""
 
-    def __init__(self, event_bus: EventBus, config: GlobalAppConfig, input_service: KeyboardInputService) -> None:
+    def __init__(
+        self, event_bus: EventBus, config: GlobalAppConfig, input_service: KeyboardInputService, activity_tracker: ActivityTracker
+    ) -> None:
         super().__init__(event_bus)
         self.config = config
         self.input_service = input_service
+        self.activity_tracker = activity_tracker
         self.cooldown_timers: Dict[str, float] = {}
         self.subscribe(AutomationCommandParsedEvent, self.handle_automation_command_parsed)
         self.subscribe(CommandMappingsUpdatedEvent, self.handle_command_mappings_updated)
@@ -36,6 +40,7 @@ class AutomationService(Service):
             return
         await self.input_service.run(self.run_action, action_fn, count)
         self.cooldown_timers[command.command_key] = time.time()
+        self.activity_tracker.log_automation(command, count)
 
     def run_action(self, action_fn: Callable[[], None], count: int) -> None:
         for _ in range(count):

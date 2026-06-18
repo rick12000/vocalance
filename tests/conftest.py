@@ -15,6 +15,29 @@ from vocalance.app.services.capture.vad import AdaptiveVADThreshold, AudioProces
 from vocalance.app.services.command_flow.speech_recognition.command_speech_service import CommandSpeechService
 from vocalance.app.services.command_flow.speech_recognition.vosk_engine import VoskEngine
 
+# import sys
+
+# sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def skip_if_headless() -> None:
+    """Skip the calling test module when display or audio hardware is unavailable.
+
+    Place immediately after `from conftest import skip_if_headless` at the top of
+    every test module, before any production-code imports.  On a headless CI runner
+    both pyautogui (DISPLAY) and sounddevice (PortAudio) fail at import time; calling
+    this function once per module causes pytest to mark the entire module as skipped
+    before any failing import is attempted.
+    """
+    try:
+        import pyautogui  # noqa: F401
+    except Exception:
+        pytest.skip("requires display (pyautogui)", allow_module_level=True)
+    try:
+        import sounddevice  # noqa: F401
+    except OSError:
+        pytest.skip("requires audio hardware (sounddevice)", allow_module_level=True)
+
 
 @pytest.fixture
 def sample_rate():
@@ -765,7 +788,7 @@ async def automation_service(event_bus, app_config):
     from vocalance.app.services.keyboard_input_service import KeyboardInputService
 
     input_service = KeyboardInputService(event_bus=event_bus)
-    service = AutomationService(event_bus, app_config, input_service=input_service)
+    service = AutomationService(event_bus, app_config, input_service=input_service, activity_tracker=Mock())
     yield service
     await input_service.shutdown()
 
@@ -1012,6 +1035,7 @@ def dictation_coordinator(mock_event_bus, app_config, mock_storage_service):
             gui_event_loop=loop,
             input_service=Mock(),
             lifecycle=Mock(),
+            activity_tracker=Mock(),
         )
     yield coordinator
     loop.close()

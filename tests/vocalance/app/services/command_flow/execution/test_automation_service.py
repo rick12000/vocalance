@@ -2,6 +2,9 @@ import time
 from unittest.mock import Mock, patch
 
 import pytest
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 from vocalance.app.config.command_types import ExactMatchCommand, ParameterizedCommand
 from vocalance.app.events.command_events import AutomationCommandParsedEvent

@@ -1,6 +1,9 @@
 from unittest.mock import patch
 
 import pytest
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 from vocalance.app.config.command_types import (
     DictationAmendStartCommand,

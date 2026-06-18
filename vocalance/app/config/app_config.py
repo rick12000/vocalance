@@ -894,6 +894,7 @@ class StorageConfig(BaseModel):
     click_tracker_subdir: str = "click_tracker"
     settings_subdir: str = "settings"
     llm_models_subdir: str = "llm_models"
+    activity_logs_subdir: str = "activity_logs"
     external_non_target_sounds_subdir: str = "external_non_target_sounds"
     marks_filename: str = "marks.json"
     click_history_filename: str = "click_history.json"
@@ -905,8 +906,27 @@ class StorageConfig(BaseModel):
     marks_dir: Optional[str] = None
     llm_models_dir: Optional[str] = None
     click_tracker_dir: Optional[str] = None
+    activity_logs_dir: Optional[str] = None
     cache_ttl_seconds: float = Field(
         default=300.0, description="Cache time-to-live in seconds for storage service read operations"
+    )
+
+
+class ActivityTrackingConfig(BaseModel):
+    """Configuration for structured JSON activity tracking.
+
+    Controls whether final dictation outputs and PyAutoGUI automation events are
+    written as structured JSON Lines to a per-session log file. Disabled by
+    default (privacy-first).
+
+    Attributes:
+        enabled: When true, write structured JSON events to the activity_logs
+            directory under user data. When false, no activity log output.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable structured JSON activity tracking to disk. When false: no activity log output (privacy-first).",
     )
 
 
@@ -919,6 +939,7 @@ class GlobalAppConfig(BaseModel):
     """
 
     logging: LoggingConfigModel = LoggingConfigModel()
+    activity_tracking: ActivityTrackingConfig = ActivityTrackingConfig()
     app_info: AppInfoConfig = AppInfoConfig()
     asset_paths: AssetPathsConfig = AssetPathsConfig()
     vad: VADConfig = VADConfig()
@@ -963,6 +984,7 @@ class GlobalAppConfig(BaseModel):
         marks_dir = os.path.join(user_data_root, storage.marks_subdir)
         click_tracker_dir = os.path.join(user_data_root, storage.click_tracker_subdir)
         llm_models_dir = os.path.join(user_data_root, storage.llm_models_subdir)
+        activity_logs_dir = os.path.join(user_data_root, storage.activity_logs_subdir)
 
         for d in [
             sound_model_dir,
@@ -972,6 +994,7 @@ class GlobalAppConfig(BaseModel):
             marks_dir,
             click_tracker_dir,
             llm_models_dir,
+            activity_logs_dir,
         ]:
             os.makedirs(d, exist_ok=True)
 
@@ -983,6 +1006,7 @@ class GlobalAppConfig(BaseModel):
         storage.marks_dir = marks_dir
         storage.click_tracker_dir = click_tracker_dir
         storage.llm_models_dir = llm_models_dir
+        storage.activity_logs_dir = activity_logs_dir
 
     @property
     def local_llm_allowlist(self) -> LocalLLMAllowList:

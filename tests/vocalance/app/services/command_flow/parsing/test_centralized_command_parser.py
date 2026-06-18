@@ -1,6 +1,9 @@
 from unittest.mock import Mock
 
 import pytest
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 from vocalance.app.config.command_types import ExactMatchCommand, ResumeCommand, SoundTrainCommand
 from vocalance.app.events.command_events import AutomationCommandParsedEvent, SystemControlCommandParsedEvent
