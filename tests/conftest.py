@@ -37,6 +37,10 @@ def skip_if_headless() -> None:
         import sounddevice  # noqa: F401
     except OSError:
         pytest.skip("requires audio hardware (sounddevice)", allow_module_level=True)
+    try:
+        from PySide6.QtGui import QFont  # noqa: F401
+    except ImportError:
+        pytest.skip("requires OpenGL libraries (PySide6.QtGui)", allow_module_level=True)
 
 
 @pytest.fixture

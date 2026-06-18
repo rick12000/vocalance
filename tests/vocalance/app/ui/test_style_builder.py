@@ -1,3 +1,7 @@
+from conftest import skip_if_headless
+
+skip_if_headless()
+
 from vocalance.app.ui.style.builder import build_app_stylesheet, collect_theme_tokens, inject_tokens_into_qss
 
 

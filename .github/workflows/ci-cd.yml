@@ -98,7 +98,7 @@ jobs:
       uses: astral-sh/setup-uv@v5
 
     - name: Install system dependencies
-      run: sudo apt-get install -y libportaudio2 xvfb
+      run: sudo apt-get install -y libportaudio2 xvfb libgl1 libegl1
 
     - name: Install application with dev dependencies
       run: uv pip install --system -e ".[dev]"

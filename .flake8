@@ -10,4 +10,5 @@ per-file-ignores =
     tests/vocalance/app/services/dictation_flow/test_dictation_coordinator_core.py:E402
     tests/vocalance/app/services/dictation_flow/test_text_input_service.py:E402
     tests/vocalance/app/services/capture/test_audio_capture_service.py:E402
+    tests/vocalance/app/ui/test_style_builder.py:E402
     tests/conftest.py:E402
