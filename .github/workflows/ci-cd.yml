@@ -102,7 +102,7 @@ jobs:
       run: sudo apt-get install -y libportaudio2 xvfb
 
     - name: Install application with dev dependencies
-      run: uv pip install --system -e ".[dev]"
+      run: uv pip install --system -e ".[dev,llm]"
 
     - name: Run unit tests
       run: xvfb-run --auto-servernum pytest --ignore=tests/integration -m "not slow and not integration and not memory and not stress"
