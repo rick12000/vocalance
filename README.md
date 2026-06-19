@@ -43,6 +43,8 @@ To get started with installation, either follow the steps below or watch the [in
 
    *If you'd like to inspect what the script will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.*
 
+   **A Windows security prompt (UAC) will appear asking for administrator permissions** — this is expected. The installer needs administrator rights to install Vocalance into `C:\Program Files\`, which protects the application files from being modified by other processes running on your machine.
+
    During setup you will be asked whether to enable LLM features. Answer **yes** if you want to enable AI dictation and AI text editing functionality, otherwise answer **no**.
 
 3. Open Vocalance from the Start Menu (search "vocalance" if not featured):
@@ -133,7 +135,7 @@ Run [scripts/bootstrapping/cleanup.ps1](https://github.com/rick12000/vocalance/b
 powershell -ExecutionPolicy Bypass -File .\cleanup.ps1
 ```
 
-This removes the application files (`%LOCALAPPDATA%\Programs\Vocalance\`), user data (`%APPDATA%\vocalance_voice_assistant_data\`), and the Start Menu shortcut. It does not remove system-level tools such as UV.
+This removes the application files (`C:\Program Files\Vocalance\`), user data (`%APPDATA%\vocalance_voice_assistant_data\`), and the Start Menu shortcut. It does not remove system-level tools such as UV. Administrator rights are required (UAC prompt will appear).
 
 
 ## ⚠️ Disclaimers

@@ -61,9 +61,10 @@ This means every copy of `setup.ps1` always installs **exactly the version it wa
 with**, regardless of when it is run. There is no "latest" resolution at install time.
 Users who want a newer version need a newer copy of `setup.ps1`.
 
-The application is always installed to `%LOCALAPPDATA%\Programs\Vocalance\` — a fixed,
-user-scoped path that requires no administrator rights and is consistent across all machines.
-The Start Menu shortcut is written to the same location on every install.
+The application is always installed to `C:\Program Files\Vocalance\` — a fixed,
+system-scoped path that requires administrator rights (UAC prompt) and is consistent across all machines.
+The install directory is locked to read/execute for standard users; only administrators and SYSTEM
+can modify its contents. The Start Menu shortcut is written to the same location on every install.
 
 After extraction, dependencies are installed with `uv sync --frozen`, which requires the
 `uv.lock` file to be satisfied exactly. If any dependency resolution would deviate from the

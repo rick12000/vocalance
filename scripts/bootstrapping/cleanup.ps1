@@ -5,14 +5,22 @@
 
 .DESCRIPTION
     Removes:
-    - %LOCALAPPDATA%\Programs\Vocalance\  (application files and virtual environment)
+    - C:\Program Files\Vocalance\  (application files and virtual environment)
     - %APPDATA%\vocalance_voice_assistant_data\  (user data, settings, models, aliases)
     - Start Menu shortcut (Vocalance.lnk)
+
+    Requires administrator privileges — will self-elevate via UAC if needed.
 #>
 
 $ErrorActionPreference = 'Stop'
 
-$INSTALL_ROOT = Join-Path $env:LOCALAPPDATA 'Programs\Vocalance'
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    exit
+}
+
+$INSTALL_ROOT = Join-Path $env:ProgramFiles 'Vocalance'
 $USER_DATA    = Join-Path $env:APPDATA 'vocalance_voice_assistant_data'
 $SHORTCUT     = Join-Path ([Environment]::GetFolderPath('Programs')) 'Vocalance.lnk'
 
@@ -34,7 +42,7 @@ function Remove-IfExists {
     }
 }
 
-Remove-IfExists -Path $INSTALL_ROOT -Label 'application files'
+Remove-IfExists -Path $INSTALL_ROOT -Label "application files ($INSTALL_ROOT)"
 Remove-IfExists -Path $USER_DATA    -Label 'user data'
 Remove-IfExists -Path $SHORTCUT     -Label 'Start Menu shortcut'
 

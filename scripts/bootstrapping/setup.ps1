@@ -4,22 +4,31 @@
     Install Vocalance and create a Start Menu shortcut.
 
 .NOTES
-    UV (if missing): installed from Astral's official versioned release URL.
+    UV (if missing): downloaded to a temp file, its SHA-256 verified, then executed.
+    Requires administrator privileges — will self-elevate via UAC if needed.
 
 .PARAMETER SkipReinstallPrompt
     If Vocalance is already installed, skip the reinstall prompt and overwrite silently.
 #>
 param(
-    [string] $Repo = 'rick12000/vocalance',
     [switch] $SkipReinstallPrompt
 )
 
 $ErrorActionPreference = 'Stop'
 
 $VOCALANCE_VERSION = '0.0.1'
-$UV_VERSION        = '0.11.22'
+$VOCALANCE_REPO   = 'rick12000/vocalance'
+$UV_VERSION       = '0.11.22'
 
-$INSTALL_ROOT = Join-Path $env:LOCALAPPDATA 'Programs\Vocalance'
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $args_ = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    if ($SkipReinstallPrompt) { $args_ += ' -SkipReinstallPrompt' }
+    Start-Process powershell -Verb RunAs -ArgumentList $args_
+    exit
+}
+
+$INSTALL_ROOT = Join-Path $env:ProgramFiles 'Vocalance'
 $APP_DIR      = Join-Path $INSTALL_ROOT 'app'
 $VENV_DIR     = Join-Path $INSTALL_ROOT 'env'
 $PY_EXE       = Join-Path $VENV_DIR 'Scripts\python.exe'
@@ -65,7 +74,7 @@ if (Test-Path -LiteralPath $INSTALL_ROOT) {
     Remove-Item -LiteralPath $INSTALL_ROOT -Recurse -Force
 }
 
-$zipUrl = "https://github.com/$Repo/releases/download/v$VOCALANCE_VERSION/vocalance-v$VOCALANCE_VERSION.zip"
+$zipUrl = "https://github.com/$VOCALANCE_REPO/releases/download/v$VOCALANCE_VERSION/vocalance-v$VOCALANCE_VERSION.zip"
 $tmpZip = Join-Path $env:TEMP "vocalance-v$VOCALANCE_VERSION.zip"
 
 Write-Host "Downloading Vocalance v$VOCALANCE_VERSION..."
@@ -73,6 +82,20 @@ Invoke-WebRequest -Uri $zipUrl -OutFile $tmpZip -UseBasicParsing
 New-Item -ItemType Directory -Force -Path $APP_DIR | Out-Null
 Expand-Archive -Path $tmpZip -DestinationPath $APP_DIR -Force
 Remove-Item $tmpZip -Force
+
+Write-Host "Locking down install directory permissions..."
+$acl = Get-Acl -LiteralPath $INSTALL_ROOT
+$acl.SetAccessRuleProtection($true, $false)
+$adminRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+    'BUILTIN\Administrators', 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+$systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+    'NT AUTHORITY\SYSTEM', 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+$usersRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+    'BUILTIN\Users', 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+$acl.AddAccessRule($adminRule)
+$acl.AddAccessRule($systemRule)
+$acl.AddAccessRule($usersRule)
+Set-Acl -LiteralPath $INSTALL_ROOT -AclObject $acl
 
 Write-Host "Creating virtual environment..."
 uv venv --python 3.13.9 $VENV_DIR
