@@ -29,9 +29,6 @@ Vocalance can be set up entirely from the source code in this repository (curren
 ### ✨ **Easy Setup (Recommended)**
 
 > [!IMPORTANT]
-> Ensure Git is installed. If not, download the latest Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
-
-> [!IMPORTANT]
 > If you want to enable AI features, ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed — download the installer, run it, and tick "**Desktop development with C++**" under workloads.
 
 To get started with installation, either follow the steps below or watch the [installation walkthrough on YouTube](https://www.youtube.com/watch?v=p2_gPICZ9x8).
@@ -130,12 +127,13 @@ If you're more familiar with a mixture of a virtual environment manager (eg. `ve
 
 ### 🧹 Cleanup
 
-To remove Vocalance after installing:
+Run [scripts/bootstrapping/cleanup.ps1](https://github.com/rick12000/vocalance/blob/main/scripts/bootstrapping/cleanup.ps1) to uninstall Vocalance completely:
 
-- **Repository and environment:** Delete `vocalance-prod` and `vocalance_env` folders from your installation directory (you chose this directory when you ran setup.ps1)
-- **User data and shortcut:** Run [scripts/bootstrapping/cleanup.ps1](https://github.com/rick12000/vocalance/blob/main/scripts/bootstrapping/cleanup.ps1) to remove your personal data and Start Menu shortcut
+```powershell
+powershell -ExecutionPolicy Bypass -File .\cleanup.ps1
+```
 
-The cleanup script removes all Vocalance user data stored in `%APPDATA%\vocalance_voice_assistant_data\` (settings, downloaded models, custom commands, aliases) and the Start Menu shortcut. It does not remove third-party package caches or system-level tools.
+This removes the application files (`%LOCALAPPDATA%\Programs\Vocalance\`), user data (`%APPDATA%\vocalance_voice_assistant_data\`), and the Start Menu shortcut. It does not remove system-level tools such as UV.
 
 
 ## ⚠️ Disclaimers

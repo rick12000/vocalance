@@ -1,25 +1,29 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Clone Vocalance (if needed), install UV/venv/deps, create Start Menu shortcut.
+    Install Vocalance and create a Start Menu shortcut.
 
 .NOTES
-    Run from the directory that should contain the vocalance-prod folder (its parent). After setup, launch from Start Menu.
+    UV (if missing): installed from Astral's official versioned release URL.
 
-    Git must already be installed (PATH). Official Windows download: https://git-scm.com/download/win
-
-    UV (if missing): optional install via Astral’s official script:
-    https://docs.astral.sh/uv/installation/
-
-.PARAMETER SkipVenvOverwritePrompt
-    If an existing vocalance_env is present, do not prompt: keep it and only run uv sync (useful when re-running after updates).
+.PARAMETER SkipReinstallPrompt
+    If Vocalance is already installed, skip the reinstall prompt and overwrite silently.
 #>
 param(
-    [string] $CloneUrl = 'https://github.com/rick12000/vocalance.git',
-    [switch] $SkipVenvOverwritePrompt
+    [string] $Repo = 'rick12000/vocalance',
+    [switch] $SkipReinstallPrompt
 )
 
 $ErrorActionPreference = 'Stop'
+
+$VOCALANCE_VERSION = '0.0.1'
+$UV_VERSION        = '0.11.22'
+
+$INSTALL_ROOT = Join-Path $env:LOCALAPPDATA 'Programs\Vocalance'
+$APP_DIR      = Join-Path $INSTALL_ROOT 'app'
+$VENV_DIR     = Join-Path $INSTALL_ROOT 'env'
+$PY_EXE       = Join-Path $VENV_DIR 'Scripts\python.exe'
+$PYTHONW      = Join-Path $VENV_DIR 'Scripts\pythonw.exe'
 
 function Test-YesAnswer {
     param([string] $Raw)
@@ -28,167 +32,74 @@ function Test-YesAnswer {
     return ($t -eq 'yes' -or $t -eq 'y')
 }
 
-function Update-SessionPathFromRegistry {
+function Update-SessionPath {
     $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    $user = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $parts = @()
+    $user    = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $parts   = @()
     if ($machine) { $parts += $machine }
-    if ($user) { $parts += $user }
-    if ($parts.Count -gt 0) {
-        $env:Path = ($parts -join ';')
-    }
+    if ($user)    { $parts += $user }
+    if ($parts.Count -gt 0) { $env:Path = ($parts -join ';') }
 }
 
-function Prepend-GitCmdIfPresent {
-    $gitCmd = Join-Path $env:ProgramFiles 'Git\cmd'
-    if (Test-Path -LiteralPath (Join-Path $gitCmd 'git.exe')) {
-        $env:Path = "$gitCmd;$env:Path"
-    }
-}
-
-Update-SessionPathFromRegistry
-Prepend-GitCmdIfPresent
-
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    throw 'Git is required but was not found on PATH. Install the latest Git for Windows from https://git-scm.com/download/win then open a new PowerShell window and run this script again.'
-}
-
-Update-SessionPathFromRegistry
+Update-SessionPath
 $env:Path = "$HOME\.local\bin;$env:Path"
-Prepend-GitCmdIfPresent
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    Write-Host ''
-    Write-Host 'UV was not found.'
-    Write-Host 'The installer is Astral’s published script (same approach as https://docs.astral.sh/uv/installation/).'
-    $answer = Read-Host 'Install UV now? Type yes or no'
-    if (-not (Test-YesAnswer $answer)) {
-        Write-Host 'Setup aborted (UV is required for dependencies and the virtual environment).'
-        exit 1
-    }
-    Write-Host 'Installing UV...'
-    powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex"
-    Update-SessionPathFromRegistry
+    $answer = Read-Host 'UV is required but not found. Install it now? (yes/no)'
+    if (-not (Test-YesAnswer $answer)) { exit 1 }
+    powershell -ExecutionPolicy Bypass -c "irm https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-installer.ps1 | iex"
+    Update-SessionPath
     $env:Path = "$HOME\.local\bin;$env:Path"
-    Prepend-GitCmdIfPresent
 }
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    Write-Host 'UV is still not available in this session. Close this window, open a new PowerShell, and run this script again.'
+    Write-Host 'UV is still not available. Open a new PowerShell window and run this script again.'
     exit 1
 }
 
-$cwd = (Get-Location).Path
-$cloneDir = Join-Path $cwd 'vocalance-prod'
-
-if (Test-Path -LiteralPath $cloneDir) {
-    Write-Host ''
-    Write-Host "A folder named vocalance-prod already exists at:"
-    Write-Host "  $cloneDir"
-    $answer = Read-Host 'Replace it with a fresh git clone? Type yes or no'
-    if (-not (Test-YesAnswer $answer)) {
-        Write-Host 'Setup aborted.'
-        exit 1
+if (Test-Path -LiteralPath $INSTALL_ROOT) {
+    if (-not $SkipReinstallPrompt) {
+        $answer = Read-Host "Vocalance is already installed at $INSTALL_ROOT. Reinstall? (yes/no)"
+        if (-not (Test-YesAnswer $answer)) { exit 1 }
     }
-    Write-Host 'Removing existing folder...'
-    Remove-Item -LiteralPath $cloneDir -Recurse -Force
-    Write-Host "Cloning into $cloneDir ..."
-    git clone $CloneUrl $cloneDir
-} else {
-    Write-Host "Cloning into $cloneDir ..."
-    git clone $CloneUrl $cloneDir
+    Remove-Item -LiteralPath $INSTALL_ROOT -Recurse -Force
 }
 
-$repoRoot = $cloneDir
-Set-Location -LiteralPath $repoRoot
+$zipUrl = "https://github.com/$Repo/releases/download/v$VOCALANCE_VERSION/vocalance-v$VOCALANCE_VERSION.zip"
+$tmpZip = Join-Path $env:TEMP "vocalance-v$VOCALANCE_VERSION.zip"
 
-Update-SessionPathFromRegistry
-$env:Path = "$HOME\.local\bin;$env:Path"
-Prepend-GitCmdIfPresent
+Write-Host "Downloading Vocalance v$VOCALANCE_VERSION..."
+Invoke-WebRequest -Uri $zipUrl -OutFile $tmpZip -UseBasicParsing
+New-Item -ItemType Directory -Force -Path $APP_DIR | Out-Null
+Expand-Archive -Path $tmpZip -DestinationPath $APP_DIR -Force
+Remove-Item $tmpZip -Force
 
-$parentDir = Split-Path -Parent $repoRoot
-$venvPath = Join-Path $parentDir 'vocalance_env'
-$pyExe = Join-Path $venvPath 'Scripts\python.exe'
-$pythonw = Join-Path $venvPath 'Scripts\pythonw.exe'
+Write-Host "Creating virtual environment..."
+uv venv --python 3.13.9 $VENV_DIR
 
-$venvDirExists = Test-Path -LiteralPath $venvPath -PathType Container
-$venvUsable = Test-Path -LiteralPath $pyExe
-
-if ($venvDirExists -and $venvUsable) {
-    if (-not $SkipVenvOverwritePrompt) {
-        Write-Host ''
-        Write-Host "A virtual environment named vocalance_env already exists at:"
-        Write-Host "  $venvPath"
-        $answer = Read-Host 'Overwrite it (delete and recreate)? Type yes or no'
-        if (-not (Test-YesAnswer $answer)) {
-            Write-Host 'Setup aborted.'
-            exit 1
-        }
-        Write-Host 'Removing existing virtual environment...'
-        Remove-Item -LiteralPath $venvPath -Recurse -Force
-    }
-} elseif ($venvDirExists -and -not $venvUsable) {
-    if ($SkipVenvOverwritePrompt) {
-        Write-Host "Removing incomplete vocalance_env at $venvPath ..."
-        Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction Stop
-    } else {
-        Write-Host ''
-        Write-Host "A folder named vocalance_env already exists at:"
-        Write-Host "  $venvPath"
-        Write-Host 'It does not look like a complete virtual environment.'
-        $answer = Read-Host 'Remove it and create a fresh one? Type yes or no'
-        if (-not (Test-YesAnswer $answer)) {
-            Write-Host 'Setup aborted.'
-            exit 1
-        }
-        Write-Host 'Removing folder...'
-        Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction Stop
-    }
-}
-
-if (-not (Test-Path -LiteralPath $pyExe)) {
-    Write-Host "Creating virtual environment at $venvPath ..."
-    uv venv --python 3.13.9 $venvPath
-}
-
-Write-Host ''
-Write-Host 'Vocalance supports an optional LLM (AI) feature set that enables smart dictation and'
-Write-Host 'text-amend modes powered by a local language model.'
-Write-Host ''
-Write-Host 'LLM features require:'
-Write-Host '  - Microsoft C++ Build Tools (for compiling llama-cpp-python)'
-Write-Host '  - An additional ~2 GB of disk space for the model download'
-Write-Host '  - Longer first-launch startup while the model downloads'
-Write-Host ''
-$llmAnswer = Read-Host 'Enable LLM features? Type yes or no'
-$installLlm = Test-YesAnswer $llmAnswer
+$llmAnswer = Read-Host 'Enable LLM features? (requires ~2 GB and Microsoft C++ Build Tools) (yes/no)'
 
 Write-Host 'Installing dependencies...'
-$env:VIRTUAL_ENV = $venvPath
-$env:UV_PROJECT_ENVIRONMENT = $venvPath
-if ($installLlm) {
-    Write-Host 'Installing with LLM features...'
-    uv sync --extra llm
+$env:VIRTUAL_ENV            = $VENV_DIR
+$env:UV_PROJECT_ENVIRONMENT = $VENV_DIR
+Set-Location -LiteralPath $APP_DIR
+if (Test-YesAnswer $llmAnswer) {
+    uv sync --frozen --extra llm
 } else {
-    Write-Host 'Installing without LLM features...'
-    uv sync
+    uv sync --frozen
 }
 
-$mainScript = Join-Path $repoRoot 'vocalance.py'
-$iconPath = Join-Path $repoRoot 'vocalance\app\assets\logo\icon.ico'
-$pythonw = Join-Path $venvPath 'Scripts\pythonw.exe'
+$mainScript = Join-Path $APP_DIR 'vocalance.py'
+$iconPath   = Join-Path $APP_DIR 'vocalance\app\assets\logo\icon.ico'
 
-$shell = New-Object -ComObject WScript.Shell
-$programs = [Environment]::GetFolderPath('Programs')
+$shell        = New-Object -ComObject WScript.Shell
+$programs     = [Environment]::GetFolderPath('Programs')
 $shortcutPath = Join-Path $programs 'Vocalance.lnk'
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $pythonw
-$shortcut.Arguments = "`"$mainScript`""
-$shortcut.WorkingDirectory = $repoRoot
-if (Test-Path -LiteralPath $iconPath) {
-    $shortcut.IconLocation = "$iconPath,0"
-}
+$shortcut     = $shell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath       = $PYTHONW
+$shortcut.Arguments        = "`"$mainScript`""
+$shortcut.WorkingDirectory = $APP_DIR
+if (Test-Path -LiteralPath $iconPath) { $shortcut.IconLocation = "$iconPath,0" }
 $shortcut.Save()
 
-Write-Host ''
-Write-Host "Setup finished. Open Vocalance from the Start Menu shortcut (Vocalance)."
+Write-Host "Setup complete. Launch Vocalance from the Start Menu."
