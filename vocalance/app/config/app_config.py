@@ -350,7 +350,7 @@ class GridConfig(BaseModel):
     default_rect_count: int = Field(
         default=500,
         ge=4,
-        le=2500,
+        le=6000,
         description="Default number of rectangles (cells) to show in the grid if not specified by command.",
     )
 
