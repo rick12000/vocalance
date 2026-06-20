@@ -1,6 +1,6 @@
 import pytest
 
-from vocalance.app.config.hotkey_validation import is_allowed_key, validate_custom_hotkey
+from vocalance.app.config.hotkey_validation import is_allowed_key, is_valid_custom_hotkey
 
 
 @pytest.mark.parametrize(
@@ -41,15 +41,13 @@ def test_is_allowed_key_rejects_unrecognised_tokens(token):
     "value",
     ["a", "ctrl+s", "ctrl+shift+k", "alt+f4", "ctrl+enter", "ctrl + s", "ctrl+alt+7"],
 )
-def test_validate_custom_hotkey_accepts_single_chord(value):
-    assert validate_custom_hotkey(value) is None
+def test_is_valid_custom_hotkey_accepts_single_chord(value):
+    assert is_valid_custom_hotkey(value) is True
 
 
 @pytest.mark.parametrize(
     "value",
     ["", "   ", "ctrl+c, ctrl+v", "a,b", "ctrl+c;ctrl+v", "ctrl+custom", "macro"],
 )
-def test_validate_custom_hotkey_rejects_invalid(value):
-    error = validate_custom_hotkey(value)
-    assert isinstance(error, str)
-    assert error
+def test_is_valid_custom_hotkey_rejects_invalid(value):
+    assert is_valid_custom_hotkey(value) is False

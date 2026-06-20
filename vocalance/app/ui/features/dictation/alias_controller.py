@@ -4,6 +4,7 @@ from typing import Dict
 
 from PySide6.QtCore import Signal
 
+from vocalance.app.config.alias_validation import is_valid_alias_text
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.dictation_events import DictationAliasListUpdatedEvent, DictationAliasUiOperationEvent
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
@@ -38,6 +39,9 @@ class QtDictationAliasController(QtBaseController):
         if not value:
             self.notify_status("Please enter a substitution phrase.", is_error=True)
             return False
+        if not is_valid_alias_text(key) or not is_valid_alias_text(value):
+            self.notify_status("Alias contains characters that are not permitted.", is_error=True)
+            return False
         if key.lower() in {k.lower() for k in self.alias_entries}:
             self.notify_status(f"Alias '{key}' already exists.", is_error=True)
             return False
@@ -52,6 +56,9 @@ class QtDictationAliasController(QtBaseController):
             return False
         if not value:
             self.notify_status("Please enter a substitution phrase.", is_error=True)
+            return False
+        if not is_valid_alias_text(key) or not is_valid_alias_text(value):
+            self.notify_status("Alias contains characters that are not permitted.", is_error=True)
             return False
         self.alias_ui("update", key=key, value=value)
         return True

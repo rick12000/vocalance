@@ -269,9 +269,13 @@ class SoundRecognizerConfig(BaseModel):
     target_sample_rate: int = Field(16000, description="Target sample rate for YAMNet (do not change)")
     energy_threshold: float = Field(0.005, description="Minimum audio energy for processing")
 
-    confidence_threshold: float = Field(0.15, description="Minimum similarity for recognition (optimized for enhanced features)")
+    confidence_threshold: float = Field(
+        0.15, ge=0.0, le=1.0, description="Minimum similarity for recognition (optimized for enhanced features)"
+    )
     k_neighbors: int = Field(7, description="Number of neighbors for k-NN voting (increased for better discrimination)")
-    vote_threshold: float = Field(0.35, description="Minimum vote alignment percentage (optimized for enhanced voting)")
+    vote_threshold: float = Field(
+        0.35, ge=0.0, le=1.0, description="Minimum vote alignment percentage (optimized for enhanced voting)"
+    )
 
     default_samples_per_sound: int = Field(
         12, description="Default training samples per sound (increased for better discrimination)"
@@ -344,7 +348,10 @@ class GridConfig(BaseModel):
     font_size: int = 16
     show_labels: bool = True
     default_rect_count: int = Field(
-        default=500, description="Default number of rectangles (cells) to show in the grid if not specified by command."
+        default=500,
+        ge=4,
+        le=2500,
+        description="Default number of rectangles (cells) to show in the grid if not specified by command.",
     )
 
     show_grid_phrase: str = "go"
@@ -532,10 +539,12 @@ class LLMConfig(BaseModel):
     )
 
     context_length: int = Field(
-        default=2048, description="Model context window - 2048 is optimal for dictation (faster than 4096)"
+        default=2048, ge=512, le=32768, description="Model context window - 2048 is optimal for dictation (faster than 4096)"
     )
 
-    max_tokens: int = Field(default=1500, description="Max output tokens - sufficient for most dictation, faster than 2600")
+    max_tokens: int = Field(
+        default=1500, ge=1, le=8192, description="Max output tokens - sufficient for most dictation, faster than 2600"
+    )
 
     n_threads: Optional[int] = Field(default=None, description="Threads for token generation (None = auto: cpu_count - 1, max 6)")
 
@@ -618,6 +627,8 @@ class VADConfig(BaseModel):
     )
     command_silent_chunks_for_end: int = Field(
         default=5,
+        ge=1,
+        le=200,
         description="Number of consecutive silent chunks to end recording in command mode (5 chunks = 150ms at 30ms/chunk).",
     )
     command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")

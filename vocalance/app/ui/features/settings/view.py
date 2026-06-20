@@ -8,6 +8,11 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, get_whitelisted_llm_model, local_llm_allowlist
+from vocalance.app.services.storage.user_configurable_settings import (
+    FIELD_BY_PATH,
+    USER_CONFIGURABLE_FIELDS,
+    get_config_field_bounds,
+)
 from vocalance.app.ui.components.buttons import DangerButton, PrimaryButton
 from vocalance.app.ui.components.checkboxes import Checkbox
 from vocalance.app.ui.components.inputs import TextInput
@@ -116,30 +121,18 @@ class QtSettingsView(QWidget):
         if self._llm_enabled:
             self.build_llm_model_section()
 
-        # Define which settings to display
-        visible_settings = {
-            "Grid Settings": [
-                ("grid", "default_rect_count", "Default Cell Count"),
-            ],
-            "Sound Recognizer Settings": [
-                ("sound_recognizer", "confidence_threshold", "Confidence Threshold"),
-                ("sound_recognizer", "vote_threshold", "Vote Threshold"),
-            ],
-            "Voice Settings": [
-                ("vad", "command_silent_chunks_for_end", "Max Silent Command Chunks"),
-            ],
-        }
+        sections: Dict[str, Dict] = {}
+        for field in USER_CONFIGURABLE_FIELDS:
+            if not field.path.startswith("llm."):
+                sections.setdefault(field.section, {})[field.path] = field
 
-        # Display each section with filtered settings
-        for section_name, field_specs in visible_settings.items():
+        for section_name, fields_by_path in sections.items():
             section_widgets_dict = {}
 
-            # Section title
             self.scroll_container.add(SectionTitle(section_name))
 
-            # Section items
-            for category, key, label_text in field_specs:
-                # Get value from settings
+            for path, field in fields_by_path.items():
+                category, key = path.split(".", 1)
                 value = None
                 if category in self.settings and isinstance(self.settings[category], dict):
                     value = self.settings[category].get(key)
@@ -147,53 +140,24 @@ class QtSettingsView(QWidget):
                 if value is None:
                     continue
 
-                setting_key = f"{category}.{key}"
+                inp = TextInput()
+                inp.setText(str(value))
+                self.scroll_container.add(FormField(field.label, inp))
+                self.setting_widgets[path] = inp
+                section_widgets_dict[path] = inp
 
-                # Create widgets based on type
-                # CRITICAL: Check bool BEFORE int/float because isinstance(True, int) == True in Python!
-                if isinstance(value, bool):
-                    checkbox = Checkbox(
-                        text=label_text,
-                        checked=value,
-                        command=lambda state, k=setting_key: None,  # Don't save on change
-                    )
-                    self.scroll_container.add(checkbox)
-                    self.setting_widgets[setting_key] = checkbox
-                    section_widgets_dict[setting_key] = checkbox
+            self.section_widgets[section_name] = {"widgets": section_widgets_dict}
 
-                elif isinstance(value, (int, float, str)):
-                    inp = TextInput()
-                    inp.setText(str(value))
-
-                    group = FormField(label_text, inp)
-                    self.scroll_container.add(group)
-                    self.setting_widgets[setting_key] = inp
-                    section_widgets_dict[setting_key] = inp
-
-            # Store section widgets mapping
-            self.section_widgets[section_name] = {"fields": field_specs, "widgets": section_widgets_dict}
-
-            # Add button row for this section
             button_layout = QHBoxLayout()
             button_layout.setSpacing(theme.config.spacing.medium)
-
-            # Save button - use partial to avoid lambda closure issues
             save_btn = PrimaryButton(text="Save", command=partial(self.on_save_section_clicked, section_name))
             button_layout.addWidget(save_btn)
-
-            # Reset to defaults button - use partial to avoid lambda closure issues
             reset_btn = DangerButton(text="Reset to Defaults", command=partial(self.on_reset_section_clicked, section_name))
             button_layout.addWidget(reset_btn)
-
             button_layout.addStretch()
-
-            # Add button row to scroll container
             self.scroll_container.content_layout.addLayout(button_layout)
-
-            # Add spacing between sections
             self.scroll_container.content_layout.addSpacing(theme.config.spacing.large)
 
-        # Add stretch at end
         self.scroll_container.add_stretch()
 
     def build_llm_model_section(self) -> None:
@@ -263,7 +227,7 @@ class QtSettingsView(QWidget):
         self.scroll_container.content_layout.addLayout(button_layout)
         self.scroll_container.content_layout.addSpacing(theme.config.spacing.large)
 
-        self.section_widgets[section_name] = {"fields": field_specs, "widgets": llm_widgets}
+        self.section_widgets[section_name] = {"widgets": llm_widgets}
         self.sync_llm_model_ui_state()
 
     def apply_llm_model_combo_style(self, combo: QComboBox) -> None:
@@ -427,47 +391,34 @@ class QtSettingsView(QWidget):
             self.logger.warning("Section not found: %s", section_name)
             return
 
-        setting_types = self.get_setting_types()
         settings_to_save = {}
         for setting_key, widget in section_info["widgets"].items():
             if setting_key == "llm.selected_model_id":
                 continue
             if isinstance(widget, Checkbox):
-                value = widget.isChecked()
+                settings_to_save[setting_key] = widget.isChecked()
             elif isinstance(widget, QComboBox):
                 value = widget.currentData()
                 if value is None:
                     self.show_error(f"Invalid value for {setting_key}")
                     return
-                value = str(value)
+                settings_to_save[setting_key] = str(value)
             elif isinstance(widget, TextInput):
+                field = FIELD_BY_PATH.get(setting_key)
+                if field is None:
+                    self.show_error(f"Unknown setting: {setting_key}")
+                    return
                 text_value = widget.text().strip()
-                expected_type = setting_types.get(setting_key)
-                if expected_type is None:
-                    self.show_error(f"Unknown setting type for {setting_key}")
-                    return
                 try:
-                    if expected_type == int:
-                        value = int(text_value)
-                    elif expected_type == float:
-                        value = float(text_value)
-                    elif expected_type == bool:
-                        if text_value.lower() in ("true", "1", "yes", "on"):
-                            value = True
-                        elif text_value.lower() in ("false", "0", "no", "off"):
-                            value = False
-                        else:
-                            self.show_error(f"Invalid boolean value for {setting_key}. Use: true/false, yes/no, on/off, 1/0")
-                            return
-                    else:
-                        value = text_value
-                except ValueError:
-                    self.show_error(f"Invalid value for {setting_key}. Expected {expected_type.__name__}, got: {text_value}")
+                    value = field.value_type(text_value)
+                except (ValueError, TypeError):
+                    self.show_error(f"Invalid value for '{field.label}'. Expected {field.value_type.__name__}.")
                     return
-            else:
-                continue
-
-            settings_to_save[setting_key] = value
+                min_val, max_val = get_config_field_bounds(setting_key)
+                if (min_val is not None and value < min_val) or (max_val is not None and value > max_val):
+                    self.show_error(f"'{field.label}' must be between {min_val} and {max_val}.")
+                    return
+                settings_to_save[setting_key] = value
 
         if settings_to_save:
             self.pending_save_section = section_name
@@ -493,27 +444,6 @@ class QtSettingsView(QWidget):
             self.controller.reset_section_settings(setting_keys)
             self.logger.info("Reset section to defaults: %s", section_name)
             QMessageBox.information(self, "Success", f"{section_name} reset to defaults!")
-
-    def get_setting_types(self) -> Dict[str, type]:
-        """Define the expected type for each setting."""
-        types: Dict[str, type] = {
-            # Grid Settings
-            "grid.default_rect_count": int,
-            # Sound Recognizer Settings
-            "sound_recognizer.confidence_threshold": float,
-            "sound_recognizer.vote_threshold": float,
-            # Voice Settings
-            "vad.command_silent_chunks_for_end": int,
-        }
-        if self._llm_enabled:
-            types.update(
-                {
-                    "llm.selected_model_id": str,
-                    "llm.context_length": int,
-                    "llm.max_tokens": int,
-                }
-            )
-        return types
 
     def show_error(self, message: str) -> None:
         """Show error message dialog."""

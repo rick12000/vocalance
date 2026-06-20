@@ -77,6 +77,22 @@ class AudioDeviceErrorEvent(BaseEvent):
     error_message: str = Field(description="User-facing message for the warning dialog")
 
 
+class StorageCorruptionWarningEvent(BaseEvent):
+    """Published at startup when a security-sensitive storage file fails validation.
+
+    Indicates that one or more user-data files could not be parsed and have been
+    reset to empty defaults. The files remain on disk until the user confirms deletion.
+    """
+
+    corrupt_files: list[str] = Field(description="List of file paths that failed validation")
+
+
+class StorageCleanupRequestEvent(BaseEvent):
+    """Published by the UI when the user confirms deletion of corrupt storage files."""
+
+    files_to_delete: list[str] = Field(description="List of file paths to delete")
+
+
 class AudioChunkCapturedEvent(BaseEvent):
     """Single mono PCM buffer captured from the microphone.
 

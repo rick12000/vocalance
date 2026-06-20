@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 MODIFIER_KEYS = frozenset(
     {
@@ -74,23 +73,15 @@ def is_allowed_key(token: str) -> bool:
     )
 
 
-def validate_custom_hotkey(value: str) -> Optional[str]:
-    """Validate a user-entered custom hotkey value.
+def is_valid_custom_hotkey(value: str) -> bool:
+    """Return True if ``value`` is a safe single-chord custom hotkey.
 
-    A valid custom hotkey is a single chord: one or more allowlisted key names
-    joined by ``+``. Commas, semicolons, and any other separators that could
-    chain multiple commands are rejected outright.
-
-    Returns an error message string when validation fails, otherwise None.
+    A valid custom hotkey is one or more allowlisted key names joined by ``+``.
+    Commas and semicolons that could chain multiple commands are rejected.
     """
     if not value or not value.strip():
-        return "Hotkey must not be empty"
+        return False
     if any(c in value for c in (",", ";")):
-        return "Hotkey must be a single chord — commas and semicolons are not allowed"
-    tokens = [t for t in value.replace(" ", "+").split("+") if t != ""]
-    if not tokens:
-        return "Hotkey must contain at least one key"
-    for token in tokens:
-        if not is_allowed_key(token):
-            return f"Unrecognised key '{token.strip()}' — use letters, numbers, modifier keys (ctrl, alt, shift, win), named keys, or function keys joined with +"
-    return None
+        return False
+    tokens = [t for t in value.replace(" ", "+").split("+") if t]
+    return bool(tokens) and all(is_allowed_key(t) for t in tokens)

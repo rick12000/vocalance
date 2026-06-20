@@ -1,9 +1,7 @@
 from abc import ABC
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, Field, model_validator
-
-from vocalance.app.config.hotkey_validation import validate_custom_hotkey
+from pydantic import BaseModel, Field
 
 
 class ParseResult(BaseModel):
@@ -157,15 +155,6 @@ class AutomationCommand(BaseCommand):
         default="Other",
         description="Functional grouping: Basic, Window Navigation, Editing, Cursor IDE, VSCode IDE, Other, Custom",
     )
-
-    @model_validator(mode="after")
-    def enforce_custom_hotkey_safety(self) -> "AutomationCommand":
-        """Reject user-defined custom hotkeys that contain unsafe or chained key values."""
-        if self.is_custom and self.action_type == "hotkey":
-            error = validate_custom_hotkey(self.action_value)
-            if error:
-                raise ValueError(error)
-        return self
 
     @property
     def display_description(self) -> str:
