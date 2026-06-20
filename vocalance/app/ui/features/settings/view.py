@@ -318,14 +318,31 @@ class QtSettingsView(QWidget):
 
         self.controller.llm_download_progress.connect(dlg.set_status)
         self.controller.llm_cancellable_download_finished.connect(self.on_llm_cancellable_download_finished)
+        self.controller.llm_download_cancelled.connect(self.on_llm_download_cancelled)
+        self.controller.llm_download_integrity_error.connect(self.on_llm_download_integrity_error)
         try:
             self.controller.schedule_llm_cancellable_download(mid)
             dlg.exec()
         finally:
-            try:
-                self.controller.llm_cancellable_download_finished.disconnect(self.on_llm_cancellable_download_finished)
-            except TypeError:
-                pass
+            for sig, slot in (
+                (self.controller.llm_cancellable_download_finished, self.on_llm_cancellable_download_finished),
+                (self.controller.llm_download_cancelled, self.on_llm_download_cancelled),
+                (self.controller.llm_download_integrity_error, self.on_llm_download_integrity_error),
+            ):
+                try:
+                    sig.disconnect(slot)
+                except TypeError:
+                    pass
+
+    def _close_download_dialog(self) -> None:
+        ctx = getattr(self, "llm_active_download", None)
+        if not ctx:
+            return
+        dlg = ctx["dlg"]
+        try:
+            self.controller.llm_download_progress.disconnect(dlg.set_status)
+        except TypeError:
+            pass
 
     def on_llm_cancellable_download_finished(self, ok: bool, msg: str) -> None:
         ctx = getattr(self, "llm_active_download", None)
@@ -334,12 +351,8 @@ class QtSettingsView(QWidget):
             return
         dlg = ctx["dlg"]
         mid = ctx["mid"]
-        try:
-            self.controller.llm_download_progress.disconnect(dlg.set_status)
-        except TypeError:
-            pass
-
-        self.logger.info("LLM download UI handling finished ok=%s mid=%s", ok, mid)
+        self._close_download_dialog()
+        self.logger.info("LLM download finished ok=%s mid=%s", ok, mid)
 
         if ok:
             ctx["download_msg"] = msg
@@ -354,8 +367,28 @@ class QtSettingsView(QWidget):
             self.llm_active_download = None
             self.set_llm_download_busy(False)
             self.sync_llm_model_ui_state()
-            if msg and "cancel" not in msg.lower():
-                QMessageBox.warning(self, "Download failed", msg)
+            QMessageBox.warning(self, "Download failed", msg)
+
+    def on_llm_download_cancelled(self) -> None:
+        ctx = getattr(self, "llm_active_download", None)
+        if not ctx:
+            return
+        self._close_download_dialog()
+        ctx["dlg"].apply_outcome(False, "")
+        self.llm_active_download = None
+        self.set_llm_download_busy(False)
+        self.sync_llm_model_ui_state()
+
+    def on_llm_download_integrity_error(self, msg: str) -> None:
+        ctx = getattr(self, "llm_active_download", None)
+        if not ctx:
+            return
+        self._close_download_dialog()
+        ctx["dlg"].apply_outcome(False, msg)
+        self.llm_active_download = None
+        self.set_llm_download_busy(False)
+        self.sync_llm_model_ui_state()
+        QMessageBox.critical(self, "Integrity verification failed", msg)
 
     def on_llm_persist_future_done(self, fut) -> None:
         s_ok, s_msg = fut.result()

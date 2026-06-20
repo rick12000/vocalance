@@ -282,6 +282,12 @@ jobs:
           NOTICES/ \
           scripts/bootstrapping/
 
+    - name: Hash release zip
+      if: steps.release_check.outputs.should_create == 'true'
+      env:
+        VERSION: ${{ steps.release_check.outputs.current_version }}
+      run: sha256sum "vocalance-v${VERSION}.zip" > "vocalance-v${VERSION}.zip.sha256"
+
     - name: Create draft GitHub release
       if: steps.release_check.outputs.should_create == 'true'
       uses: softprops/action-gh-release@v2
@@ -290,7 +296,9 @@ jobs:
         name: v${{ steps.release_check.outputs.current_version }}
         draft: true
         prerelease: false
-        files: vocalance-v${{ steps.release_check.outputs.current_version }}.zip
+        files: |
+          vocalance-v${{ steps.release_check.outputs.current_version }}.zip
+          vocalance-v${{ steps.release_check.outputs.current_version }}.zip.sha256
         body: |
           *Add release notes before publishing.*
 

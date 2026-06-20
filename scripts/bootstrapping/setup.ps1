@@ -19,6 +19,7 @@ $ErrorActionPreference = 'Stop'
 $VOCALANCE_VERSION = '0.0.1'
 $VOCALANCE_REPO   = 'rick12000/vocalance'
 $UV_VERSION       = '0.11.22'
+$UV_INSTALLER_SHA256 = '1559010623fde5cffccc04ada4ae33487e6de8f6e0b4705d52e7f76b225b66a6'
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -56,7 +57,23 @@ $env:Path = "$HOME\.local\bin;$env:Path"
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     $answer = Read-Host 'UV is required but not found. Install it now? (yes/no)'
     if (-not (Test-YesAnswer $answer)) { exit 1 }
-    powershell -ExecutionPolicy Bypass -c "irm https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-installer.ps1 | iex"
+    $installerUrl  = "https://releases.astral.sh/github/uv/releases/download/$UV_VERSION/uv-installer.ps1"
+    $installerPath = Join-Path $env:TEMP "uv-installer-$UV_VERSION.ps1"
+
+    Write-Host "Downloading UV installer $UV_VERSION..."
+    Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing
+
+    $actualHash = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLower()
+    if ($actualHash -ne $UV_INSTALLER_SHA256) {
+        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+        Write-Error "UV installer integrity check failed.`n  Expected: $UV_INSTALLER_SHA256`n  Got:      $actualHash`nAborting installation."
+        exit 1
+    }
+
+    Write-Host "UV installer integrity verified. Installing..."
+    powershell -ExecutionPolicy Bypass -File $installerPath
+    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+
     Update-SessionPath
     $env:Path = "$HOME\.local\bin;$env:Path"
 }

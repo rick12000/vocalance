@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import shutil
 import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence
+from urllib.parse import urlparse
 
 import httpx
 from huggingface_hub import hf_hub_url
@@ -19,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 _CHUNK_BYTES = 1024 * 512
 _PROGRESS_INTERVAL_BYTES = 50 * 1024 * 1024
+_TRUSTED_HF_HOSTS = frozenset({"huggingface.co", "cdn-lfs.huggingface.co", "cdn-lfs-us-1.huggingface.co"})
+
+
+class IntegrityError(Exception):
+    """Raised when a downloaded file's SHA-256 does not match the expected digest."""
 
 
 class LLMModelDownloader:
@@ -91,6 +98,7 @@ class LLMModelDownloader:
         filename: str,
         cancel_event: threading.Event,
         progress_message_cb: Optional[Callable[[str], None]],
+        expected_sha256: Optional[str] = None,
     ) -> Optional[str]:
         """Stream one file to models dir; returns final path or None on failure/cancel."""
         final_path = self.get_model_path(filename)
@@ -109,7 +117,11 @@ class LLMModelDownloader:
             if cancel_event.is_set():
                 return None
 
-            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=timeout,
+                follow_redirects=True,
+                event_hooks={"response": [self._validate_hf_redirect]},
+            ) as client:
                 with client.stream("GET", url, headers=headers) as response:
                     hf_raise_for_status(response)
                     try:
@@ -139,12 +151,25 @@ class LLMModelDownloader:
             if cancel_event.is_set():
                 return None
 
+            if expected_sha256:
+                actual = self._sha256_of_file(partial_path)
+                if actual != expected_sha256.lower():
+                    try:
+                        os.remove(partial_path)
+                    except OSError:
+                        pass
+                    raise IntegrityError(f"SHA-256 mismatch for {filename!r}: " f"expected {expected_sha256} got {actual}")
+
             if os.path.exists(final_path):
                 os.remove(final_path)
             shutil.move(partial_path, final_path)
             shutil.rmtree(stream_temp_root, ignore_errors=True)
             return final_path
 
+        except IntegrityError:
+            if os.path.isdir(stream_temp_root):
+                shutil.rmtree(stream_temp_root, ignore_errors=True)
+            raise
         except Exception as e:
             logger.error("Stream download failed: %s", e, exc_info=True)
             if os.path.isdir(stream_temp_root):
@@ -156,7 +181,7 @@ class LLMModelDownloader:
                     pass
             return None
 
-    def _sync_download_atomic(self, repo_id: str, filename: str) -> Optional[str]:
+    def _sync_download_atomic(self, repo_id: str, filename: str, expected_sha256: Optional[str] = None) -> Optional[str]:
         """Download model atomically via huggingface_hub (non-cancellable, with hub retries inside)."""
         final_path = self.get_model_path(filename)
         temp_download_dir = os.path.join(self._temp_dir, f"{filename}_download")
@@ -178,6 +203,12 @@ class LLMModelDownloader:
                 logger.error("Download failed: file missing or empty")
                 return None
 
+            if expected_sha256:
+                actual = self._sha256_of_file(downloaded_path)
+                if actual != expected_sha256.lower():
+                    self._cleanup_failed_download(temp_download_dir, downloaded_path)
+                    raise IntegrityError(f"SHA-256 mismatch for {filename!r}: " f"expected {expected_sha256} got {actual}")
+
             if os.path.exists(final_path):
                 os.remove(final_path)
 
@@ -186,6 +217,8 @@ class LLMModelDownloader:
 
             return final_path
 
+        except IntegrityError:
+            raise
         except Exception as e:
             logger.error("Download failed: %s", e, exc_info=True)
             self._cleanup_failed_download(temp_download_dir, final_path)
@@ -204,6 +237,14 @@ class LLMModelDownloader:
             except Exception as e:
                 logger.error("Error removing empty file: %s", e)
 
+    def _expected_sha256_for(self, filename: str) -> Optional[str]:
+        from vocalance.app.config.app_config import local_llm_allowlist
+
+        for artifact in local_llm_allowlist().artifacts:
+            if filename in artifact.gguf_sha256:
+                return artifact.gguf_sha256[filename]
+        return None
+
     async def download_model(
         self,
         repo_id: str,
@@ -220,11 +261,19 @@ class LLMModelDownloader:
             logger.info("Model already exists: %s", filename)
             return model_path
 
+        expected_sha256 = self._expected_sha256_for(filename)
+        if not expected_sha256:
+            logger.error(
+                "No SHA-256 hash configured for %s — cannot verify integrity. "
+                "Run scripts/security/compute_llm_hashes.py and populate gguf_sha256 in app_config.py.",
+                filename,
+            )
+
         async with self._download_lock:
             if cancel_event is not None:
 
                 def _run_stream() -> Optional[str]:
-                    return self._sync_stream_download_file(repo_id, filename, cancel_event, progress_message_cb)
+                    return self._sync_stream_download_file(repo_id, filename, cancel_event, progress_message_cb, expected_sha256)
 
                 return await run_blocking(_run_stream, name=f"llm-stream-{filename}")
 
@@ -232,7 +281,7 @@ class LLMModelDownloader:
                 try:
                     logger.info("Downloading model %s from %s (attempt %s/%s)...", filename, repo_id, attempt, max_retries)
                     downloaded_path = await run_blocking(
-                        self._sync_download_atomic, repo_id, filename, name=f"llm-download-{filename}"
+                        self._sync_download_atomic, repo_id, filename, expected_sha256, name=f"llm-download-{filename}"
                     )
 
                     if downloaded_path:
@@ -244,6 +293,8 @@ class LLMModelDownloader:
                         logger.info("Retrying in %s seconds...", retry_delay_seconds)
                         await asyncio.sleep(retry_delay_seconds)
 
+                except IntegrityError:
+                    raise
                 except Exception as e:
                     logger.error("Download error (attempt %s/%s): %s", attempt, max_retries, e, exc_info=True)
                     if attempt < max_retries:
@@ -282,6 +333,22 @@ class LLMModelDownloader:
             if not path:
                 return None
         return self.get_model_path(filenames[0])
+
+    @staticmethod
+    def _sha256_of_file(path: str) -> str:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 512), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    @staticmethod
+    def _validate_hf_redirect(response: httpx.Response) -> None:
+        if response.is_redirect:
+            location = response.headers.get("location", "")
+            host = urlparse(location).hostname or ""
+            if not (host == "huggingface.co" or host.endswith(".huggingface.co")):
+                raise ValueError(f"Blocked redirect to untrusted host: {host!r}")
 
     def get_download_status(self) -> Dict[str, Any]:
         status = {"models_directory": self._models_dir, "available_models": [], "total_size_mb": 0}

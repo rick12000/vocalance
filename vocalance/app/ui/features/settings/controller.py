@@ -26,6 +26,8 @@ class QtSettingsController(QtBaseController):
     llm_bundle_status_updated = Signal()
     llm_download_progress = Signal(str)
     llm_cancellable_download_finished = Signal(bool, str)
+    llm_download_cancelled = Signal()
+    llm_download_integrity_error = Signal(str)
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         super().__init__(event_bus=event_bus, logger=logging.getLogger("QtSettingsController"))
@@ -70,6 +72,16 @@ class QtSettingsController(QtBaseController):
         elif event.kind == "download_finished":
             if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
                 self.llm_cancellable_download_finished.emit(event.ok, event.message)
+                self.active_llm_download_rid = None
+            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+        elif event.kind == "download_cancelled":
+            if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
+                self.llm_download_cancelled.emit()
+                self.active_llm_download_rid = None
+            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+        elif event.kind == "download_integrity_error":
+            if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
+                self.llm_download_integrity_error.emit(event.message)
                 self.active_llm_download_rid = None
             asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
 

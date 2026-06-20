@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -7,6 +8,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from vocalance.app.config.alias_validation import is_valid_alias_text
 from vocalance.app.config.command_types import AutomationCommand
 from vocalance.app.config.hotkey_validation import is_valid_custom_hotkey
+
+logger = logging.getLogger(__name__)
 
 MAX_PROMPT_TEXT_LENGTH = 4000
 MAX_ALIAS_KEY_LENGTH = 100
@@ -68,11 +71,18 @@ class CommandsData(StorageData):
 
     @model_validator(mode="after")
     def filter_invalid_custom_commands(self) -> "CommandsData":
-        self.custom_commands = {
-            phrase: cmd
-            for phrase, cmd in self.custom_commands.items()
-            if cmd.action_type == "hotkey" and is_valid_custom_hotkey(cmd.action_value)
-        }
+        valid: Dict[str, AutomationCommand] = {}
+        for phrase, cmd in self.custom_commands.items():
+            if cmd.action_type == "hotkey" and is_valid_custom_hotkey(cmd.action_value):
+                valid[phrase] = cmd
+            else:
+                logger.warning(
+                    "Security: dropping command %r on load — action_type=%r action_value=%r failed validation",
+                    phrase,
+                    cmd.action_type,
+                    cmd.action_value,
+                )
+        self.custom_commands = valid
         return self
 
 

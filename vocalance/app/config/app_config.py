@@ -455,6 +455,9 @@ class LocalLLMArtifact(BaseModel):
     gguf_filenames: tuple[str, ...]
     model_card_url: str
     disable_thinking: bool = False
+    gguf_sha256: Dict[str, str] = Field(
+        description="Required SHA-256 hex digest per GGUF filename. Verified after each download.",
+    )
 
     @property
     def load_path_filename(self) -> str:
@@ -491,6 +494,9 @@ def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
                 repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
                 gguf_filenames=("qwen2.5-1.5b-instruct-q5_k_m.gguf",),
                 model_card_url="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+                gguf_sha256={
+                    "qwen2.5-1.5b-instruct-q5_k_m.gguf": "b46661073c18e5b56a41fa320975f866a00def1ff08feef4718e013258896f8c",
+                },
             ),
             LocalLLMArtifact(
                 id="qwen3-4b-q5km",
@@ -499,6 +505,9 @@ def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
                 gguf_filenames=("Qwen3-4B-Q5_K_M.gguf",),
                 model_card_url="https://huggingface.co/Qwen/Qwen3-4B-GGUF",
                 disable_thinking=True,
+                gguf_sha256={
+                    "Qwen3-4B-Q5_K_M.gguf": "aca596860e8cb40af6539e3f2ea40df305f42515deac56d49c08d39a02e6533f",
+                },
             ),
             LocalLLMArtifact(
                 id="qwen3-8b-q5km",
@@ -507,6 +516,9 @@ def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
                 gguf_filenames=("Qwen3-8B-Q5_K_M.gguf",),
                 model_card_url="https://huggingface.co/Qwen/Qwen3-8B-GGUF",
                 disable_thinking=True,
+                gguf_sha256={
+                    "Qwen3-8B-Q5_K_M.gguf": "068bae163faa96ad48032daf4e071a6a28fe67d8dcc95367609c2ff165e52738",
+                },
             ),
         )
     )

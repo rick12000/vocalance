@@ -131,7 +131,13 @@ class RuntimeConfigResponseEvent(BaseEvent):
 
 
 LlmUiRequestOp = Literal["refresh_bundle_status", "start_download", "cancel_download"]
-LlmUiNotificationKind = Literal["bundle_status", "download_progress", "download_finished"]
+LlmUiNotificationKind = Literal[
+    "bundle_status",
+    "download_progress",
+    "download_finished",
+    "download_cancelled",
+    "download_integrity_error",
+]
 
 
 class LlmUiRequestEvent(BaseEvent):
