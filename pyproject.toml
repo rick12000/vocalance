@@ -32,7 +32,8 @@ dependencies = [
     "httpx==0.28.1",
     "keras==3.14.1",
     "protobuf==7.35.1",
-    "urllib3==2.7.0"
+    "urllib3==2.7.0",
+    "msgpack==1.2.1"
 ]
 
 [project.urls]

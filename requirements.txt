@@ -16,6 +16,7 @@ httpx==0.28.1
 keras==3.14.1
 protobuf==7.35.1
 urllib3==2.7.0
+msgpack==1.2.1
 
 # Optional LLM features (smart dictation, AI text editing) — install via the [llm] extra in pyproject.toml
 llama-cpp-python==0.3.20

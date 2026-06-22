@@ -945,7 +945,7 @@ class ActivityTrackingConfig(BaseModel):
     """
 
     enabled: bool = Field(
-        default=True,
+        default=False,
         description="Enable structured JSON activity tracking to disk. When false: no activity log output (privacy-first).",
     )
 
