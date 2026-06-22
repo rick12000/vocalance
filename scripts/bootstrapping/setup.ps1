@@ -9,13 +9,7 @@
 
     UV is bundled as a binary inside the install tree — no system-wide UV
     installation occurs and no downloaded script is ever executed.
-
-.PARAMETER SkipReinstallPrompt
-    If Vocalance is already installed, skip the reinstall prompt and overwrite silently.
 #>
-param(
-    [switch] $SkipReinstallPrompt
-)
 
 $ErrorActionPreference = 'Stop'
 
@@ -60,40 +54,40 @@ function Get-VerifiedDownload {
     }
 }
 
-$arch     = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
-$stageDir = Join-Path $env:TEMP "VocalanceSetup-$([System.IO.Path]::GetRandomFileName())"
+$arch          = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+$stageDir      = Join-Path $env:TEMP "VocalanceSetup-$([System.IO.Path]::GetRandomFileName())"
+$USER_DATA_DIR = Join-Path $env:APPDATA 'Vocalance'
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 
 try {
-    if (-not (Test-Path -LiteralPath $UV_EXE)) {
-        $uvZipName  = "uv-$arch-pc-windows-msvc.zip"
-        $uvZipUrl   = "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/$uvZipName"
-        $uvZipPath  = Join-Path $stageDir $uvZipName
-        $uvExpected = $UV_ZIP_SHA256[$arch]
-        if (-not $uvExpected) { throw "No UV hash defined for architecture: $arch" }
+    $uvZipName  = "uv-$arch-pc-windows-msvc.zip"
+    $uvZipUrl   = "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/$uvZipName"
+    $uvZipPath  = Join-Path $stageDir $uvZipName
+    $uvExpected = $UV_ZIP_SHA256[$arch]
+    if (-not $uvExpected) { throw "No UV hash defined for architecture: $arch" }
 
-        Write-Host "Downloading uv $UV_VERSION ($arch)..."
-        Get-VerifiedDownload -Uri $uvZipUrl -OutPath $uvZipPath -ExpectedSha256 $uvExpected
+    Write-Host "Downloading uv $UV_VERSION ($arch)..."
+    Get-VerifiedDownload -Uri $uvZipUrl -OutPath $uvZipPath -ExpectedSha256 $uvExpected
 
-        $uvExtractDir = Join-Path $stageDir 'uv-extract'
-        Expand-Archive -Path $uvZipPath -DestinationPath $uvExtractDir -Force
+    $uvExtractDir = Join-Path $stageDir 'uv-extract'
+    Expand-Archive -Path $uvZipPath -DestinationPath $uvExtractDir -Force
 
-        $uvBinary = Get-ChildItem -Path $uvExtractDir -Filter 'uv.exe' -Recurse |
-                        Select-Object -First 1 -ExpandProperty FullName
-        if (-not $uvBinary) { throw 'uv.exe not found in downloaded archive.' }
+    $uvBinary = Get-ChildItem -Path $uvExtractDir -Filter 'uv.exe' -Recurse |
+                    Select-Object -First 1 -ExpandProperty FullName
+    if (-not $uvBinary) { throw 'uv.exe not found in downloaded archive.' }
 
-        New-Item -ItemType Directory -Force -Path $TOOLS_DIR | Out-Null
-        Copy-Item -LiteralPath $uvBinary -Destination $UV_EXE -Force
-    }
+    New-Item -ItemType Directory -Force -Path $TOOLS_DIR | Out-Null
+    Copy-Item -LiteralPath $uvBinary -Destination $UV_EXE -Force
 
     if (Test-Path -LiteralPath $APP_DIR) {
-        if (-not $SkipReinstallPrompt) {
-            $answer = Read-Host "Vocalance is already installed at $INSTALL_ROOT. Reinstall? (yes/no)"
-            if (-not (Test-YesAnswer $answer)) { exit 0 }
-        }
+        $answer = Read-Host "Vocalance is already installed at $INSTALL_ROOT. Reinstall? (yes/no)"
+        if (-not (Test-YesAnswer $answer)) { exit 0 }
         Remove-Item -LiteralPath $APP_DIR -Recurse -Force
         if (Test-Path -LiteralPath $VENV_DIR) {
             Remove-Item -LiteralPath $VENV_DIR -Recurse -Force
+        }
+        if (Test-Path -LiteralPath $USER_DATA_DIR) {
+            Remove-Item -LiteralPath $USER_DATA_DIR -Recurse -Force
         }
     }
 

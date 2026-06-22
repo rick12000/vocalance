@@ -244,21 +244,40 @@ async def _run_initialization(
         allow = config.local_llm_allowlist
         spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
         if spec is not None:
-            from vocalance.app.services.dictation_flow.llm.llm_model_downloader import LLMModelDownloader
+            from vocalance.app.services.dictation_flow.llm.llm_model_downloader import (
+                IntegrityError,
+                LLMModelDownloader,
+            )
 
             downloader = LLMModelDownloader(config)
             if not downloader.model_bundle_complete(spec.gguf_filenames):
+                logger.info(
+                    "LLM model bundle not found on disk — downloading: id=%r repo=%r files=%s",
+                    spec.id,
+                    spec.repo_id,
+                    list(spec.gguf_filenames),
+                )
                 progress.update_sub_step(
                     sub_step_name="Fetching AI Model. First launch may take several minutes.",
                     progress=0.35,
                 )
-                ok = await downloader.download_model_bundle(
-                    repo_id=spec.repo_id,
-                    filenames=list(spec.gguf_filenames),
-                    cancel_event=lifecycle.cancel_token.threading_event(),
-                )
-                if not ok:
+                try:
+                    downloaded_path = await downloader.download_model_bundle(
+                        repo_id=spec.repo_id,
+                        filenames=list(spec.gguf_filenames),
+                        cancel_event=lifecycle.cancel_token.threading_event(),
+                    )
+                except IntegrityError as exc:
+                    raise RuntimeError(f"LLM model failed integrity check: {exc}") from exc
+                if not downloaded_path:
+                    logger.error(
+                        "LLM model download returned no path: id=%r repo=%r files=%s",
+                        spec.id,
+                        spec.repo_id,
+                        list(spec.gguf_filenames),
+                    )
                     raise RuntimeError("Critical asset download failed: LLM model")
+                logger.info("LLM model bundle ready: %s", downloaded_path)
 
     progress.update_sub_step(
         sub_step_name="Initializing dictation"

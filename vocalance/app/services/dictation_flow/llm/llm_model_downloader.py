@@ -21,7 +21,17 @@ logger = logging.getLogger(__name__)
 
 _CHUNK_BYTES = 1024 * 512
 _PROGRESS_INTERVAL_BYTES = 50 * 1024 * 1024
-_TRUSTED_HF_HOSTS = frozenset({"huggingface.co", "cdn-lfs.huggingface.co", "cdn-lfs-us-1.huggingface.co"})
+_TRUSTED_HF_HOSTS = frozenset({
+    "huggingface.co",
+    "cdn-lfs.huggingface.co",
+    "cdn-lfs-us-1.huggingface.co",
+    "hf.co",
+    "cdn-lfs.hf.co",
+    "cdn-lfs-us-1.hf.co",
+    "cdn-lfs-eu-1.hf.co",
+    "xethub.hf.co",
+    "cas-bridge.xethub.hf.co",
+})
 
 
 class IntegrityError(Exception):
@@ -154,16 +164,23 @@ class LLMModelDownloader:
             if expected_sha256:
                 actual = self._sha256_of_file(partial_path)
                 if actual != expected_sha256.lower():
+                    logger.error(
+                        "SHA-256 mismatch for %r: expected=%s actual=%s",
+                        filename,
+                        expected_sha256,
+                        actual,
+                    )
                     try:
                         os.remove(partial_path)
                     except OSError:
                         pass
-                    raise IntegrityError(f"SHA-256 mismatch for {filename!r}: " f"expected {expected_sha256} got {actual}")
+                    raise IntegrityError(f"SHA-256 mismatch for {filename!r}: expected {expected_sha256} got {actual}")
 
             if os.path.exists(final_path):
                 os.remove(final_path)
             shutil.move(partial_path, final_path)
             shutil.rmtree(stream_temp_root, ignore_errors=True)
+            logger.info("Stream download complete and verified: %s", filename)
             return final_path
 
         except IntegrityError:
@@ -206,15 +223,21 @@ class LLMModelDownloader:
             if expected_sha256:
                 actual = self._sha256_of_file(downloaded_path)
                 if actual != expected_sha256.lower():
+                    logger.error(
+                        "SHA-256 mismatch for %r: expected=%s actual=%s",
+                        filename,
+                        expected_sha256,
+                        actual,
+                    )
                     self._cleanup_failed_download(temp_download_dir, downloaded_path)
-                    raise IntegrityError(f"SHA-256 mismatch for {filename!r}: " f"expected {expected_sha256} got {actual}")
+                    raise IntegrityError(f"SHA-256 mismatch for {filename!r}: expected {expected_sha256} got {actual}")
 
             if os.path.exists(final_path):
                 os.remove(final_path)
 
             shutil.move(downloaded_path, final_path)
             shutil.rmtree(temp_download_dir)
-
+            logger.info("Atomic download complete and verified: %s", filename)
             return final_path
 
         except IntegrityError:
@@ -347,7 +370,8 @@ class LLMModelDownloader:
         if response.is_redirect:
             location = response.headers.get("location", "")
             host = urlparse(location).hostname or ""
-            if not (host == "huggingface.co" or host.endswith(".huggingface.co")):
+            trusted = host in _TRUSTED_HF_HOSTS or any(host.endswith(f".{h}") for h in _TRUSTED_HF_HOSTS)
+            if not trusted:
                 raise ValueError(f"Blocked redirect to untrusted host: {host!r}")
 
     def get_download_status(self) -> Dict[str, Any]:

@@ -88,19 +88,38 @@ Redirect pinning
 ----------------
 
 Hugging Face CDN downloads are often served via HTTP redirect. Before following
-any redirect, the downloader validates that the target hostname is
-``huggingface.co`` or a subdomain:
+any redirect, the downloader validates that the target hostname is present in a
+hard-coded allowlist of trusted Hugging Face infrastructure domains:
 
 .. code-block:: python
+
+   _TRUSTED_HF_HOSTS = frozenset({
+       "huggingface.co",
+       "cdn-lfs.huggingface.co",
+       "cdn-lfs-us-1.huggingface.co",
+       "hf.co",
+       "cdn-lfs.hf.co",
+       "cdn-lfs-us-1.hf.co",
+       "cdn-lfs-eu-1.hf.co",
+       "xethub.hf.co",
+       "cas-bridge.xethub.hf.co",
+   })
 
    def _validate_hf_redirect(response: httpx.Response) -> None:
        if response.is_redirect:
            location = response.headers.get("location", "")
            host = urlparse(location).hostname or ""
-           if not (host == "huggingface.co" or host.endswith(".huggingface.co")):
+           trusted = host in _TRUSTED_HF_HOSTS or any(
+               host.endswith(f".{h}") for h in _TRUSTED_HF_HOSTS
+           )
+           if not trusted:
                raise ValueError(f"Blocked redirect to untrusted host: {host!r}")
 
-A redirect to any other domain aborts the download.
+The allowlist covers both the legacy ``huggingface.co`` CDN subdomains and the
+current ``hf.co`` CDN (``cdn-lfs-us-1.hf.co``, ``cdn-lfs-eu-1.hf.co``,
+``cdn-lfs.hf.co``) as well as the XetHub storage bridge
+(``cas-bridge.xethub.hf.co``) introduced in February 2025. A redirect to any
+host not in this set, or not a subdomain of a listed host, aborts the download.
 
 SHA-256 verification
 --------------------

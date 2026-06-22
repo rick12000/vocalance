@@ -28,7 +28,7 @@ class LoggingConfigModel(BaseModel):
     )
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s", description="Log message format")
     enable_logs: bool = Field(
-        default=False,
+        default=True,
         description="Enable logging to stdout and disk under AppData/logs. When false: no log output (privacy-first).",
     )
 
