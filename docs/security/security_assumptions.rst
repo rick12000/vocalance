@@ -12,9 +12,15 @@ What We Protect Against
 Supply-Chain Integrity
 ----------------------
 
-Every remotely downloaded asset is hash-verified before use. In each case the
-expected hash is committed to the repository, not fetched at runtime — serving
-a malicious file does not help an attacker produce a matching hash.
+Every third-party asset downloaded at install or runtime is hash-verified
+before use. The expected hash is committed to this repository and computed
+offline — it does not come from the same source as the asset it protects,
+so serving a malicious file cannot produce a matching hash.
+
+Hash verification is not applied to the Vocalance release zip itself because
+both the zip and any hash embedded in ``setup.ps1`` originate from the same
+GitHub release. If that release were compromised, both would be replaced
+simultaneously, making the check self-referential and worthless.
 
 .. list-table::
    :widths: 38 62
@@ -26,15 +32,12 @@ a malicious file does not help an attacker produce a matching hash.
    * - Python packages
      - SHA-256 per wheel in ``uv.lock``; ``uv sync --frozen`` refuses to install
        a wheel whose hash does not match.
-   * - ``uv`` installer
-     - SHA-256 hard-coded in ``setup.ps1``, computed offline; mismatch aborts
-       setup and deletes the downloaded file.
+   * - ``uv`` binary
+     - SHA-256 hard-coded in ``setup.ps1``, computed offline against Astral's
+       independent GitHub release; mismatch aborts setup and deletes the archive.
    * - AI model files (``.gguf``)
      - SHA-256 per file hard-coded in the allowlist in ``app_config.py``;
        mismatch deletes the file and raises ``IntegrityError``.
-   * - Release zip
-     - SHA-256 published alongside the zip on the GitHub releases page for
-       independent end-user verification.
 
 Tampered Local Storage
 -----------------------

@@ -5,22 +5,16 @@
 
 .DESCRIPTION
     Removes:
-    - C:\Program Files\Vocalance\  (application files and virtual environment)
-    - %APPDATA%\vocalance_voice_assistant_data\  (user data, settings, models, aliases)
+    - %LOCALAPPDATA%\Programs\Vocalance\  (application, virtual environment, bundled tools)
+    - %APPDATA%\vocalance_voice_assistant_data\  (user data, settings, aliases)
     - Start Menu shortcut (Vocalance.lnk)
 
-    Requires administrator privileges — will self-elevate via UAC if needed.
+    No administrator privileges are required.
 #>
 
 $ErrorActionPreference = 'Stop'
 
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-    exit
-}
-
-$INSTALL_ROOT = Join-Path $env:ProgramFiles 'Vocalance'
+$INSTALL_ROOT = Join-Path $env:LOCALAPPDATA 'Programs\Vocalance'
 $USER_DATA    = Join-Path $env:APPDATA 'vocalance_voice_assistant_data'
 $SHORTCUT     = Join-Path ([Environment]::GetFolderPath('Programs')) 'Vocalance.lnk'
 

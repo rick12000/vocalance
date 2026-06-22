@@ -20,28 +20,34 @@ per-wheel hashes for use with ``pip --require-hashes``.
 UV Bootstrap
 ============
 
-``setup.ps1`` bootstraps ``uv`` by downloading its official installer from
-``https://astral.sh/uv/install.ps1``. Before executing it, the script verifies
-the installer's SHA-256 against a value computed offline and hard-coded at
-development time:
+``setup.ps1`` bootstraps ``uv`` by downloading the official
+``uv-{arch}-pc-windows-msvc.zip`` binary archive from GitHub releases. The
+archive is never executed — ``uv.exe`` is extracted from it and placed inside
+the Vocalance install tree at ``%LOCALAPPDATA%\Programs\Vocalance\tools\uv.exe``.
+No system-wide UV installation occurs.
+
+Before extracting, the script verifies the archive's SHA-256 against a value
+computed offline and hard-coded at development time:
 
 .. code-block:: powershell
 
-   $UV_VERSION          = '0.11.22'
-   $UV_INSTALLER_SHA256 = '<hex digest>'
-
-   $actualHash = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLower()
-   if ($actualHash -ne $UV_INSTALLER_SHA256) {
-       Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-       Write-Error "UV installer integrity check failed."
-       exit 1
+   $UV_VERSION    = '0.11.22'
+   $UV_ZIP_SHA256 = @{
+       'x86_64'  = '<hex digest>'
+       'aarch64' = '<hex digest>'
    }
 
-The hash is produced by
-`scripts/security/compute_uv_installer_hash.ps1 <https://github.com/rick12000/vocalance/blob/main/scripts/security/compute_uv_installer_hash.ps1>`_
-whenever a developer bumps the ``uv`` version. A mismatch deletes the downloaded
-file and aborts setup; the environment is never created from an unverified
-installer.
+   $actual = (Get-FileHash -Path $uvZipPath -Algorithm SHA256).Hash.ToLower()
+   if ($actual -ne $UV_ZIP_SHA256[$arch].ToLower()) {
+       Remove-Item -LiteralPath $uvZipPath -Force -ErrorAction SilentlyContinue
+       throw "Integrity check failed ..."
+   }
+
+The hashes are produced by
+`scripts/security/compute_uv_binary_hash.ps1 <https://github.com/rick12000/vocalance/blob/main/scripts/security/compute_uv_binary_hash.ps1>`_
+whenever a developer bumps ``$UV_VERSION``. A mismatch deletes the downloaded
+archive and aborts setup; ``uv.exe`` is never extracted from an unverified
+archive.
 
 AI Models
 =========
@@ -122,6 +128,6 @@ Bundled Models
 ==============
 
 The YAMNet sound classifier and Vosk speech recognition model are embedded
-directly in the release zip and are never downloaded separately. Verifying the
-release zip against its published SHA-256 checksum (see :doc:`releases`)
-implicitly covers these files.
+directly in the release zip and are never downloaded separately. Their integrity
+is covered by the release zip's published SHA-256 checksum (see :doc:`releases`),
+which users may verify independently.
