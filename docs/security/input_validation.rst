@@ -1,13 +1,8 @@
 Input Validation
 #################
 
-.. sectnum::
-
 Vocalance validates user input at two layers: at the point of entry (UI or
-service layer) and again on every ingestion from disk. The disk-ingestion layer
-is the more security-relevant of the two — it ensures data modified directly in
-the JSON storage files cannot cause the application to execute dangerous
-operations.
+service layer) and again on every ingestion from disk.
 
 Settings Bounds
 ===============
@@ -52,7 +47,8 @@ Ingestion Guards
 ================
 
 Custom commands and sound mappings are marked security-sensitive at the storage
-layer:
+layer. These guards form part of the tampered local storage defences described in
+:ref:`security/security_assumptions:Tampered Local Storage`.
 
 .. code-block:: python
 

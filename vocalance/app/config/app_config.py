@@ -742,9 +742,7 @@ class AppInfoConfig(BaseModel):
     where application state and user data are persisted.
     """
 
-    appdata_dir_name: str = Field(
-        default=APPDATA_DIR_NAME, description="Directory name under %APPDATA% for all runtime data"
-    )
+    appdata_dir_name: str = Field(default=APPDATA_DIR_NAME, description="Directory name under %APPDATA% for all runtime data")
 
 
 class AssetPathsConfig(BaseModel):

@@ -244,10 +244,7 @@ async def _run_initialization(
         allow = config.local_llm_allowlist
         spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
         if spec is not None:
-            from vocalance.app.services.dictation_flow.llm.llm_model_downloader import (
-                IntegrityError,
-                LLMModelDownloader,
-            )
+            from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
 
             downloader = LLMModelDownloader(config)
             if not downloader.model_bundle_complete(spec.gguf_filenames):

@@ -1,7 +1,5 @@
-Third-Party Dependencies
+Supply Chain Integrity
 ########################
-
-.. sectnum::
 
 Python Libraries
 ================
@@ -12,21 +10,18 @@ All Python dependencies are sourced exclusively from
 `uv <https://github.com/astral-sh/uv>`_ manages the dependency tree. ``uv.lock``
 records the exact version and SHA-256 hash of every package in the full
 transitive closure. ``uv sync --frozen`` verifies each downloaded wheel against
-its recorded hash before installation — a mismatch is a hard error. This applies
-both when installing from source and when distributing: ``requirements-dist.txt``
-is generated with ``uv export --format requirements-txt`` and carries the same
-per-wheel hashes for use with ``pip --require-hashes``.
+its recorded hash before installation — a mismatch is a hard error.
 
 UV Bootstrap
 ============
 
-``setup.ps1`` bootstraps ``uv`` by downloading the official
+The installation script ``setup.ps1`` bootstraps ``uv`` by downloading the official
 ``uv-{arch}-pc-windows-msvc.zip`` binary archive from GitHub releases. The
-archive is never executed — ``uv.exe`` is extracted from it and placed inside
+archive is never executed. ``uv.exe`` is extracted from it and placed inside
 the Vocalance install tree at ``%LOCALAPPDATA%\Programs\Vocalance\tools\uv.exe``.
 No system-wide UV installation occurs.
 
-Before extracting, the script verifies the archive's SHA-256 against a value
+Before extraction, the script verifies the archive's SHA-256 against a value
 computed offline and hard-coded at development time:
 
 .. code-block:: powershell
@@ -52,9 +47,9 @@ archive.
 AI Models
 =========
 
-The AI model feature is optional — only the Smart and Amend dictation modes
-require it. Users are prompted at installation time and can add the ``[llm]``
-extra independently at any time. When enabled, models are downloaded at first
+The AI model feature is optional (the installation script will ask the user
+whether they want to enable it — see :ref:`security/installation_uninstallation:Installation flow`) and only a subset of dictation modes require it.
+When enabled, models are downloaded at first
 launch from `Hugging Face <https://huggingface.co>`_.
 
 Three controls are applied in sequence to every download.
@@ -75,7 +70,7 @@ model in
        gguf_filenames: tuple[str, ...]
        gguf_sha256: Dict[str, str]  # filename → expected SHA-256
 
-The three permitted models:
+The three permitted models are:
 
 - ``qwen2.5-1.5b-q5km`` — Qwen2.5 1.5B Instruct (Q5_K_M)
 - ``qwen3-4b-q5km`` — Qwen3 4B (Q5_K_M)
@@ -147,6 +142,4 @@ Bundled Models
 ==============
 
 The YAMNet sound classifier and Vosk speech recognition model are embedded
-directly in the release zip and are never downloaded separately. Their integrity
-is covered by the release zip's published SHA-256 checksum (see :doc:`releases`),
-which users may verify independently.
+directly in the release zip and are never downloaded separately (no need for external integrity validation).

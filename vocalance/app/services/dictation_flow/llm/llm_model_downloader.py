@@ -21,17 +21,19 @@ logger = logging.getLogger(__name__)
 
 _CHUNK_BYTES = 1024 * 512
 _PROGRESS_INTERVAL_BYTES = 50 * 1024 * 1024
-_TRUSTED_HF_HOSTS = frozenset({
-    "huggingface.co",
-    "cdn-lfs.huggingface.co",
-    "cdn-lfs-us-1.huggingface.co",
-    "hf.co",
-    "cdn-lfs.hf.co",
-    "cdn-lfs-us-1.hf.co",
-    "cdn-lfs-eu-1.hf.co",
-    "xethub.hf.co",
-    "cas-bridge.xethub.hf.co",
-})
+_TRUSTED_HF_HOSTS = frozenset(
+    {
+        "huggingface.co",
+        "cdn-lfs.huggingface.co",
+        "cdn-lfs-us-1.huggingface.co",
+        "hf.co",
+        "cdn-lfs.hf.co",
+        "cdn-lfs-us-1.hf.co",
+        "cdn-lfs-eu-1.hf.co",
+        "xethub.hf.co",
+        "cas-bridge.xethub.hf.co",
+    }
+)
 
 
 class IntegrityError(Exception):

@@ -1,10 +1,7 @@
 Security Assumptions
 #####################
 
-.. sectnum::
-
-This page makes Vocalance's threat model explicit: what the application actively
-defends against, and what is considered out of scope.
+Below we detail what is and isn't included in Vocalance's threat model.
 
 What We Protect Against
 ========================
@@ -13,14 +10,15 @@ Supply-Chain Integrity
 ----------------------
 
 Every third-party asset downloaded at install or runtime is hash-verified
-before use. The expected hash is committed to this repository and computed
-offline — it does not come from the same source as the asset it protects,
-so serving a malicious file cannot produce a matching hash.
+before use. Full details of each control are documented in
+:doc:`supply_chain_integrity`.
 
 Hash verification is not applied to the Vocalance release zip itself because
 both the zip and any hash embedded in ``setup.ps1`` originate from the same
 GitHub release. If that release were compromised, both would be replaced
 simultaneously, making the check self-referential and worthless.
+
+Examples:
 
 .. list-table::
    :widths: 38 62
@@ -68,9 +66,8 @@ What is Out of Scope
 Audio-Input Spoofing
 --------------------
 
-Vocalance's entire command pipeline — segmentation, classification, recognition,
-parsing, and execution — assumes the audio input is trustworthy. A sufficiently
-privileged attacker on the same machine could create a virtual audio device,
+Vocalance's command and dictation pipelines assume the audio input is trustworthy.
+A sufficiently privileged attacker on the same machine could create a virtual audio device,
 set it as the system default input, and feed arbitrary audio to trigger commands
 or dictation.
 
@@ -79,39 +76,6 @@ access or a kernel/driver-level malicious component. An attacker at that
 privilege level already possesses:
 
 - The ability to run arbitrary scripts and executables.
-- Direct API access to inject keystrokes and hotkeys.
 - Full read/write access to all files on the machine.
-- The ability to install, modify, or terminate any process.
 
-The marginal capability gained by hijacking Vocalance's command execution is
-negligible relative to what that attacker already has. Defending against an
-adversary who owns the machine at the driver level is not a tractable goal for
-a user-space application — the appropriate controls are OS-level (endpoint
-protection, privilege management, driver signing).
-
-.. admonition:: Deployment note
-
-   Vocalance is designed for machines the user trusts and controls. Enterprise
-   deployments should apply standard endpoint security controls independently
-   of the application.
-
-Post-Download AI Model Substitution
--------------------------------------
-
-``.gguf`` files are hash-verified immediately after download but not on
-subsequent loads. An attacker with write access to
-``%APPDATA%\Vocalance\llm_models\`` could substitute
-a model file between the initial verification and a later load. This is accepted
-for the same reason as audio spoofing: that level of local access already
-provides a broad attack surface independent of Vocalance. The impact is
-additionally bounded by what ``llama-cpp-python`` will do with a malformed
-binary — a library-level concern outside Vocalance's control.
-
-Known-Vulnerable Pinned Dependencies
---------------------------------------
-
-Pinned package versions and hashes guarantee reproducibility, not the absence
-of vulnerabilities. Trivy scanning (see :doc:`releases`) checks for known CVEs
-at build time; vulnerabilities disclosed after a release are not automatically
-remediated. Users in security-sensitive environments should monitor upstream
-advisories for packages listed in ``uv.lock`` and ``pyproject.toml``.
+Therefore, such an attacker would have nothing to gain by hijacking Vocalance.

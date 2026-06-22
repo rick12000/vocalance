@@ -1,25 +1,19 @@
 Installation and Uninstallation
 ################################
 
-.. sectnum::
-
 Installation
 ============
 
-The installer is
-`setup.ps1 <https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1>`_,
-a PowerShell script for Windows 10/11 distributed as a standalone release asset.
+The application can either be built from source manually (as detailed in the README) or
+by using the dedicated
+`setup.ps1 <https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1>`_
+installation script (which is bundled with each release). Below we detail the workflow of the script.
 
 Privilege model
 ---------------
 
-The script runs entirely as the current user. No administrator privileges are
-requested or required. Installation targets ``%LOCALAPPDATA%\Programs\Vocalance\``,
-following the same user-space convention used by VS Code, Chrome, and Slack.
-
-This approach enforces the principle of least privilege: the application runs as
-the current user and is installed by the current user. No UAC prompt, no
-self-elevation, and no ``-ExecutionPolicy Bypass`` flag are ever used.
+In accordance with the principle of least privilege, the script runs as the current user. No administrator privileges are
+requested or required. The application is installed at ``%LOCALAPPDATA%\Programs\Vocalance\``.
 
 Installation flow
 -----------------
@@ -29,20 +23,22 @@ Installation flow
    SHA-256 against the hard-coded ``$UV_ZIP_SHA256`` value before extracting.
    A mismatch deletes the archive and aborts. ``uv.exe`` is placed in
    ``%LOCALAPPDATA%\Programs\Vocalance\tools\uv.exe``; no system-wide UV
-   installation occurs and ``PATH`` is not modified.
+   installation occurs and ``PATH`` is not modified. See
+   :ref:`security/supply_chain_integrity:UV Bootstrap` for the full verification
+   procedure.
 
-2. **Download and extract release zip** — fetches ``vocalance-v{VERSION}.zip``
-   from the GitHub releases page for the pinned version and unpacks it to
+2. **Download Vocalance release** — fetches ``vocalance-v{VERSION}.zip``
+   from the immutable GitHub releases page for the pinned version and unpacks it to
    ``%LOCALAPPDATA%\Programs\Vocalance\app\``.
 
 3. **Create virtual environment** — ``uv venv --python 3.13.9``.
 
-4. **Install dependencies** — prompts the user whether to include LLM support,
-   then runs ``uv sync --frozen`` or ``uv sync --frozen --extra llm``.
-   ``--frozen`` enforces ``uv.lock`` with per-package hash verification.
+4. **Install dependencies** — prompts the user on whether to include LLM features,
+   then runs ``uv sync --frozen`` if features are excluded and ``uv sync --frozen --extra llm`` otherwise.
+   ``--frozen`` enforces ``uv.lock`` with per-package hash verification (see
+   :ref:`security/supply_chain_integrity:Python Libraries`).
 
-5. **Create Start Menu shortcut** — ``pythonw.exe vocalance.py`` under the
-   current user's ``Programs`` folder (no admin required).
+5. **Create Start Menu shortcut** — creates a shortcut to the application's entry point ``pythonw.exe vocalance.py``.
 
 File layout
 -----------
@@ -65,15 +61,14 @@ File layout
        activity logs, LLM model files, developer log files. Created by the
        application on first launch.
 
-All paths are within the current user's profile; no system directories are
-touched.
 
 Uninstallation
 ==============
 
-The uninstaller is
-`cleanup.ps1 <https://github.com/rick12000/vocalance/releases/latest/download/cleanup.ps1>`_,
-distributed as a standalone release asset. It runs as the current user (no elevation) and removes, in order:
+An uninstallation script
+`cleanup.ps1 <https://github.com/rick12000/vocalance/releases/latest/download/cleanup.ps1>`_
+is also provided with each release.
+It runs as the current user (no elevation) and removes the contents of:
 
 1. ``%LOCALAPPDATA%\Programs\Vocalance\`` — source, virtual environment, bundled
    uv binary.

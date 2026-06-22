@@ -295,7 +295,7 @@ code {
   margin: 1.5rem 0;
   overflow: hidden;
   box-shadow: var(--shadow-md);
-  background: var(--gray-200);
+  background: #dde3ed;
 }
 
 .admonition-title {
@@ -311,7 +311,26 @@ code {
   padding: 1.25rem;
   margin: 0;
   line-height: 1.6;
-  color: var(--gray-800);
+  color: #1e293b;
+}
+
+.admonition p a {
+  color: #1d4ed8;
+}
+
+.admonition p code {
+  background: #c7d2e8 !important;
+  color: #1e3a8a !important;
+  border-color: #93aad4 !important;
+}
+
+/* Generic admonition (custom title, no semantic class) */
+.admonition:not(.note):not(.warning):not(.important):not(.tip):not(.caution):not(.danger):not(.hint):not(.error) {
+  border-left: 4px solid var(--primary-600);
+}
+.admonition:not(.note):not(.warning):not(.important):not(.tip):not(.caution):not(.danger):not(.hint):not(.error) .admonition-title {
+  background: #2563eb;
+  color: #ffffff;
 }
 
 /* Admonition types */

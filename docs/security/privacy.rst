@@ -1,10 +1,8 @@
 Privacy
 #######
 
-.. sectnum::
-
 After the initial installation (if following the
-`setup script <https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1>`_),
+`installation script <https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1>`_),
 the application makes no outbound network requests. All speech recognition,
 command execution, dictation, and AI inference run entirely on the host machine.
 
@@ -19,14 +17,12 @@ Logs
 
 The application has two distinct logging mechanisms: **developer logs** and an
 **activity tracker**. Developer logs are conventional Python ``logging`` module
-output — trace-level output covering service events, recognition results, errors,
-and tracebacks. The activity tracker is a separate structured JSONL logger that
-records security-salient operations: every dictation output and every automation
-executed.
+outputs. The activity tracker is a separate structured JSONL logger that
+records security-salient operations (dictation and command execution).
 
-.. admonition:: Both logging mechanisms are disabled by default
+.. admonition:: No Logs Policy by Default
 
-   They can be individually enabled in the application config:
+   The application always ships with both logging mechanisms disabled by default. They can be individually enabled in the application config:
 
    .. code-block:: text
 
@@ -96,20 +92,26 @@ when enabled.
 User Data
 ---------
 
-Across sessions, the application persists user configuration as JSON files under:
+Besides logs, the application stores and persists a range of user-specific data. This may include:
+
+- user settings (integer or boolean values controlling preferences over VAD sensitivity, grid cell count, etc.)
+- JSON mappings for custom command hotkeys and command phrase overrides
+- user generated sound recordings (if the user has recorded any)
+- named screen position coordinates to support mark functionality
+- saved LLM prompts (if the AI feature is enabled and the user has provided any)
+- dictation aliases (if the user has defined any)
+
+No dictation outputs or user audio is ever stored on disk.
+
+All of this data is stored and freely auditable by the user at:
 
 .. code-block:: text
 
    %APPDATA%\Vocalance\
 
-This includes: application settings (VAD sensitivity, grid cell count, LLM token
-limits, selected model), custom voice-to-hotkey command mappings, dictation
-aliases, named on-screen mark positions, sound-to-command mappings, and saved
-LLM prompt templates (if the AI feature is enabled).
+.. admonition:: Data Classification
 
-.. admonition:: Sensitivity
-
-   None of the above is intrinsically sensitive. Two fields could contain
+   None of the above data is intrinsically sensitive. Three categories could contain
    sensitive content depending on what the user puts in them:
 
    - **Sound recordings** — audio samples used for custom sound commands. These
@@ -119,6 +121,5 @@ LLM prompt templates (if the AI feature is enabled).
      modes. These are only present if the AI functionality was enabled at
      installation time. Their sensitivity depends entirely on what the user
      writes in them.
-
-   No dictation output is ever stored. No background audio is ever persisted
-   beyond the sound-mapping samples the user explicitly records.
+   - **Dictation Aliases** — user-defined text that can be substituted for other text during dictation.
+     See :ref:`security/input_validation:Alias Sanitisation` for the validation controls applied to alias content.
