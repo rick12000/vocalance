@@ -45,7 +45,7 @@ To get started with installation, either follow the steps below or watch the [in
 
    > **Optional:** To install a specific release instead of the latest, replace `latest/download` with `download/vX.Y.Z` in the URL — for example:
    > ```powershell
-   > Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/download/v0.0.1/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+   > Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/download/v0.1.0/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
    > ```
 
    During setup you will be asked whether to enable LLM features. Answer **yes** if you want to enable AI dictation and AI text editing functionality, otherwise answer **no**.

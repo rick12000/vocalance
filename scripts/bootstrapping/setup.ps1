@@ -13,7 +13,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-$VOCALANCE_VERSION = '0.0.1'
+$VOCALANCE_VERSION = '0.1.0'
 $VOCALANCE_REPO    = 'rick12000/vocalance'
 
 $UV_VERSION    = '0.11.22'
