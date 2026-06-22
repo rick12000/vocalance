@@ -42,7 +42,7 @@ simultaneously, making the check self-referential and worthless.
 Tampered Local Storage
 -----------------------
 
-User data files are plain JSON in ``%APPDATA%\vocalance_voice_assistant_data\``,
+User data files are plain JSON in ``%APPDATA%\Vocalance\``,
 writable by any process with standard user access. The application defends at
 the ingestion layer:
 
@@ -100,7 +100,7 @@ Post-Download AI Model Substitution
 
 ``.gguf`` files are hash-verified immediately after download but not on
 subsequent loads. An attacker with write access to
-``%LOCALAPPDATA%\vocalance_voice_assistant\cache\llm_models\`` could substitute
+``%APPDATA%\Vocalance\llm_models\`` could substitute
 a model file between the initial verification and a later load. This is accepted
 for the same reason as audio spoofing: that level of local access already
 provides a broad attack surface independent of Vocalance. The impact is

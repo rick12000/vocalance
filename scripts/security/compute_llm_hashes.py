@@ -34,7 +34,7 @@ def models_dir() -> str:
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
     else:
         base = os.path.expanduser("~")
-    return os.path.join(base, "vocalance_voice_assistant_data", "llm_models")
+    return os.path.join(base, "Vocalance", "llm_models")
 
 
 def sha256_of_file(path: str) -> str:

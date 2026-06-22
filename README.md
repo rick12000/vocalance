@@ -138,7 +138,7 @@ To uninstall Vocalance completely, download and run the cleanup script:
 Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/latest/download/cleanup.ps1" -OutFile "vocalance-cleanup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-cleanup.ps1
 ```
 
-This removes the application files (`%LOCALAPPDATA%\Programs\Vocalance\`), user data (`%APPDATA%\vocalance_voice_assistant_data\`), and the Start Menu shortcut. It does not remove system-level tools such as UV.
+This removes the application files (`%LOCALAPPDATA%\Programs\Vocalance\`), user data (`%APPDATA%\Vocalance\`), and the Start Menu shortcut. It does not remove system-level tools such as UV.
 
 
 ## ⚠️ Disclaimers

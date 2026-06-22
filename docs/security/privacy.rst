@@ -44,7 +44,7 @@ When developer logging is enabled, output goes to stdout and to:
 
 .. code-block:: text
 
-   %LOCALAPPDATA%\vocalance_voice_assistant\cache\logs\<YYYYMMDD_HHMMSS>\app.log
+   %APPDATA%\Vocalance\logs\<YYYYMMDD_HHMMSS>\app.log
 
 Developer logs may incidentally include dictated phrases or executed command
 names. They are intended for active development only.
@@ -53,7 +53,7 @@ When the activity tracker is enabled, it writes one JSON record per event to:
 
 .. code-block:: text
 
-   %APPDATA%\vocalance_voice_assistant_data\activity_logs\activity_<YYYYMMDD_HHMMSS>.jsonl
+   %APPDATA%\Vocalance\activity_logs\activity_<YYYYMMDD_HHMMSS>.jsonl
 
 Each record follows this structure:
 
@@ -100,7 +100,7 @@ Across sessions, the application persists user configuration as JSON files under
 
 .. code-block:: text
 
-   %APPDATA%\vocalance_voice_assistant_data\
+   %APPDATA%\Vocalance\
 
 This includes: application settings (VAD sensitivity, grid cell count, LLM token
 limits, selected model), custom voice-to-hotkey command mappings, dictation

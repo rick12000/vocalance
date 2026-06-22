@@ -6,7 +6,7 @@
 .DESCRIPTION
     Removes:
     - %LOCALAPPDATA%\Programs\Vocalance\  (application, virtual environment, bundled tools)
-    - %APPDATA%\vocalance_voice_assistant_data\  (user data, settings, aliases)
+    - %APPDATA%\Vocalance\  (user data, settings, aliases)
     - Start Menu shortcut (Vocalance.lnk)
 
     No administrator privileges are required.
@@ -15,7 +15,7 @@
 $ErrorActionPreference = 'Stop'
 
 $INSTALL_ROOT = Join-Path $env:LOCALAPPDATA 'Programs\Vocalance'
-$USER_DATA    = Join-Path $env:APPDATA 'vocalance_voice_assistant_data'
+$USER_DATA    = Join-Path $env:APPDATA 'Vocalance'
 $SHORTCUT     = Join-Path ([Environment]::GetFolderPath('Programs')) 'Vocalance.lnk'
 
 $removed = @()

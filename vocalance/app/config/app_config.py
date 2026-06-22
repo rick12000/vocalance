@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from vocalance.app.config.logging_config import LoggingConfigModel
 
+APPDATA_DIR_NAME = "Vocalance"
+
 logger = logging.getLogger(__name__)
 
 
@@ -736,16 +738,13 @@ class ProtectedTermsValidatorConfig(BaseModel):
 class AppInfoConfig(BaseModel):
     """Configuration for application identity and data directory naming.
 
-    Controls the base names and suffixes used for constructing user-specific data directories
+    Controls the base names used for constructing user-specific data directories
     where application state and user data are persisted.
     """
 
-    default_app_name_for_data_dir: str = Field(
-        default="vocalance_voice_assistant", description="Default app name for data directory"
+    appdata_dir_name: str = Field(
+        default=APPDATA_DIR_NAME, description="Directory name under %APPDATA% for all runtime data"
     )
-    user_data_dir_suffix: str = Field(default="_data", description="Suffix for user data directory")
-    dev_cache_dir_name: str = "dev_cache"
-    user_data_dir: str = "data"
 
 
 class AssetPathsConfig(BaseModel):
@@ -961,7 +960,7 @@ class GlobalAppConfig(BaseModel):
     Automatically initializes storage directory structure on instantiation.
     """
 
-    logging: LoggingConfigModel = LoggingConfigModel()
+    logging: LoggingConfigModel = LoggingConfigModel(appdata_dir_name=APPDATA_DIR_NAME)
     activity_tracking: ActivityTrackingConfig = ActivityTrackingConfig()
     app_info: AppInfoConfig = AppInfoConfig()
     asset_paths: AssetPathsConfig = AssetPathsConfig()
@@ -1123,4 +1122,4 @@ def get_default_user_data_root(app_info: AppInfoConfig) -> str:
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
     else:
         base = os.path.expanduser("~")
-    return os.path.join(base, app_info.default_app_name_for_data_dir + app_info.user_data_dir_suffix)
+    return os.path.join(base, app_info.appdata_dir_name)

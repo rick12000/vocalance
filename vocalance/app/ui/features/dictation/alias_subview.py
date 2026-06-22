@@ -136,9 +136,8 @@ class QtDictationAliasSubView(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Create two-column layout with titles
         self.layout_widget = TwoColumnLayout("Add Alias", "Manage Aliases", self)
-        main_layout.addWidget(self.layout_widget)
+        main_layout.addWidget(self.layout_widget, stretch=1)
 
         # Setup panels
         self.setup_add_alias_form()

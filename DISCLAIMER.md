@@ -88,11 +88,11 @@ Vocalance downloads AI model files on first launch only, to your local machine. 
 - **Default model:** Qwen 2.5 1.5B Instruct (GGUF format), licensed under Apache 2.0.
 - **Stored at:**
   ```
-  %APPDATA%\vocalance_voice_assistant_data\llm_models\
+  %APPDATA%\Vocalance\llm_models\
   ```
   On most Windows installations this resolves to:
   ```
-  C:\Users\<YourUsername>\AppData\Roaming\vocalance_voice_assistant_data\llm_models\
+  C:\Users\<YourUsername>\AppData\Roaming\Vocalance\llm_models\
   ```
 - Additional language models are available for download through the settings UI. The user must explicitly click download for any additional model to be fetched. All additional models are also downloaded from Hugging Face.
 - **Note on Hugging Face download statistics:** Hugging Face Hub records download counts for hosted model files. When Vocalance downloads a model on your behalf, Hugging Face registers one download event. No personal information from Vocalance is transmitted; this is solely Hugging Face's own infrastructure telemetry. See [Hugging Face's Privacy Policy](https://huggingface.co/privacy) for details.
@@ -108,16 +108,16 @@ Vocalance writes user data exclusively to your local machine. **Nothing in this 
 All Vocalance user data is stored under:
 
 ```
-%APPDATA%\vocalance_voice_assistant_data\
+%APPDATA%\Vocalance\
 ```
 
 On most Windows installations this resolves to:
 
 ```
-C:\Users\<YourUsername>\AppData\Roaming\vocalance_voice_assistant_data\
+C:\Users\<YourUsername>\AppData\Roaming\Vocalance\
 ```
 
-To navigate there directly: open **File Explorer**, click the address bar, and paste `%APPDATA%\vocalance_voice_assistant_data`.
+To navigate there directly: open **File Explorer**, click the address bar, and paste `%APPDATA%\Vocalance`.
 
 ### 7.2 File Inventory
 
@@ -141,7 +141,7 @@ By default, **logging is completely disabled** in the shipped application. When 
 If a developer or advanced user explicitly enables logging by modifying the `enable_logs` field in the application configuration, log files will be written to:
 
 ```
-%LOCALAPPDATA%\vocalance_voice_assistant\cache\logs\<timestamp>\app.log
+%APPDATA%\Vocalance\logs\<timestamp>\app.log
 ```
 
 This applies only when `enable_logs` is set to `true`, which requires direct modification of the source code or configuration file. This setting is `false` by default and will not be active in a standard installation.

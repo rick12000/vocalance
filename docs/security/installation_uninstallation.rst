@@ -60,11 +60,10 @@ File layout
      - Python virtual environment.
    * - ``%LOCALAPPDATA%\Programs\Vocalance\tools\uv.exe``
      - Bundled uv binary; scoped to this installation.
-   * - ``%APPDATA%\vocalance_voice_assistant_data\``
+   * - ``%APPDATA%\Vocalance\``
      - All runtime-written data: configuration, marks, aliases, commands,
-       activity logs. Created by the application on first launch.
-   * - ``%LOCALAPPDATA%\vocalance_voice_assistant\cache\``
-     - Downloaded AI model files; developer log files if logging is enabled.
+       activity logs, LLM model files, developer log files. Created by the
+       application on first launch.
 
 All paths are within the current user's profile; no system directories are
 touched.
@@ -78,7 +77,7 @@ distributed as a standalone release asset. It runs as the current user (no eleva
 
 1. ``%LOCALAPPDATA%\Programs\Vocalance\`` — source, virtual environment, bundled
    uv binary.
-2. ``%APPDATA%\vocalance_voice_assistant_data\`` — all user-configured state.
+2. ``%APPDATA%\Vocalance\`` — all user-configured state.
 3. The Start Menu shortcut.
 
 After cleanup, no Vocalance files remain on the machine. Third-party package
