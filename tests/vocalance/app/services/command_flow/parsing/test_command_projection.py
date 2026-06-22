@@ -22,7 +22,9 @@ def test_command_with_phrase_override_applies_and_skips():
 
 
 def test_build_command_projection_includes_custom_and_registry_defaults():
-    custom = AutomationCommand(command_key="my cmd", action_type="key", action_value="a", is_custom=True, functional_group="Other")
+    custom = AutomationCommand(
+        command_key="my cmd", action_type="hotkey", action_value="ctrl+alt+m", is_custom=True, functional_group="Other"
+    )
     action_map, ui = build_command_projection(CommandsData(custom_commands={"my cmd": custom}))
 
     assert "my cmd" in action_map
