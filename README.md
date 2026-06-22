@@ -29,10 +29,7 @@ Vocalance can be set up entirely from the source code in this repository (curren
 ### ✨ **Easy Setup (Recommended)**
 
 > [!IMPORTANT]
-> Ensure Git is installed. If not, download the latest Git for Windows from [git-scm.com/download/win](https://git-scm.com/download/win).
-
-> [!IMPORTANT]
-> Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
+> If you want to enable AI features, ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed — download the installer, run it, and tick "**Desktop development with C++**" under workloads.
 
 To get started with installation, either follow the steps below or watch the [installation walkthrough on YouTube](https://www.youtube.com/watch?v=p2_gPICZ9x8).
 
@@ -41,10 +38,17 @@ To get started with installation, either follow the steps below or watch the [in
 2. Paste and run:
 
     ```powershell
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/main/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+    Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
     ```
 
    *If you'd like to inspect what the script will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.*
+
+   > **Optional:** To install a specific release instead of the latest, replace `latest/download` with `download/vX.Y.Z` in the URL — for example:
+   > ```powershell
+   > Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/download/v0.0.1/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+   > ```
+
+   During setup you will be asked whether to enable LLM features. Answer **yes** if you want to enable AI dictation and AI text editing functionality, otherwise answer **no**.
 
 3. Open Vocalance from the Start Menu (search "vocalance" if not featured):
 
@@ -53,7 +57,7 @@ To get started with installation, either follow the steps below or watch the [in
 </p>
 
    - If the application doesn't appear immediately after you clicked it, *wait 10-15 seconds before retrying*, it may be loading in the background.
-   - On first use, the application needs to **download** your local AI model from a trusted *Hugging Face* repository (among other essential downloads). **Do not close** the start up window during this process and allow up to 30 minutes for it to complete depending on internet connection (but should take around 5 minutes for most users).
+   - If you enabled LLM features, the application needs to **download** your local AI model from a trusted *Hugging Face* repository on first use. **Do not close** the startup window during this process — allow up to 30 minutes depending on your internet connection (around 5 minutes for most users).
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how everything works.
 
@@ -64,7 +68,7 @@ Having issues with the installation steps? Reach out at: vocalance.contact@gmail
 ### 🛠️ **Developer Setup**
 
 > [!IMPORTANT]
-> Ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed (required for LLM features). If not, download the installer from Microsoft, run it, and tick "**Desktop development with C++**" under workloads before completing installation.
+> If you want to enable AI features, ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed — download the installer, run it, and tick "**Desktop development with C++**" under workloads. Then install with `uv sync --extra llm` instead of `uv sync --active`.
 
 #### 1. Set Up UV
 
@@ -105,12 +109,17 @@ Having issues with the installation steps? Reach out at: vocalance.contact@gmail
    uv sync --active
    ```
 
+   To include LLM features (smart dictation, text-amend), install with:
+   ```bash
+   uv sync --active --extra llm
+   ```
+
 6. Run the application:
    ```bash
    python vocalance.py
    ```
 
-The application will start up and download any required models (like speech recognition models) on first run (these are downloaded from Hugging Face or other reputable hosts). This may take several minutes depending on your internet connection.
+The application will start up and download any required models (like speech recognition models) on first run. If LLM features are enabled, the local AI model is also downloaded on first launch. This may take several minutes depending on your internet connection.
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how to get started.
 
@@ -123,12 +132,13 @@ If you're more familiar with a mixture of a virtual environment manager (eg. `ve
 
 ### 🧹 Cleanup
 
-To remove Vocalance after installing:
+To uninstall Vocalance completely, download and run the cleanup script:
 
-- **Repository and environment:** Delete `vocalance-prod` and `vocalance_env` folders from your installation directory (you chose this directory when you ran setup.ps1)
-- **User data and shortcut:** Run [scripts/bootstrapping/cleanup.ps1](https://github.com/rick12000/vocalance/blob/main/scripts/bootstrapping/cleanup.ps1) to remove your personal data and Start Menu shortcut
+```powershell
+Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/latest/download/cleanup.ps1" -OutFile "vocalance-cleanup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-cleanup.ps1
+```
 
-The cleanup script removes all Vocalance user data stored in `%APPDATA%\vocalance_voice_assistant_data\` (settings, downloaded models, custom commands, aliases) and the Start Menu shortcut. It does not remove third-party package caches or system-level tools.
+This removes the application files (`%LOCALAPPDATA%\Programs\Vocalance\`), user data (`%APPDATA%\Vocalance\`), and the Start Menu shortcut. It does not remove system-level tools such as UV.
 
 
 ## ⚠️ Disclaimers
@@ -138,8 +148,8 @@ Vocalance is distributed under a GPLv3 license. It makes use of your microphone 
 ## 🔧 System Requirements
 
 - **Operating System**: Windows 10/11 (macOS and Linux support planned)
-- **RAM**: 2GB RAM
-- **Disk**: 5GB
+- **RAM**: 1GB RAM
+- **Disk**: 3GB
 - **Hardware**: It is **strongly** recommended to purchase a reasonably good headset or microphone to improve Vocalance outputs and recognition, but it will still work without this.
 
 ## 🤝 Contributing
@@ -161,19 +171,3 @@ If you want to find out more about Vocalance's architecture, refer to the techni
 - **[Dictation flow](https://vocalance.readthedocs.io/en/latest/developer/features/dictation_flow.html)** — Long-running dictation sessions, recognizers, and typing pipeline
 - **[User interface](https://vocalance.readthedocs.io/en/latest/developer/features/user_interface.html)** — How pipeline events reach the screen and how UI input returns to the bus
 - **[Event bus](https://vocalance.readthedocs.io/en/latest/developer/foundations/event_bus.html)** — Publish/subscribe model, dispatch, and how services stay decoupled
-
-
-## 📈 Upcoming Features
-
-The following features are planned additions to Vocalance, with some in early development and others under consideration:
-
-*   **Eye Tracking for Cursor Control:** This feature is planned to enable cursor control via eye movements.
-    *   **Gaze Tracking Accuracy:** Merge gaze tracking with historical screen click data and screen contents to improve accuracy, aiming for good performance even with webcam tracking.
-    *   **Zoom Option:** Add a zoom option to better direct gaze on screen contents.
-
-*   **Context-Aware Commands:** Implement context bucketing for commands, allowing the same command phrase (e.g., "previous") to map to different hotkeys depending on the active application (e.g., VSCode vs. Chrome). This aims to avoid disambiguation phrases.
-
-*   **Improved Text Editing & Navigation:** Further enhancements to text editing and text navigation tools.
-
-*   **Enhanced Predictive Features:** Improve predictive capabilities based on window contents, recent context, gaze patterns, and more.
-    *   *Privacy Note:* Any feature requiring local storage of potentially sensitive data (e.g., screenshots, window contents) will be deployed as an opt-in feature and disabled by default.

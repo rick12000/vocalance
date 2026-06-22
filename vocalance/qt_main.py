@@ -48,6 +48,7 @@ def _service_specs() -> List[ServiceSpec]:
     only fire when ``_construct_services`` runs (on a worker thread), not on
     ``qt_main`` import and not on the GUI thread.
     """
+    from vocalance.app.services.activity_tracker import ActivityTracker
     from vocalance.app.services.capture.audio_capture_service import AudioCaptureService
     from vocalance.app.services.command_flow.execution.automation_service import AutomationService
     from vocalance.app.services.command_flow.execution.grid.click_tracker_service import ClickTrackerService
@@ -66,6 +67,13 @@ def _service_specs() -> List[ServiceSpec]:
     from vocalance.app.services.storage.storage_service import StorageService
 
     return [
+        ServiceSpec(
+            name="activity_tracker",
+            factory=lambda c: ActivityTracker(
+                config=c["config"].activity_tracking,
+                activity_logs_dir=c["config"].storage.activity_logs_dir,
+            ),
+        ),
         ServiceSpec(name="input_service", factory=lambda c: KeyboardInputService(event_bus=c["event_bus"])),
         ServiceSpec(name="storage", factory=lambda c: StorageService(config=c["config"])),
         ServiceSpec(
@@ -76,7 +84,12 @@ def _service_specs() -> List[ServiceSpec]:
         ServiceSpec(name="grid", factory=lambda c: GridService(event_bus=c["event_bus"], config=c["config"])),
         ServiceSpec(
             name="automation",
-            factory=lambda c: AutomationService(event_bus=c["event_bus"], config=c["config"], input_service=c["input_service"]),
+            factory=lambda c: AutomationService(
+                event_bus=c["event_bus"],
+                config=c["config"],
+                input_service=c["input_service"],
+                activity_tracker=c["activity_tracker"],
+            ),
         ),
         ServiceSpec(
             name="click_tracker",
@@ -140,6 +153,7 @@ def _service_specs() -> List[ServiceSpec]:
                 gui_event_loop=c["gui_loop"],
                 input_service=c["input_service"],
                 lifecycle=c["lifecycle"],
+                activity_tracker=c["activity_tracker"],
                 cancel_token=c["cancel_token"],
             ),
         ),
@@ -224,24 +238,43 @@ async def _run_initialization(
     await services.command_speech.initialize()
 
     progress.update_sub_step(sub_step_name="Preparing dictation system...")
-    allow = config.local_llm_allowlist
-    spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
-    if spec is not None:
-        from vocalance.app.services.dictation_flow.llm.llm_model_downloader import LLMModelDownloader
+    from vocalance.app.utils.llm_dep_check import llm_deps_available
 
-        downloader = LLMModelDownloader(config)
-        if not downloader.model_bundle_complete(spec.gguf_filenames):
-            progress.update_sub_step(
-                sub_step_name="Fetching AI Model. First launch may take several minutes.",
-                progress=0.35,
-            )
-            ok = await downloader.download_model_bundle(
-                repo_id=spec.repo_id,
-                filenames=list(spec.gguf_filenames),
-                cancel_event=lifecycle.cancel_token.threading_event(),
-            )
-            if not ok:
-                raise RuntimeError("Critical asset download failed: LLM model")
+    if llm_deps_available():
+        allow = config.local_llm_allowlist
+        spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
+        if spec is not None:
+            from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
+
+            downloader = LLMModelDownloader(config)
+            if not downloader.model_bundle_complete(spec.gguf_filenames):
+                logger.info(
+                    "LLM model bundle not found on disk — downloading: id=%r repo=%r files=%s",
+                    spec.id,
+                    spec.repo_id,
+                    list(spec.gguf_filenames),
+                )
+                progress.update_sub_step(
+                    sub_step_name="Fetching AI Model. First launch may take several minutes.",
+                    progress=0.35,
+                )
+                try:
+                    downloaded_path = await downloader.download_model_bundle(
+                        repo_id=spec.repo_id,
+                        filenames=list(spec.gguf_filenames),
+                        cancel_event=lifecycle.cancel_token.threading_event(),
+                    )
+                except IntegrityError as exc:
+                    raise RuntimeError(f"LLM model failed integrity check: {exc}") from exc
+                if not downloaded_path:
+                    logger.error(
+                        "LLM model download returned no path: id=%r repo=%r files=%s",
+                        spec.id,
+                        spec.repo_id,
+                        list(spec.gguf_filenames),
+                    )
+                    raise RuntimeError("Critical asset download failed: LLM model")
+                logger.info("LLM model bundle ready: %s", downloaded_path)
 
     progress.update_sub_step(
         sub_step_name="Initializing dictation"

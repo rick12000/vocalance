@@ -15,6 +15,7 @@ from vocalance.app.events.core_events import (
     SettingsChangedEvent,
 )
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
+from vocalance.app.utils.llm_dep_check import llm_deps_available
 
 
 class QtSettingsController(QtBaseController):
@@ -25,17 +26,21 @@ class QtSettingsController(QtBaseController):
     llm_bundle_status_updated = Signal()
     llm_download_progress = Signal(str)
     llm_cancellable_download_finished = Signal(bool, str)
+    llm_download_cancelled = Signal()
+    llm_download_integrity_error = Signal(str)
 
     def __init__(self, event_bus: EventBus, config: GlobalAppConfig) -> None:
         super().__init__(event_bus=event_bus, logger=logging.getLogger("QtSettingsController"))
         self.config = config
+        self._llm_enabled = llm_deps_available()
         self.cached_settings: Dict[str, Any] = {}
         self.llm_bundle_status: Dict[str, bool] = {}
         self.pending_setting_futures: Dict[str, asyncio.Future[Tuple[bool, str]]] = {}
         self.active_llm_download_rid: Optional[str] = None
         self.subscribe(SettingsChangedEvent, self.on_settings_changed)
         self.subscribe(RuntimeConfigResponseEvent, self.on_runtime_config_response)
-        self.subscribe(LlmUiNotificationEvent, self.on_llm_ui_notification)
+        if self._llm_enabled:
+            self.subscribe(LlmUiNotificationEvent, self.on_llm_ui_notification)
 
     def on_settings_changed(self, settings_change: SettingsChangedEvent) -> None:
         self.cached_settings = settings_change.all_settings
@@ -47,7 +52,8 @@ class QtSettingsController(QtBaseController):
         if event.op == "effective_snapshot":
             self.cached_settings = event.all_settings
             self.settings_loaded.emit(self.cached_settings)
-            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+            if self._llm_enabled:
+                asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
             return
         if event.op == "update_result":
             fut = self.pending_setting_futures.pop(event.correlation_id, None)
@@ -66,6 +72,16 @@ class QtSettingsController(QtBaseController):
         elif event.kind == "download_finished":
             if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
                 self.llm_cancellable_download_finished.emit(event.ok, event.message)
+                self.active_llm_download_rid = None
+            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+        elif event.kind == "download_cancelled":
+            if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
+                self.llm_download_cancelled.emit()
+                self.active_llm_download_rid = None
+            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+        elif event.kind == "download_integrity_error":
+            if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
+                self.llm_download_integrity_error.emit(event.message)
                 self.active_llm_download_rid = None
             asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
 

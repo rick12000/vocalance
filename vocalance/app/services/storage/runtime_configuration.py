@@ -7,7 +7,13 @@ from typing import Any, Dict, List, Tuple
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import RuntimeConfigRequestEvent, RuntimeConfigResponseEvent, SettingsChangedEvent
+from vocalance.app.events.core_events import (
+    RuntimeConfigRequestEvent,
+    RuntimeConfigResponseEvent,
+    SettingsChangedEvent,
+    StorageCleanupRequestEvent,
+    StorageCorruptionWarningEvent,
+)
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.storage.storage_models import AppUserConfigDocument
 from vocalance.app.services.storage.storage_service import StorageService
@@ -36,6 +42,7 @@ class RuntimeConfigurationStore(Service):
         self.overrides: Dict[str, Dict[str, Any]] = {}
         self.lock = asyncio.Lock()
         self.subscribe(RuntimeConfigRequestEvent, self._handle_runtime_config_request)
+        self.subscribe(StorageCleanupRequestEvent, self._handle_storage_cleanup)
 
     async def _handle_runtime_config_request(self, event: RuntimeConfigRequestEvent) -> None:
         op: str = event.op
@@ -83,6 +90,11 @@ class RuntimeConfigurationStore(Service):
 
             if changed:
                 await self.publish_settings_changed_event(frozenset(changed))
+
+            corrupt_files = self.storage.pop_corrupt_files()
+            if corrupt_files:
+                await self.event_bus.publish(StorageCorruptionWarningEvent(corrupt_files=corrupt_files))
+
             logger.info("RuntimeConfigurationStore initialized (%d override paths)", len(changed))
             return True
 
@@ -179,6 +191,10 @@ class RuntimeConfigurationStore(Service):
                 msg = f"Failed to reset settings: {e}"
                 logger.error(msg, exc_info=True)
                 return False, msg
+
+    async def _handle_storage_cleanup(self, event: StorageCleanupRequestEvent) -> None:
+        for path in event.files_to_delete:
+            self.storage.delete_file(path)
 
     async def publish_settings_changed_event(self, paths: frozenset[str]) -> None:
         resolved = {p: self.get_setting(p) for p in paths}

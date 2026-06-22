@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple
 
 from vocalance.app.config.automation_command_registry import AutomationCommandRegistry
 from vocalance.app.config.command_types import AutomationCommand, ExactMatchCommand
+from vocalance.app.config.hotkey_validation import is_valid_custom_hotkey
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.command_management_events import (
     CommandMappingsUpdatedEvent,
@@ -45,6 +46,14 @@ class CommandManagementService(Service):
     async def _handle_command_ui_operation(self, event: CommandUiOperationEvent) -> None:
         op: str = event.op
         if op == "add_hotkey":
+            if not is_valid_custom_hotkey(event.hotkey_value):
+                await self.event_bus.publish(
+                    CommandValidationErrorEvent(
+                        error_message="Invalid hotkey. Use letters, numbers, modifiers (ctrl, alt, shift, win) or function keys joined with '+'.",
+                        command_phrase=event.command_phrase,
+                    )
+                )
+                return
             command = ExactMatchCommand(
                 command_key=event.command_phrase,
                 action_type="hotkey",

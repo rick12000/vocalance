@@ -41,6 +41,19 @@ architecture and the implementation. End-user information lives at
    developer/foundations/storage
 
 .. toctree::
+   :maxdepth: 2
+   :caption: Security
+   :hidden:
+
+   security/overview
+   security/releases
+   security/privacy
+   security/supply_chain_integrity
+   security/installation_uninstallation
+   security/input_validation
+   security/security_assumptions
+
+.. toctree::
    :maxdepth: 1
    :caption: Additional Information
    :hidden:
