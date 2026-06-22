@@ -4,7 +4,7 @@ Privacy
 .. sectnum::
 
 After the initial installation (if following the
-`setup script <https://github.com/rick12000/vocalance/blob/main/scripts/bootstrapping/setup.ps1>`_),
+`setup script <https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1>`_),
 the application makes no outbound network requests. All speech recognition,
 command execution, dictation, and AI inference run entirely on the host machine.
 

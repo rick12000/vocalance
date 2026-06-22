@@ -279,8 +279,7 @@ jobs:
           uv.lock \
           README.md \
           DISCLAIMER.md \
-          NOTICES/ \
-          scripts/bootstrapping/
+          NOTICES/
 
     - name: Hash release zip
       if: steps.release_check.outputs.should_create == 'true'
@@ -299,6 +298,8 @@ jobs:
         files: |
           vocalance-v${{ steps.release_check.outputs.current_version }}.zip
           vocalance-v${{ steps.release_check.outputs.current_version }}.zip.sha256
+          scripts/bootstrapping/setup.ps1
+          scripts/bootstrapping/cleanup.ps1
         body: |
           *Add release notes before publishing.*
 

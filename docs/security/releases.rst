@@ -72,18 +72,23 @@ published release and no release for it already exists, the job:
 
   .. code-block:: text
 
-     vocalance/             application source
-     vocalance.py           entry point
+     vocalance/   application source
+     vocalance.py entry point
      pyproject.toml
-     uv.lock                pinned, hashed dependency tree
+     uv.lock      pinned, hashed dependency tree
      README.md
      DISCLAIMER.md
-     NOTICES/               third-party licence disclosures
-     scripts/bootstrapping/ setup.ps1 and cleanup.ps1
+     NOTICES/     third-party licence disclosures
 
 - Computes ``vocalance-v{VERSION}.zip.sha256`` via ``sha256sum``.
-- Creates a **draft** GitHub release tagged ``v{VERSION}``, attaching both files.
+- Creates a **draft** GitHub release tagged ``v{VERSION}``, attaching:
+
+  - ``vocalance-v{VERSION}.zip``
+  - ``vocalance-v{VERSION}.zip.sha256``
+  - ``setup.ps1`` — standalone installer script
+  - ``cleanup.ps1`` — standalone uninstaller script
 
 A developer then reviews the draft, writes the release notes, and publishes. Once
-published, the release is **immutable**: it cannot be edited or deleted. The zip
-and its checksum are the canonical, unalterable artifacts for that version.
+published, the release is **immutable**: it cannot be edited or deleted. The zip,
+its checksum, and the bootstrapping scripts are the canonical, unalterable artifacts
+for that version.

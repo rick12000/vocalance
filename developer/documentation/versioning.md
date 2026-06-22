@@ -30,36 +30,43 @@ Releases page, add release notes, and publish it manually.
 
 ## Release Artifacts
 
-The `draft-release` CI job builds a zip of the application and attaches it to the release:
+The `draft-release` CI job produces the following release assets:
+
+**Application zip** (`vocalance-v{VERSION}.zip`):
 
 ```
-vocalance/          — application package
-vocalance.py        — entry point
-pyproject.toml      — package metadata
-uv.lock             — fully pinned dependency lockfile
+vocalance/   — application package
+vocalance.py — entry point
+pyproject.toml
+uv.lock      — fully pinned dependency lockfile
 README.md
 DISCLAIMER.md
-NOTICES/            — third-party licence disclosures
-scripts/bootstrapping/
+NOTICES/     — third-party licence disclosures
 ```
 
-Dev-only files (tests, CI config, docs, pre-commit config) are excluded.
+**Standalone scripts** (uploaded separately, not inside the zip):
 
-Once published, a GitHub release is **immutable** — the zip asset at
-`https://github.com/rick12000/vocalance/releases/download/v{version}/vocalance-v{version}.zip`
-is a fixed artifact and will not change.
+- `setup.ps1` — installer
+- `cleanup.ps1` — uninstaller
+
+**Checksum**: `vocalance-v{VERSION}.zip.sha256`
+
+Dev-only files (tests, CI config, docs, pre-commit config, bootstrapping scripts) are excluded from the zip.
+
+Once published, a GitHub release is **immutable** — all assets are fixed artifacts and will not change.
 
 ## How the Bootstrap Script Uses Releases
 
-`setup.ps1` downloads the release zip at a hard-coded URL derived from `$VOCALANCE_VERSION`:
+`setup.ps1` is distributed as a standalone release asset rather than bundled in the zip.
+Users fetch it directly from the latest release and run it locally. The script then downloads
+the application zip at a hard-coded URL derived from `$VOCALANCE_VERSION`:
 
 ```
 https://github.com/rick12000/vocalance/releases/download/v{VOCALANCE_VERSION}/vocalance-v{VOCALANCE_VERSION}.zip
 ```
 
 This means every copy of `setup.ps1` always installs **exactly the version it was shipped
-with**, regardless of when it is run. There is no "latest" resolution at install time.
-Users who want a newer version need a newer copy of `setup.ps1`.
+with**, regardless of when it is run.
 
 The application is always installed to `C:\Program Files\Vocalance\` — a fixed,
 system-scoped path that requires administrator rights (UAC prompt) and is consistent across all machines.

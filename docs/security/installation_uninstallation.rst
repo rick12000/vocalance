@@ -7,8 +7,8 @@ Installation
 ============
 
 The installer is
-`scripts/bootstrapping/setup.ps1 <https://github.com/rick12000/vocalance/blob/main/scripts/bootstrapping/setup.ps1>`_,
-a PowerShell script for Windows 10/11.
+`setup.ps1 <https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1>`_,
+a PowerShell script for Windows 10/11 distributed as a standalone release asset.
 
 Privilege model
 ---------------
@@ -73,8 +73,8 @@ Uninstallation
 ==============
 
 The uninstaller is
-`scripts/bootstrapping/cleanup.ps1 <https://github.com/rick12000/vocalance/blob/main/scripts/bootstrapping/cleanup.ps1>`_.
-It runs as the current user (no elevation) and removes, in order:
+`cleanup.ps1 <https://github.com/rick12000/vocalance/releases/latest/download/cleanup.ps1>`_,
+distributed as a standalone release asset. It runs as the current user (no elevation) and removes, in order:
 
 1. ``%LOCALAPPDATA%\Programs\Vocalance\`` — source, virtual environment, bundled
    uv binary.

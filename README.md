@@ -38,12 +38,15 @@ To get started with installation, either follow the steps below or watch the [in
 2. Paste and run:
 
     ```powershell
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rick12000/vocalance/main/scripts/bootstrapping/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+    Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/latest/download/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
     ```
 
    *If you'd like to inspect what the script will do before running it, view [scripts/bootstrapping/setup.ps1](scripts/bootstrapping/setup.ps1) in this repository.*
 
-   **A Windows security prompt (UAC) will appear asking for administrator permissions** — this is expected. The installer needs administrator rights to install Vocalance into `C:\Program Files\`, which protects the application files from being modified by other processes running on your machine.
+   > **Optional:** To install a specific release instead of the latest, replace `latest/download` with `download/vX.Y.Z` in the URL — for example:
+   > ```powershell
+   > Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/download/v0.0.1/setup.ps1" -OutFile "vocalance-setup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-setup.ps1
+   > ```
 
    During setup you will be asked whether to enable LLM features. Answer **yes** if you want to enable AI dictation and AI text editing functionality, otherwise answer **no**.
 
@@ -129,13 +132,13 @@ If you're more familiar with a mixture of a virtual environment manager (eg. `ve
 
 ### 🧹 Cleanup
 
-Run [scripts/bootstrapping/cleanup.ps1](https://github.com/rick12000/vocalance/blob/main/scripts/bootstrapping/cleanup.ps1) to uninstall Vocalance completely:
+To uninstall Vocalance completely, download and run the cleanup script:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\cleanup.ps1
+Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/latest/download/cleanup.ps1" -OutFile "vocalance-cleanup.ps1"; powershell -ExecutionPolicy Bypass -File .\vocalance-cleanup.ps1
 ```
 
-This removes the application files (`C:\Program Files\Vocalance\`), user data (`%APPDATA%\vocalance_voice_assistant_data\`), and the Start Menu shortcut. It does not remove system-level tools such as UV. Administrator rights are required (UAC prompt will appear).
+This removes the application files (`%LOCALAPPDATA%\Programs\Vocalance\`), user data (`%APPDATA%\vocalance_voice_assistant_data\`), and the Start Menu shortcut. It does not remove system-level tools such as UV.
 
 
 ## ⚠️ Disclaimers
@@ -145,8 +148,8 @@ Vocalance is distributed under a GPLv3 license. It makes use of your microphone 
 ## 🔧 System Requirements
 
 - **Operating System**: Windows 10/11 (macOS and Linux support planned)
-- **RAM**: 2GB RAM
-- **Disk**: 5GB
+- **RAM**: 1GB RAM
+- **Disk**: 3GB
 - **Hardware**: It is **strongly** recommended to purchase a reasonably good headset or microphone to improve Vocalance outputs and recognition, but it will still work without this.
 
 ## 🤝 Contributing
@@ -168,19 +171,3 @@ If you want to find out more about Vocalance's architecture, refer to the techni
 - **[Dictation flow](https://vocalance.readthedocs.io/en/latest/developer/features/dictation_flow.html)** — Long-running dictation sessions, recognizers, and typing pipeline
 - **[User interface](https://vocalance.readthedocs.io/en/latest/developer/features/user_interface.html)** — How pipeline events reach the screen and how UI input returns to the bus
 - **[Event bus](https://vocalance.readthedocs.io/en/latest/developer/foundations/event_bus.html)** — Publish/subscribe model, dispatch, and how services stay decoupled
-
-
-## 📈 Upcoming Features
-
-The following features are planned additions to Vocalance, with some in early development and others under consideration:
-
-*   **Eye Tracking for Cursor Control:** This feature is planned to enable cursor control via eye movements.
-    *   **Gaze Tracking Accuracy:** Merge gaze tracking with historical screen click data and screen contents to improve accuracy, aiming for good performance even with webcam tracking.
-    *   **Zoom Option:** Add a zoom option to better direct gaze on screen contents.
-
-*   **Context-Aware Commands:** Implement context bucketing for commands, allowing the same command phrase (e.g., "previous") to map to different hotkeys depending on the active application (e.g., VSCode vs. Chrome). This aims to avoid disambiguation phrases.
-
-*   **Improved Text Editing & Navigation:** Further enhancements to text editing and text navigation tools.
-
-*   **Enhanced Predictive Features:** Improve predictive capabilities based on window contents, recent context, gaze patterns, and more.
-    *   *Privacy Note:* Any feature requiring local storage of potentially sensitive data (e.g., screenshots, window contents) will be deployed as an opt-in feature and disabled by default.
