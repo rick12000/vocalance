@@ -11,7 +11,7 @@ from vocalance.app.services.dictation_flow.speech_recognition.dictation_text_nor
         ("hello world", "hello world"),
         ("hello  world", "hello world"),
         ("  hello   world  ", "hello world"),
-        ("the the cat", "the the cat"),
+        ("hello\t\nworld", "hello world"),
     ],
 )
 def test_normalize_dictation_text(input_text, expected_output):

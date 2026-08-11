@@ -2,17 +2,20 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ '**' ]  # All branches
+    branches: [ '**' ]
   pull_request:
-    branches: [ '**' ]  # All branches
+    branches: [ '**' ]
 
 env:
   PYTHON_VERSION: "3.13.9"
+  REPO: "rick12000/vocalance"
 
 jobs:
   lint:
     name: Linting
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
     - uses: actions/checkout@v4
@@ -22,10 +25,11 @@ jobs:
       with:
         python-version: ${{ env.PYTHON_VERSION }}
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pre-commit
+      run: uv pip install --system pre-commit
 
     - name: Cache pre-commit
       uses: actions/cache@v3
@@ -34,15 +38,269 @@ jobs:
         key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
     - name: Run pre-commit
-      run: |
-        pre-commit run --all-files
+      run: pre-commit run --all-files
+
+  security-scan:
+    name: Security Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: lint
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Trivy filesystem scan (SARIF report)
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.35.0 — verified safe post-2026-03-19 incident
+      with:
+        scan-type: fs
+        scan-ref: .
+        format: sarif
+        output: trivy-results.sarif
+        scanners: vuln,secret,misconfig
+        exit-code: '0'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload Trivy SARIF to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: trivy-results.sarif
+        category: trivy-fs
+
+    - name: Fail on CRITICAL or HIGH severity findings
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.35.0 — verified safe post-2026-03-19 incident
+      with:
+        scan-type: fs
+        scan-ref: .
+        format: table
+        scanners: vuln,secret,misconfig
+        severity: CRITICAL,HIGH
+        exit-code: '1'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: security-scan
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+
+    - name: Install system dependencies
+      run: sudo apt-get install -y libportaudio2 xvfb
+
+    - name: Install application with dev dependencies
+      run: uv pip install --system -e ".[dev,llm]"
+
+    - name: Run unit tests
+      run: xvfb-run --auto-servernum pytest --ignore=tests/integration -m "not slow and not integration and not memory and not stress"
 
   verify-logging-default-off:
     name: Verify enable_logs defaults to false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Assert LoggingConfigModel.enable_logs is default False
         run: python3 scripts/ci/assert_logging_disabled_by_default.py
+
+  verify-activity-tracking-default-off:
+    name: Verify activity tracking defaults to false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert ActivityTrackingConfig.enabled is default False
+        run: python3 scripts/ci/assert_activity_tracking_disabled_by_default.py
+
+  version-check:
+    name: Version Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      current_version: ${{ steps.check.outputs.current_version }}
+      was_bumped: ${{ steps.check.outputs.was_bumped }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Compare version against main branch
+      id: check
+      run: |
+        python3 << 'EOF'
+        import re, subprocess, sys, os
+
+        with open('pyproject.toml') as f:
+            content = f.read()
+
+        match = re.search(r'^version = "([^"]+)"', content, re.MULTILINE)
+        if not match:
+            print("ERROR: version not found in pyproject.toml")
+            sys.exit(1)
+        current_str = match.group(1)
+
+        def parse(v):
+            parts = v.lstrip('v').split('.')
+            return tuple(int(x) for x in (parts + ['0', '0'])[:3])
+
+        try:
+            result = subprocess.run(
+                ['git', 'show', 'origin/main:pyproject.toml'],
+                capture_output=True, text=True, check=True
+            )
+            main_match = re.search(r'^version = "([^"]+)"', result.stdout, re.MULTILINE)
+            main_str = main_match.group(1) if main_match else '0.0.0'
+        except subprocess.CalledProcessError:
+            main_str = '0.0.0'
+
+        was_bumped = parse(current_str) > parse(main_str)
+
+        print(f"Current version : {current_str}")
+        print(f"Main version    : {main_str}")
+        print(f"Version bumped  : {was_bumped}")
+
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"current_version={current_str}\n")
+            f.write(f"was_bumped={'true' if was_bumped else 'false'}\n")
+        EOF
+
+  verify-setup-script-version:
+    name: Verify Setup Script Version Matches
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert setup.ps1 version matches pyproject.toml
+        run: python3 scripts/ci/assert_setup_script_version_matches.py
+
+  draft-release:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+    needs: [unit-tests, verify-logging-default-off, verify-activity-tracking-default-off, verify-setup-script-version]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check if draft release should be created
+      id: release_check
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ env.REPO }}
+      run: |
+        python3 << 'EOF'
+        import json, os, re, sys, urllib.request
+
+        with open('pyproject.toml') as f:
+            content = f.read()
+
+        match = re.search(r'^version = "([^"]+)"', content, re.MULTILINE)
+        if not match:
+            print("ERROR: version not found in pyproject.toml")
+            sys.exit(1)
+        current_str = match.group(1)
+
+        def parse(v):
+            parts = v.lstrip('v').split('.')
+            return tuple(int(x) for x in (parts + ['0', '0'])[:3])
+
+        token = os.environ['GITHUB_TOKEN']
+        repo  = os.environ['REPO']
+        headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json'}
+
+        def gh_get(url):
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req) as r:
+                return json.load(r)
+
+        # Skip if a release for this version already exists (idempotent)
+        try:
+            gh_get(f"https://api.github.com/repos/{repo}/releases/tags/v{current_str}")
+            print(f"Release v{current_str} already exists, skipping.")
+            should_create = False
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            # Any version bump vs latest release triggers a draft
+            try:
+                latest_str = gh_get(f"https://api.github.com/repos/{repo}/releases/latest")['tag_name']
+            except urllib.error.HTTPError as e2:
+                if e2.code != 404:
+                    raise
+                latest_str = '0.0.0'
+
+            if parse(current_str) > parse(latest_str):
+                print(f"Version bump detected ({latest_str.lstrip('v')} → {current_str}), creating draft release.")
+                should_create = True
+            else:
+                print(f"No version bump vs latest release ({latest_str.lstrip('v')} → {current_str}), skipping.")
+                should_create = False
+
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"current_version={current_str}\n")
+            f.write(f"should_create={'true' if should_create else 'false'}\n")
+        EOF
+
+    - name: Build release zip
+      if: steps.release_check.outputs.should_create == 'true'
+      env:
+        VERSION: ${{ steps.release_check.outputs.current_version }}
+      run: |
+        zip -r "vocalance-v${VERSION}.zip" \
+          vocalance/ \
+          vocalance.py \
+          pyproject.toml \
+          uv.lock \
+          README.md \
+          DISCLAIMER.md \
+          NOTICES/
+
+    - name: Hash release zip
+      if: steps.release_check.outputs.should_create == 'true'
+      env:
+        VERSION: ${{ steps.release_check.outputs.current_version }}
+      run: sha256sum "vocalance-v${VERSION}.zip" > "vocalance-v${VERSION}.zip.sha256"
+
+    - name: Create draft GitHub release
+      if: steps.release_check.outputs.should_create == 'true'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ steps.release_check.outputs.current_version }}
+        name: v${{ steps.release_check.outputs.current_version }}
+        draft: true
+        prerelease: false
+        files: |
+          vocalance-v${{ steps.release_check.outputs.current_version }}.zip
+          vocalance-v${{ steps.release_check.outputs.current_version }}.zip.sha256
+          scripts/bootstrapping/setup.ps1
+          scripts/bootstrapping/cleanup.ps1
+        body: |
+          *Add release notes before publishing.*
+
+          **Commit:** ${{ github.sha }}

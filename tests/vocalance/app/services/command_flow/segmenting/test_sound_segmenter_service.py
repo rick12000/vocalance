@@ -1,106 +1,36 @@
 import asyncio
-import time
+from unittest.mock import Mock
 
-import numpy as np
 import pytest
-import pytest_asyncio
 
 from vocalance.app.events.core_events import AudioChunkCapturedEvent, ProcessAudioChunkForSoundRecognitionEvent
 from vocalance.app.events.dictation_events import DictationModeDisableOthersEvent
-from vocalance.app.services.command_flow.segmenting.sound_segmenter_service import SoundSegmenterService
-
-_SAMPLE_RATE = 16000
-
-
-def make_event(pcm: np.ndarray, ts: float | None = None) -> AudioChunkCapturedEvent:
-    return AudioChunkCapturedEvent(
-        pcm_bytes=pcm.tobytes(),
-        timestamp=time.time() if ts is None else ts,
-        sample_rate=_SAMPLE_RATE,
-    )
-
-
-@pytest_asyncio.fixture
-async def segmenter(event_bus, app_config):
-    return SoundSegmenterService(event_bus=event_bus, config=app_config)
-
-
-@pytest.fixture
-def sound_chunk():
-    return np.random.randint(-5000, 5000, size=800, dtype=np.int16)
-
-
-@pytest.fixture
-def silence_chunk():
-    return np.random.randint(-10, 10, size=800, dtype=np.int16)
+from vocalance.app.services.capture.vad import Clip
 
 
 @pytest.mark.asyncio
-async def test_sound_onset_starts_capture(segmenter, sound_chunk, event_bus):
-    await event_bus.publish(make_event(sound_chunk))
+async def test_finalized_clip_published_for_sound_recognition(sound_segmenter_service, event_collector):
+    received = event_collector(ProcessAudioChunkForSoundRecognitionEvent)
+    clip = Clip(pcm_bytes=b"\x05\x06\x07\x08", sample_rate=16000)
+    sound_segmenter_service.segmenter.feed_pcm_chunk = Mock(return_value=[clip])
+
+    sound_segmenter_service._handle_audio_chunk(AudioChunkCapturedEvent(pcm_bytes=b"\x00\x00", timestamp=1.0, sample_rate=16000))
     await asyncio.sleep(0.05)
-    with segmenter.segmenter.state_lock:
-        assert segmenter.segmenter.capturing
+
+    assert len(received) == 1
+    assert received[0].audio_chunk == clip.pcm_bytes
+    assert received[0].sample_rate == clip.sample_rate
 
 
 @pytest.mark.asyncio
-async def test_clip_published_after_silence(segmenter, sound_chunk, silence_chunk, event_bus):
-    captured = []
+@pytest.mark.parametrize("dictation_active", [True, False])
+async def test_dictation_mute_forwarded_to_segmenter(sound_segmenter_service, dictation_active):
+    sound_segmenter_service._handle_dictation_mode(
+        DictationModeDisableOthersEvent(dictation_mode_active=dictation_active, dictation_mode="standard")
+    )
+    sound_segmenter_service.segmenter.feed_pcm_chunk = Mock(return_value=[])
 
-    async def on_event(event):
-        captured.append(event)
+    sound_segmenter_service._handle_audio_chunk(AudioChunkCapturedEvent(pcm_bytes=b"\x00\x00", timestamp=1.0, sample_rate=16000))
 
-    event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, on_event)
-
-    await event_bus.publish(make_event(sound_chunk))
-    for _ in range(segmenter.segmenter.config.silent_chunks_for_end):
-        await event_bus.publish(make_event(silence_chunk))
-    await asyncio.sleep(0.2)
-
-    assert len(captured) == 1
-    first = captured[0]
-    assert isinstance(first.audio_chunk, bytes)
-    assert first.sample_rate == _SAMPLE_RATE
-
-
-@pytest.mark.asyncio
-async def test_max_duration_finalizes_clip(segmenter, sound_chunk, event_bus):
-    captured = []
-
-    async def on_event(event):
-        captured.append(event)
-
-    event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, on_event)
-
-    for _ in range(segmenter.segmenter.config.max_duration_chunks + 5):
-        await event_bus.publish(make_event(sound_chunk))
-    await asyncio.sleep(0.2)
-
-    assert len(captured) == 1
-
-
-@pytest.mark.asyncio
-async def test_dictation_mute_suppresses_clips(segmenter, sound_chunk, silence_chunk, event_bus):
-    captured = []
-
-    async def on_event(event):
-        captured.append(event)
-
-    event_bus.subscribe(ProcessAudioChunkForSoundRecognitionEvent, on_event)
-
-    segmenter._handle_dictation_mode(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard"))
-    for _ in range(5):
-        await event_bus.publish(make_event(sound_chunk))
-    await asyncio.sleep(0.1)
-    assert captured == []
-    assert segmenter.muted
-
-    segmenter._handle_dictation_mode(DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive"))
-    for _ in range(5):
-        await event_bus.publish(make_event(sound_chunk))
-    for _ in range(segmenter.segmenter.config.silent_chunks_for_end):
-        await event_bus.publish(make_event(silence_chunk))
-    await asyncio.sleep(0.2)
-
-    assert len(captured) == 1
-    assert not segmenter.muted
+    assert sound_segmenter_service.muted == dictation_active
+    assert sound_segmenter_service.segmenter.feed_pcm_chunk.call_args.args[2] == dictation_active

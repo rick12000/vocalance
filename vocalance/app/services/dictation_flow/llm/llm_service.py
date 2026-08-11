@@ -10,12 +10,12 @@ from llama_cpp import Llama
 
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfig, LocalLLMArtifact, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
-from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiRequestEvent, SettingsChangedEvent
+from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiNotificationKind, LlmUiRequestEvent, SettingsChangedEvent
 from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.base_service import Service
-from vocalance.app.services.dictation_flow.llm.llm_model_downloader import LLMModelDownloader
+from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
 from vocalance.app.services.storage.user_configurable_settings import LLM_SESSION_SETTING_PATHS
 
 logger = logging.getLogger(__name__)
@@ -117,12 +117,27 @@ class LLMService(Service):
         try:
             try:
                 ok, msg = await self.download_whitelisted_model_cancellable(event.model_id, cancel, progress_cb)
+            except IntegrityError as e:
+                logger.error("Integrity check failed: %s", e)
+                await self.event_bus.publish(
+                    LlmUiNotificationEvent(
+                        kind="download_integrity_error",
+                        request_id=event.request_id,
+                        ok=False,
+                        message=(
+                            "The downloaded file's SHA-256 hash does not match the expected value. "
+                            "The file has been deleted. This may indicate a compromised download "
+                            "source or a corrupted transfer. Please try again or contact support."
+                        ),
+                    )
+                )
+                return
             except Exception:
                 logger.exception("Whitelisted model download failed")
                 ok, msg = False, "Download failed"
-            await self.event_bus.publish(
-                LlmUiNotificationEvent(kind="download_finished", request_id=event.request_id, ok=ok, message=msg)
-            )
+
+            kind: LlmUiNotificationKind = "download_cancelled" if not ok and cancel.is_set() else "download_finished"
+            await self.event_bus.publish(LlmUiNotificationEvent(kind=kind, request_id=event.request_id, ok=ok, message=msg))
         finally:
             unlink()
             self.download_cancel_events.pop(event.request_id, None)

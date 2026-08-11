@@ -11,8 +11,36 @@ import soundfile as sf
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.event_bus import EventBus
+from vocalance.app.services.capture.vad import AdaptiveVADThreshold, AudioProcessor, SegmentConfig, UtteranceSegmenter
 from vocalance.app.services.command_flow.speech_recognition.command_speech_service import CommandSpeechService
 from vocalance.app.services.command_flow.speech_recognition.vosk_engine import VoskEngine
+
+# import sys
+
+# sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def skip_if_headless() -> None:
+    """Skip the calling test module when display or audio hardware is unavailable.
+
+    Place immediately after `from conftest import skip_if_headless` at the top of
+    every test module, before any production-code imports.  On a headless CI runner
+    both pyautogui (DISPLAY) and sounddevice (PortAudio) fail at import time; calling
+    this function once per module causes pytest to mark the entire module as skipped
+    before any failing import is attempted.
+    """
+    try:
+        import pyautogui  # noqa: F401
+    except Exception:
+        pytest.skip("requires display (pyautogui)", allow_module_level=True)
+    try:
+        import sounddevice  # noqa: F401
+    except OSError:
+        pytest.skip("requires audio hardware (sounddevice)", allow_module_level=True)
+    try:
+        from PySide6.QtGui import QFont  # noqa: F401
+    except ImportError:
+        pytest.skip("requires OpenGL libraries (PySide6.QtGui)", allow_module_level=True)
 
 
 @pytest.fixture
@@ -169,6 +197,7 @@ def mock_config():
     }
     config.sound_recognizer.max_esc50_samples_per_category = 15
     config.sound_recognizer.max_total_esc50_samples = 40
+    config.sound_recognizer.max_training_samples = 1000
 
     # Add asset paths pointing to real assets for integration tests
     config.asset_paths = Mock()
@@ -275,6 +304,24 @@ def isolated_recognizer(mock_config, mock_storage_factory, mock_yamnet_model, mo
 
 
 @pytest.fixture
+def recognizer_identity_query(isolated_recognizer, sample_rate):
+    """Recognizer with an identity scaler and a deterministic query embedding.
+
+    The identity scaler makes the scaled query equal the raw embedding, so cosine
+    similarity against stored copies of the same embedding is exactly 1, allowing
+    deterministic assertions on the k-NN voting logic.
+    """
+    t = np.linspace(0, 0.5, int(0.5 * sample_rate))
+    audio = (np.sin(2 * np.pi * 440 * t) * 0.5).astype(np.float32)
+    embedding = isolated_recognizer._extract_embedding(audio=audio, sr=sample_rate)
+    dim = embedding.shape[0]
+    isolated_recognizer.scaler.mean = np.zeros(dim, dtype=np.float32)
+    isolated_recognizer.scaler.std = np.ones(dim, dtype=np.float32)
+    isolated_recognizer.scaler._is_fitted = True
+    return isolated_recognizer, audio, embedding
+
+
+@pytest.fixture
 def vosk_model_path():
     """Get the path to the Vosk model."""
     return "vocalance/app/assets/vosk-model-small-en-us-0.15"
@@ -374,6 +421,19 @@ async def stt_service(event_bus, app_config):
     yield service
 
 
+@pytest_asyncio.fixture
+async def command_speech_service(event_bus, app_config):
+    """CommandSpeechService wired to a real bus with a mocked Vosk engine.
+
+    Tests override ``service.vosk_engine.recognize`` to drive the recognized
+    text for each routing scenario without loading the real Vosk model.
+    """
+    service = CommandSpeechService(event_bus, app_config)
+    service.vosk_engine = Mock()
+    service.vosk_engine.recognize = AsyncMock(return_value="copy")
+    return service
+
+
 @pytest.fixture
 def command_audio_bytes():
     """Generate sample command audio bytes."""
@@ -430,8 +490,7 @@ def isolated_storage_config():
         config.storage.click_tracker_dir = str(temp_path / "click_tracker")
         config.storage.sound_model_dir = str(temp_path / "sound_model")
 
-        # Verify no production paths leaked through
-        production_indicators = ["AppData", "Roaming", "vocalance_voice_assistant_data"]
+        # Verify every storage path stays inside the temp directory
         for path_attr in [
             "user_data_root",
             "marks_dir",
@@ -439,14 +498,27 @@ def isolated_storage_config():
             "click_tracker_dir",
             "sound_model_dir",
         ]:
-            path_value = getattr(config.storage, path_attr)
-            for indicator in production_indicators:
-                if indicator in path_value:
-                    raise RuntimeError(
-                        f"SAFETY VIOLATION: Test config contains production path indicator '{indicator}' in {path_attr}: {path_value}"
-                    )
+            path_value = Path(getattr(config.storage, path_attr)).resolve()
+            if not path_value.is_relative_to(temp_path.resolve()):
+                raise RuntimeError(f"SAFETY VIOLATION: Test config path {path_attr} escapes temp dir: {path_value}")
 
         yield config
+
+
+@pytest.fixture
+def storage_service(isolated_storage_config):
+    """Real StorageService bound to an isolated temp-directory config."""
+    from vocalance.app.services.storage.storage_service import StorageService
+
+    return StorageService(config=isolated_storage_config)
+
+
+@pytest_asyncio.fixture
+async def runtime_config_store(event_bus, isolated_storage_config, storage_service):
+    """RuntimeConfigurationStore backed by a real isolated StorageService."""
+    from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore
+
+    return RuntimeConfigurationStore(event_bus=event_bus, config=isolated_storage_config, storage=storage_service)
 
 
 @pytest.fixture
@@ -511,12 +583,66 @@ def moonshine_engine_instance(stt_config):
 
 
 @pytest.fixture
+def mock_moonshine_transcriber():
+    """Transcriber+Stream mock pair matching MoonshineStreamSession native internals."""
+    stream = Mock()
+    stream._handle = 2
+    stream._lib = Mock()
+    stream._lib.moonshine_transcribe_add_audio_to_stream = Mock(return_value=0)
+    stream._lib.moonshine_stop_stream = Mock(return_value=0)
+    stream._stream_time = 0.0
+    stream._last_update_time = 0.0
+    stream._update_interval = 1.5
+    stream.update_transcription = Mock()
+    stream.start = Mock()
+    stream.close = Mock()
+    stream.add_listener = Mock()
+    transcriber = Mock()
+    transcriber._handle = 1
+    transcriber.create_stream = Mock(return_value=stream)
+    stream._transcriber = transcriber
+    return transcriber, stream
+
+
+@pytest.fixture
+def stream_loop():
+    """Standalone event loop for stream-session tests (never run, closed on teardown)."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture
+def moonshine_stream_session(mock_moonshine_transcriber, stream_loop):
+    """MoonshineStreamSession wired to mocked transcriber and async callbacks."""
+    from vocalance.app.config.app_config import MoonshineStreamingConfig
+    from vocalance.app.services.dictation_flow.speech_recognition.moonshine_engine import MoonshineStreamSession
+
+    transcriber, _ = mock_moonshine_transcriber
+    return MoonshineStreamSession(
+        transcriber=transcriber,
+        loop=stream_loop,
+        on_partial=AsyncMock(),
+        on_final=AsyncMock(),
+        ms_config=MoonshineStreamingConfig(),
+    )
+
+
+@pytest.fixture
 def mock_event_bus():
     """Create a mock event bus."""
     event_bus = Mock()
     event_bus.subscribe = Mock()
     event_bus.publish = AsyncMock()
     return event_bus
+
+
+@pytest.fixture
+def pause_state_manager(mock_event_bus):
+    """PauseStateManager wired to a mock event bus for direct handler testing."""
+    from vocalance.app.services.command_flow.pause_state_manager import PauseStateManager
+
+    return PauseStateManager(event_bus=mock_event_bus)
 
 
 @pytest.fixture
@@ -540,6 +666,21 @@ def mock_recognizer():
 
 
 @pytest.fixture
+def sound_service(mock_event_bus, mock_config, mock_storage_factory, mock_recognizer):
+    """SoundService with its SoundRecognizer replaced by a mock recognizer."""
+    from vocalance.app.services.command_flow.sound_recognition.sound_service import SoundService
+
+    mock_config.asset_paths = Mock()
+    mock_config.asset_paths.yamnet_model_path = "/fake/yamnet/path"
+
+    with patch(
+        "vocalance.app.services.command_flow.sound_recognition.sound_service.SoundRecognizer",
+        return_value=mock_recognizer,
+    ):
+        return SoundService(mock_event_bus, mock_config, mock_storage_factory)
+
+
+@pytest.fixture
 def preprocessor(mock_config):
     """Create a standard AudioPreprocessor instance."""
     from vocalance.app.services.command_flow.sound_recognition.sound_recognizer import AudioPreprocessor
@@ -555,3 +696,416 @@ def mock_protected_terms_validator():
     validator.is_term_protected = AsyncMock(return_value=False)
     validator.get_all_protected_terms = AsyncMock(return_value={"start dictation", "stop dictation", "show grid"})
     return validator
+
+
+@pytest.fixture
+def audio_processor(sample_rate):
+    """AudioProcessor with normalization disabled for predictable energies."""
+    return AudioProcessor(sample_rate=sample_rate, enable_normalization=False)
+
+
+@pytest.fixture
+def vad_threshold():
+    """AdaptiveVADThreshold with representative multipliers and bounds."""
+    return AdaptiveVADThreshold(speech_multiplier=4.0, silence_multiplier=2.0, min_threshold=0.0003, max_threshold=0.1)
+
+
+@pytest.fixture
+def silence_chunk_bytes():
+    """Quiet PCM chunk whose RMS sits below the silence threshold."""
+    return np.tile([5, -5], 400).astype(np.int16).tobytes()
+
+
+@pytest.fixture
+def speech_chunk_bytes():
+    """Loud PCM chunk whose RMS sits well above the speech threshold."""
+    return np.tile([5000, -5000], 400).astype(np.int16).tobytes()
+
+
+@pytest.fixture
+def segment_config():
+    """SegmentConfig tuned so a short utterance can be captured deterministically."""
+    return SegmentConfig(
+        speech_multiplier=4.0,
+        silence_multiplier=2.0,
+        min_threshold=0.0003,
+        max_threshold=0.1,
+        silent_chunks_for_end=3,
+        pre_roll_chunks=2,
+        min_duration_chunks=2,
+        max_duration_chunks=100,
+    )
+
+
+@pytest.fixture
+def utterance_segmenter(segment_config, audio_processor, sample_rate):
+    """UtteranceSegmenter wired to the predictable analyzer and config."""
+    return UtteranceSegmenter(segment_config=segment_config, analyzer=audio_processor, sample_rate=sample_rate)
+
+
+@pytest_asyncio.fixture
+async def audio_capture_service(event_bus, app_config):
+    """AudioCaptureService with the PortAudio input stream patched out."""
+    from vocalance.app.services.capture.audio_capture_service import AudioCaptureService
+
+    loop = asyncio.get_running_loop()
+    with patch("vocalance.app.services.capture.audio_capture_service.sd.InputStream"):
+        yield AudioCaptureService(event_bus=event_bus, config=app_config, main_event_loop=loop)
+
+
+@pytest.fixture
+def event_collector(event_bus):
+    """Factory subscribing a collector to an event type and returning its list."""
+
+    def _subscribe(event_type):
+        received = []
+
+        async def _handler(event):
+            received.append(event)
+
+        event_bus.subscribe(event_type, _handler)
+        return received
+
+    return _subscribe
+
+
+@pytest_asyncio.fixture
+async def command_segmenter_service(event_bus, app_config):
+    """CommandSegmenterService wired to a started event bus and default config."""
+    from vocalance.app.services.command_flow.segmenting.command_segmenter_service import CommandSegmenterService
+
+    return CommandSegmenterService(event_bus=event_bus, config=app_config)
+
+
+@pytest_asyncio.fixture
+async def sound_segmenter_service(event_bus, app_config):
+    """SoundSegmenterService wired to a started event bus and default config."""
+    from vocalance.app.services.command_flow.segmenting.sound_segmenter_service import SoundSegmenterService
+
+    return SoundSegmenterService(event_bus=event_bus, config=app_config)
+
+
+@pytest_asyncio.fixture
+async def automation_service(event_bus, app_config):
+    """AutomationService backed by a real serialised KeyboardInputService."""
+    from vocalance.app.services.command_flow.execution.automation_service import AutomationService
+    from vocalance.app.services.keyboard_input_service import KeyboardInputService
+
+    input_service = KeyboardInputService(event_bus=event_bus)
+    service = AutomationService(event_bus, app_config, input_service=input_service, activity_tracker=Mock())
+    yield service
+    await input_service.shutdown()
+
+
+@pytest.fixture
+def grid_service(mock_event_bus, app_config):
+    """GridService wired to a mock event bus so published grid state events can be asserted."""
+    from vocalance.app.services.command_flow.execution.grid.grid_service import GridService
+
+    return GridService(event_bus=mock_event_bus, config=app_config)
+
+
+@pytest_asyncio.fixture
+async def click_tracker_service(mock_event_bus, mock_storage_service):
+    """ClickTrackerService on the running loop with debounce scheduling stubbed out."""
+    from vocalance.app.services.command_flow.execution.grid.click_tracker_service import ClickTrackerService
+
+    loop = asyncio.get_running_loop()
+
+    def _spawn(coro, name=None):
+        coro.close()
+        return Mock()
+
+    lifecycle = Mock()
+    lifecycle.spawn = Mock(side_effect=_spawn)
+    return ClickTrackerService(
+        event_bus=mock_event_bus,
+        storage=mock_storage_service,
+        gui_event_loop=loop,
+        lifecycle=lifecycle,
+        ui_refresh_debounce_s=0.0,
+        persist_debounce_s=9999.0,
+    )
+
+
+@pytest.fixture
+def parser_triggers():
+    """Explicit lowercased trigger phrases for command-parsing grammar tests."""
+    from vocalance.app.services.command_flow.parsing.text_command_parse import CommandParserTriggers
+
+    return CommandParserTriggers(
+        grid_show_phrase="go",
+        grid_hover_phrase="hover",
+        grid_drag_phrase="move",
+        mark_create_prefix="mark",
+        mark_delete_prefix="delete mark",
+        mark_visualize_phrases=("show marks", "visualize marks"),
+        mark_reset_phrases=("reset marks", "clear all marks"),
+        mark_cancel_visualize_phrases=("cancel marks", "hide marks"),
+        dictation_start_trigger="green",
+        dictation_stop_trigger="amber",
+        dictation_type_trigger="type",
+        dictation_smart_trigger="smart green",
+        dictation_visual_trigger="visual green",
+        dictation_hidden_trigger="hidden green",
+        dictation_amend_trigger="amend",
+    )
+
+
+@pytest.fixture
+def parser_action_map():
+    """Small phrase to AutomationCommand map for parser grammar tests."""
+    from vocalance.app.config.command_types import AutomationCommand
+
+    return {
+        "copy": AutomationCommand(command_key="copy", action_type="hotkey", action_value="ctrl+c"),
+        "scroll down": AutomationCommand(command_key="scroll down", action_type="scroll", action_value="down"),
+    }
+
+
+@pytest.fixture
+def command_parser(mock_event_bus, app_config, mock_storage_service):
+    """CentralizedCommandParser on a mock bus and in-memory storage for direct method calls."""
+    from vocalance.app.services.command_flow.parsing.parser import CentralizedCommandParser
+
+    return CentralizedCommandParser(event_bus=mock_event_bus, app_config=app_config, storage=mock_storage_service)
+
+
+@pytest.fixture
+def command_storage():
+    """Plain async storage mock whose read result each test sets explicitly."""
+    storage = Mock()
+    storage.read = AsyncMock()
+    storage.write = AsyncMock(return_value=True)
+    return storage
+
+
+@pytest.fixture
+def command_management_service(mock_event_bus, command_storage, mock_protected_terms_validator):
+    """CommandManagementService on a mock bus, settable storage, and permissive validator."""
+    from vocalance.app.services.command_flow.management.command_management_service import CommandManagementService
+
+    return CommandManagementService(
+        event_bus=mock_event_bus,
+        storage=command_storage,
+        protected_terms_validator=mock_protected_terms_validator,
+    )
+
+
+@pytest.fixture
+def protected_terms_storage():
+    """Async storage mock returning empty marks and sound mappings by default."""
+    from vocalance.app.services.storage.storage_models import MarksData, SoundMappingsData
+
+    storage = Mock()
+
+    def _read(model_type):
+        return MarksData(marks={}) if model_type == MarksData else SoundMappingsData(mappings={})
+
+    storage.read = AsyncMock(side_effect=_read)
+    return storage
+
+
+@pytest.fixture
+def protected_terms_validator(app_config, protected_terms_storage):
+    """Real ProtectedTermsValidator over config defaults and empty storage."""
+    from vocalance.app.services.command_flow.management.protected_terms_validator import ProtectedTermsValidator
+
+    return ProtectedTermsValidator(config=app_config, storage=protected_terms_storage)
+
+
+@pytest_asyncio.fixture
+async def mark_service(event_bus, app_config, mock_storage_service, mock_protected_terms_validator):
+    """MarkService wired to in-memory storage and a permissive terms validator."""
+    from vocalance.app.services.command_flow.execution.mark_service import MarkService
+    from vocalance.app.services.keyboard_input_service import KeyboardInputService
+
+    input_service = KeyboardInputService(event_bus=event_bus)
+    service = MarkService(
+        event_bus=event_bus,
+        config=app_config,
+        storage=mock_storage_service,
+        protected_terms_validator=mock_protected_terms_validator,
+        input_service=input_service,
+    )
+    yield service
+    await input_service.shutdown()
+
+
+@pytest_asyncio.fixture
+async def dictation_alias_service(mock_event_bus):
+    """DictationAliasService backed by an empty in-memory alias store.
+
+    ``service.storage.write`` can be flipped to ``False`` by individual tests to
+    exercise the persistence-failure rollback paths.
+    """
+    from vocalance.app.services.dictation_flow.dictation_alias_service import DictationAliasService
+    from vocalance.app.services.storage.storage_models import DictationAliasData
+
+    storage = Mock()
+    storage.read = AsyncMock(return_value=DictationAliasData(aliases={}))
+    storage.write = AsyncMock(return_value=True)
+    service = DictationAliasService(event_bus=mock_event_bus, storage=storage, event_loop=asyncio.get_running_loop())
+    await service.initialize()
+    return service
+
+
+@pytest.fixture
+def dictation_text_input():
+    """DictationTextInput in keyboard (non-clipboard) mode with zeroed delays.
+
+    The injected input service runs callables inline so the real prose-join logic
+    in ``input_text`` executes synchronously; tests patch the pyautogui boundary.
+    """
+    from vocalance.app.config.app_config import DictationConfig
+    from vocalance.app.services.dictation_flow.text_input_service import DictationTextInput
+
+    config = DictationConfig(
+        use_clipboard=False,
+        typing_delay=0.0,
+        type_text_post_delay=0.0,
+        clipboard_paste_delay_pre=0.0,
+        clipboard_paste_delay_post=0.0,
+        pyautogui_pause=0.0,
+    )
+
+    async def _run(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    input_service = Mock()
+    input_service.run = _run
+    return DictationTextInput(config=config, input_service=input_service)
+
+
+@pytest.fixture
+def patched_keyboard():
+    """Patch the pyautogui keystroke boundary used by DictationTextInput."""
+    with patch("pyautogui.write") as write, patch("pyautogui.press") as press:
+        yield write, press
+
+
+@pytest.fixture
+def noop_alias_service():
+    """Alias service stub whose ``extract_aliases`` returns the text unchanged with no map."""
+    alias = Mock()
+    alias.extract_aliases = lambda text: (text, {})
+    return alias
+
+
+@pytest.fixture
+def agentic_prompts_storage():
+    """Async storage mock returning empty agentic prompt data by default."""
+    from vocalance.app.services.storage.storage_models import AgenticPromptsData
+
+    storage = Mock()
+    storage.read = AsyncMock(return_value=AgenticPromptsData(prompts=[]))
+    storage.write = AsyncMock(return_value=True)
+    return storage
+
+
+@pytest_asyncio.fixture
+async def agentic_prompt_service(mock_event_bus, app_config, agentic_prompts_storage):
+    """Initialized AgenticPromptService starting from empty storage (seeds one default prompt)."""
+    from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import AgenticPromptService
+
+    service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
+    await service.initialize()
+    return service
+
+
+@pytest.fixture
+def llm_service(mock_event_bus, isolated_storage_config):
+    """LLMService on an isolated temp config; model loading and downloads are never invoked."""
+    from vocalance.app.services.dictation_flow.llm.llm_service import LLMService
+
+    return LLMService(event_bus=mock_event_bus, config=isolated_storage_config)
+
+
+@pytest.fixture
+def dictation_coordinator(mock_event_bus, app_config, mock_storage_service):
+    """DictationCoordinator with heavy collaborators patched out for state-machine tests."""
+    from vocalance.app.services.dictation_flow.dictation_coordinator import DictationCoordinator
+
+    loop = asyncio.new_event_loop()
+    with patch("vocalance.app.services.dictation_flow.dictation_coordinator.DictationTextInput"), patch(
+        "vocalance.app.services.dictation_flow.dictation_coordinator.DictationAliasService"
+    ), patch(
+        "vocalance.app.services.dictation_flow.dictation_coordinator.llm_deps_available",
+        return_value=False,
+    ):
+        coordinator = DictationCoordinator(
+            event_bus=mock_event_bus,
+            config=app_config,
+            storage=mock_storage_service,
+            gui_event_loop=loop,
+            input_service=Mock(),
+            lifecycle=Mock(),
+            activity_tracker=Mock(),
+        )
+    yield coordinator
+    loop.close()
+
+
+@pytest.fixture
+def theme_manager():
+    """Fresh ThemeManager with default token config (no Qt app required)."""
+    from vocalance.app.ui.qt_theme import ThemeManager
+
+    return ThemeManager()
+
+
+@pytest_asyncio.fixture
+async def app_lifecycle():
+    """AppLifecycle constructed on the running test loop."""
+    from vocalance.app.lifecycle.lifecycle import AppLifecycle
+
+    return AppLifecycle()
+
+
+@pytest_asyncio.fixture
+async def cancellation_token():
+    """CancellationToken bound to the running test loop."""
+    from vocalance.app.lifecycle.cancellation import CancellationToken
+
+    return CancellationToken(asyncio.get_running_loop())
+
+
+@pytest.fixture
+def teardown_sink():
+    """Shared list recording resource shutdown order for lifecycle tests."""
+    return []
+
+
+@pytest.fixture
+def recording_resource_factory(teardown_sink):
+    """Factory for AsyncCloseable test doubles that log their shutdown order.
+
+    The returned callable accepts a ``tag`` and a ``mode`` of ``"async"``
+    (default), ``"sync"``, or ``"slow"``. Async and sync resources append their
+    tag to the shared ``teardown_sink`` when shut down; slow resources sleep past
+    the lifecycle grace period without recording.
+    """
+
+    class _RecordingResource:
+        def __init__(self, tag, mode="async"):
+            self.tag = tag
+            self.mode = mode
+            self.shutdown_calls = 0
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+            if self.mode == "sync":
+                teardown_sink.append(self.tag)
+                return None
+            return self._async_shutdown()
+
+        async def _async_shutdown(self):
+            if self.mode == "slow":
+                await asyncio.sleep(60)
+            else:
+                teardown_sink.append(self.tag)
+
+    def _make(tag, mode="async"):
+        return _RecordingResource(tag, mode=mode)
+
+    return _make

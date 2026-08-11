@@ -15,10 +15,13 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
+    "sphinx.ext.autosectionlabel",
     "myst_parser",
     "sphinx_copybutton",
     "sphinxcontrib.mermaid",
 ]
+
+autosectionlabel_prefix_document = True
 
 myst_enable_extensions = [
     "colon_fence",
@@ -184,6 +187,7 @@ pygments_style = "monokai"
 suppress_warnings = [
     "ref.doc",
     "epub.unknown_project_files",
+    "autosectionlabel.*",
 ]
 
 nitpicky = False

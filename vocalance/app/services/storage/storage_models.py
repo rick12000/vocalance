@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from vocalance.app.config.alias_validation import is_valid_alias_text
 from vocalance.app.config.command_types import AutomationCommand
+from vocalance.app.config.hotkey_validation import is_valid_custom_hotkey
+
+logger = logging.getLogger(__name__)
+
+MAX_PROMPT_TEXT_LENGTH = 4000
+MAX_ALIAS_KEY_LENGTH = 100
+MAX_ALIAS_VALUE_LENGTH = 2000
+MAX_SOUND_MAPPING_PHRASE_LENGTH = 200
 
 
 class StorageData(BaseModel):
@@ -33,8 +43,8 @@ class AgenticPrompt(BaseModel):
     """Agentic prompt configuration."""
 
     id: str
-    text: str
-    name: str
+    text: str = Field(..., max_length=MAX_PROMPT_TEXT_LENGTH)
+    name: str = Field(..., max_length=200)
     created_at: str
     is_default: bool = False
 
@@ -59,6 +69,22 @@ class CommandsData(StorageData):
     )
     phrase_overrides: Dict[str, str] = Field(default_factory=dict, description="Phrase overrides for default commands")
 
+    @model_validator(mode="after")
+    def filter_invalid_custom_commands(self) -> "CommandsData":
+        valid: Dict[str, AutomationCommand] = {}
+        for phrase, cmd in self.custom_commands.items():
+            if cmd.action_type == "hotkey" and is_valid_custom_hotkey(cmd.action_value):
+                valid[phrase] = cmd
+            else:
+                logger.warning(
+                    "Security: dropping command %r on load — action_type=%r action_value=%r failed validation",
+                    phrase,
+                    cmd.action_type,
+                    cmd.action_value,
+                )
+        self.custom_commands = valid
+        return self
+
 
 class GridClicksData(StorageData):
     """Storage model for grid click history."""
@@ -78,6 +104,14 @@ class SoundMappingsData(StorageData):
 
     mappings: Dict[str, str] = Field(default_factory=dict, description="Map of sound name to action/command")
 
+    @field_validator("mappings")
+    @classmethod
+    def validate_mapping_lengths(cls, v: Dict[str, str]) -> Dict[str, str]:
+        for key, phrase in v.items():
+            if len(phrase) > MAX_SOUND_MAPPING_PHRASE_LENGTH:
+                raise ValueError(f"Sound mapping phrase for '{key}' exceeds {MAX_SOUND_MAPPING_PHRASE_LENGTH} characters")
+        return v
+
 
 class DictationAliasData(StorageData):
     """Storage model for dictation alias substitutions.
@@ -87,3 +121,15 @@ class DictationAliasData(StorageData):
     """
 
     aliases: Dict[str, str] = Field(default_factory=dict, description="Map of activation phrase to substitution text")
+
+    @field_validator("aliases")
+    @classmethod
+    def validate_aliases(cls, v: Dict[str, str]) -> Dict[str, str]:
+        for key, value in v.items():
+            if len(key) > MAX_ALIAS_KEY_LENGTH:
+                raise ValueError(f"Alias key '{key[:40]}...' exceeds {MAX_ALIAS_KEY_LENGTH} characters")
+            if len(value) > MAX_ALIAS_VALUE_LENGTH:
+                raise ValueError(f"Alias value for '{key}' exceeds {MAX_ALIAS_VALUE_LENGTH} characters")
+            if not is_valid_alias_text(key) or not is_valid_alias_text(value):
+                raise ValueError(f"Alias '{key}' contains characters that are not permitted")
+        return v

@@ -5,7 +5,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, FrozenSet, List, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
@@ -22,6 +22,8 @@ from vocalance.app.services.storage.storage_models import (
     SoundMappingsData,
     StorageData,
 )
+
+_SECURITY_SENSITIVE_MODELS: FrozenSet[Type[StorageData]] = frozenset({CommandsData, SoundMappingsData})
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,9 @@ class StorageService:
         self.cache_ttl = config.storage.cache_ttl_seconds
         self.lock = threading.RLock()
         self.cache: Dict[str, CacheEntry] = {}
+        self._file_locks_guard = threading.Lock()
+        self._file_locks: Dict[str, threading.Lock] = {}
+        self._corrupt_files: List[str] = []
         self.path_map: Dict[Type[StorageData], str] = {
             MarksData: os.path.join(config.storage.marks_dir, "marks.json"),
             AppUserConfigDocument: os.path.join(config.storage.settings_dir, "app_user_config.json"),
@@ -58,6 +63,29 @@ class StorageService:
 
         self.ensure_directories()
         logger.debug("StorageService initialized with base directory: %s", self.base_dir)
+
+    def pop_corrupt_files(self) -> List[str]:
+        """Return and clear the list of security-sensitive files that failed validation since last call."""
+        with self.lock:
+            result = list(self._corrupt_files)
+            self._corrupt_files.clear()
+            return result
+
+    def delete_file(self, path: str) -> None:
+        """Delete a storage file and evict it from cache so defaults are used on next read."""
+        cache_key = None
+        for model_type, mapped_path in self.path_map.items():
+            if mapped_path == path:
+                cache_key = self.get_cache_key(model_type)
+                break
+        with self.lock:
+            if cache_key:
+                self.cache.pop(cache_key, None)
+        try:
+            Path(path).unlink(missing_ok=True)
+            logger.info("Deleted corrupt storage file: %s", path)
+        except OSError as e:
+            logger.error("Failed to delete corrupt storage file %s: %s", path, e)
 
     def ensure_directories(self) -> None:
         for filepath in self.path_map.values():
@@ -101,14 +129,20 @@ class StorageService:
 
         except ValidationError as e:
             logger.error("Validation error reading %s: %s", cache_key, e)
+            if model_type in _SECURITY_SENSITIVE_MODELS:
+                self._corrupt_files.append(str(path))
             result = model_type()
             return result
         except JsonReadError as e:
             logger.error("Error reading %s: %s", cache_key, e)
+            if model_type in _SECURITY_SENSITIVE_MODELS:
+                self._corrupt_files.append(str(path))
             result = model_type()
             return result
         except Exception as e:
             logger.error("Error reading %s: %s", cache_key, e)
+            if model_type in _SECURITY_SENSITIVE_MODELS:
+                self._corrupt_files.append(str(path))
             result = model_type()
             return result
 
@@ -139,12 +173,24 @@ class StorageService:
             return [self.materialize_for_json(item) for item in data]
         return data
 
+    def file_lock_for(self, path: Path) -> threading.Lock:
+        """Return a process-wide lock unique to ``path`` so reads/writes never interleave."""
+        key = os.path.abspath(str(path))
+        with self._file_locks_guard:
+            lock = self._file_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._file_locks[key] = lock
+            return lock
+
     def read_dict_from_disk(self, path: Path) -> Dict[str, Any]:
-        return read_json_dict(path)
+        with self.file_lock_for(path):
+            return read_json_dict(path)
 
     def persist_dict_to_disk(self, path: Path, data: Dict[str, Any]) -> bool:
         try:
-            write_json_atomic(path, self.materialize_for_json(data))
+            with self.file_lock_for(path):
+                write_json_atomic(path, self.materialize_for_json(data))
             return True
         except JsonWriteError as e:
             logger.error("Error writing JSON to %s: %s", path, e)

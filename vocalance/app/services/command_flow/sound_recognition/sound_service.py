@@ -137,6 +137,8 @@ class SoundService(Service):
             logger.error("Invalid sound label")
             return False
 
+        num_samples = max(1, min(num_samples, self.config.sound_recognizer.max_training_samples))
+
         with self._training_lock:
             if self._training_active:
                 logger.warning("Training already active for '%s'", self._current_training_label)

@@ -1,255 +1,113 @@
-import asyncio
-from unittest.mock import patch
+import time
+from unittest.mock import Mock, patch
 
 import pytest
-import pytest_asyncio
+from conftest import skip_if_headless
+
+skip_if_headless()
 
 from vocalance.app.config.command_types import ExactMatchCommand, ParameterizedCommand
 from vocalance.app.events.command_events import AutomationCommandParsedEvent
-from vocalance.app.services.command_flow.execution.automation_service import AutomationService
-from vocalance.app.services.keyboard_input_service import KeyboardInputService
+from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
 
 
-@pytest_asyncio.fixture
-async def automation_service(event_bus, app_config):
-    input_service = KeyboardInputService(event_bus=event_bus)
-    service = AutomationService(event_bus, app_config, input_service=input_service)
-    yield service
-    await input_service.shutdown()
-
-
+@pytest.mark.parametrize(
+    "action_value, method, button",
+    [
+        ("click", "click", "left"),
+        ("left_click", "click", "left"),
+        ("right_click", "click", "right"),
+        ("double_click", "doubleClick", None),
+        ("triple_click", "tripleClick", None),
+    ],
+)
 @pytest.mark.asyncio
-@patch("pyautogui.hotkey")
-async def test_exact_match_hotkey_execution(mock_hotkey, automation_service):
-    """Test execution of exact match hotkey command."""
-    service = automation_service
-    event_bus = service.event_bus
+async def test_create_action_function_click_dispatch(automation_service, action_value, method, button):
+    with patch(f"pyautogui.{method}") as mock_method:
+        automation_service.create_action_function("click", action_value)()
+    if button is None:
+        mock_method.assert_called_once_with()
+    else:
+        mock_method.assert_called_once_with(button=button)
 
-    captured_events = []
 
-    async def capture_event(event):
-        captured_events.append(event)
-
-    command = ExactMatchCommand(
-        command_key="copy",
-        action_type="hotkey",
-        action_value="ctrl+c",
-        is_custom=False,
-        short_description="Copy",
-        long_description="Copy text",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
+@pytest.mark.parametrize("action_value", ["ctrl+c", "ctrl c"])
+@pytest.mark.asyncio
+async def test_create_action_function_hotkey_splits_keys(automation_service, action_value):
+    with patch("pyautogui.hotkey") as mock_hotkey:
+        automation_service.create_action_function("hotkey", action_value)()
     mock_hotkey.assert_called_once_with("ctrl", "c")
 
 
 @pytest.mark.asyncio
-@patch("pyautogui.press")
-async def test_key_press_execution(mock_press, automation_service):
-    """Test execution of key press command."""
-    service = automation_service
-    event_bus = service.event_bus
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    command = ExactMatchCommand(
-        command_key="enter",
-        action_type="key",
-        action_value="enter",
-        is_custom=False,
-        short_description="Press Enter",
-        long_description="Press Enter key",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
+async def test_create_action_function_key_presses_value(automation_service):
+    with patch("pyautogui.press") as mock_press:
+        automation_service.create_action_function("key", "enter")()
     mock_press.assert_called_once_with("enter")
 
 
+@pytest.mark.parametrize("action_type, action_value", [("scroll", "sideways"), ("click", "quadruple_click")])
 @pytest.mark.asyncio
-@patch("pyautogui.click")
-async def test_click_execution(mock_click, automation_service):
-    """Test execution of click command."""
-    service = automation_service
-    event_bus = service.event_bus
+async def test_create_action_function_returns_none_for_unsupported(automation_service, action_type, action_value):
+    assert automation_service.create_action_function(action_type, action_value) is None
 
-    captured_events = []
 
-    async def capture_event(event):
-        captured_events.append(event)
-
-    command = ExactMatchCommand(
-        command_key="click",
-        action_type="click",
-        action_value="left_click",
-        is_custom=False,
-        short_description="Left Click",
-        long_description="Left mouse button click",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    mock_click.assert_called_once_with(button="left")
+@pytest.mark.parametrize("count", [1, 10, 1000])
+@pytest.mark.asyncio
+async def test_run_action_repeats_exactly_count_times(automation_service, count):
+    action = Mock()
+    automation_service.run_action(action, count)
+    assert action.call_count == count
 
 
 @pytest.mark.asyncio
-@patch("pyautogui.hotkey")
-async def test_parameterized_command_execution(mock_hotkey, automation_service):
-    """Test execution of parameterized command with count."""
-    service = automation_service
-    event_bus = service.event_bus
+async def test_execute_key_sequence_handles_combos_and_single_keys(automation_service):
+    with patch("pyautogui.hotkey") as mock_hotkey, patch("pyautogui.press") as mock_press, patch("time.sleep"):
+        automation_service.execute_key_sequence(["ctrl+c", "enter", "alt+tab"])
+    assert mock_hotkey.call_count == 2
+    mock_press.assert_called_once_with("enter")
 
-    captured_events = []
 
-    async def capture_event(event):
-        captured_events.append(event)
-
-    command = ParameterizedCommand(
-        command_key="copy",
-        action_type="hotkey",
-        action_value="ctrl+c",
-        count=3,
-        is_custom=False,
-        short_description="Copy",
-        long_description="Copy text",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    assert mock_hotkey.call_count == 3
+@pytest.mark.parametrize("direction, sign", [("up", 1), ("down", -1)])
+@pytest.mark.asyncio
+async def test_execute_animated_scroll_distributes_total_clicks(automation_service, direction, sign):
+    cfg = automation_service.config.automation_service
+    with patch("pyautogui.scroll") as mock_scroll, patch("time.sleep"):
+        automation_service.execute_animated_scroll(direction)
+    assert mock_scroll.call_count == cfg.scroll_animation_steps
+    assert sum(call.args[0] for call in mock_scroll.call_args_list) == sign * cfg.scroll_total_clicks
 
 
 @pytest.mark.asyncio
-@patch("pyautogui.hotkey")
-async def test_cooldown_enforcement(mock_hotkey, automation_service):
-    """Test that cooldown prevents rapid command re-execution."""
-    service = automation_service
-    event_bus = service.event_bus
+async def test_handle_executes_action_and_records_cooldown(automation_service):
+    command = ExactMatchCommand(command_key="copy", action_type="hotkey", action_value="ctrl+c")
+    with patch("pyautogui.hotkey") as mock_hotkey:
+        await automation_service.handle_automation_command_parsed(AutomationCommandParsedEvent(command=command, source="speech"))
+    mock_hotkey.assert_called_once_with("ctrl", "c")
+    assert "copy" in automation_service.cooldown_timers
 
-    captured_events = []
 
-    async def capture_event(event):
-        captured_events.append(event)
+@pytest.mark.parametrize("count, expected_calls", [(0, 0), (3, 3), (999, 100)])
+@pytest.mark.asyncio
+async def test_handle_respects_repeat_count_bounds(automation_service, count, expected_calls):
+    command = ParameterizedCommand(command_key="copy", action_type="hotkey", action_value="ctrl+c", count=count)
+    with patch("pyautogui.hotkey") as mock_hotkey:
+        await automation_service.handle_automation_command_parsed(AutomationCommandParsedEvent(command=command, source="speech"))
+    assert mock_hotkey.call_count == expected_calls
 
-    command = ExactMatchCommand(
-        command_key="copy",
-        action_type="hotkey",
-        action_value="ctrl+c",
-        is_custom=False,
-        short_description="Copy",
-        long_description="Copy text",
-    )
 
+@pytest.mark.asyncio
+async def test_handle_blocks_second_command_within_cooldown(automation_service):
+    command = ExactMatchCommand(command_key="copy", action_type="hotkey", action_value="ctrl+c")
     event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
+    with patch("pyautogui.hotkey") as mock_hotkey:
+        await automation_service.handle_automation_command_parsed(event)
+        await automation_service.handle_automation_command_parsed(event)
     assert mock_hotkey.call_count == 1
 
 
 @pytest.mark.asyncio
-@patch("pyautogui.hotkey")
-async def test_cooldown_expiration(mock_hotkey, automation_service, app_config):
-    """Test that commands execute after cooldown expires."""
-    service = automation_service
-    event_bus = service.event_bus
-
-    app_config.automation_cooldown_seconds = 0.1
-    service.config = app_config
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    command = ExactMatchCommand(
-        command_key="copy",
-        action_type="hotkey",
-        action_value="ctrl+c",
-        is_custom=False,
-        short_description="Copy",
-        long_description="Copy text",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    await asyncio.sleep(0.15)
-
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    assert mock_hotkey.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_invalid_repeat_count_rejected(automation_service):
-    """Test that invalid repeat counts are rejected."""
-    service = automation_service
-    event_bus = service.event_bus
-
-    captured_events = []
-
-    async def capture_event(event):
-        captured_events.append(event)
-
-    command = ParameterizedCommand(
-        command_key="copy",
-        action_type="hotkey",
-        action_value="ctrl+c",
-        count=0,
-        is_custom=False,
-        short_description="Copy",
-        long_description="Copy text",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-
-@pytest.mark.asyncio
-@patch("pyautogui.hotkey")
-async def test_command_mappings_update_clears_cooldowns(mock_hotkey, automation_service):
-    """Test that command mapping updates clear cooldown timers."""
-    service = automation_service
-    event_bus = service.event_bus
-
-    from vocalance.app.events.command_management_events import CommandMappingsUpdatedEvent
-
-    command = ExactMatchCommand(
-        command_key="copy",
-        action_type="hotkey",
-        action_value="ctrl+c",
-        is_custom=False,
-        short_description="Copy",
-        long_description="Copy text",
-    )
-
-    event = AutomationCommandParsedEvent(command=command, source="speech")
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    await event_bus.publish(CommandMappingsUpdatedEvent(success=True, updated_mappings=[]))
-    await asyncio.sleep(0.1)
-
-    await event_bus.publish(event)
-    await asyncio.sleep(0.2)
-
-    assert mock_hotkey.call_count == 2
+async def test_command_mappings_update_clears_cooldowns(automation_service):
+    automation_service.cooldown_timers["copy"] = time.time()
+    await automation_service.handle_command_mappings_updated(CommandMappingsUpdatedEvent(success=True, updated_mappings=[]))
+    assert automation_service.cooldown_timers == {}

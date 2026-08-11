@@ -17,6 +17,7 @@ from vocalance.app.ui.components.layouts import (
 )
 from vocalance.app.ui.features.dictation.alias_subview import QtDictationAliasSubView
 from vocalance.app.ui.qt_theme import theme
+from vocalance.app.utils.llm_dep_check import llm_deps_available
 
 
 class TabButton(QPushButton):
@@ -113,9 +114,8 @@ class QtPromptsSubView(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Create two-column layout with titles
         self.layout_widget = TwoColumnLayout("Add Custom Prompt", "Manage Prompts", self)
-        main_layout.addWidget(self.layout_widget)
+        main_layout.addWidget(self.layout_widget, stretch=1)
 
         # Setup panels
         self.setup_add_prompt_form()
@@ -305,6 +305,7 @@ class QtDictationView(QWidget):
         super().__init__(parent)
 
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._llm_enabled = llm_deps_available()
         self.dictation_controller = None
         self.alias_controller = None
         self.tab_buttons: Dict[str, TabButton] = {}
@@ -315,7 +316,8 @@ class QtDictationView(QWidget):
     def set_controller(self, controller) -> None:
         """Set the dictation controller and connect to prompts sub-view."""
         self.dictation_controller = controller
-        self.prompts_sub_view.set_controller(controller)
+        if self.prompts_sub_view is not None:
+            self.prompts_sub_view.set_controller(controller)
 
     def set_alias_controller(self, controller) -> None:
         """Set the alias controller and connect to aliases sub-view."""
@@ -327,38 +329,31 @@ class QtDictationView(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Horizontal menu row
-        self.setup_tab_menu()
-        main_layout.addWidget(self.tab_menu_widget)
-
-        # Add spacing after the tab menu
-        main_layout.addSpacing(theme.config.spacing.medium)
-
-        # Stacked widget for sub-views
-        self.stacked_widget = QStackedWidget()
-        main_layout.addWidget(self.stacked_widget, stretch=1)
-
-        # Create sub-views
-        self.prompts_sub_view = QtPromptsSubView()
+        self.prompts_sub_view: Optional[QtPromptsSubView] = QtPromptsSubView() if self._llm_enabled else None
         self.aliases_sub_view = QtDictationAliasSubView()
 
-        # Add sub-views to stacked widget
-        self.stacked_widget.addWidget(self.prompts_sub_view)
-        self.stacked_widget.addWidget(self.aliases_sub_view)
+        if self._llm_enabled:
+            self.setup_tab_menu()
+            main_layout.addWidget(self.tab_menu_widget)
+            main_layout.addSpacing(theme.config.spacing.medium)
 
-        # Select first tab by default
-        self.select_tab("Prompts")
+            self.stacked_widget = QStackedWidget()
+            main_layout.addWidget(self.stacked_widget, stretch=1)
+
+            self.stacked_widget.addWidget(self.prompts_sub_view)
+            self.stacked_widget.addWidget(self.aliases_sub_view)
+            self.select_tab("Prompts")
+        else:
+            self.tab_menu_widget = None
+            self.stacked_widget = None
+            main_layout.addWidget(self.aliases_sub_view, stretch=1)
 
     def setup_tab_menu(self) -> None:
-        # Create a wrapper for centering
         wrapper = TransparentBox(layout="horizontal", spacing=0)
         wrapper_layout = wrapper.layout()
         wrapper_layout.setContentsMargins(0, 0, 0, 0)
         wrapper_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Outer pill-shaped container using BaseContainer for robust custom painting
-        # Stylesheets can fail to render border-radius on transparent frames,
-        # but BaseContainer uses QPainter directly.
         outer_container = BaseContainer(
             layout="horizontal",
             bg_color="transparent",
@@ -369,33 +364,29 @@ class QtDictationView(QWidget):
 
         outer_layout = outer_container.layout()
         outer_layout.setContentsMargins(8, 4, 8, 4)
-        # Use medium spacing between buttons
         outer_layout.setSpacing(theme.config.spacing.medium)
         outer_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Create tab buttons
-        tabs = ["Prompts", "Aliases"]
-
-        for tab_name in tabs:
+        for tab_name in ["Prompts", "Aliases"]:
             btn = TabButton(tab_name)
             btn.clicked.connect(lambda checked, name=tab_name: self.select_tab(name))
             self.tab_buttons[tab_name] = btn
             outer_layout.addWidget(btn)
 
-        # Add outer container to wrapper (centered)
         wrapper_layout.addStretch()
         wrapper_layout.addWidget(outer_container)
         wrapper_layout.addStretch()
 
-        # Store wrapper as the main menu widget
         self.tab_menu_widget = wrapper
 
     def select_tab(self, tab_name: str) -> None:
         for name, btn in self.tab_buttons.items():
             btn.set_selected(name == tab_name)
 
-        # Show corresponding sub-view
-        if tab_name == "Prompts":
+        if self.stacked_widget is None:
+            return
+
+        if tab_name == "Prompts" and self.prompts_sub_view is not None:
             self.stacked_widget.setCurrentWidget(self.prompts_sub_view)
         elif tab_name == "Aliases":
             self.stacked_widget.setCurrentWidget(self.aliases_sub_view)
