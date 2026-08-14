@@ -3,55 +3,27 @@ from typing import Optional
 import pytest
 
 from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.dictation_flow.postprocess.base_postprocess import (
-    apply_base_postprocess,
-    strip_trailing_period_after_numbers,
-)
+from vocalance.app.services.dictation_flow.postprocess.base_postprocess import apply_base_postprocess
 from vocalance.app.services.dictation_flow.postprocess.modifier_postprocess import apply_modifier_transform, modifier_display_label
 from vocalance.app.services.dictation_flow.postprocess.postprocess_pipeline import (
     apply_dictation_postprocess,
     apply_dictation_postprocess_partial,
 )
-from vocalance.app.services.dictation_flow.postprocess.segment_text import (
-    clean_dictation_text,
-    get_trailing_whitespace_count,
-    lowercase_first_letter,
-    remove_formatting,
-    should_lowercase_current_start,
-    should_remove_previous_period,
-)
-
-
-@pytest.mark.parametrize(
-    "raw,expected_substr",
-    [
-        ("I have twenty three apples", "23"),
-        ("count is one hundred forty two", "142"),
-        ("code four zero nine end", "409"),
-    ],
-)
-def test_apply_base_postprocess_replaces_spoken_numbers(raw: str, expected_substr: str) -> None:
-    assert expected_substr in apply_base_postprocess(raw)
-
-
-@pytest.mark.parametrize(
-    "raw",
-    ["go to the store", "waiting for you"],
-)
-def test_apply_base_postprocess_keeps_common_homophone_words(raw: str) -> None:
-    assert apply_base_postprocess(raw) == raw
+from vocalance.app.services.dictation_flow.postprocess.segment_text import clean_dictation_text, remove_formatting
 
 
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        ("total 42.", "total 42"),
-        ("total 42 .", "total 42"),
-        ("pi 3.14", "pi 3.14"),
+        ("hello  world", "hello world"),
+        ("  leading and trailing  ", "leading and trailing"),
+        ("", ""),
+        ("unchanged", "unchanged"),
     ],
 )
-def test_strip_trailing_period_after_numbers(raw: str, expected: str) -> None:
-    assert strip_trailing_period_after_numbers(raw) == expected
+def test_apply_base_postprocess_normalises_whitespace(raw: str, expected: str) -> None:
+    assert apply_base_postprocess(raw) == expected
+
 
 
 @pytest.mark.parametrize(
@@ -113,7 +85,7 @@ def test_apply_modifier_transform_no_modifiers_is_identity() -> None:
     [
         ("hello world", None, "hello world"),
         ("", None, ""),
-        ("one two three", {"spelling"}, "123"),
+        ("hello comma world", {"spelling"}, "Hello, world"),
     ],
 )
 def test_apply_dictation_postprocess(raw: str, modifiers: Optional[set], expected: str) -> None:
@@ -166,59 +138,3 @@ def test_remove_formatting(raw: str, is_first: bool, expected: str) -> None:
     assert remove_formatting(raw, is_first_word_of_session=is_first) == expected
 
 
-@pytest.mark.parametrize(
-    "last_text,current_text,expected",
-    [
-        ("This is a sentence.", "and continues", True),
-        ("Sentence.   ", "and continues", True),
-        ("This is a sentence.", "Another sentence", False),
-        ("This is text", "and continues", False),
-        ("", "and continues", False),
-        ("This is a sentence.", "", False),
-    ],
-)
-def test_should_remove_previous_period(last_text: str, current_text: str, expected: bool) -> None:
-    assert should_remove_previous_period(last_text, current_text) is expected
-
-
-@pytest.mark.parametrize(
-    "last_text,current_text,expected",
-    [
-        ("No sentence boundary", "Another word", True),
-        ("No boundary   ", "Another word", True),
-        ("This is a sentence.", "Another word", False),
-        ("No boundary", "another word", False),
-        ("", "Another word", False),
-        ("No boundary", "", False),
-    ],
-)
-def test_should_lowercase_current_start(last_text: str, current_text: str, expected: bool) -> None:
-    assert should_lowercase_current_start(last_text, current_text) is expected
-
-
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        ("hello   ", 3),
-        ("hello\t\t", 2),
-        ("hello", 0),
-        ("", 0),
-        ("   ", 3),
-    ],
-)
-def test_get_trailing_whitespace_count(raw: str, expected: int) -> None:
-    assert get_trailing_whitespace_count(raw) == expected
-
-
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        ("Hello", "hello"),
-        ("hello", "hello"),
-        ("H", "h"),
-        ("", ""),
-        ("1Hello", "1Hello"),
-    ],
-)
-def test_lowercase_first_letter(raw: str, expected: str) -> None:
-    assert lowercase_first_letter(raw) == expected

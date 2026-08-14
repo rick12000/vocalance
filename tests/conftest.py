@@ -353,11 +353,11 @@ def vosk_test_files(audio_samples_path):
 
 
 @pytest.fixture(scope="module")
-def moonshine_engine(sample_rate, stt_config):
-    """Real MoonshineEngine (downloads model on first use - keep for integration tests)."""
-    from vocalance.app.services.dictation_flow.speech_recognition.moonshine_engine import MoonshineEngine
+def xasr_engine(stt_config):
+    """Real XASREngine backed by the bundled model assets (integration tests only)."""
+    from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
 
-    return MoonshineEngine(sample_rate=sample_rate, config=stt_config)
+    return XASREngine(config=stt_config)
 
 
 @pytest.fixture
@@ -566,42 +566,35 @@ def vosk_engine_instance(mock_vosk_model, mock_vosk_recognizer, stt_config):
 
 
 @pytest.fixture
-def moonshine_engine_instance(stt_config):
-    """MoonshineEngine with model load and Transcriber mocked."""
-    from moonshine_voice.moonshine_api import ModelArch
+def xasr_engine_instance(stt_config):
+    """XASREngine with sherpa_onnx.OnlineRecognizer.from_transducer mocked."""
+    with patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory:
+        mock_factory.return_value = Mock()
+        from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
 
-    mock_line = Mock()
-    mock_line.text = "test recognition"
-
-    with patch("moonshine_voice.download.get_model_for_language", return_value=("/tmp/moonshine_test_model", ModelArch.TINY)):
-        with patch("moonshine_voice.transcriber.Transcriber") as transcriber_cls:
-            mock_tb = transcriber_cls.return_value
-            mock_tb.transcribe_without_streaming = Mock(return_value=Mock(lines=[mock_line]))
-            from vocalance.app.services.dictation_flow.speech_recognition.moonshine_engine import MoonshineEngine
-
-            return MoonshineEngine(sample_rate=16000, config=stt_config)
+        return XASREngine(config=stt_config)
 
 
 @pytest.fixture
-def mock_moonshine_transcriber():
-    """Transcriber+Stream mock pair matching MoonshineStreamSession native internals."""
+def tsm():
+    from vocalance.app.services.dictation_flow.speech_recognition.transcript_state_manager import TranscriptStateManager
+
+    return TranscriptStateManager(stability_window=2, provisional_words=2)
+
+
+@pytest.fixture
+def mock_xasr_recognizer():
+    """Mock sherpa_onnx.OnlineRecognizer + stream pair for XASRStreamSession tests."""
     stream = Mock()
-    stream._handle = 2
-    stream._lib = Mock()
-    stream._lib.moonshine_transcribe_add_audio_to_stream = Mock(return_value=0)
-    stream._lib.moonshine_stop_stream = Mock(return_value=0)
-    stream._stream_time = 0.0
-    stream._last_update_time = 0.0
-    stream._update_interval = 1.5
-    stream.update_transcription = Mock()
-    stream.start = Mock()
-    stream.close = Mock()
-    stream.add_listener = Mock()
-    transcriber = Mock()
-    transcriber._handle = 1
-    transcriber.create_stream = Mock(return_value=stream)
-    stream._transcriber = transcriber
-    return transcriber, stream
+    stream.accept_waveform = Mock()
+    stream.input_finished = Mock()
+
+    recognizer = Mock()
+    recognizer.create_stream.return_value = stream
+    recognizer.is_ready.return_value = False
+    recognizer.decode_stream = Mock()
+    recognizer.get_result.return_value = ""
+    return recognizer, stream
 
 
 @pytest.fixture
@@ -613,18 +606,18 @@ def stream_loop():
 
 
 @pytest.fixture
-def moonshine_stream_session(mock_moonshine_transcriber, stream_loop):
-    """MoonshineStreamSession wired to mocked transcriber and async callbacks."""
-    from vocalance.app.config.app_config import MoonshineStreamingConfig
-    from vocalance.app.services.dictation_flow.speech_recognition.moonshine_engine import MoonshineStreamSession
+def xasr_stream_session(mock_xasr_recognizer, stream_loop):
+    """XASRStreamSession wired to mocked recognizer and async callbacks."""
+    from vocalance.app.config.app_config import XASRConfig
+    from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASRStreamSession
 
-    transcriber, _ = mock_moonshine_transcriber
-    return MoonshineStreamSession(
-        transcriber=transcriber,
+    recognizer, _ = mock_xasr_recognizer
+    return XASRStreamSession(
+        recognizer=recognizer,
         loop=stream_loop,
-        on_partial=AsyncMock(),
-        on_final=AsyncMock(),
-        ms_config=MoonshineStreamingConfig(),
+        on_committed=AsyncMock(),
+        on_provisional=AsyncMock(),
+        xasr_config=XASRConfig(),
     )
 
 

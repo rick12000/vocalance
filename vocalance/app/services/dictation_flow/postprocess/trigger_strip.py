@@ -40,5 +40,6 @@ def strip_dictation_triggers(text: str, cfg: DictationConfig) -> str:
         cfg.modifier_kebab_phrase,
         cfg.modifier_diminish_phrase,
         cfg.modifier_strip_phrase,
+        cfg.modifier_numeral_phrase,
     )
     return strip_config_phrases_case_insensitive(stripped, modifier_phrases)

@@ -5,21 +5,38 @@ skip_if_headless()
 
 
 @pytest.mark.asyncio
-async def test_input_text_types_with_trailing_space(dictation_text_input, patched_keyboard):
-    write, _ = patched_keyboard
-
-    result = await dictation_text_input.input_text("hello world")
+async def test_input_text_stores_content_without_trailing_space(dictation_text_input, patched_keyboard):
+    result = await dictation_text_input.input_text(text="hello world", add_trailing_space=True)
 
     assert result is True
-    assert dictation_text_input.last_text == "hello world "
-    assert write.called
+    assert dictation_text_input.last_text == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_input_text_presses_space_after_paste(dictation_text_input, patched_keyboard):
+    _, press = patched_keyboard
+
+    await dictation_text_input.input_text(text="hello", add_trailing_space=True)
+
+    spaces = [c for c in press.call_args_list if c.args and c.args[0] == "space"]
+    assert len(spaces) == 1
+
+
+@pytest.mark.asyncio
+async def test_input_text_no_space_when_add_trailing_space_false(dictation_text_input, patched_keyboard):
+    _, press = patched_keyboard
+
+    await dictation_text_input.input_text(text="hello", add_trailing_space=False)
+
+    spaces = [c for c in press.call_args_list if c.args and c.args[0] == "space"]
+    assert len(spaces) == 0
 
 
 @pytest.mark.asyncio
 async def test_input_text_empty_is_rejected(dictation_text_input, patched_keyboard):
     write, press = patched_keyboard
 
-    result = await dictation_text_input.input_text("")
+    result = await dictation_text_input.input_text(text="", add_trailing_space=True)
 
     assert result is False
     assert write.call_count == 0
@@ -27,33 +44,49 @@ async def test_input_text_empty_is_rejected(dictation_text_input, patched_keyboa
 
 
 @pytest.mark.asyncio
-async def test_input_text_removes_previous_period_and_prefixes_space(dictation_text_input, patched_keyboard):
+async def test_input_text_adds_period_when_new_segment_starts_with_capital(dictation_text_input, patched_keyboard):
     _, press = patched_keyboard
-    dictation_text_input.last_text = "Previous sentence. "
+    dictation_text_input.last_text = "hello world"
 
-    result = await dictation_text_input.input_text("lowercase continuation")
+    result = await dictation_text_input.input_text(text="Today is nice", add_trailing_space=True)
 
     assert result is True
-    assert dictation_text_input.last_text == " lowercase continuation "
-    backspaces = sum(1 for call in press.call_args_list if call.args and call.args[0] == "backspace")
-    assert backspaces == 2
+    backspaces = [c for c in press.call_args_list if c.args and c.args[0] == "backspace"]
+    assert len(backspaces) == 1
+
+
+@pytest.mark.parametrize("terminal_char", [".", "?", "!"])
+@pytest.mark.asyncio
+async def test_input_text_no_period_when_previous_ended_with_terminal_punctuation(
+    terminal_char, dictation_text_input, patched_keyboard
+):
+    _, press = patched_keyboard
+    dictation_text_input.last_text = f"hello world{terminal_char}"
+
+    await dictation_text_input.input_text(text="Today is nice", add_trailing_space=True)
+
+    backspaces = [c for c in press.call_args_list if c.args and c.args[0] == "backspace"]
+    assert len(backspaces) == 0
 
 
 @pytest.mark.asyncio
-async def test_input_text_lowercases_mid_sentence_continuation(dictation_text_input, patched_keyboard):
-    dictation_text_input.last_text = "No sentence boundary "
+async def test_input_text_no_period_when_new_segment_starts_with_lowercase(dictation_text_input, patched_keyboard):
+    _, press = patched_keyboard
+    dictation_text_input.last_text = "hello world"
 
-    result = await dictation_text_input.input_text("Uppercase start")
+    await dictation_text_input.input_text(text="and more text", add_trailing_space=True)
 
-    assert result is True
-    assert dictation_text_input.last_text == "uppercase start "
+    backspaces = [c for c in press.call_args_list if c.args and c.args[0] == "backspace"]
+    assert len(backspaces) == 0
 
 
+@pytest.mark.parametrize("first_word", ["I", "NASA", "CEO", "A", "OK"])
 @pytest.mark.asyncio
-async def test_input_text_skip_join_preserves_identifier_casing(dictation_text_input, patched_keyboard):
-    dictation_text_input.last_text = "prior chunk "
+async def test_input_text_no_period_when_first_word_is_all_caps(first_word, dictation_text_input, patched_keyboard):
+    _, press = patched_keyboard
+    dictation_text_input.last_text = "hello world"
 
-    result = await dictation_text_input.input_text("HelloWorld", skip_prose_segment_join_rules=True, add_trailing_space=False)
+    await dictation_text_input.input_text(text=f"{first_word} am going now", add_trailing_space=True)
 
-    assert result is True
-    assert dictation_text_input.last_text == "HelloWorld"
+    backspaces = [c for c in press.call_args_list if c.args and c.args[0] == "backspace"]
+    assert len(backspaces) == 0

@@ -4,7 +4,7 @@ from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent
 
-DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling", "kebab", "diminish", "strip"]
+DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling", "kebab", "diminish", "strip", "numeral"]
 
 
 class DictationStatusChangedEvent(BaseEvent):

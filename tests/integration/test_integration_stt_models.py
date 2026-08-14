@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -109,16 +110,50 @@ def test_vosk_recognition_accuracy_and_performance(vosk_engine, vosk_test_files,
 
 
 @pytest.mark.slow
-def test_moonshine_dictation_accuracy_and_performance(moonshine_engine, dictation_file, sample_rate):
+@pytest.mark.integration
+def test_xasr_streaming_dictation_accuracy(xasr_engine, dictation_file, sample_rate):
+    """Feed a short dictation file through XASRStreamSession and verify accuracy.
+
+    Audio is chunked at 480 ms intervals to simulate the streaming use-case.
+    The test collects the final hypothesis via finalize() and checks word accuracy.
+    """
+    import asyncio
+
+    from vocalance.app.services.dictation_flow.speech_recognition.transcript_state_manager import TranscriptStateManager
+
     audio_bytes = _load_audio_bytes(dictation_file)
     expected_text = "this is a test of the dictation capabilities"
 
-    start_time = time.time()
-    recognized_text = moonshine_engine.recognize_sync(audio_bytes, sample_rate)
-    runtime_ms = (time.time() - start_time) * 1000
-    runtime_s = runtime_ms / 1000
+    chunk_samples = int(sample_rate * 0.48)
+    audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
 
-    accuracy = _calculate_word_accuracy(expected_text, recognized_text)
+    recognizer = xasr_engine._recognizer
+    stream = recognizer.create_stream()
+    tsm = TranscriptStateManager(stability_window=2, provisional_words=4)
+
+    start_time = time.time()
+
+    offset = 0
+    while offset < len(audio_int16):
+        chunk = audio_int16[offset : offset + chunk_samples].astype(np.float32) / 32768.0
+        stream.accept_waveform(sample_rate, chunk)
+        while recognizer.is_ready(stream):
+            recognizer.decode_stream(stream)
+        hypothesis = recognizer.get_result(stream)
+        tsm.update(hypothesis)
+        offset += chunk_samples
+
+    stream.input_finished()
+    while recognizer.is_ready(stream):
+        recognizer.decode_stream(stream)
+    final_hypothesis = recognizer.get_result(stream)
+    full_text = tsm.finalize(final_hypothesis)
+    if not full_text:
+        full_text = final_hypothesis
+
+    runtime_s = time.time() - start_time
+
+    accuracy = _calculate_word_accuracy(expected_text, full_text.strip())
 
     assert runtime_s < 60.0
     assert accuracy >= 0.85

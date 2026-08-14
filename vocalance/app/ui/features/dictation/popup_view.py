@@ -579,24 +579,23 @@ class QtDictationPopupView(QMainWindow):
             self.logger.error("No text box for current mode; final text ignored (mode=%s)", self.current_mode)
             return
 
-        # Remove partial text for this segment before inserting the final text.
-        if segment_id in self.partial_segments:
-            start_pos, end_pos = self.partial_segments[segment_id]
-            doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
-
-            # Validate positions are within document bounds
-            if start_pos >= 0 and end_pos <= doc_length and start_pos < end_pos:
+        # Remove ALL partial segments before inserting final text. The partial event always
+        # uses segment_id="" while the final event uses a UUID, so they never match by id.
+        # Clearing all partials ensures there is no gray text visible when white is appended.
+        doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
+        for old_id in list(self.partial_segments.keys()):
+            old_start, old_end = self.partial_segments[old_id]
+            if old_start >= 0 and old_end <= doc_length and old_start < old_end:
                 cursor = text_box.textCursor()
-                cursor.setPosition(min(start_pos, doc_length))
-                cursor.setPosition(min(end_pos, doc_length), cursor.MoveMode.KeepAnchor)
+                cursor.setPosition(min(old_start, doc_length))
+                cursor.setPosition(min(old_end, doc_length), cursor.MoveMode.KeepAnchor)
                 cursor.removeSelectedText()
-                self.logger.debug(f"Removed partial text for segment {segment_id} at {start_pos}-{end_pos}")
+                self.logger.debug(f"Removed partial segment {old_id} at {old_start}-{old_end} before inserting final")
             else:
                 self.logger.warning(
-                    f"Skipping invalid partial segment {segment_id}: pos {start_pos}-{end_pos} (doc_length={doc_length})"
+                    f"Skipping invalid partial segment {old_id}: pos {old_start}-{old_end} (doc_length={doc_length})"
                 )
-
-            del self.partial_segments[segment_id]
+        self.partial_segments.clear()
 
         # Insert final text at end with light color formatting (stable/permanent)
         cursor = text_box.textCursor()

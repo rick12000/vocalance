@@ -3,26 +3,57 @@ alwaysApply: false
 ---
 # Coding Style Guidelines
 
-- Adopt the DRY principle. If code is repeated in multiple places, it should be functionalized and called in those places.
+## General
+
+- Adopt the DRY principle. If code is repeated in multiple places, functionalize it.
+
+## Functions
+
 - Make all inputs explicit. Avoid relying on state or shared context unless encapsulated.
-- Avoid implicit behavior (e.g., mutation of input lists, in place dataframe modification).
-- Variable names should be descriptive and reduced to the shortest possible length.
-- If a function returns multiple types, refactor. Don't return Union[str, dict, None].
-- Use pytest.mark.parametrize for testing functions with categorical input values.
-- If mocking in unit testing is required, mock external APIs and I/O only.
-- No print() statements anywhere in the code. Use logging instead.
-- No single-letter variable names unless in mathematical contexts or loops.
-- No hard coded values. Use constants or configuration files.
-- Don't use early returns in if else statements.
+- Do not mutate function inputs.
+- Functions should do one thing.
+- All functions must have type hints for parameters and return values.
+- If a function returns multiple types, refactor. Don't return `Union[str, dict, None]`.
+- Don't rely on default argument values unless backed by named constants.
+- Avoid `*args` and `**kwargs` unless required.
+- Call functions, methods, and initializers with keyword arguments when readability benefits.
+
+## Naming
+
+- Variable names should be descriptive and reduced to the shortest meaningful length.
+- No single-letter variable names unless in mathematical contexts or simple loops.
+
+## Architecture
+
+- Inject external dependencies. Do not instantiate them inside business logic.
 - Don't create classes if functions are sufficient.
-- Keep modules small and focused (under 500 lines).
-- Comments should explain why, not what. Keep comments under 10% of code.
-- Don't write docstrings.
-- Don't rely on default values for function arguments.
-- Avoid *args or **kwargs unless absolutely necessary.
-- Use pydantic models for configuration values.
-- Keep __init__.py files empty and always use full, explicit import paths for modules, no relative imports.
-- Imports should be at the top of the file, unless there's a performance reason to import a module based on an in-function condition.
-- Avoid try and except statements.
-- Do not use emojis in code or logs.
-- Always call functions or methods or initializations with keyword arguments.
+- Keep modules small and focused.
+- Keep `__init__.py` files empty.
+- Use full, explicit imports. No relative imports.
+- Keep imports at the top of the file unless conditionally importing for performance reasons.
+
+## Configuration
+
+- Use Pydantic models for configuration.
+- Access environment variables only through configuration models.
+- No hard-coded values. Use constants or configuration.
+
+## Error Handling
+
+- Avoid broad exception handling.
+- Avoid exception-driven control flow.
+
+## Comments
+
+- Comments should explain why, not what.
+- Keep comments under 10% of code.
+- No commented-out code.
+
+## Other
+
+- Add code rather than configuration where both are equally clear.
+- Prefer composition over inheritance.
+- Make side effects explicit.
+- Keep public interfaces small and predictable.
+- Avoid implicit behavior (e.g. input mutation, in-place dataframe modification).
+- No `print()` statements. Use logging.

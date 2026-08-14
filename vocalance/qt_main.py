@@ -8,7 +8,6 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 import asyncio
 import contextlib
-import importlib.util
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -169,7 +168,7 @@ def _construct_services(ctx: Dict[str, Any]) -> List[ServiceSpec]:
 
     Invoked through ``lifecycle.run_blocking`` so the GUI thread is free to keep
     painting the startup window while the worker thread imports tensorflow,
-    vosk, llama_cpp, moonshine, and constructs every service. Service factories
+    vosk, llama_cpp, sherpa_onnx, and constructs every service. Service factories
     only touch event-bus subscriptions and plain Python state in ``__init__``,
     none of which require a running asyncio loop or the GUI thread.
     """
@@ -178,14 +177,13 @@ def _construct_services(ctx: Dict[str, Any]) -> List[ServiceSpec]:
     return specs
 
 
-def _moonshine_model_cache_ready() -> bool:
-    """Return True if the Moonshine cache directory exists and is non-empty."""
-    if importlib.util.find_spec("moonshine_voice.download_file") is None:
-        return False
-    from moonshine_voice.download_file import get_cache_dir
+def _xasr_assets_ready() -> bool:
+    """Return True if the bundled X-ASR model files are all present."""
+    import pathlib
 
-    cache_dir = get_cache_dir()
-    return cache_dir.is_dir() and any(cache_dir.iterdir())
+    asr_dir = pathlib.Path(__file__).parent / "app" / "assets" / "asr"
+    required = ["encoder-480ms.onnx", "decoder-480ms.onnx", "joiner-480ms.onnx", "tokens.txt"]
+    return all((asr_dir / f).is_file() for f in required)
 
 
 def _validate_critical_assets(config: GlobalAppConfig) -> bool:
@@ -278,8 +276,8 @@ async def _run_initialization(
 
     progress.update_sub_step(
         sub_step_name="Initializing dictation"
-        if _moonshine_model_cache_ready()
-        else "Fetching Moonshine STT model. This may take several minutes on first use.",
+        if _xasr_assets_ready()
+        else "X-ASR model assets missing — check vocalance/app/assets/asr/",
         progress=0.55,
     )
     if not await services.dictation.initialize():

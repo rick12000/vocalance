@@ -74,190 +74,81 @@ class AudioConfig(BaseModel):
     device_capture_messages: AudioDeviceCaptureMessages = Field(default_factory=AudioDeviceCaptureMessages)
 
 
-class MoonshineStreamingConfig(BaseModel):
-    """Tuning for Moonshine streaming dictation.
+class XASRConfig(BaseModel):
+    """Configuration for the X-ASR sherpa-onnx streaming transducer engine.
 
-    The Moonshine VAD and decoder have many tunable parameters. This config exposes the most
-    impactful ones for real-time dictation, with sensible defaults that balance latency,
-    quality, and performance.
+    X-ASR uses a 480-ms Zipformer Transducer with greedy search decoding. The model
+    maintains bounded cached encoder state between 480-ms chunks, giving O(1) per-chunk
+    inference cost regardless of session duration.
 
-    **Decoder tuning (affects per-refresh computational cost and latency):**
-    - ``transcription_interval`` (default 1.5 s): How often the decoder runs. Raised from
-      the library default (0.5 s) to substantially reduce per-segment O(D²) decoder work
-      with no effect on final transcription quality.
-    - ``max_tokens_per_second`` (default 6.5): Tokens per second hallucination ceiling for
-      English. Decoder is force-stopped if it generates >this rate for the segment duration.
-      The default (6.5) is designed for English. Non-Latin languages need higher values
-      (e.g. 13.0) but English dictation benefits from the aggressive default.
+    **Stability tuning (controls committed vs. provisional boundary):**
+    - ``stability_window`` (default 2): A word is eligible for commitment once it has appeared
+      at the same position in the hypothesis unchanged for this many consecutive decode cycles.
+    - ``provisional_words`` (default 4): The last N words of the hypothesis are always kept
+      provisional regardless of stability. Prevents committing words that may still change as
+      context arrives.
+    - ``green_mode_extra_provisional_words`` (default 2): Additional provisional words held back
+      only in green mode (external cursor injection), for a more conservative commitment policy
+      since external text cannot be recalled.
 
-    **VAD tuning (affects segment boundaries, latency, and noise sensitivity):**
-    - ``vad_threshold`` (default 0.4): Voice probability threshold (0–1) for segment start/end
-      detection. Higher values (0.6–0.8) reduce noise sensitivity, better for noisy environments
-      but risk clipping weak syllables. Lower values (0.2–0.4) are more inclusive but pick up
-      background noise. 0.4 captures soft speech well; raise toward 0.6 for noisy environments.
-    - ``vad_window_duration`` (default 0.75 s): Time window for VAD probability smoothing. Shorter
-      (0.1–0.3 s) reacts faster to speech/silence transitions but with lower accuracy. Longer
-      (0.5–1.0 s) is more accurate but lags behind real transitions. 0.75 s reduces false positives
-      on brief pauses mid-sentence.
-    - ``vad_hop_size`` (default 512 samples = 32 ms at 16 kHz): The VAD runs this often. Larger
-      hops (1024) reduce CPU but miss fast transitions. Smaller hops (256) react faster but cost
-      more CPU. 512 is the balanced default. Only change if you need faster VAD reaction.
-    - ``vad_look_behind_sample_count`` (default 8192 = 0.512 s): Samples pre-pended when a new
-      segment begins, to recover audio just before the VAD threshold was crossed. On natural
-      pauses this is silence (no effect). On force-closes at continuous speech, this becomes
-      padding that can cause hallucination. Kept at full default for natural-pause quality;
-      application-layer deduplication handles force-close overlap.
-    - ``vad_max_segment_duration`` (default 20 s): Hard cap on segment length. The VAD begins
-      a graceful fade at 2/3 of this value (~13.3 s) and force-closes at the cap. Higher values
-      (20–30 s) allow long sentences to finish naturally; lower values (10–15 s) reduce peak
-      decoder cost for continuous non-stop speech at the cost of more forced cuts.
-
-    **Feature control (affects inference cost):**
-    - ``identify_speakers`` (default False): Whether to run the speaker-embedding model. Disabled
-      because dictation doesn't use speaker IDs and embedding inference is expensive.
-    - ``return_audio_data`` (default False): Whether to copy segment audio back to Python. Disabled
-      because we transcribe-and-discard; keeping audio copies wastes memory and CPU.
+    **Performance tuning:**
+    - ``num_threads`` (default 2): ONNX Runtime CPU thread count. Benchmark 1/2/4 on target
+      hardware; more threads do not always mean lower latency.
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    stream_update_interval: float = Field(
-        default=1,
-        ge=0.05,
-        le=5.0,
-        description=(
-            "Seconds of stream time between partial refresh calls (Python wrapper cadence). "
-            "Typically set equal to transcription_interval so the Python cadence aligns with the native decode cadence."
-        ),
+    num_threads: int = Field(default=2, ge=1, le=8, description="ONNX Runtime CPU thread count for the transducer encoder.")
+    stability_window: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Consecutive unchanged hypothesis positions before a word is promoted to committed.",
     )
-    transcription_interval: float = Field(
-        default=1,
-        ge=0.05,
-        le=5.0,
-        description=(
-            "Native transcription_interval (seconds): minimum buffered audio before each decoder pass. "
-            "Raised from the library default (0.5 s) to substantially reduce per-segment O(D²) decoder work."
-        ),
+    provisional_words: int = Field(
+        default=4,
+        ge=1,
+        le=20,
+        description="Trailing words always kept provisional regardless of stability_window.",
     )
-    vad_threshold: float = Field(
-        default=0.6,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Voice probability threshold (0–1) for VAD segment start/end detection. Higher values (0.6–0.8) "
-            "reduce noise sensitivity at the cost of clipping weak syllables. Lower values (0.2–0.4) are more "
-            "inclusive but pick up background noise. 0.4 captures soft speech well; raise toward 0.6 for noisy environments."
-        ),
-    )
-    vad_window_duration: float = Field(
-        default=0.5,
-        ge=0.05,
-        le=1.0,
-        description=(
-            "VAD probability smoothing window (seconds). Shorter windows (0.1–0.3 s) react faster to speech/silence "
-            "transitions but with lower accuracy. Longer windows (0.5–1.0 s) are more accurate but lag behind real "
-            "transitions. 0.6 s reduces false positives on brief pauses mid-sentence."
-        ),
-    )
-    vad_hop_size: int = Field(
-        default=512,
-        ge=256,
-        le=1024,
-        description=(
-            "VAD processing hop size (samples at 16 kHz). The VAD runs every hop_size / 16000 seconds. "
-            "512 samples = 32 ms (default). Larger hops (1024) reduce CPU but miss fast transitions. "
-            "Smaller hops (256) react faster but cost more CPU. Only change if you need faster VAD reaction."
-        ),
-    )
-    vad_look_behind_sample_count: int = Field(
-        default=8192,
+    green_mode_extra_provisional_words: int = Field(
+        default=2,
         ge=0,
-        le=16000,
+        le=10,
         description=(
-            "Samples of audio pre-pended to a new segment when voice activity begins (at 16 kHz). "
-            "Default 8192 samples = 0.512 s. On natural-pause closes the look-behind buffer is zeroed "
-            "before reuse (no effect). On force-closes mid-speech, the buffer contains real audio from the "
-            "tail of the closing segment, which can cause hallucination at the start of the next segment. "
-            "Kept at full default for natural-pause quality; application-layer deduplication handles force-close overlap."
+            "Additional provisional words held back in green mode beyond provisional_words, "
+            "giving a more conservative commitment policy for external-cursor text injection."
         ),
     )
-    vad_max_segment_duration: float = Field(
-        default=10.0,
-        ge=3.0,
-        le=30.0,
+    silence_commit_threshold_sec: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=60.0,
         description=(
-            "Hard ceiling on one VAD segment (seconds). The VAD begins a graceful fade at 2/3 of this value "
-            "and force-closes the segment at the cap. Lower values (10–15 s) reduce peak decoder cost for "
-            "pathological non-stop speech. Higher values (20–30 s) allow longer natural sentences to complete "
-            "before a forced cut. Tune to typical speaking patterns and available hardware."
+            "Default seconds of hypothesis stability before the provisional tail is force-committed "
+            "mid-session. The coordinator overrides this per-mode: STANDARD/TYPE use 3 s (accepting "
+            "a punctuation trade-off in exchange for eventual output on long pauses); all other modes "
+            "use 15 s (effectively relying on session-end finalization for maximum punctuation quality)."
         ),
     )
-    max_tokens_per_second: float = Field(
-        default=6.5,
-        ge=1.0,
-        le=30.0,
-        description=(
-            "Tokens-per-second hallucination ceiling. Decoder is force-stopped if it generates more tokens than "
-            "this rate × segment_duration. Default 6.5 is designed for English and aggressively catches the "
-            "infinite-repetition hallucination pattern. Non-Latin languages often need 13.0 or higher due to "
-            "different tokenization. For English dictation, keep at the default."
-        ),
+    audio_queue_maxsize: int = Field(
+        default=1024,
+        ge=64,
+        le=4096,
+        description="Maximum audio chunks buffered between the microphone callback and the ASR worker. Drops oldest on overflow.",
     )
-    identify_speakers: bool = Field(
-        default=False,
-        description="Disable the native speaker-embedding stage; dictation doesn't use speaker IDs and this inference is expensive.",
-    )
-    return_audio_data: bool = Field(
-        default=False,
-        description="Disable copying segment audio back to Python; we transcribe-and-discard and never read the audio buffer.",
-    )
-
-    def transcriber_load_options(self) -> dict[str, str]:
-        """Key/value strings for ``Transcriber(..., options=...)`` at model load."""
-        return {
-            "transcription_interval": str(self.transcription_interval),
-            "vad_threshold": str(self.vad_threshold),
-            "vad_window_duration": str(self.vad_window_duration),
-            "vad_hop_size": str(self.vad_hop_size),
-            "vad_look_behind_sample_count": str(self.vad_look_behind_sample_count),
-            "vad_max_segment_duration": str(self.vad_max_segment_duration),
-            "max_tokens_per_second": str(self.max_tokens_per_second),
-            "identify_speakers": "true" if self.identify_speakers else "false",
-            "return_audio_data": "true" if self.return_audio_data else "false",
-        }
 
 
 class STTConfig(BaseModel):
     """Configuration for speech-to-text engines and processing parameters.
 
-    Dictation uses Moonshine Voice (streaming + batch). Command mode uses Vosk.
+    Dictation uses X-ASR via sherpa-onnx (streaming transducer). Command mode uses Vosk.
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    moonshine_language: str = Field(default="en", description="Two-letter language code for Moonshine models")
-    moonshine_model_arch: str = Field(
-        default="small-streaming",
-        description=(
-            "Moonshine architecture id: tiny, base, tiny-streaming, base-streaming, small-streaming, medium-streaming. "
-            "medium-streaming is larger than small-streaming and usually more accurate (higher latency, bigger download)."
-        ),
-    )
-    moonshine_streaming: MoonshineStreamingConfig = Field(
-        default_factory=MoonshineStreamingConfig,
-        description="Streaming partial cadence and native Moonshine transcriber options (VAD, decode interval, silence-aware rotation).",
-    )
-    moonshine_max_retries: int = Field(default=3, description="Maximum retry attempts for Moonshine model loading")
-    moonshine_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Moonshine load retries")
-
+    xasr: XASRConfig = Field(default_factory=XASRConfig, description="X-ASR streaming transducer configuration.")
     sample_rate: int = 16000
-
-    @field_validator("moonshine_model_arch", mode="before")
-    @classmethod
-    def default_moonshine_arch_if_empty(cls, v: object) -> object:
-        if v is None or (isinstance(v, str) and not v.strip()):
-            return "medium-streaming"
-        return v
 
 
 class SoundRecognizerConfig(BaseModel):
@@ -412,11 +303,17 @@ class DictationConfig(BaseModel):
 
     type_dictation_silence_timeout: float = 0.1
 
-    moonshine_modifier_suppress_sec: float = Field(
+    modifier_suppress_sec: float = Field(
         default=0.55,
         ge=0.0,
         le=10.0,
-        description="After a modifier phrase, drop Moonshine partial/final output for this many seconds",
+        description="After a modifier phrase, suppress ASR output for this many seconds to prevent the keyword from being transcribed.",
+    )
+    streaming_buffer_word_threshold: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description="Number of words to accumulate in the streaming paste buffer before flushing; reduces jagged word-by-word paste appearance.",
     )
     type_silence_monitor_max_seconds: int = Field(
         default=300,
@@ -427,7 +324,7 @@ class DictationConfig(BaseModel):
 
     pyautogui_pause: float = Field(default=0.01, description="Global pause interval between pyautogui operations (seconds)")
     clipboard_paste_delay_pre: float = Field(default=0.05, description="Delay before clipboard paste operation (seconds)")
-    clipboard_paste_delay_post: float = Field(default=0.1, description="Delay after clipboard paste operation (seconds)")
+    clipboard_paste_delay_post: float = Field(default=0.2, description="Delay after clipboard paste operation (seconds)")
     type_text_post_delay: float = Field(default=0.1, description="Delay after typing text (seconds)")
 
     enable_dictation_formatting: bool = Field(
@@ -444,6 +341,7 @@ class DictationConfig(BaseModel):
     modifier_kebab_phrase: str = Field(default="kebab", description="Voice phrase to toggle kebab-case modifier")
     modifier_diminish_phrase: str = Field(default="diminish", description="Voice phrase to toggle lowercase modifier")
     modifier_strip_phrase: str = Field(default="strip", description="Voice phrase to toggle strip punctuation modifier")
+    modifier_numeral_phrase: str = Field(default="numeral", description="Voice phrase to toggle spoken-number-to-digit conversion modifier")
 
 
 class LocalLLMArtifact(BaseModel):
