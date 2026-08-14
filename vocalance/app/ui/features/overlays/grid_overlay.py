@@ -574,6 +574,7 @@ class QtGridView(QWidget):
         drag_origin: Optional[Tuple[int, int]],
     ) -> None:
         """Perform pyautogui action for grid cell (physical pixel coordinates)."""
+        ctypes.windll.user32.ClipCursor(None)
         cx, cy = int(center_x), int(center_y)
         if click_mode == "click":
             pyautogui.moveTo(cx, cy, duration=GRID_CLICK_MOVE_DURATION_S, _pause=False)
