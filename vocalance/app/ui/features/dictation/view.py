@@ -229,11 +229,11 @@ class QtPromptsSubView(QWidget):
         item_layout.addWidget(edit_btn)
 
         # Delete button
-        is_default = prompt_data.get("is_default", False)
+        is_protected = prompt_data.get("is_default", False) or bool(prompt_data.get("system_key"))
         delete_btn = DeleteButton(
-            command=lambda checked, pid=prompt_data.get("id"): self.on_delete_prompt(pid) if not is_default else None
+            command=lambda checked, pid=prompt_data.get("id"): self.on_delete_prompt(pid) if not is_protected else None
         )
-        delete_btn.setEnabled(not is_default)
+        delete_btn.setEnabled(not is_protected)
         item_layout.addWidget(delete_btn)
 
         self.prompts_list_layout.insertWidget(self.prompts_list_layout.count() - 1, item_widget)
@@ -278,8 +278,8 @@ class QtPromptsSubView(QWidget):
                 self.logger.info(f"Edited prompt: {prompt_data['id']}")
 
     def on_delete_prompt(self, prompt_id: str) -> None:
-        if self.controller and self.controller.is_default_prompt(prompt_id):
-            QMessageBox.information(self, "Cannot Delete Default Prompt", "The default prompt cannot be deleted.")
+        if self.controller and self.controller.is_protected_prompt(prompt_id):
+            QMessageBox.information(self, "Cannot Delete Prompt", "This prompt cannot be deleted.")
             return
 
         if self.controller:

@@ -25,6 +25,7 @@ from vocalance.app.config.command_types import (
     MarkVisualizeCommand,
     ParameterizedCommand,
     PauseCommand,
+    RepeatCommand,
     ResumeCommand,
 )
 from vocalance.app.event_bus import EventBus
@@ -89,6 +90,7 @@ class CentralizedCommandParser(Service):
         self.triggers: CommandParserTriggers = build_triggers_from_config(app_config)
         self._command_interval_lock = asyncio.Lock()
         self._last_command_executed_mono: Optional[float] = None
+        self._last_repeatable_command: Optional[BaseCommand] = None
 
         self.subscribe(CommandTextRecognizedEvent, self.handle_command_text_recognized)
         self.subscribe(CustomSoundRecognizedEvent, self.handle_custom_sound_recognized)
@@ -115,8 +117,16 @@ class CentralizedCommandParser(Service):
                     if self.pause_state_manager.is_paused():
                         return
 
+                if isinstance(parsed, RepeatCommand):
+                    if self._last_repeatable_command is not None:
+                        await self.publish_command_event(self._last_repeatable_command, src)
+                        self._last_command_executed_mono = time.monotonic()
+                    return
+
                 await self.publish_command_event(parsed, src)
                 self._last_command_executed_mono = time.monotonic()
+                if not isinstance(parsed, (PauseCommand, ResumeCommand)):
+                    self._last_repeatable_command = parsed
 
     async def publish_command_event(self, command: BaseCommand, source: Optional[str]) -> None:
         """Instantiate the parsed-event type for ``command`` and publish it on the bus."""

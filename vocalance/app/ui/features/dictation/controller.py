@@ -104,21 +104,21 @@ class QtDictationController(QtBaseController):
         self.prompt_ui("select", prompt_id=prompt_id)
         self.notify_status("Prompt selection updated.")
 
-    def is_default_prompt(self, prompt_id: str) -> bool:
-        for prompt_data in self.prompts:
-            if prompt_data.get("id") == prompt_id:
-                return bool(prompt_data.get("is_default", False))
-        return False
+    def _find_prompt_data(self, prompt_id: str) -> Optional[Dict[str, Any]]:
+        return next((p for p in self.prompts if p.get("id") == prompt_id), None)
+
+    def is_protected_prompt(self, prompt_id: str) -> bool:
+        prompt = self._find_prompt_data(prompt_id)
+        if prompt is None:
+            return False
+        return bool(prompt.get("is_default", False)) or bool(prompt.get("system_key"))
 
     def delete_prompt(self, prompt_id: str) -> bool:
-        prompt_name = "Unknown"
-        for prompt_data in self.prompts:
-            if prompt_data.get("id") == prompt_id:
-                prompt_name = prompt_data.get("name", "Unknown")
-                if prompt_data.get("is_default", False):
-                    self.notify_status("The default prompt cannot be deleted.", True)
-                    return False
-                break
+        prompt = self._find_prompt_data(prompt_id)
+        if prompt is not None and self.is_protected_prompt(prompt_id):
+            self.notify_status("This prompt cannot be deleted.", True)
+            return False
+        prompt_name = prompt.get("name", "Unknown") if prompt is not None else "Unknown"
         self.prompt_ui("delete", prompt_id=prompt_id)
         self.notify_status(f"Deleted prompt: {prompt_name}")
         return True
@@ -130,7 +130,8 @@ class QtDictationController(QtBaseController):
         if not text.strip():
             self.notify_status("Please enter prompt instructions.", True)
             return False
-        if self.is_default_prompt(prompt_id):
+        prompt = self._find_prompt_data(prompt_id)
+        if prompt is not None and prompt.get("is_default", False):
             self.notify_status("The default prompt cannot be edited.", True)
             return False
         self.prompt_ui("edit", prompt_id=prompt_id, name=name, text=text)

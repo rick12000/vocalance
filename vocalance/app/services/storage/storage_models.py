@@ -47,6 +47,8 @@ class AgenticPrompt(BaseModel):
     name: str = Field(..., max_length=200)
     created_at: str
     is_default: bool = False
+    system_key: Optional[str] = None
+    system_canonical_name: Optional[str] = None
 
 
 class MarksData(StorageData):

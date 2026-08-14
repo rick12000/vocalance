@@ -30,6 +30,7 @@ from vocalance.app.config.command_types import (
     ParseResultType,
     PauseCommand,
     ResumeCommand,
+    RepeatCommand,
 )
 from vocalance.app.utils.number_parser import parse_number
 
@@ -81,11 +82,13 @@ def build_triggers_from_config(config: GlobalAppConfig) -> CommandParserTriggers
 
 
 def parse_system_control(normalized_text: str) -> ParseResultType:
-    """Match global pause/resume phrases."""
+    """Match global pause/resume/repeat phrases."""
     if normalized_text == "pause":
         return PauseCommand()
     if normalized_text == "resume":
         return ResumeCommand()
+    if normalized_text == "repeat":
+        return RepeatCommand()
     return NoMatchResult()
 
 

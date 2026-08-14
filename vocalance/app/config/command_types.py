@@ -125,6 +125,14 @@ class ResumeCommand(SystemControlCommand):
     """
 
 
+class RepeatCommand(SystemControlCommand):
+    """Command to re-execute the last non-system command.
+
+    When triggered, replays the most recently executed command that was not
+    itself a system control command (pause, resume, repeat).
+    """
+
+
 ActionType = Literal["hotkey", "key", "key_sequence", "click", "scroll"]
 
 
@@ -402,7 +410,7 @@ GridCommandType = Union[GridShowCommand, GridSelectCommand]
 
 SoundCommandType = Union[SoundTrainCommand, SoundDeleteCommand, SoundResetAllCommand, SoundListAllCommand, SoundMapCommand]
 
-SystemControlCommandType = Union[PauseCommand, ResumeCommand]
+SystemControlCommandType = Union[PauseCommand, ResumeCommand, RepeatCommand]
 
 AnyCommand = Union[
     DictationCommandType, AutomationCommandType, MarkCommandType, GridCommandType, SoundCommandType, SystemControlCommandType
