@@ -248,6 +248,14 @@ class AutomationCommandRegistry:
             functional_group="Editing",
         ),
         ExactMatchCommand(
+            command_key="new line",
+            action_type="hotkey",
+            action_value="shift+enter",
+            short_description="New Line",
+            long_description="Insert a new line without submitting (Shift+Enter), works across chat apps, IDEs, and other UIs",
+            functional_group="Editing",
+        ),
+        ExactMatchCommand(
             command_key="delete",
             action_type="key",
             action_value="delete",

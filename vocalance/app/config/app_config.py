@@ -440,6 +440,55 @@ def local_llm_allowlist() -> LocalLLMAllowList:
     return _LOCAL_LLM_ALLOWLIST
 
 
+class ASRModelArtifact(BaseModel):
+    """X-ASR model bundle (Hugging Face repo + filenames + expected SHA-256 hashes).
+
+    sha256 maps each local filename to its expected SHA-256 hex digest. Populate
+    these by running ``scripts/security/compute_asr_hashes.py`` after placing the
+    downloaded model files in ``vocalance/app/assets/asr/chunk-480ms-model/``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    repo_id: str
+    revision: str
+    remote_folder: str
+    local_folder_name: str
+    filenames: tuple[str, ...]
+    sha256: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "SHA-256 hex digest per filename. Verified after download. "
+            "Run scripts/security/compute_asr_hashes.py and paste the output here."
+        ),
+    )
+
+
+ASR_MODEL_ARTIFACT: ASRModelArtifact = ASRModelArtifact(
+    repo_id="GilgameshWind/X-ASR-zh-en",
+    revision="5a82c956caaf43d73237d9123b009665e4d36fb8",
+    remote_folder="deployment/models/chunk-480ms-model",
+    local_folder_name="chunk-480ms-model",
+    filenames=(
+        "encoder-480ms.onnx",
+        "decoder-480ms.onnx",
+        "joiner-480ms.onnx",
+        "tokens.txt",
+    ),
+    sha256={
+        "encoder-480ms.onnx": "0c3454033d249081df124ddcd7adaf3deca07d0b999b26f2ee5d2475d37abc74",
+        "decoder-480ms.onnx": "3658368d274a5d5fd39a7ac20c46bed0ad9cfea1f0feddef30d5d89797c1f499",
+        "joiner-480ms.onnx": "03781c98165a2385024c9cecdd2b6b13310d81db23a62c7da420782c2915cf81",
+        "tokens.txt": "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
+    },
+)
+
+
+def asr_model_artifact() -> ASRModelArtifact:
+    """Return the built-in ASR model artifact descriptor."""
+    return ASR_MODEL_ARTIFACT
+
+
 class LLMConfig(BaseModel):
     """Local LLM (llama.cpp, CPU): built-in Qwen GGUF bundles only."""
 

@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("TQDM_DISABLE", "1")
 os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "600")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.pop("SSLKEYLOGFILE", None)
 
 import asyncio
 import contextlib
@@ -30,7 +31,7 @@ from vocalance.app.ui.utils.window_icon_manager import WindowIconManager
 logger = logging.getLogger(__name__)
 
 
-def _build_validator(c: Dict[str, Any]) -> ProtectedTermsValidator:
+def build_validator(c: Dict[str, Any]) -> ProtectedTermsValidator:
     from vocalance.app.services.command_flow.management.protected_terms_validator import ProtectedTermsValidator
 
     validator = ProtectedTermsValidator(config=c["config"], storage=c["storage"])
@@ -38,13 +39,13 @@ def _build_validator(c: Dict[str, Any]) -> ProtectedTermsValidator:
     return validator
 
 
-def _service_specs() -> List[ServiceSpec]:
+def service_specs() -> List[ServiceSpec]:
     """Declare every service in construction order.
 
     Teardown is the reverse of this order (LIFO), so adding a new service is a
     single-line edit: construction, registration, and teardown are all derived
     from this list. Heavy module imports stay scoped to this function so they
-    only fire when ``_construct_services`` runs (on a worker thread), not on
+    only fire when ``construct_services`` runs (on a worker thread), not on
     ``qt_main`` import and not on the GUI thread.
     """
     from vocalance.app.services.activity_tracker import ActivityTracker
@@ -79,7 +80,7 @@ def _service_specs() -> List[ServiceSpec]:
             name="runtime_config",
             factory=lambda c: RuntimeConfigurationStore(event_bus=c["event_bus"], config=c["config"], storage=c["storage"]),
         ),
-        ServiceSpec(name="validator", factory=_build_validator),
+        ServiceSpec(name="validator", factory=build_validator),
         ServiceSpec(name="grid", factory=lambda c: GridService(event_bus=c["event_bus"], config=c["config"])),
         ServiceSpec(
             name="automation",
@@ -163,7 +164,7 @@ def _service_specs() -> List[ServiceSpec]:
     ]
 
 
-def _construct_services(ctx: Dict[str, Any]) -> List[ServiceSpec]:
+def construct_services(ctx: Dict[str, Any]) -> List[ServiceSpec]:
     """Resolve heavy service module imports and run synchronous constructors.
 
     Invoked through ``lifecycle.run_blocking`` so the GUI thread is free to keep
@@ -172,21 +173,19 @@ def _construct_services(ctx: Dict[str, Any]) -> List[ServiceSpec]:
     only touch event-bus subscriptions and plain Python state in ``__init__``,
     none of which require a running asyncio loop or the GUI thread.
     """
-    specs = _service_specs()
+    specs = service_specs()
     build_services(specs, ctx)
     return specs
 
 
-def _xasr_assets_ready() -> bool:
-    """Return True if the bundled X-ASR model files are all present."""
-    import pathlib
-
-    asr_dir = pathlib.Path(__file__).parent / "app" / "assets" / "asr"
+def xasr_assets_ready() -> bool:
+    """Return True if the X-ASR model files are all present in the expected location."""
+    asr_dir = Path(__file__).parent / "app" / "assets" / "asr" / "chunk-480ms-model"
     required = ["encoder-480ms.onnx", "decoder-480ms.onnx", "joiner-480ms.onnx", "tokens.txt"]
     return all((asr_dir / f).is_file() for f in required)
 
 
-def _validate_critical_assets(config: GlobalAppConfig) -> bool:
+def validate_critical_assets(config: GlobalAppConfig) -> bool:
     """Return False if required on-disk assets (e.g. Vosk) are missing."""
     vosk_path = config.asset_paths.get_vosk_model_path()
     if not os.path.exists(vosk_path):
@@ -198,7 +197,7 @@ def _validate_critical_assets(config: GlobalAppConfig) -> bool:
     return True
 
 
-async def _run_initialization(
+async def run_initialization(
     services: SimpleNamespace,
     config: GlobalAppConfig,
     lifecycle: AppLifecycle,
@@ -236,6 +235,27 @@ async def _run_initialization(
     await services.command_speech.initialize()
 
     progress.update_sub_step(sub_step_name="Preparing dictation system...")
+
+    if not xasr_assets_ready():
+        from vocalance.app.services.dictation_flow.speech_recognition.asr_model_downloader import ASRModelDownloader
+
+        asr_downloader = ASRModelDownloader(config)
+        logger.info("X-ASR model files not found — downloading from Hugging Face")
+        progress.update_sub_step(
+            sub_step_name="Downloading speech-to-text model. First launch may take a few minutes.",
+            progress=0.25,
+        )
+        try:
+            asr_ready = await asr_downloader.download(
+                cancel_event=lifecycle.cancel_token.threading_event(),
+                progress_cb=lambda msg: progress.update_sub_step(sub_step_name=msg, progress=0.35),
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Speech-to-text model download failed: {exc}") from exc
+        if not asr_ready:
+            raise asyncio.CancelledError()
+        logger.info("X-ASR model download complete")
+
     from vocalance.app.utils.llm_dep_check import llm_deps_available
 
     if llm_deps_available():
@@ -254,7 +274,7 @@ async def _run_initialization(
                 )
                 progress.update_sub_step(
                     sub_step_name="Fetching AI Model. First launch may take several minutes.",
-                    progress=0.35,
+                    progress=0.55,
                 )
                 try:
                     downloaded_path = await downloader.download_model_bundle(
@@ -276,9 +296,9 @@ async def _run_initialization(
 
     progress.update_sub_step(
         sub_step_name="Initializing dictation"
-        if _xasr_assets_ready()
-        else "X-ASR model assets missing — check vocalance/app/assets/asr/",
-        progress=0.55,
+        if xasr_assets_ready()
+        else "X-ASR model assets missing — check vocalance/app/assets/asr/chunk-480ms-model/",
+        progress=0.75,
     )
     if not await services.dictation.initialize():
         raise RuntimeError("Critical dictation initialization failed")
@@ -286,7 +306,7 @@ async def _run_initialization(
     progress.complete_step()
 
 
-async def _show_terminal_message(startup_window: Optional[StartupWindow], message: str, hold_s: float) -> None:
+async def show_terminal_message(startup_window: Optional[StartupWindow], message: str, hold_s: float) -> None:
     """Display a terminal message on the startup window briefly before tearing down."""
     if startup_window is not None:
         with contextlib.suppress(RuntimeError):
@@ -337,8 +357,8 @@ async def main() -> None:
         startup_window.show()
         qt_app.processEvents()
 
-        if not _validate_critical_assets(config):
-            await _show_terminal_message(startup_window, "Critical assets missing. Please check logs.", 3.0)
+        if not validate_critical_assets(config):
+            await show_terminal_message(startup_window, "Critical assets missing. Please check logs.", 3.0)
             return
 
         event_bus = EventBus()
@@ -355,7 +375,7 @@ async def main() -> None:
             "cancel_token": lifecycle.cancel_token,
             "lifecycle": lifecycle,
         }
-        specs = await lifecycle.run_blocking(_construct_services, ctx, name="services-build")
+        specs = await lifecycle.run_blocking(construct_services, ctx, name="services-build")
         services = SimpleNamespace(**{spec.name: ctx[spec.name] for spec in specs})
 
         lifecycle.register_resource(event_bus)
@@ -365,7 +385,7 @@ async def main() -> None:
         event_bus.start(gui_loop)
 
         init_task = asyncio.create_task(
-            _run_initialization(services, config, lifecycle, progress),
+            run_initialization(services, config, lifecycle, progress),
             name="initialize-services",
         )
         lifecycle.register_init_task(init_task)
@@ -375,11 +395,11 @@ async def main() -> None:
             await init_task
         except asyncio.CancelledError:
             logger.info("Initialization cancelled")
-            await _show_terminal_message(startup_window, "Startup cancelled by user", 1.0)
+            await show_terminal_message(startup_window, "Startup cancelled by user", 1.0)
             return
         except RuntimeError as exc:
             logger.critical("Critical initialization error: %s", exc)
-            await _show_terminal_message(
+            await show_terminal_message(
                 startup_window,
                 "Initialization failed. Please check your internet connection and try again.",
                 3.0,

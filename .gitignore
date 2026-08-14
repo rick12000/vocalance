@@ -28,3 +28,5 @@ _build/
 inst/
 
 /moonshine
+
+vocalance/app/assets/asr/

@@ -1,4 +1,6 @@
 import asyncio
+import ctypes
+import ctypes.wintypes
 import logging
 import math
 import threading
@@ -7,7 +9,7 @@ from typing import Any, Coroutine, Dict, List, Optional, Tuple
 
 import pyautogui
 from PySide6.QtCore import QMetaObject, QRect, Qt, QTimer, Slot
-from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPaintEvent, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPaintEvent, QPen, QShowEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -29,6 +31,14 @@ GRID_DRAG_MOVE_MIN_S = 0.22
 GRID_DRAG_MOVE_MAX_S = 0.85
 GRID_DRAG_MOVE_DIST_DIVISOR = 2200.0
 GRID_DRAG_SETTLE_S = 0.05
+GRID_CLICK_MOVE_DURATION_S = 0.05
+
+GWL_EXSTYLE = -20
+WS_EX_TRANSPARENT = 0x00000020
+WS_EX_NOACTIVATE = 0x08000000
+WM_HOTKEY = 0x0312
+VK_ESCAPE = 0x1B
+HOTKEY_ID_ESCAPE = 1
 
 
 class QtGridView(QWidget):
@@ -71,7 +81,7 @@ class QtGridView(QWidget):
         self.overlay_preparing = False
         self.layout_device_pixel_ratio: float = 1.0
 
-        self.focus_timers: List[QTimer] = []
+        self.escape_hotkey_registered: bool = False
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -80,8 +90,7 @@ class QtGridView(QWidget):
             | Qt.WindowType.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
         self.background_color = QColor(theme.config.shapes.dark)
         self.background_color.setAlpha(180)
@@ -122,13 +131,13 @@ class QtGridView(QWidget):
         return rects_with_click_counts(rect_definitions, snap)
 
     def schedule_bus_coroutine(self, coro: Coroutine[Any, Any, Any]) -> None:
-        async def _log_and_run() -> None:
+        async def log_and_run() -> None:
             try:
                 await coro
             except Exception as exc:
                 self.logger.error("Grid overlay bus publish failed", exc_info=exc)
 
-        schedule_on_loop(self.gui_loop, _log_and_run())
+        schedule_on_loop(self.gui_loop, log_and_run())
 
     def calculate_adaptive_font_size(self, num_rects: int) -> int:
         if num_rects <= 0:
@@ -286,24 +295,23 @@ class QtGridView(QWidget):
 
         self.logger.debug("Drew grid: %sx%s = %s cells", num_cols, num_rows, len(rect_map))
 
-    def keyPressEvent(self, key_event: QKeyEvent) -> None:
-        """Handle key press events."""
-        if key_event.key() == Qt.Key.Key_Escape:
-            # Schedule hide on next event loop iteration to avoid blocking
-            QTimer.singleShot(0, self.do_hide)
-            key_event.accept()
-        elif key_event.key() >= Qt.Key.Key_0 and key_event.key() <= Qt.Key.Key_9:
-            digit = key_event.key() - Qt.Key.Key_0
-            # Schedule number input handling to avoid blocking
-            QTimer.singleShot(0, lambda: self.handle_number_input(digit))
-            key_event.accept()
-        else:
-            super().keyPressEvent(key_event)
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self.configure_win32_passthrough()
 
-    def handle_number_input(self, digit: int) -> None:
-        """Handle number input for grid cell selection."""
-        if digit in self.ui_to_rect_data_map:
-            self.handle_selection(str(digit), self.current_click_mode)
+    def configure_win32_passthrough(self) -> None:
+        """Set WS_EX_TRANSPARENT so Windows excludes the overlay from hit-testing.
+
+        Qt's WA_TransparentForMouseEvents is application-level only. Without this Win32
+        call the OS still routes WM_MOUSEMOVE to the overlay, triggering WM_MOUSELEAVE
+        on the underlying window and collapsing any hover-triggered UI.
+        """
+        try:
+            hwnd = int(self.winId())
+            current = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, current | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
+        except Exception:
+            self.logger.warning("Failed to set Win32 passthrough styles", exc_info=True)
 
     def is_active(self) -> bool:
         """Check if overlay is active."""
@@ -422,14 +430,11 @@ class QtGridView(QWidget):
 
             super().show()
             self.raise_()
-            self.activateWindow()
-            self.setFocus(Qt.FocusReason.PopupFocusReason)
 
             self.setUpdatesEnabled(True)
             self.update()
 
-            # Schedule deferred focus attempts to overcome Windows focus stealing
-            self.schedule_robust_focus()
+            self.register_escape_hotkey()
 
             end_time = time.perf_counter()
             total_ms = (end_time - start_time) * 1000
@@ -439,34 +444,34 @@ class QtGridView(QWidget):
             with self.state_lock:
                 self.overlay_preparing = False
 
-    def schedule_robust_focus(self) -> None:
-        """Schedule deferred focus attempts to overcome Windows focus stealing."""
-        self.cancel_focus_timers()
+    def register_escape_hotkey(self) -> None:
+        """Register Escape as a global hotkey via RegisterHotKey.
 
-        # Critical delays to overcome taskbar interference
-        delays = [50, 200]
+        WM_HOTKEY is delivered to this window's message queue without requiring focus or
+        a system-wide keyboard hook, so there is no keylogger-pattern code path and AV
+        tools do not flag it.  If another application has already claimed Escape the
+        registration silently fails; the user can still dismiss via voice command.
+        """
+        hwnd = int(self.winId())
+        self.escape_hotkey_registered = bool(
+            ctypes.windll.user32.RegisterHotKey(hwnd, HOTKEY_ID_ESCAPE, 0, VK_ESCAPE)
+        )
+        if not self.escape_hotkey_registered:
+            self.logger.warning("Escape hotkey unavailable; dismiss the grid via voice command")
 
-        for delay in delays:
-            timer = QTimer(self)
-            timer.setSingleShot(True)
-            timer.timeout.connect(self.ensure_focus)
-            timer.start(delay)
-            self.focus_timers.append(timer)
+    def unregister_escape_hotkey(self) -> None:
+        if not self.escape_hotkey_registered:
+            return
+        ctypes.windll.user32.UnregisterHotKey(int(self.winId()), HOTKEY_ID_ESCAPE)
+        self.escape_hotkey_registered = False
 
-    def cancel_focus_timers(self) -> None:
-        """Cancel all pending focus timers."""
-        for timer in self.focus_timers:
-            if timer.isActive():
-                timer.stop()
-            timer.deleteLater()
-        self.focus_timers.clear()
-
-    def ensure_focus(self) -> None:
-        """Reinforce focus and window stacking."""
-        if self.overlay_active and not self.isHidden():
-            self.raise_()
-            self.activateWindow()
-            self.setFocus(Qt.FocusReason.PopupFocusReason)
+    def nativeEvent(self, event_type: bytes, message: Any) -> tuple[bool, int]:
+        if event_type == b"windows_generic_MSG" and self.overlay_active:
+            msg = ctypes.wintypes.MSG.from_address(int(message))
+            if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID_ESCAPE:
+                QTimer.singleShot(0, self.do_hide)
+                return True, 0
+        return super().nativeEvent(event_type, message)
 
     @Slot()
     def hide(self) -> None:
@@ -482,10 +487,9 @@ class QtGridView(QWidget):
 
         self.logger.debug("Hiding grid")
 
-        self.cancel_focus_timers()
+        self.unregister_escape_hotkey()
         self.overlay_preparing = False
 
-        self.clearFocus()
         super().hide()
         self.overlay_active = False
 
@@ -499,6 +503,7 @@ class QtGridView(QWidget):
             self.drag_origin = None
             self.layout_num_rects_requested = None
 
+        self.schedule_bus_coroutine(self.event_bus.publish(GridStateEvent(state="hidden")))
         self.logger.debug("Grid hidden")
 
     def refresh_click_labels_if_active(self) -> None:
@@ -571,7 +576,8 @@ class QtGridView(QWidget):
         """Perform pyautogui action for grid cell (physical pixel coordinates)."""
         cx, cy = int(center_x), int(center_y)
         if click_mode == "click":
-            pyautogui.click(cx, cy)
+            pyautogui.moveTo(cx, cy, duration=GRID_CLICK_MOVE_DURATION_S, _pause=False)
+            pyautogui.click()
             self.publish_grid_pointer_recorded(cx, cy)
         elif click_mode == "hover":
             pyautogui.moveTo(cx, cy)
@@ -655,7 +661,7 @@ class QtGridView(QWidget):
         # This ensures the overlay is fully gone before we click on the screen
         self.hide()
 
-        async def _run_action() -> None:
+        async def run_action() -> None:
             try:
                 await self.input_service.run(
                     self.execute_delayed_grid_action,
@@ -668,13 +674,13 @@ class QtGridView(QWidget):
             except Exception as exc:
                 self.logger.error("Grid input action failed", exc_info=exc)
 
-        asyncio.create_task(_run_action())
+        asyncio.create_task(run_action())
 
         return True
 
     def shutdown(self) -> None:
-        """Cancel pending timers, hide the overlay, and clear cached state."""
-        self.cancel_focus_timers()
+        """Uninstall keyboard hook, hide the overlay, and clear cached state."""
+        self.unregister_escape_hotkey()
         self.hide()
 
         with self.state_lock:

@@ -6,6 +6,7 @@ from PySide6.QtCore import Signal
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.automation_command_registry import AutomationCommandRegistry
+from vocalance.app.services.command_flow.parsing.text_command_parse import SYSTEM_CONTROL_PHRASES
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.mark_events import MarksChangedEventData, MarkUiRequestEvent
 from vocalance.app.events.sound_events import (
@@ -105,7 +106,7 @@ class QtSoundController(QtBaseController):
         return self.sound_mappings_cache.get(sound)
 
     def get_available_exact_match_commands(self) -> List[str]:
-        return sorted(set(AutomationCommandRegistry.get_command_phrases()))
+        return sorted(set(AutomationCommandRegistry.get_command_phrases()) | set(SYSTEM_CONTROL_PHRASES))
 
     def get_available_mark_names(self) -> List[str]:
         return self.marks_cache.copy()

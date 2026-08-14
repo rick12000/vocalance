@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ASR_ASSETS = pathlib.Path(__file__).parent.parent.parent.parent / "assets" / "asr"
+ASR_ASSETS = pathlib.Path(__file__).parent.parent.parent.parent / "assets" / "asr" / "chunk-480ms-model"
 INT16_SCALE = 1.0 / 32768.0
 FEATURE_DIM = 80
 DECODING_METHOD = "greedy_search"

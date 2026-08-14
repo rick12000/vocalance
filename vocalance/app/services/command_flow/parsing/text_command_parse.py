@@ -81,6 +81,9 @@ def build_triggers_from_config(config: GlobalAppConfig) -> CommandParserTriggers
     )
 
 
+SYSTEM_CONTROL_PHRASES = ("pause", "resume", "repeat")
+
+
 def parse_system_control(normalized_text: str) -> ParseResultType:
     """Match global pause/resume/repeat phrases."""
     if normalized_text == "pause":

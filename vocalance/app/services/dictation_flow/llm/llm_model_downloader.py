@@ -132,7 +132,7 @@ class LLMModelDownloader:
             with httpx.Client(
                 timeout=timeout,
                 follow_redirects=True,
-                event_hooks={"response": [self._validate_hf_redirect]},
+                event_hooks={"response": [self.validate_hf_redirect]},
             ) as client:
                 with client.stream("GET", url, headers=headers) as response:
                     hf_raise_for_status(response)
@@ -368,10 +368,12 @@ class LLMModelDownloader:
         return h.hexdigest()
 
     @staticmethod
-    def _validate_hf_redirect(response: httpx.Response) -> None:
+    def validate_hf_redirect(response: httpx.Response) -> None:
         if response.is_redirect:
             location = response.headers.get("location", "")
             host = urlparse(location).hostname or ""
+            if not host:
+                return
             trusted = host in _TRUSTED_HF_HOSTS or any(host.endswith(f".{h}") for h in _TRUSTED_HF_HOSTS)
             if not trusted:
                 raise ValueError(f"Blocked redirect to untrusted host: {host!r}")
