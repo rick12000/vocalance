@@ -38,6 +38,7 @@ class CommandSpeechService(Service):
         self._current_dictation_mode: str = "inactive"
         self.vosk_engine: Optional[VoskEngine] = None
         self._stop_trigger = config.dictation.stop_trigger
+        self._pause_trigger = config.dictation.pause_trigger
 
         d = config.dictation
         mod_pairs: list[tuple[str, DictationModifierId]] = [
@@ -80,6 +81,10 @@ class CommandSpeechService(Service):
                 await self.event_bus.publish(
                     CommandTextRecognizedEvent(text=vosk_result, processing_time_ms=0, engine="vosk", mode="command")
                 )
+            elif self._is_pause_trigger(vosk_result):
+                await self.event_bus.publish(
+                    CommandTextRecognizedEvent(text=vosk_result, processing_time_ms=0, engine="vosk", mode="command")
+                )
             else:
                 mod = self._match_modifier_phrase(vosk_result)
                 if mod:
@@ -98,6 +103,9 @@ class CommandSpeechService(Service):
 
     def _is_stop_trigger(self, text: Optional[str]) -> bool:
         return bool(text) and self._stop_trigger in text.lower().strip()
+
+    def _is_pause_trigger(self, text: Optional[str]) -> bool:
+        return bool(text) and self._pause_trigger in text.lower().strip()
 
     def _match_modifier_phrase(self, text: Optional[str]) -> Optional[DictationModifierId]:
         if not text:

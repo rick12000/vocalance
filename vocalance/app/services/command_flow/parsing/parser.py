@@ -9,6 +9,7 @@ from vocalance.app.config.command_types import (
     BaseCommand,
     DictationAmendStartCommand,
     DictationHiddenStartCommand,
+    DictationPauseToggleCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -52,6 +53,7 @@ from vocalance.app.services.storage.storage_service import StorageService
 PARSED_EVENT_BY_COMMAND: Dict[Type[BaseCommand], Type[BaseEvent]] = {
     DictationStartCommand: DictationCommandParsedEvent,
     DictationStopCommand: DictationCommandParsedEvent,
+    DictationPauseToggleCommand: DictationCommandParsedEvent,
     DictationTypeCommand: DictationCommandParsedEvent,
     DictationSmartStartCommand: DictationCommandParsedEvent,
     DictationVisualStartCommand: DictationCommandParsedEvent,

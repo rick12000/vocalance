@@ -292,6 +292,7 @@ class DictationConfig(BaseModel):
 
     start_trigger: str = "green"
     stop_trigger: str = "amber"
+    pause_trigger: str = "yellow"
     type_trigger: str = "type"
     smart_start_trigger: str = "smart green"
     visual_start_trigger: str = "visual green"

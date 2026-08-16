@@ -138,6 +138,13 @@ class DictationStopWordDetectedEvent(BaseEvent):
     mode: Literal["standard", "type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
 
 
+class DictationPausedStateEvent(BaseEvent):
+    """Event fired when an active dictation session enters or exits the paused state."""
+
+    is_paused: bool = Field(description="True when entering paused state, False when resuming recording")
+    mode: Literal["standard", "type", "smart", "visual", "hidden", "amend"] = Field(description="Active dictation mode")
+
+
 class DictationModifierPhraseEvent(BaseEvent):
     """Published when Vosk recognizes a configured modifier phrase while dictation is active."""
 

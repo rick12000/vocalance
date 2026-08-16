@@ -57,3 +57,4 @@ alwaysApply: false
 - Keep public interfaces small and predictable.
 - Avoid implicit behavior (e.g. input mutation, in-place dataframe modification).
 - No `print()` statements. Use logging.
+- Do not use "_" prefixes in variable or method names. Python doesn't have true private variables or methods.

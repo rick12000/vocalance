@@ -42,6 +42,8 @@ class ShapeColors:
     dark: str = "#121218"
     darkest: str = "#0c0c10"
     orange: str = "#ff8c00"
+    pause_yellow: str = "#f5c518"
+    pause_yellow_dark: str = "#e6a800"
 
 
 @dataclass

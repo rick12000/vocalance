@@ -7,6 +7,7 @@ from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import AudioChunkCapturedEvent
 from vocalance.app.events.dictation_events import (
     DictationModifierStateChangedEvent,
+    DictationPausedStateEvent,
     DictationSessionEvent,
     DictationStatusChangedEvent,
     DictationStopWordDetectedEvent,
@@ -36,6 +37,7 @@ class QtDictationPopupController(QtBaseController):
         self.subscribe(LLMProcessingFailedEvent, self.on_llm_failed)
         self.subscribe(LLMTokenGeneratedEvent, self.on_llm_token)
         self.subscribe(DictationStopWordDetectedEvent, self.on_stop_word_detected)
+        self.subscribe(DictationPausedStateEvent, self.on_paused_state_changed)
         self.subscribe(DictationModifierStateChangedEvent, self.on_modifier_state_changed)
         self.subscribe(AudioChunkCapturedEvent, self.on_audio_chunk_captured)
 
@@ -100,6 +102,12 @@ class QtDictationPopupController(QtBaseController):
     def on_stop_word_detected(self, stop_word: DictationStopWordDetectedEvent) -> None:
         if stop_word.mode in ("hidden", "visual", "smart", "amend"):
             self.popup_view.set_border_orange()
+
+    def on_paused_state_changed(self, event: DictationPausedStateEvent) -> None:
+        if event.is_paused:
+            self.popup_view.set_border_yellow()
+        else:
+            self.popup_view.reset_border_color()
 
     def on_audio_chunk_captured(self, event: AudioChunkCapturedEvent) -> None:
         if not self.popup_view.isVisible() or self.popup_view.current_mode != "simple":

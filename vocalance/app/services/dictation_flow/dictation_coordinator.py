@@ -12,6 +12,7 @@ from vocalance.app.config.app_config import DictationConfig, GlobalAppConfig
 from vocalance.app.config.command_types import (
     DictationAmendStartCommand,
     DictationHiddenStartCommand,
+    DictationPauseToggleCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -25,6 +26,7 @@ from vocalance.app.events.dictation_events import (
     DictationModeDisableOthersEvent,
     DictationModifierPhraseEvent,
     DictationModifierStateChangedEvent,
+    DictationPausedStateEvent,
     DictationSessionEvent,
     DictationStatusChangedEvent,
     FinalDictationTextEvent,
@@ -80,7 +82,8 @@ STREAMING_LLM_MODES: tuple[DictationMode, ...] = (DictationMode.SMART, Dictation
 
 VALID_DICTATION_STATE_TRANSITIONS: dict[DictationState, frozenset[DictationState]] = {
     DictationState.IDLE: frozenset({DictationState.RECORDING, DictationState.SHUTTING_DOWN}),
-    DictationState.RECORDING: frozenset({DictationState.PROCESSING_LLM, DictationState.IDLE, DictationState.SHUTTING_DOWN}),
+    DictationState.RECORDING: frozenset({DictationState.PAUSED, DictationState.PROCESSING_LLM, DictationState.IDLE, DictationState.SHUTTING_DOWN}),
+    DictationState.PAUSED: frozenset({DictationState.RECORDING, DictationState.IDLE, DictationState.SHUTTING_DOWN}),
     DictationState.PROCESSING_LLM: frozenset({DictationState.IDLE, DictationState.SHUTTING_DOWN}),
     DictationState.SHUTTING_DOWN: frozenset(),
 }
@@ -227,7 +230,7 @@ class DictationASRController:
         if not audio_bytes:
             return
         with self.coordinator.state_lock:
-            if self.coordinator.current_state == DictationState.SHUTTING_DOWN:
+            if self.coordinator.current_state in (DictationState.SHUTTING_DOWN, DictationState.PAUSED):
                 return
             session = self.coordinator.current_session
             if session is None or session.mode not in ASR_CHUNK_DICTATION_MODES:
@@ -632,12 +635,51 @@ class DictationCoordinator(Service):
             active_modifiers=set(session.active_modifiers),
         )
 
+    async def pause_session(self) -> None:
+        """Freeze audio ingestion and re-enable command flow, preserving all session state."""
+        session: Optional[DictationSession] = None
+        with self.state_lock:
+            if self.current_state != DictationState.RECORDING:
+                logger.warning("Cannot pause — not in RECORDING state (current: %s)", self.current_state)
+                return
+            session = self.current_session
+            if session is None:
+                return
+            self.set_state(DictationState.PAUSED)
+
+        await self.event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=False, dictation_mode="inactive"))
+        await self.event_bus.publish(DictationPausedStateEvent(is_paused=True, mode=str(session.mode)))
+        logger.info("Dictation session paused (mode=%s)", session.mode)
+
+    async def unpause_session(self) -> None:
+        """Resume audio ingestion and re-suppress command flow, restoring the active session."""
+        session: Optional[DictationSession] = None
+        with self.state_lock:
+            if self.current_state != DictationState.PAUSED:
+                logger.warning("Cannot unpause — not in PAUSED state (current: %s)", self.current_state)
+                return
+            session = self.current_session
+            if session is None:
+                return
+            self.set_state(DictationState.RECORDING)
+
+        await self.event_bus.publish(DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode=str(session.mode)))
+        await self.event_bus.publish(DictationPausedStateEvent(is_paused=False, mode=str(session.mode)))
+        logger.info("Dictation session unpaused (mode=%s)", session.mode)
+
     async def handle_dictation_command(self, parsed_dictation: DictationCommandParsedEvent) -> None:
         command = parsed_dictation.command
         if isinstance(command, DictationStartCommand):
             await self.start_session(DictationMode.STANDARD)
         elif isinstance(command, DictationStopCommand):
             await self.stop_session()
+        elif isinstance(command, DictationPauseToggleCommand):
+            with self.state_lock:
+                current_state = self.current_state
+            if current_state == DictationState.RECORDING:
+                await self.pause_session()
+            elif current_state == DictationState.PAUSED:
+                await self.unpause_session()
         elif isinstance(command, DictationTypeCommand):
             await self.start_session(DictationMode.TYPE)
         elif isinstance(command, DictationSmartStartCommand):

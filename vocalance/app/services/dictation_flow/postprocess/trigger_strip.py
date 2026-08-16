@@ -24,6 +24,7 @@ def strip_dictation_triggers(text: str, cfg: DictationConfig) -> str:
     trigger_phrases: tuple[str, ...] = (
         cfg.start_trigger,
         cfg.stop_trigger,
+        cfg.pause_trigger,
         cfg.type_trigger,
         cfg.smart_start_trigger,
         cfg.visual_start_trigger,

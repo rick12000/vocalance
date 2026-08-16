@@ -59,8 +59,8 @@ class QtDictationPopupView(QMainWindow):
 
         self.current_mode: Optional[str] = None
 
-        # Border color state (for stop word indication)
         self.border_is_orange = False
+        self.border_is_yellow = False
 
         # Animation properties
         self.animation_in = None
@@ -99,32 +99,30 @@ class QtDictationPopupView(QMainWindow):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Draw rounded background with 3px gradient or orange border."""
+        """Draw rounded background with 3px border: gradient normally, orange on stop, yellow on pause."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
         border_width = 3
+        painter.setPen(Qt.PenStyle.NoPen)
 
-        # Use orange border if stop word detected, otherwise use gradient
         if self.border_is_orange:
-            # Solid orange border
             painter.setBrush(QColor(theme.config.shapes.orange))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(rect, 16, 16)
+        elif self.border_is_yellow:
+            gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
+            gradient.setColorAt(0.0, QColor(theme.config.shapes.pause_yellow))
+            gradient.setColorAt(1.0, QColor(theme.config.shapes.pause_yellow_dark))
+            painter.setBrush(gradient)
         else:
-            # Create gradient for border
             gradient_colors = theme.config.text.gradient_colors
             gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
             gradient.setColorAt(0, QColor(gradient_colors[0]))
             gradient.setColorAt(1, QColor(gradient_colors[1]))
-
-            # Draw outer rounded rect with gradient (this is the border)
             painter.setBrush(gradient)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(rect, 16, 16)
 
-        # Draw inner rounded rect with background color (creates border effect)
+        painter.drawRoundedRect(rect, 16, 16)
+
         inner_rect = rect.adjusted(border_width, border_width, -border_width, -border_width)
         painter.setBrush(QColor(theme.config.shapes.darkest))
         painter.drawRoundedRect(inner_rect, 12, 12)
@@ -310,11 +308,25 @@ class QtDictationPopupView(QMainWindow):
         """Internal set border orange - MUST run on main Qt thread."""
         with self.ui_lock:
             self.border_is_orange = True
-            self.update()  # Trigger repaint
+            self.border_is_yellow = False
+            self.update()
+
+    @Slot()
+    def set_border_yellow(self) -> None:
+        """Set border to yellow gradient (session paused) - thread-safe."""
+        QMetaObject.invokeMethod(self, "do_set_border_yellow", Qt.ConnectionType.QueuedConnection)
+
+    @Slot()
+    def do_set_border_yellow(self) -> None:
+        """Internal set border yellow - MUST run on main Qt thread."""
+        with self.ui_lock:
+            self.border_is_yellow = True
+            self.border_is_orange = False
+            self.update()
 
     @Slot()
     def reset_border_color(self) -> None:
-        """Reset border to gradient color - thread-safe."""
+        """Reset border to default gradient - thread-safe."""
         QMetaObject.invokeMethod(self, "do_reset_border_color", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
@@ -322,7 +334,8 @@ class QtDictationPopupView(QMainWindow):
         """Internal reset border color - MUST run on main Qt thread."""
         with self.ui_lock:
             self.border_is_orange = False
-            self.update()  # Trigger repaint
+            self.border_is_yellow = False
+            self.update()
 
     @Slot()
     def show_simple_listening(self) -> None:
@@ -334,7 +347,8 @@ class QtDictationPopupView(QMainWindow):
         """Internal show simple - MUST run on main Qt thread."""
         with self.ui_lock:
             self.hide_all_modes()
-            self.border_is_orange = False  # Reset border color for new session
+            self.border_is_orange = False
+            self.border_is_yellow = False
             self.simple_widget.setVisible(True)
             self.current_mode = "simple"
             self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
@@ -356,6 +370,7 @@ class QtDictationPopupView(QMainWindow):
         with self.ui_lock:
             self.hide_all_modes()
             self.border_is_orange = False
+            self.border_is_yellow = False
             self.current_mode = mode
             self.dictation_column_label.setText(left_column_title)
             self.smart_widget.setVisible(True)
@@ -390,7 +405,8 @@ class QtDictationPopupView(QMainWindow):
         """Internal show visual - MUST run on main Qt thread."""
         with self.ui_lock:
             self.hide_all_modes()
-            self.border_is_orange = False  # Reset border color for new session
+            self.border_is_orange = False
+            self.border_is_yellow = False
             self.current_mode = "visual"
             self.visual_widget.setVisible(True)
             self.clear_visual_content()

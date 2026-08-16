@@ -20,6 +20,7 @@ class DictationMode(StrEnum):
 class DictationState(StrEnum):
     IDLE = "idle"
     RECORDING = "recording"
+    PAUSED = "paused"
     PROCESSING_LLM = "processing_llm"
     SHUTTING_DOWN = "shutting_down"
 

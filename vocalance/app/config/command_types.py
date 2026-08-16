@@ -67,6 +67,14 @@ class DictationStopCommand(DictationCommand):
     """
 
 
+class DictationPauseToggleCommand(DictationCommand):
+    """Command to toggle pause on an active dictation session.
+
+    When recording, freezes audio ingestion and re-enables command flow while preserving
+    session state. When already paused, resumes audio ingestion and suppresses command flow.
+    """
+
+
 class DictationTypeCommand(DictationCommand):
     """Command to enter type mode for immediate text input.
 
@@ -393,6 +401,7 @@ class SoundMapCommand(SoundCommand):
 DictationCommandType = Union[
     DictationStartCommand,
     DictationStopCommand,
+    DictationPauseToggleCommand,
     DictationTypeCommand,
     DictationSmartStartCommand,
     DictationVisualStartCommand,
