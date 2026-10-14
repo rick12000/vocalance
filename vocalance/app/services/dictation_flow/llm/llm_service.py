@@ -17,6 +17,7 @@ from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
+from vocalance.app.services.dictation_flow.llm.reasoning_stream import ReasoningTokenFilter
 from vocalance.app.services.storage.user_configurable_settings import LLM_SESSION_SETTING_PATHS
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ class LLMService(Service):
         self.gui_event_loop = gui_event_loop
         self.cancel_token = cancel_token
         self.llm: Optional[Llama] = None
+        self.loaded_spec: Optional[LocalLLMArtifact] = None
         self.model_loaded = False
         self.model_downloader = LLMModelDownloader(config)
         cpu_count = multiprocessing.cpu_count()
@@ -154,7 +156,7 @@ class LLMService(Service):
     def initialize(self) -> bool:
         return True
 
-    def load_model(self, model_path: str, disable_thinking: bool = False) -> Llama:
+    def load_model(self, model_path: str, spec: LocalLLMArtifact) -> Llama:
         cfg = self.config.llm
         model: Llama
         n_gpu_layers = 0
@@ -170,7 +172,7 @@ class LLMService(Service):
                     flash_attn=cfg.flash_attn,
                     use_mmap=True,
                     use_mlock=cfg.use_mlock,
-                    chat_format=None if disable_thinking else "chatml",
+                    chat_format=None,
                     seed=-1,
                     type_k=cfg.type_k,
                     type_v=cfg.type_v,
@@ -192,20 +194,26 @@ class LLMService(Service):
             )
         else:
             logger.info("LLM loaded on CPU (n_gpu_layers=0)")
-        if disable_thinking:
-            base_handler = model.chat_handler or model._chat_handlers.get(model.chat_format)
-            if base_handler is not None:
-                _h = base_handler
-
-                def _no_think(*args: Any, **kwargs: Any) -> Any:
-                    return _h(*args, **{"enable_thinking": False, **kwargs})
-
-                model.chat_handler = _no_think
-            else:
-                logger.warning("Could not locate chat handler for thinking model; thinking will not be suppressed")
+        self.bind_jinja_chat_template(model, spec)
         return model
 
+    @staticmethod
+    def bind_jinja_chat_template(model: Llama, spec: LocalLLMArtifact) -> None:
+        """Use the GGUF Jinja chat template and pass the model's thinking flag."""
+        handler = model._chat_handlers.get("chat_template.default")
+        if handler is None:
+            logger.warning("GGUF has no Jinja chat template; chat format stays %s", model.chat_format)
+            return
+        template_kwargs = spec.chat_template_kwargs()
+
+        def chat_handler(**kwargs: Any) -> Any:
+            return handler(**{**template_kwargs, **kwargs})
+
+        model.chat_format = "chat_template.default"
+        model.chat_handler = chat_handler
+
     async def dispose_loaded_model(self) -> None:
+        self.loaded_spec = None
         if not self.llm:
             self.model_loaded = False
             return
@@ -282,7 +290,8 @@ class LLMService(Service):
                 return fallback_text.strip()
 
             try:
-                self.llm = await run_blocking(self.load_model, model_path, spec.disable_thinking, name="llm-load")
+                self.llm = await run_blocking(self.load_model, model_path, spec, name="llm-load")
+                self.loaded_spec = spec
             except Exception as e:
                 await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
                 return fallback_text.strip()
@@ -347,24 +356,26 @@ class LLMService(Service):
 
     async def generate_streaming(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         cfg = self.config.llm
+        spec = self.loaded_spec or self.active_spec()
+        if spec is None or self.llm is None:
+            return
+        sampling = spec.active_sampling()
+        reasoning_filter = ReasoningTokenFilter(start_inside=spec.stream_starts_in_reasoning)
         loop = asyncio.get_running_loop()
         token_queue: asyncio.Queue[Optional[str]] = asyncio.Queue(maxsize=50)
-
-        if not self.llm:
-            return
-
         llm_ref = self.llm
 
         def sync_generate() -> None:
             stream = llm_ref.create_chat_completion(
                 messages=messages,
                 max_tokens=cfg.max_tokens,
-                temperature=cfg.temperature,
-                top_p=cfg.top_p,
-                top_k=cfg.top_k,
-                min_p=cfg.min_p,
-                repeat_penalty=cfg.repeat_penalty,
-                frequency_penalty=cfg.frequency_penalty,
+                temperature=sampling.temperature,
+                top_p=sampling.top_p,
+                top_k=sampling.top_k,
+                min_p=sampling.min_p,
+                repeat_penalty=sampling.repeat_penalty,
+                presence_penalty=sampling.presence_penalty,
+                frequency_penalty=sampling.frequency_penalty,
                 mirostat_mode=cfg.mirostat_mode,
                 mirostat_tau=cfg.mirostat_tau,
                 mirostat_eta=cfg.mirostat_eta,
@@ -372,11 +383,12 @@ class LLMService(Service):
                 stream=True,
             )
             for chunk in stream:
-                if chunk and chunk.get("choices"):
-                    delta = chunk["choices"][0].get("delta", {})
-                    token = delta.get("content", "")
-                    if token:
-                        loop.call_soon_threadsafe(token_queue.put_nowait, token)
+                if not chunk or not chunk.get("choices"):
+                    continue
+                delta = chunk["choices"][0].get("delta") or {}
+                token = delta.get("content") or ""
+                if token:
+                    loop.call_soon_threadsafe(token_queue.put_nowait, token)
             loop.call_soon_threadsafe(token_queue.put_nowait, None)
 
         executor_task = asyncio.create_task(run_blocking(sync_generate, name="llm-generate"))
@@ -386,9 +398,17 @@ class LLMService(Service):
                 token = await asyncio.wait_for(token_queue.get(), timeout=cfg.generation_timeout_sec)
                 if token is None:
                     break
-                yield token
+                visible = reasoning_filter.push(token)
+                if visible:
+                    yield visible
+            tail = reasoning_filter.finish()
+            if tail:
+                yield tail
         except asyncio.TimeoutError:
             logger.debug("LLM token stream timed out waiting for next token")
+            tail = reasoning_filter.finish()
+            if tail:
+                yield tail
         finally:
             await executor_task
 

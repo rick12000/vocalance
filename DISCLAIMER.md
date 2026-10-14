@@ -85,7 +85,11 @@ Vocalance downloads AI model files on first launch only, to your local machine. 
 
 - **When:** Automatically on first launch if not already present. A download progress indicator is shown during startup.
 - **Source:** Downloaded from [Hugging Face Hub](https://huggingface.co).
-- **Default model:** Qwen 2.5 1.5B Instruct (GGUF format), licensed under Apache 2.0.
+- **Default model:** Qwen3.5 2B (GGUF, Q5_K_M), licensed under [Apache 2.0](https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE).
+- **Other models, downloaded only if you choose them in Settings:**
+  - [Qwen3 4B Instruct 2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) — [Apache 2.0](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE)
+  - [Granite 4.2 3B](https://huggingface.co/ibm-granite/granite-4.2-3b) — [Apache 2.0](https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE)
+  - [Qwen3.5 4B](https://huggingface.co/Qwen/Qwen3.5-4B) — [Apache 2.0](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE)
 - **Stored at:**
   ```
   %APPDATA%\Vocalance\llm_models\
@@ -171,7 +175,10 @@ Key third-party components:
 | Vosk | Command speech recognition | Apache 2.0 |
 | Moonshine Voice | Dictation speech-to-text | Apache 2.0 |
 | YAMNet (TensorFlow Hub) | Environmental sound classification | Apache 2.0 |
-| Qwen 2.5 1.5B (GGUF) | Default LLM for dictation post-processing | Apache 2.0 |
+| Qwen3.5 2B (GGUF) | Default LLM for dictation post-processing | Apache 2.0 |
+| Qwen3 4B Instruct 2507 (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
+| Granite 4.2 3B (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
+| Qwen3.5 4B (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
 | llama-cpp-python | LLM inference runtime | MIT |
 | TensorFlow CPU | ML inference framework | Apache 2.0 |
 | PySide6 | Desktop GUI framework | LGPL v3 |

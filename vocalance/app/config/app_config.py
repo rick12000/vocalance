@@ -405,6 +405,20 @@ class DictationConfig(BaseModel):
     )
 
 
+class LLMSamplingProfile(BaseModel):
+    """llama.cpp sampling values for one generation mode."""
+
+    model_config = ConfigDict(frozen=True)
+
+    temperature: float
+    top_p: float
+    top_k: int
+    min_p: float = 0.0
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    repeat_penalty: float = 1.0
+
+
 class LocalLLMArtifact(BaseModel):
     """One built-in GGUF bundle (Hugging Face repo + filenames + UI label)."""
 
@@ -415,7 +429,11 @@ class LocalLLMArtifact(BaseModel):
     repo_id: str
     gguf_filenames: tuple[str, ...]
     model_card_url: str
-    disable_thinking: bool = False
+    license_url: str
+    sampling: LLMSamplingProfile
+    thinking_sampling: Optional[LLMSamplingProfile] = None
+    supports_thinking: bool = False
+    disable_thinking: bool = True
     gguf_sha256: Dict[str, str] = Field(
         description="Required SHA-256 hex digest per GGUF filename. Verified after each download.",
     )
@@ -423,6 +441,28 @@ class LocalLLMArtifact(BaseModel):
     @property
     def load_path_filename(self) -> str:
         return self.gguf_filenames[0]
+
+    def active_sampling(self) -> LLMSamplingProfile:
+        """Sampling for the mode this artifact will actually run in."""
+        if self.supports_thinking and not self.disable_thinking and self.thinking_sampling is not None:
+            return self.thinking_sampling
+        return self.sampling
+
+    def chat_template_kwargs(self) -> Dict[str, bool]:
+        """Jinja arguments that turn thinking on or off for this artifact.
+
+        Models whose template has no thinking switch get an empty dict.
+        Thinking-capable models always receive an explicit ``enable_thinking``
+        flag so a template default cannot turn reasoning back on.
+        """
+        if not self.supports_thinking:
+            return {}
+        return {"enable_thinking": not self.disable_thinking}
+
+    @property
+    def stream_starts_in_reasoning(self) -> bool:
+        """True when the chat template pre-opens a think block before generation."""
+        return self.supports_thinking and not self.disable_thinking
 
 
 class LocalLLMAllowList(BaseModel):
@@ -446,39 +486,116 @@ class LocalLLMAllowList(BaseModel):
         return self.artifacts[0].id
 
 
+_QWEN35_2B_DIRECT = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=1.0,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=2.0,
+    repeat_penalty=1.0,
+)
+_QWEN35_2B_THINKING = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN35_4B_DIRECT = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN35_4B_THINKING = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN3_INSTRUCT_2507 = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=0.0,
+    repeat_penalty=1.0,
+)
+_GRANITE_42 = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=40,
+    min_p=0.0,
+    presence_penalty=0.0,
+    repeat_penalty=1.0,
+)
+
+
 def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
     return LocalLLMAllowList(
         artifacts=(
             LocalLLMArtifact(
-                id="qwen2.5-1.5b-q5km",
-                label="Qwen 2.5 1.5B (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-                gguf_filenames=("qwen2.5-1.5b-instruct-q5_k_m.gguf",),
-                model_card_url="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+                id="qwen3.5-2b-q5km",
+                label="Qwen3.5 2B (Q5_K_M)",
+                repo_id="unsloth/Qwen3.5-2B-GGUF",
+                gguf_filenames=("Qwen3.5-2B-Q5_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3.5-2B",
+                license_url="https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE",
+                sampling=_QWEN35_2B_DIRECT,
+                thinking_sampling=_QWEN35_2B_THINKING,
+                supports_thinking=True,
+                disable_thinking=True,
                 gguf_sha256={
-                    "qwen2.5-1.5b-instruct-q5_k_m.gguf": "b46661073c18e5b56a41fa320975f866a00def1ff08feef4718e013258896f8c",
+                    "Qwen3.5-2B-Q5_K_M.gguf": "1885b3a9195f8cc09da9a7a7a75afdc1e8d5cbf9fc4a499c3961dddea37098ac",
                 },
             ),
             LocalLLMArtifact(
-                id="qwen3-4b-q5km",
-                label="Qwen3 4B (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen3-4B-GGUF",
-                gguf_filenames=("Qwen3-4B-Q5_K_M.gguf",),
-                model_card_url="https://huggingface.co/Qwen/Qwen3-4B-GGUF",
-                disable_thinking=True,
+                id="qwen3-4b-instruct-2507-q5km",
+                label="Qwen3 4B Instruct 2507 (Q5_K_M)",
+                repo_id="unsloth/Qwen3-4B-Instruct-2507-GGUF",
+                gguf_filenames=("Qwen3-4B-Instruct-2507-Q5_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507",
+                license_url="https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE",
+                sampling=_QWEN3_INSTRUCT_2507,
+                supports_thinking=False,
+                disable_thinking=False,
                 gguf_sha256={
-                    "Qwen3-4B-Q5_K_M.gguf": "aca596860e8cb40af6539e3f2ea40df305f42515deac56d49c08d39a02e6533f",
+                    "Qwen3-4B-Instruct-2507-Q5_K_M.gguf": "5bde5e9d883622acb02bf77fe7dcbc56a8b9a9ad4be78a72ca23a532658b4ecb",
                 },
             ),
             LocalLLMArtifact(
-                id="qwen3-8b-q5km",
-                label="Qwen3 8B (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen3-8B-GGUF",
-                gguf_filenames=("Qwen3-8B-Q5_K_M.gguf",),
-                model_card_url="https://huggingface.co/Qwen/Qwen3-8B-GGUF",
+                id="granite-4.2-3b-q5km",
+                label="Granite 4.2 3B (Q5_K_M)",
+                repo_id="ibm-granite/granite-4.2-3b-GGUF",
+                gguf_filenames=("granite-4.2-3b-Q5_K_M.gguf",),
+                model_card_url="https://huggingface.co/ibm-granite/granite-4.2-3b",
+                license_url="https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE",
+                sampling=_GRANITE_42,
+                thinking_sampling=_GRANITE_42,
+                supports_thinking=True,
                 disable_thinking=True,
                 gguf_sha256={
-                    "Qwen3-8B-Q5_K_M.gguf": "068bae163faa96ad48032daf4e071a6a28fe67d8dcc95367609c2ff165e52738",
+                    "granite-4.2-3b-Q5_K_M.gguf": "982e797413f842329266a00c2a85ce540bb5c1b65ac4646276bfb9d2886c5efe",
+                },
+            ),
+            LocalLLMArtifact(
+                id="qwen3.5-4b-q5km",
+                label="Qwen3.5 4B (Q5_K_M)",
+                repo_id="unsloth/Qwen3.5-4B-GGUF",
+                gguf_filenames=("Qwen3.5-4B-Q5_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3.5-4B",
+                license_url="https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE",
+                sampling=_QWEN35_4B_DIRECT,
+                thinking_sampling=_QWEN35_4B_THINKING,
+                supports_thinking=True,
+                disable_thinking=True,
+                gguf_sha256={
+                    "Qwen3.5-4B-Q5_K_M.gguf": "8814232b85594dcd46c50e5b8b29324a7efe9e746edbe8a3d1df3d3fce7aad39",
                 },
             ),
         )
@@ -551,7 +668,7 @@ def asr_model_artifact() -> ASRModelArtifact:
 
 
 class LLMConfig(BaseModel):
-    """Local LLM (llama.cpp, CPU): built-in Qwen GGUF bundles only."""
+    """Local LLM runtime (llama.cpp). Sampling is chosen per whitelisted model."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -595,10 +712,10 @@ class LLMConfig(BaseModel):
     )
 
     temperature: float = Field(
-        default=0.5,
+        default=0.7,
         ge=0.0,
         le=2.0,
-        description="High temperature for creative rewriting and instruction-following",
+        description="Retained for saved settings. Generation uses the selected model's sampling profile.",
     )
     top_p: float = Field(
         default=0.95,
@@ -674,7 +791,7 @@ class LLMConfig(BaseModel):
     @classmethod
     def validate_selected_model_id(cls, v: str) -> str:
         if not _LOCAL_LLM_ALLOWLIST.has_id(v):
-            raise ValueError(f"selected_model_id must be a built-in LLM id, got {v!r}")
+            return _LOCAL_LLM_ALLOWLIST.default_id
         return v
 
 

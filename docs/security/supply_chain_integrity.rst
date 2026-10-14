@@ -57,7 +57,7 @@ Three controls are applied in sequence to every download.
 Model allowlist
 ---------------
 
-Only three models are permitted. The allowlist is hard-coded as a frozen Pydantic
+Only four models are permitted. The allowlist is hard-coded as a frozen Pydantic
 model in
 `vocalance/app/config/app_config.py <https://github.com/rick12000/vocalance/blob/main/vocalance/app/config/app_config.py>`_:
 
@@ -70,11 +70,12 @@ model in
        gguf_filenames: tuple[str, ...]
        gguf_sha256: Dict[str, str]  # filename → expected SHA-256
 
-The three permitted models are:
+The four permitted models are Q5_K_M GGUF builds of these checkpoints:
 
-- ``qwen2.5-1.5b-q5km`` — Qwen2.5 1.5B Instruct (Q5_K_M)
-- ``qwen3-4b-q5km`` — Qwen3 4B (Q5_K_M)
-- ``qwen3-8b-q5km`` — Qwen3 8B (Q5_K_M)
+- ``qwen3.5-2b-q5km`` — Qwen3.5 2B (default), from ``unsloth/Qwen3.5-2B-GGUF``
+- ``qwen3-4b-instruct-2507-q5km`` — Qwen3 4B Instruct 2507, from ``unsloth/Qwen3-4B-Instruct-2507-GGUF``
+- ``granite-4.2-3b-q5km`` — Granite 4.2 3B, from ``ibm-granite/granite-4.2-3b-GGUF``
+- ``qwen3.5-4b-q5km`` — Qwen3.5 4B, from ``unsloth/Qwen3.5-4B-GGUF``
 
 Any model ID not in this list is rejected by the ``LLMConfig`` field validator
 before a download is ever attempted.

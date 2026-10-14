@@ -1,8 +1,8 @@
 """Compute SHA-256 hashes for locally cached LLM model files.
 
-Run this script after downloading all three LLM models through the app, then
-paste the output into the ``gguf_sha256`` field of each ``LocalLLMArtifact``
-in ``vocalance/app/config/app_config.py``.
+Run this script after downloading every whitelisted LLM model, then paste the
+output into the ``gguf_sha256`` field of each ``LocalLLMArtifact`` in
+``vocalance/app/config/app_config.py``.
 
 Usage:
     conda activate vocalance_env_dev
@@ -13,20 +13,7 @@ import hashlib
 import os
 import sys
 
-MODELS = [
-    {
-        "artifact_id": "qwen2.5-1.5b-q5km",
-        "filename": "qwen2.5-1.5b-instruct-q5_k_m.gguf",
-    },
-    {
-        "artifact_id": "qwen3-4b-q5km",
-        "filename": "Qwen3-4B-Q5_K_M.gguf",
-    },
-    {
-        "artifact_id": "qwen3-8b-q5km",
-        "filename": "Qwen3-8B-Q5_K_M.gguf",
-    },
-]
+from vocalance.app.config.app_config import local_llm_allowlist
 
 
 def models_dir() -> str:
@@ -52,17 +39,18 @@ def main() -> None:
     missing = []
     results = []
 
-    for model in MODELS:
-        path = os.path.join(base, model["filename"])
-        if not os.path.exists(path):
-            missing.append(model)
-            print(f"  [MISSING] {model['filename']}")
-            continue
-        size_mb = os.path.getsize(path) / (1024 * 1024)
-        print(f"  Hashing {model['filename']} ({size_mb:.0f} MB)...", end="", flush=True)
-        digest = sha256_of_file(path)
-        print(" done")
-        results.append((model, digest))
+    for artifact in local_llm_allowlist().artifacts:
+        for filename in artifact.gguf_filenames:
+            path = os.path.join(base, filename)
+            if not os.path.exists(path):
+                missing.append(filename)
+                print(f"  [MISSING] {filename}")
+                continue
+            size_mb = os.path.getsize(path) / (1024 * 1024)
+            print(f"  Hashing {filename} ({size_mb:.0f} MB)...", end="", flush=True)
+            digest = sha256_of_file(path)
+            print(" done")
+            results.append((artifact.id, filename, digest))
 
     if missing:
         print(f"\n{len(missing)} model(s) not yet downloaded. Download them through the app first.\n")
@@ -71,19 +59,14 @@ def main() -> None:
         sys.exit(1)
 
     print("\n--- Paste into app_config.py ---\n")
-    for model, digest in results:
-        print(
-            f'LocalLLMArtifact(  # {model["artifact_id"]}\n'
-            f"    gguf_sha256={{\n"
-            f'        "{model["filename"]}": "{digest}",\n'
-            f"    }},\n"
-            f")"
-        )
+    for artifact_id, filename, digest in results:
+        print(f"# {artifact_id}")
+        print(f'"{filename}": "{digest}",')
 
     print("\n--- Or as a quick reference dict ---\n")
     print("gguf_sha256 = {")
-    for model, digest in results:
-        print(f'    "{model["filename"]}": "{digest}",')
+    for _artifact_id, filename, digest in results:
+        print(f'    "{filename}": "{digest}",')
     print("}")
 
 

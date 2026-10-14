@@ -549,8 +549,26 @@ but is not distributed in the final executable. Instead, these dependencies
 are dynamically loaded at runtime by the user. We report their licenses below
 for completeness. 
 
-QWEN pretrained large language model loaded in:
-vocalance\app\services\audio\dictation_handling\llm_support\llm_service.py
+Local language models loaded by:
+vocalance\app\services\dictation_flow\llm\llm_service.py
+
+All four whitelisted models are Apache 2.0. Qwen weights are published by
+Alibaba Cloud / the Qwen team. Granite weights are published by IBM. Vocalance
+downloads Q5_K_M GGUF files: Unsloth conversions of the Qwen checkpoints, and
+IBM's own GGUF build of Granite 4.2 3B.
+
+- Qwen3.5 2B (default)
+  https://huggingface.co/Qwen/Qwen3.5-2B
+  https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE
+- Qwen3 4B Instruct 2507
+  https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
+  https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE
+- Granite 4.2 3B
+  https://huggingface.co/ibm-granite/granite-4.2-3b
+  https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE
+- Qwen3.5 4B
+  https://huggingface.co/Qwen/Qwen3.5-4B
+  https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE
 
 
                                  Apache License
