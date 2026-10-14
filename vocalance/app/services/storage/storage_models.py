@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from vocalance.app.config.alias_validation import is_valid_alias_text
+from vocalance.app.services.dictation_flow.hotwords import HotwordValidationError, parse_hotword_text
 from vocalance.app.config.command_types import AutomationCommand
 from vocalance.app.config.hotkey_validation import is_valid_custom_hotkey
 
@@ -113,6 +114,20 @@ class SoundMappingsData(StorageData):
             if len(phrase) > MAX_SOUND_MAPPING_PHRASE_LENGTH:
                 raise ValueError(f"Sound mapping phrase for '{key}' exceeds {MAX_SOUND_MAPPING_PHRASE_LENGTH} characters")
         return v
+
+
+class DictationHotwordData(StorageData):
+    """Ordered hotwords biased during the next dictation session."""
+
+    hotwords: List[str] = Field(default_factory=list, description="One hotword per entry, case preserved")
+
+    @field_validator("hotwords")
+    @classmethod
+    def validate_hotwords(cls, value: List[str]) -> List[str]:
+        try:
+            return parse_hotword_text("\n".join(value))
+        except HotwordValidationError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class DictationAliasData(StorageData):

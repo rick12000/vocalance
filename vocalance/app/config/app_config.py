@@ -81,9 +81,11 @@ class AudioConfig(BaseModel):
 class XASRConfig(BaseModel):
     """Configuration for the X-ASR sherpa-onnx streaming transducer engine.
 
-    X-ASR uses a 480-ms Zipformer Transducer with greedy search decoding. The model
-    maintains bounded cached encoder state between 480-ms chunks, giving O(1) per-chunk
-    inference cost regardless of session duration.
+    X-ASR uses a 480-ms Zipformer Transducer. When the SentencePiece vocab has been
+    downloaded, decoding is modified beam search so hotwords can bias spellings.
+    Otherwise decoding stays greedy search. The model maintains bounded cached encoder
+    state between 480-ms chunks, giving O(1) per-chunk inference cost regardless of
+    session duration.
 
     **Stability tuning (controls committed vs. provisional boundary):**
     - ``stability_window`` (default 2): A word is eligible for commitment once it has appeared
@@ -667,6 +669,39 @@ def asr_model_artifact() -> ASRModelArtifact:
     return ASR_MODEL_ARTIFACT
 
 
+class BpeVocabArtifact(BaseModel):
+    """SentencePiece model used to encode hotwords for the X-ASR transducer.
+
+    sherpa-onnx reads the exported ``vocab_filename`` (piece and score per line).
+    The published asset is the ``.model`` at ``url``, pinned by commit. The vocab
+    file is exported locally after download and is not committed.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    url: str
+    sha256: str
+    model_filename: str
+    vocab_filename: str
+
+
+BPE_VOCAB_ARTIFACT: BpeVocabArtifact = BpeVocabArtifact(
+    url=(
+        "https://raw.githubusercontent.com/Gilgamesh-J/X-ASR/"
+        "8f98e2b8ffdfef06542609410281d7ee4eb76b99/"
+        "X-ASR-zh-en/zipformer/data/lang_5000_with_punctuation/bpe_punc.model"
+    ),
+    sha256="f87a38025a5fdd1e4e9591f6a44bb81295097ce0b80df6f4ab9f44e52c64ca5f",
+    model_filename="bpe_punc.model",
+    vocab_filename="bpe.vocab",
+)
+
+
+def bpe_vocab_artifact() -> BpeVocabArtifact:
+    """Return the pinned SentencePiece asset used to encode hotwords."""
+    return BPE_VOCAB_ARTIFACT
+
+
 class LLMConfig(BaseModel):
     """Local LLM runtime (llama.cpp). Sampling is chosen per whitelisted model."""
 
@@ -1188,7 +1223,7 @@ class GlobalAppConfig(BaseModel):
     Automatically initializes storage directory structure on instantiation.
     """
 
-    logging: LoggingConfigModel = LoggingConfigModel(appdata_dir_name=APPDATA_DIR_NAME)
+    logging: LoggingConfigModel = LoggingConfigModel(appdata_dir_name=APPDATA_DIR_NAME, enable_logs=True)
     activity_tracking: ActivityTrackingConfig = ActivityTrackingConfig()
     app_info: AppInfoConfig = AppInfoConfig()
     asset_paths: AssetPathsConfig = AssetPathsConfig()

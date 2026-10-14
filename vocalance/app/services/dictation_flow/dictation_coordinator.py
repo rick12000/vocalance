@@ -41,6 +41,7 @@ from vocalance.app.lifecycle.worker import run_blocking
 from vocalance.app.services.activity_tracker import ActivityTracker
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.dictation_flow.dictation_alias_service import DictationAliasService
+from vocalance.app.services.dictation_flow.hotword_service import DictationHotwordService
 from vocalance.app.services.dictation_flow.postprocess.coordinator_segment_filters import (
     dictation_segment_input_options,
     is_isolated_stt_noise_fragment,
@@ -214,6 +215,7 @@ class DictationASRController:
             self.on_committed,
             self.on_provisional,
             silence_commit_threshold_override=silence_threshold,
+            hotwords=self.coordinator.hotword_service.stream_hotwords(),
         )
         self.asr_ingress_epoch += 1
 
@@ -432,6 +434,11 @@ class DictationCoordinator(Service):
             self.agentic_service = None
 
         self.alias_service = DictationAliasService(event_bus=event_bus, storage=storage, event_loop=gui_event_loop)
+        self.hotword_service = DictationHotwordService(
+            event_bus=event_bus,
+            storage=storage,
+            event_loop=gui_event_loop,
+        )
 
         self.segment_pipeline = DictationSegmentPipeline(config.dictation, self.alias_service)
         self.asr = DictationASRController(self)
@@ -491,6 +498,7 @@ class DictationCoordinator(Service):
             results = await asyncio.gather(
                 self.agentic_service.initialize(),
                 self.alias_service.initialize(),
+                self.hotword_service.initialize(),
                 return_exceptions=True,
             )
             results.append(text_init_result)
@@ -498,6 +506,7 @@ class DictationCoordinator(Service):
         else:
             results = await asyncio.gather(
                 self.alias_service.initialize(),
+                self.hotword_service.initialize(),
                 return_exceptions=True,
             )
             results.append(text_init_result)
@@ -515,6 +524,10 @@ class DictationCoordinator(Service):
     @property
     def aliases(self) -> DictationAliasService:
         return self.alias_service
+
+    @property
+    def hotwords(self) -> DictationHotwordService:
+        return self.hotword_service
 
     async def handle_dictation_modifier_phrase(self, modifier_phrase: DictationModifierPhraseEvent) -> None:
         with self.state_lock:
@@ -971,6 +984,7 @@ class DictationCoordinator(Service):
         if self.agentic_service is not None:
             await self.agentic_service.shutdown()
         await self.alias_service.shutdown()
+        await self.hotword_service.shutdown()
 
         if self.asr_engine is not None:
             await self.asr_engine.shutdown()

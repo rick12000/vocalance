@@ -132,6 +132,28 @@ class DictationAliasUiOperationEvent(BaseEvent):
     value: str = ""
 
 
+class DictationHotwordListUpdatedEvent(BaseEvent):
+    """Published when the saved hotword list changes."""
+
+    hotwords: List[str] = Field(default_factory=list, description="Hotwords in editor order")
+
+
+class DictationHotwordSaveFailedEvent(BaseEvent):
+    """Published when a hotword save is rejected and storage is left unchanged."""
+
+    message: str = Field(description="Why the hotword list was not saved")
+
+
+DictationHotwordUiOp = Literal["save", "refresh_list"]
+
+
+class DictationHotwordUiOperationEvent(BaseEvent):
+    """UI-originated hotword edits; handled by ``DictationHotwordService``."""
+
+    op: DictationHotwordUiOp
+    text: str = ""
+
+
 class DictationStopWordDetectedEvent(BaseEvent):
     """Event fired when the dictation stop word is detected."""
 

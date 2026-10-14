@@ -75,6 +75,69 @@ def test_backpressure_drops_oldest_on_overflow():
         loop.close()
 
 
+def test_xasr_engine_uses_greedy_search_without_bpe_vocab(stt_config, tmp_path):
+    missing = tmp_path / "bpe.vocab"
+    with patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory, patch(
+        "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
+        return_value=missing,
+    ):
+        mock_factory.return_value = Mock()
+        from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
+
+        engine = XASREngine(config=stt_config)
+        assert engine.hotwords_enabled is False
+        assert mock_factory.call_args.kwargs["decoding_method"] == "greedy_search"
+
+
+def test_xasr_engine_uses_beam_search_when_bpe_vocab_exists(stt_config, tmp_path):
+    vocab = tmp_path / "bpe.vocab"
+    vocab.write_text("▁A 0\n", encoding="utf-8")
+    with patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory, patch(
+        "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
+        return_value=vocab,
+    ):
+        mock_factory.return_value = Mock()
+        from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
+
+        engine = XASREngine(config=stt_config)
+        assert engine.hotwords_enabled is True
+        kwargs = mock_factory.call_args.kwargs
+        assert kwargs["decoding_method"] == "modified_beam_search"
+        assert kwargs["modeling_unit"] == "bpe"
+        assert kwargs["bpe_vocab"] == str(vocab)
+        assert kwargs["max_active_paths"] == 4
+        assert kwargs["hotwords_score"] == 2.0
+
+
+def test_create_session_passes_hotwords_only_when_beam_search_is_active(stt_config, tmp_path):
+    vocab = tmp_path / "bpe.vocab"
+    vocab.write_text("▁A 0\n", encoding="utf-8")
+    stream = Mock()
+    stream.input_finished = Mock()
+    recognizer = Mock()
+    recognizer.create_stream.return_value = stream
+    recognizer.is_ready.return_value = False
+    recognizer.get_result.return_value = ""
+    with patch("sherpa_onnx.OnlineRecognizer.from_transducer", return_value=recognizer), patch(
+        "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
+        return_value=vocab,
+    ):
+        from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
+
+        engine = XASREngine(config=stt_config)
+        loop = asyncio.new_event_loop()
+        try:
+            session = engine.create_session(loop=loop, on_committed=AsyncMock(), on_provisional=AsyncMock(), hotwords="API/JSON")
+            recognizer.create_stream.assert_called_with("API/JSON")
+            session.stop()
+            engine.hotwords_enabled = False
+            session = engine.create_session(loop=loop, on_committed=AsyncMock(), on_provisional=AsyncMock(), hotwords="API")
+            recognizer.create_stream.assert_called_with()
+            session.stop()
+        finally:
+            loop.close()
+
+
 def test_xasr_engine_loads_with_mocked_recognizer(stt_config):
     with patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory:
         mock_factory.return_value = Mock()

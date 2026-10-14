@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 import numpy as np
 
-from vocalance.app.config.app_config import GlobalAppConfig, XASRConfig
+from vocalance.app.config.app_config import GlobalAppConfig, XASRConfig, bpe_vocab_artifact
 from vocalance.app.lifecycle.worker import schedule_on_loop
 from vocalance.app.services.dictation_flow.speech_recognition.transcript_state_manager import TranscriptStateManager
 
@@ -20,9 +20,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ASR_ASSETS = pathlib.Path(__file__).parent.parent.parent.parent / "assets" / "asr" / "chunk-480ms-model"
+
+
+def bpe_vocab_path() -> pathlib.Path:
+    """Path of the exported SentencePiece vocab used for hotword encoding."""
+    return ASR_ASSETS / bpe_vocab_artifact().vocab_filename
+
+
 INT16_SCALE = 1.0 / 32768.0
 FEATURE_DIM = 80
 DECODING_METHOD = "greedy_search"
+BEAM_DECODING_METHOD = "modified_beam_search"
+MAX_ACTIVE_PATHS = 4
+HOTWORDS_SCORE = 2.0
+MODELING_UNIT = "bpe"
 PROVIDER = "cpu"
 WORKER_STOP_TIMEOUT_SEC = 5.0
 QUEUE_PUT_TIMEOUT_SEC = 1.0
@@ -40,6 +51,7 @@ class XASRStreamSession:
         xasr_config: XASRConfig,
         provisional_words_override: Optional[int] = None,
         silence_commit_threshold_override: Optional[float] = None,
+        hotwords: str = "",
     ) -> None:
         self.recognizer = recognizer
         self.loop = loop
@@ -52,7 +64,7 @@ class XASRStreamSession:
             provisional_words=provisional_words,
         )
 
-        self.stream = recognizer.create_stream()
+        self.stream = recognizer.create_stream(hotwords) if hotwords else recognizer.create_stream()
         self.audio_queue: queue.Queue[Optional[tuple[bytes, int]]] = queue.Queue(maxsize=xasr_config.audio_queue_maxsize)
         self.closed = False
         self.dropped_chunks = 0
@@ -247,14 +259,16 @@ class XASREngine:
     def __init__(self, config: GlobalAppConfig) -> None:
         self.config = config
         self.recognizer: Optional[sherpa_onnx.OnlineRecognizer] = None
+        self.hotwords_enabled = False
         self.load_recognizer()
 
     def load_recognizer(self) -> None:
         import sherpa_onnx
 
         xasr = self.config.stt.xasr
+        vocab = bpe_vocab_path()
         logger.info("Loading X-ASR model from %s (num_threads=%d)", ASR_ASSETS, xasr.num_threads)
-        self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+        common = dict(
             tokens=str(ASR_ASSETS / "tokens.txt"),
             encoder=str(ASR_ASSETS / "encoder-480ms.onnx"),
             decoder=str(ASR_ASSETS / "decoder-480ms.onnx"),
@@ -263,10 +277,38 @@ class XASREngine:
             sample_rate=self.config.stt.sample_rate,
             feature_dim=FEATURE_DIM,
             enable_endpoint_detection=False,
-            decoding_method=DECODING_METHOD,
             provider=PROVIDER,
         )
-        logger.info("X-ASR recognizer loaded")
+        logger.info("X-ASR BPE vocab path=%s exists=%s", vocab, vocab.is_file())
+        if vocab.is_file():
+            try:
+                self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+                    **common,
+                    decoding_method=BEAM_DECODING_METHOD,
+                    max_active_paths=MAX_ACTIVE_PATHS,
+                    hotwords_score=HOTWORDS_SCORE,
+                    modeling_unit=MODELING_UNIT,
+                    bpe_vocab=str(vocab),
+                )
+                self.hotwords_enabled = True
+                logger.info(
+                    "X-ASR recognizer loaded: decoding=%s hotwords_enabled=%s max_active_paths=%s hotwords_score=%s",
+                    BEAM_DECODING_METHOD,
+                    True,
+                    MAX_ACTIVE_PATHS,
+                    HOTWORDS_SCORE,
+                )
+                return
+            except Exception:
+                logger.exception("Beam search init failed; loading greedy search without hotwords")
+        else:
+            logger.info("X-ASR BPE vocab missing; hotwords are inactive and decoding stays greedy_search")
+        self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+            **common,
+            decoding_method=DECODING_METHOD,
+        )
+        self.hotwords_enabled = False
+        logger.info("X-ASR recognizer loaded: decoding=%s hotwords_enabled=%s", DECODING_METHOD, False)
 
     def create_session(
         self,
@@ -275,9 +317,17 @@ class XASREngine:
         on_provisional: Callable[[str], Awaitable[None]],
         provisional_words_override: Optional[int] = None,
         silence_commit_threshold_override: Optional[float] = None,
+        hotwords: str = "",
     ) -> XASRStreamSession:
         if self.recognizer is None:
             raise RuntimeError("XASREngine: recognizer not loaded")
+        applied = hotwords if self.hotwords_enabled and hotwords else ""
+        logger.info(
+            "X-ASR session: hotwords_enabled=%s requested=%r applied=%r",
+            self.hotwords_enabled,
+            hotwords,
+            applied,
+        )
         return XASRStreamSession(
             recognizer=self.recognizer,
             loop=loop,
@@ -286,6 +336,7 @@ class XASREngine:
             xasr_config=self.config.stt.xasr,
             provisional_words_override=provisional_words_override,
             silence_commit_threshold_override=silence_commit_threshold_override,
+            hotwords=applied,
         )
 
     async def shutdown(self) -> None:

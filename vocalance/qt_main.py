@@ -236,10 +236,15 @@ async def run_initialization(
 
     progress.update_sub_step(sub_step_name="Preparing dictation system...")
 
-    if not xasr_assets_ready():
-        from vocalance.app.services.dictation_flow.speech_recognition.asr_model_downloader import ASRModelDownloader
+    from vocalance.app.services.dictation_flow.speech_recognition.asr_model_downloader import ASRModelDownloader
 
+    try:
         asr_downloader = ASRModelDownloader(config)
+    except RuntimeError:
+        logger.exception("Cannot resolve assets root; speech model download is not possible")
+        asr_downloader = None
+
+    if asr_downloader is not None and not xasr_assets_ready():
         logger.info("X-ASR model files not found — downloading from Hugging Face")
         progress.update_sub_step(
             sub_step_name="Downloading speech-to-text model. First launch may take a few minutes.",
@@ -255,6 +260,38 @@ async def run_initialization(
         if not asr_ready:
             raise asyncio.CancelledError()
         logger.info("X-ASR model download complete")
+
+    if asr_downloader is None:
+        logger.error("Hotword tokenizer download skipped: assets root is unavailable")
+    else:
+        model_path = asr_downloader.bpe_model_path()
+        vocab_path = asr_downloader.bpe_vocab_path()
+        logger.info(
+            "Hotword tokenizer check: model=%s exists=%s vocab=%s exists=%s",
+            model_path,
+            model_path.is_file(),
+            vocab_path,
+            vocab_path.is_file(),
+        )
+        if asr_downloader.bpe_ready():
+            logger.info("Hotword tokenizer already on disk; skipping download")
+        else:
+            logger.info("Hotword tokenizer not found — downloading SentencePiece model")
+            progress.update_sub_step(sub_step_name="Downloading hotword tokenizer.", progress=0.45)
+            try:
+                bpe_ready = await asr_downloader.download_bpe_vocab(
+                    cancel_event=lifecycle.cancel_token.threading_event(),
+                    progress_cb=lambda msg: progress.update_sub_step(sub_step_name=msg, progress=0.5),
+                )
+            except Exception:
+                logger.exception("Hotword tokenizer download failed; dictation will run without hotwords")
+            else:
+                logger.info(
+                    "Hotword tokenizer download finished: ready=%s model_exists=%s vocab_exists=%s",
+                    bpe_ready,
+                    model_path.is_file(),
+                    vocab_path.is_file(),
+                )
 
     from vocalance.app.utils.llm_dep_check import llm_deps_available
 

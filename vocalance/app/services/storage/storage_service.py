@@ -17,6 +17,7 @@ from vocalance.app.services.storage.storage_models import (
     AppUserConfigDocument,
     CommandsData,
     DictationAliasData,
+    DictationHotwordData,
     GridClicksData,
     MarksData,
     SoundMappingsData,
@@ -59,6 +60,7 @@ class StorageService:
             AgenticPromptsData: os.path.join(config.storage.user_data_root, "dictation", "agentic_prompts.json"),
             SoundMappingsData: os.path.join(config.storage.sound_model_dir, "sound_mappings.json"),
             DictationAliasData: os.path.join(config.storage.user_data_root, "dictation", "aliases.json"),
+            DictationHotwordData: os.path.join(config.storage.user_data_root, "dictation", "hotwords.json"),
         }
 
         self.ensure_directories()

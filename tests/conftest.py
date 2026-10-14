@@ -926,6 +926,24 @@ async def mark_service(event_bus, app_config, mock_storage_service, mock_protect
 
 
 @pytest_asyncio.fixture
+async def dictation_hotword_service(mock_event_bus):
+    """DictationHotwordService backed by an empty in-memory hotword store."""
+    from vocalance.app.services.dictation_flow.hotword_service import DictationHotwordService
+    from vocalance.app.services.storage.storage_models import DictationHotwordData
+
+    storage = Mock()
+    storage.read = AsyncMock(return_value=DictationHotwordData(hotwords=[]))
+    storage.write = AsyncMock(return_value=True)
+    service = DictationHotwordService(
+        event_bus=mock_event_bus,
+        storage=storage,
+        event_loop=asyncio.get_running_loop(),
+    )
+    await service.initialize()
+    return service
+
+
+@pytest_asyncio.fixture
 async def dictation_alias_service(mock_event_bus):
     """DictationAliasService backed by an empty in-memory alias store.
 
