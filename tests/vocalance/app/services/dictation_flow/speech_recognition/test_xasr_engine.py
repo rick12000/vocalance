@@ -1,10 +1,22 @@
 import asyncio
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import pytest
 
 from vocalance.app.config.app_config import XASRConfig
+
+
+def test_utterance_idle_follows_hypothesis_changes(xasr_stream_session):
+    xasr_stream_session.stop()
+    assert xasr_stream_session.utterance_idle_seconds() is None
+    xasr_stream_session.maybe_silence_commit("hello")
+    assert xasr_stream_session.utterance_idle_seconds() < 0.5
+    xasr_stream_session.hypothesis_stable_since = time.monotonic() - 3.0
+    assert xasr_stream_session.utterance_idle_seconds() >= 3.0
+    xasr_stream_session.maybe_silence_commit("hello there")
+    assert xasr_stream_session.utterance_idle_seconds() < 0.5
 
 
 def test_worker_thread_starts_on_init(xasr_stream_session):

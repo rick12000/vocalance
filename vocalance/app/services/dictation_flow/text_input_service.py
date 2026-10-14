@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import threading
 import time
@@ -12,7 +11,6 @@ from vocalance.app.services.keyboard_input_service import KeyboardInputService
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BUFFER_TIMEOUT_SEC: float = 1.0
 CTRL_KEY_PRESS_TIMING_SEC: float = 0.01
 CLIPBOARD_READ_MIN_WAIT_SEC: float = 0.05
 
@@ -28,62 +26,15 @@ class DictationTextInput:
         self.input_service = input_service
         self.clipboard_lock = threading.Lock()
         self.last_text: str | None = None
-        self.streaming_buffer: str = ""
-        self.buffer_timeout_sec: float = DEFAULT_BUFFER_TIMEOUT_SEC
-        self.flush_task: asyncio.Task | None = None
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = config.pyautogui_pause
 
     def initialize(self) -> bool:
         return True
 
-    def set_buffer_timeout(self, timeout_sec: float) -> None:
-        self.buffer_timeout_sec = timeout_sec
-
     def reset_session(self) -> None:
         with self.clipboard_lock:
             self.last_text = None
-        self.streaming_buffer = ""
-        self.cancel_flush_task()
-
-    async def queue_streaming_text(self, text: str, add_trailing_space: bool) -> None:
-        text = text.strip()
-        if not text:
-            return
-        sep = " " if self.streaming_buffer else ""
-        self.streaming_buffer += sep + text
-        if len(self.streaming_buffer.split()) >= self.config.streaming_buffer_word_threshold:
-            # Do not cancel the pending timeout task — if it has already woken and is
-            # inside input_text, cancelling it aborts the space keypress mid-flight.
-            # An empty buffer causes it to return cleanly on its next check.
-            await self.paste_buffer(add_trailing_space=add_trailing_space)
-            return
-        if self.flush_task is None or self.flush_task.done():
-            self.flush_task = asyncio.ensure_future(
-                self.flush_after_timeout(add_trailing_space=add_trailing_space)
-            )
-
-    async def flush_streaming_buffer(self, add_trailing_space: bool) -> None:
-        self.cancel_flush_task()
-        await self.paste_buffer(add_trailing_space=add_trailing_space)
-
-    def cancel_flush_task(self) -> None:
-        if self.flush_task and not self.flush_task.done():
-            self.flush_task.cancel()
-        self.flush_task = None
-
-    async def flush_after_timeout(self, add_trailing_space: bool) -> None:
-        await asyncio.sleep(self.buffer_timeout_sec)
-        await self.paste_buffer(add_trailing_space=add_trailing_space)
-
-    async def paste_buffer(self, add_trailing_space: bool) -> None:
-        if not self.streaming_buffer:
-            return
-        text = self.streaming_buffer
-        self.streaming_buffer = ""
-        # Shield ensures paste + space complete even if the outer task is cancelled
-        # by a session-end flush call, preventing merged segments from lost space presses.
-        await asyncio.shield(self.input_text(text=text, add_trailing_space=add_trailing_space))
 
     def capture_selection_via_copy(self) -> str:
         with self.clipboard_lock:

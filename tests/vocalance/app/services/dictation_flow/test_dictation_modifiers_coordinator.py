@@ -1,10 +1,6 @@
-from typing import Optional
-
 import pytest
 
-from vocalance.app.events.dictation_events import DictationModifierId
 from vocalance.app.services.dictation_flow.postprocess.coordinator_segment_filters import (
-    dictation_segment_input_options,
     is_isolated_stt_noise_fragment,
     is_likely_hallucination_fragment,
     remove_stop_trigger_word,
@@ -13,31 +9,6 @@ from vocalance.app.services.dictation_flow.postprocess.trigger_strip import (
     strip_config_phrases_case_insensitive,
     strip_dictation_triggers,
 )
-from vocalance.app.services.dictation_flow.types import DictationMode
-
-
-@pytest.mark.parametrize(
-    "mode,modifier,expected_add_trailing,expected_skip_join",
-    [
-        (DictationMode.HIDDEN, None, True, False),
-        (DictationMode.HIDDEN, "upper", True, False),
-        (DictationMode.HIDDEN, "camel", False, True),
-        (DictationMode.HIDDEN, "snake", False, True),
-        (DictationMode.HIDDEN, "spelling", False, True),
-        (DictationMode.TYPE, None, False, False),
-        (DictationMode.TYPE, "camel", False, True),
-    ],
-)
-def test_dictation_segment_input_options(
-    mode: DictationMode,
-    modifier: Optional[DictationModifierId],
-    expected_add_trailing: bool,
-    expected_skip_join: bool,
-) -> None:
-    modifiers = {modifier} if modifier else set()
-    add_trailing, skip_join = dictation_segment_input_options(mode, modifiers)
-    assert add_trailing is expected_add_trailing
-    assert skip_join is expected_skip_join
 
 
 @pytest.mark.parametrize(

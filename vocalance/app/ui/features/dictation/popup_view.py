@@ -6,7 +6,7 @@ from collections import deque
 from typing import Callable, Optional, cast
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QPainter, QPaintEvent, QPalette, QTextCharFormat
+from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QPainter, QMoveEvent, QPaintEvent, QPalette, QTextCharFormat
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
@@ -40,6 +40,7 @@ class QtDictationPopupView(QMainWindow):
     VISUAL_HEIGHT = 550
     WINDOW_MARGIN_X = 80
     WINDOW_MARGIN_Y = 80
+    SIMPLE_MODIFIER_GAP = 8
     DUAL_PANE_MODES: frozenset[str] = frozenset({"smart", "amend"})
 
     def __init__(self) -> None:
@@ -86,6 +87,8 @@ class QtDictationPopupView(QMainWindow):
         self.modifier_banner_signal.connect(self.do_set_modifier_banner, Qt.ConnectionType.QueuedConnection)
 
         self.modifier_fade_anim: Optional[QPropertyAnimation] = None
+        self._simple_modifier_label = ""
+        self._simple_modifier_fade_token: object = object()
 
         self.logger.info("QtDictationPopupView initialized")
 
@@ -145,6 +148,27 @@ class QtDictationPopupView(QMainWindow):
         eff.setOpacity(0.0)
         label.setGraphicsEffect(eff)
 
+    def configure_simple_modifier_status_label(self, label: QLabel) -> None:
+        """Caption under the listening pill. It is its own window so it cannot resize the pill."""
+        label.setFont(theme.get_font(size="medium", weight="semibold", display=False))
+        accent = self.modifier_status_accent_color()
+        label.setStyleSheet(f"QLabel {{ background: transparent; color: {accent}; }}")
+        label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        label.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        label.setAutoFillBackground(False)
+        label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        label.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        label.setText("")
+        eff = QGraphicsOpacityEffect(label)
+        eff.setOpacity(0.0)
+        label.setGraphicsEffect(eff)
+
     def create_ui(self) -> None:
         """Create UI elements."""
         # Main widget
@@ -167,6 +191,10 @@ class QtDictationPopupView(QMainWindow):
 
         self.simple_widget.setVisible(False)
         main_layout.addWidget(self.simple_widget)
+
+        self.simple_modifier_status = QLabel(self)
+        self.configure_simple_modifier_status_label(self.simple_modifier_status)
+        self.simple_modifier_status.hide()
 
         # Smart mode: Dictation + AI output (side by side)
         self.smart_widget = QWidget()
@@ -351,8 +379,13 @@ class QtDictationPopupView(QMainWindow):
             self.border_is_yellow = False
             self.simple_widget.setVisible(True)
             self.current_mode = "simple"
+            if self._simple_modifier_label:
+                self._simple_modifier_fade_token = object()
+                self.prepare_simple_modifier_label(self._simple_modifier_label)
             self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
             self.show_window_with_animation()
+            if self._simple_modifier_label:
+                self.fade_modifier_label_opacity(self.simple_modifier_status, 1.0)
             # Animation runs automatically in widget
 
     @Slot()
@@ -368,6 +401,7 @@ class QtDictationPopupView(QMainWindow):
     def apply_dual_pane_layout(self, mode: str, left_column_title: str) -> None:
         """Apply the dual-pane window layout on the Qt main thread (via calling slots)."""
         with self.ui_lock:
+            self._simple_modifier_label = ""
             self.hide_all_modes()
             self.border_is_orange = False
             self.border_is_yellow = False
@@ -404,6 +438,7 @@ class QtDictationPopupView(QMainWindow):
     def do_show_visual(self) -> None:
         """Internal show visual - MUST run on main Qt thread."""
         with self.ui_lock:
+            self._simple_modifier_label = ""
             self.hide_all_modes()
             self.border_is_orange = False
             self.border_is_yellow = False
@@ -438,6 +473,10 @@ class QtDictationPopupView(QMainWindow):
             self.llm_spinner.stop()
             self.reset_reserved_modifier_slot(self.dictation_modifier_status)
             self.reset_reserved_modifier_slot(self.visual_modifier_status)
+            self._simple_modifier_label = ""
+            self._simple_modifier_fade_token = object()
+            self.reset_reserved_modifier_slot(self.simple_modifier_status)
+            self.simple_modifier_status.setVisible(False)
             self.hide_window_with_animation()
             self.current_mode = None
 
@@ -793,44 +832,110 @@ class QtDictationPopupView(QMainWindow):
 
     @Slot(str, bool)
     def do_set_modifier_banner(self, display_label: str, active: bool) -> None:
-        """Show or clear the modifier label on smart/amend/visual layouts; no-op for wave-only modes."""
+        """Fade modifier status in or out for the active dictation layout."""
         if self.modifier_fade_anim and self.modifier_fade_anim.state() == QPropertyAnimation.State.Running:
             self.modifier_fade_anim.stop()
 
         reserved_slots = (self.dictation_modifier_status, self.visual_modifier_status)
 
-        if not active:
+        if not active or not display_label.strip():
             for lbl in reserved_slots:
                 self.reset_reserved_modifier_slot(lbl)
+            self.clear_simple_modifier_label()
             return
 
         for lbl in reserved_slots:
             self.reset_reserved_modifier_slot(lbl)
 
-        if not display_label.strip():
-            return
-
         mode = self.current_mode
         if mode in self.DUAL_PANE_MODES:
+            self._simple_modifier_label = ""
             chip = self.dictation_modifier_status
             chip.setText(display_label)
         elif mode == "visual":
+            self._simple_modifier_label = ""
             chip = self.visual_modifier_status
             chip.setText(display_label)
+        elif mode == "simple":
+            self.show_simple_modifier_label(display_label)
+            return
         else:
+            self._simple_modifier_label = display_label
             return
 
         eff = cast(QGraphicsOpacityEffect, chip.graphicsEffect())
         eff.setOpacity(0.0)
         self.fade_modifier_label_opacity(chip, 1.0)
 
+    def simple_modifier_text_size(self, display_label: str) -> tuple[int, int]:
+        """Tight bounds for the caption so it can sit centered under the pill."""
+        metrics = self.simple_modifier_status.fontMetrics()
+        return metrics.horizontalAdvance(display_label) + 2, metrics.height()
+
+    def place_simple_modifier_caption(self) -> None:
+        """Center the caption on the listening pill's bottom edge, outside the pill."""
+        label = self.simple_modifier_status
+        if not label.text().strip():
+            return
+        text_width, text_height = self.simple_modifier_text_size(label.text())
+        pill = self.geometry()
+        x = pill.x() + (pill.width() - text_width) // 2
+        y = pill.bottom() + 1 + self.SIMPLE_MODIFIER_GAP
+        label.setGeometry(x, y, text_width, text_height)
+
+    def prepare_simple_modifier_label(self, display_label: str) -> None:
+        """Size the caption without touching the listening pill."""
+        label = self.simple_modifier_status
+        label.setText(display_label)
+        text_width, text_height = self.simple_modifier_text_size(display_label)
+        label.setFixedSize(text_width, text_height)
+        eff = label.graphicsEffect()
+        if isinstance(eff, QGraphicsOpacityEffect):
+            eff.setOpacity(0.0)
+        self.place_simple_modifier_caption()
+        label.show()
+
+    def moveEvent(self, event: QMoveEvent) -> None:
+        """Keep the caption glued to the pill while the pill slides on screen."""
+        super().moveEvent(event)
+        if self.current_mode == "simple":
+            self.place_simple_modifier_caption()
+
+    def show_simple_modifier_label(self, display_label: str) -> None:
+        """Fade modifier text in under the type/green listening indicator."""
+        self._simple_modifier_label = display_label
+        self._simple_modifier_fade_token = object()
+        self.prepare_simple_modifier_label(display_label)
+        self.fade_modifier_label_opacity(self.simple_modifier_status, 1.0)
+
+    def clear_simple_modifier_label(self) -> None:
+        """Fade modifier text out and shrink the listening window back to the box."""
+        self._simple_modifier_label = ""
+        label = self.simple_modifier_status
+        if not label.isVisible():
+            self.reset_reserved_modifier_slot(label)
+            return
+        token = object()
+        self._simple_modifier_fade_token = token
+
+        def finished() -> None:
+            if self._simple_modifier_fade_token is not token:
+                return
+            self.reset_reserved_modifier_slot(label)
+            label.hide()
+
+        self.fade_modifier_label_opacity(label, 0.0, on_finished=finished)
+
     def hide_all_modes(self) -> None:
         """Hide all mode widgets."""
         self.simple_widget.setVisible(False)
         self.smart_widget.setVisible(False)
         self.visual_widget.setVisible(False)
+        self._simple_modifier_fade_token = object()
         self.reset_reserved_modifier_slot(self.dictation_modifier_status)
         self.reset_reserved_modifier_slot(self.visual_modifier_status)
+        self.reset_reserved_modifier_slot(self.simple_modifier_status)
+        self.simple_modifier_status.hide()
 
     def clear_smart_content(self) -> None:
         """Clear smart mode content."""

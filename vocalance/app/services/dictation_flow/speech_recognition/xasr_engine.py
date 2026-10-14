@@ -219,6 +219,15 @@ class XASRStreamSession:
             silence_delta[:60] if silence_delta else "",
         )
 
+    def utterance_idle_seconds(self) -> Optional[float]:
+        """Seconds since the hypothesis last changed, or None when no words have been recognized."""
+        if not self.last_hypothesis:
+            return None
+        return time.monotonic() - self.hypothesis_stable_since
+
+    def mark_transcript_active(self) -> None:
+        self.hypothesis_stable_since = time.monotonic()
+
     def finalize(self) -> None:
         try:
             self.stream.input_finished()

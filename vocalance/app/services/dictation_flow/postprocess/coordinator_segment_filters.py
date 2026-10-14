@@ -1,18 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
-
-from vocalance.app.events.dictation_events import DictationModifierId
-from vocalance.app.services.dictation_flow.types import DictationMode
-
-
-def dictation_segment_input_options(mode: DictationMode, modifiers: Optional[set[DictationModifierId]]) -> tuple[bool, bool]:
-    skip_join = False
-    if modifiers:
-        skip_join = bool(modifiers.intersection({"camel", "snake", "kebab", "spelling"}))
-    add_trailing = mode != DictationMode.TYPE and not skip_join
-    return add_trailing, skip_join
 
 
 def is_isolated_stt_noise_fragment(text: str) -> bool:

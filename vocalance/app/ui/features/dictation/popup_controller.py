@@ -100,7 +100,7 @@ class QtDictationPopupController(QtBaseController):
             self.popup_view.set_modifier_banner("", False)
 
     def on_stop_word_detected(self, stop_word: DictationStopWordDetectedEvent) -> None:
-        if stop_word.mode in ("hidden", "visual", "smart", "amend"):
+        if stop_word.mode in ("hidden", "visual", "smart", "amend", "type"):
             self.popup_view.set_border_orange()
 
     def on_paused_state_changed(self, event: DictationPausedStateEvent) -> None:

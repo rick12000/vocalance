@@ -125,8 +125,7 @@ class XASRConfig(BaseModel):
         le=60.0,
         description=(
             "Default seconds of hypothesis stability before the provisional tail is force-committed "
-            "mid-session. The coordinator overrides this per-mode: TYPE uses a short threshold so "
-            "long pauses still produce output; all other modes use 15 s and rely on session-end "
+            "mid-session. Dictation sessions override this to 15 s and rely on session-end "
             "finalization for punctuation quality."
         ),
     )
@@ -335,19 +334,18 @@ class DictationConfig(BaseModel):
     use_clipboard: bool = True
     typing_delay: float = 0.01
 
-    type_dictation_silence_timeout: float = 0.1
+    type_dictation_silence_timeout: float = Field(
+        default=2.0,
+        ge=0.5,
+        le=30.0,
+        description="Seconds the type-mode transcript must stay unchanged before the session ends and the text is pasted once.",
+    )
 
     modifier_suppress_sec: float = Field(
         default=0.55,
         ge=0.0,
         le=10.0,
         description="After a modifier phrase, suppress ASR output for this many seconds to prevent the keyword from being transcribed.",
-    )
-    streaming_buffer_word_threshold: int = Field(
-        default=3,
-        ge=1,
-        le=20,
-        description="Number of words to accumulate in the streaming paste buffer before flushing; reduces jagged word-by-word paste appearance.",
     )
     type_silence_monitor_max_seconds: int = Field(
         default=300,
