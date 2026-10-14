@@ -15,21 +15,44 @@ class UserConfigurableField(BaseModel):
     path: str = Field(description="Dot path, e.g. llm.max_tokens")
     label: str = Field(description="Short UI label")
     section: str = Field(description="UI section heading")
-    value_type: type = Field(default=str, description="Python type used for coercion (int, float, str)")
+    value_type: type = Field(
+        default=str, description="Python type used for coercion (int, float, str)"
+    )
     llm_session_stale: bool = Field(default=False)
+    choices: Tuple[Tuple[str, str], ...] = Field(
+        default=(),
+        description="Stored value and label pairs. Empty means a typed value.",
+    )
 
 
 USER_CONFIGURABLE_FIELDS: Tuple[UserConfigurableField, ...] = (
     UserConfigurableField(
-        path="llm.context_length", label="Max Context Tokens", section="LLM model", value_type=int, llm_session_stale=True
+        path="llm.context_length",
+        label="Max Context Tokens",
+        section="LLM model",
+        value_type=int,
+        llm_session_stale=True,
     ),
     UserConfigurableField(
-        path="llm.max_tokens", label="Max Output Tokens", section="LLM model", value_type=int, llm_session_stale=True
+        path="llm.max_tokens",
+        label="Max Output Tokens",
+        section="LLM model",
+        value_type=int,
+        llm_session_stale=True,
     ),
     UserConfigurableField(
-        path="llm.selected_model_id", label="Model", section="LLM model", value_type=str, llm_session_stale=True
+        path="llm.selected_model_id",
+        label="Model",
+        section="LLM model",
+        value_type=str,
+        llm_session_stale=True,
     ),
-    UserConfigurableField(path="grid.default_rect_count", label="Default Cell Count", section="Grid Settings", value_type=int),
+    UserConfigurableField(
+        path="grid.default_rect_count",
+        label="Default Cell Count",
+        section="Grid Settings",
+        value_type=int,
+    ),
     UserConfigurableField(
         path="sound_recognizer.confidence_threshold",
         label="Confidence Threshold",
@@ -37,18 +60,40 @@ USER_CONFIGURABLE_FIELDS: Tuple[UserConfigurableField, ...] = (
         value_type=float,
     ),
     UserConfigurableField(
-        path="sound_recognizer.vote_threshold", label="Vote Threshold", section="Sound Recognizer Settings", value_type=float
+        path="sound_recognizer.vote_threshold",
+        label="Vote Threshold",
+        section="Sound Recognizer Settings",
+        value_type=float,
     ),
     UserConfigurableField(
-        path="vad.command_silent_chunks_for_end", label="Max Silent Command Chunks", section="Voice Settings", value_type=int
+        path="vad.command_pickup",
+        label="Command pickup",
+        section="Voice Settings",
+        value_type=str,
+        choices=(
+            ("quiet", "Quiet speech"),
+            ("normal", "Normal"),
+            ("noisy", "Noisy room"),
+        ),
+    ),
+    UserConfigurableField(
+        path="vad.command_end_pause",
+        label="Pause before sending",
+        section="Voice Settings",
+        value_type=str,
+        choices=(("short", "Short"), ("medium", "Medium"), ("long", "Long")),
     ),
 )
 
-FIELD_BY_PATH: Dict[str, UserConfigurableField] = {f.path: f for f in USER_CONFIGURABLE_FIELDS}
+FIELD_BY_PATH: Dict[str, UserConfigurableField] = {
+    f.path: f for f in USER_CONFIGURABLE_FIELDS
+}
 
 ALLOWED_USER_SETTING_PATHS: FrozenSet[str] = frozenset(FIELD_BY_PATH)
 
-LLM_SESSION_SETTING_PATHS: FrozenSet[str] = frozenset(f.path for f in USER_CONFIGURABLE_FIELDS if f.llm_session_stale)
+LLM_SESSION_SETTING_PATHS: FrozenSet[str] = frozenset(
+    f.path for f in USER_CONFIGURABLE_FIELDS if f.llm_session_stale
+)
 
 
 def get_config_field_bounds(path: str) -> Tuple[Optional[float], Optional[float]]:
@@ -69,7 +114,9 @@ def read_nested_config_value(config: GlobalAppConfig, path: str) -> object:
     return getattr(sub, key)
 
 
-def effective_settings_projection(config: GlobalAppConfig) -> Dict[str, Dict[str, object]]:
+def effective_settings_projection(
+    config: GlobalAppConfig,
+) -> Dict[str, Dict[str, object]]:
     out: Dict[str, Dict[str, object]] = {}
     for field in USER_CONFIGURABLE_FIELDS:
         category, key = field.path.split(".", 1)
@@ -84,6 +131,19 @@ def apply_dot_path_to_config(config: GlobalAppConfig, path: str, value: object) 
     setattr(config, category, merged)
 
 
+def legacy_end_pause(silent_chunks: object) -> Optional[str]:
+    """Map the old 30 ms chunk hangover onto a pause preset. The default of 5 stays short."""
+    try:
+        count = int(silent_chunks)
+    except (TypeError, ValueError):
+        return None
+    if count <= 6:
+        return "short"
+    if count <= 10:
+        return "medium"
+    return "long"
+
+
 def sanitize_user_overrides(raw: object) -> Dict[str, Dict[str, Any]]:
     out: Dict[str, Dict[str, Any]] = {}
     if not isinstance(raw, dict):
@@ -95,4 +155,9 @@ def sanitize_user_overrides(raw: object) -> Dict[str, Dict[str, Any]]:
             path = f"{category}.{key}"
             if path in ALLOWED_USER_SETTING_PATHS:
                 out.setdefault(category, {})[key] = value
+    vad = raw.get("vad") if isinstance(raw.get("vad"), dict) else {}
+    if "command_end_pause" not in vad:
+        migrated = legacy_end_pause(vad.get("command_silent_chunks_for_end"))
+        if migrated is not None:
+            out.setdefault("vad", {})["command_end_pause"] = migrated
     return out

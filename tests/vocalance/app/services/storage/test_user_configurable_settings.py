@@ -15,7 +15,8 @@ from vocalance.app.services.storage.user_configurable_settings import (
         ("grid.default_rect_count", 42),
         ("llm.max_tokens", 256),
         ("llm.context_length", 1024),
-        ("vad.command_silent_chunks_for_end", 9),
+        ("vad.command_pickup", "quiet"),
+        ("vad.command_end_pause", "medium"),
     ],
 )
 def test_apply_dot_path_updates_nested_config(path, value):
@@ -29,8 +30,24 @@ def test_apply_dot_path_updates_nested_config(path, value):
 def test_effective_settings_projection_covers_all_allowed_paths():
     projection = effective_settings_projection(GlobalAppConfig())
 
-    flattened = {f"{category}.{key}" for category, items in projection.items() for key in items}
+    flattened = {
+        f"{category}.{key}" for category, items in projection.items() for key in items
+    }
     assert flattened == set(ALLOWED_USER_SETTING_PATHS)
+
+
+@pytest.mark.parametrize(
+    "chunks, expected",
+    [
+        (5, "short"),
+        (9, "medium"),
+        (20, "long"),
+    ],
+)
+def test_sanitize_migrates_legacy_command_hangover(chunks, expected):
+    raw = {"vad": {"command_silent_chunks_for_end": chunks}}
+
+    assert sanitize_user_overrides(raw) == {"vad": {"command_end_pause": expected}}
 
 
 def test_sanitize_keeps_allowed_drops_unknown():

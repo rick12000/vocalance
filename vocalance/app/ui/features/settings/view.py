@@ -7,7 +7,11 @@ from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
-from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, get_whitelisted_llm_model, local_llm_allowlist
+from vocalance.app.config.app_config import (
+    DEFAULT_LLM_MODEL_ID,
+    get_whitelisted_llm_model,
+    local_llm_allowlist,
+)
 from vocalance.app.services.storage.user_configurable_settings import (
     FIELD_BY_PATH,
     USER_CONFIGURABLE_FIELDS,
@@ -18,7 +22,9 @@ from vocalance.app.ui.components.checkboxes import Checkbox
 from vocalance.app.ui.components.inputs import TextInput
 from vocalance.app.ui.components.labels import BoxTitleLabel, SectionTitle, SmallLabel
 from vocalance.app.ui.components.layouts import Box, FormField, ScrollableContainer
-from vocalance.app.ui.features.settings.llm_download_dialog import LlmDownloadProgressDialog
+from vocalance.app.ui.features.settings.llm_download_dialog import (
+    LlmDownloadProgressDialog,
+)
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.utils.llm_dep_check import llm_deps_available
 
@@ -63,7 +69,9 @@ class QtSettingsView(QWidget):
         self.controller.all_settings_changed.connect(self.on_all_settings_changed)
         self.controller.operation_error.connect(self.on_error)
         if self._llm_enabled:
-            self.controller.llm_bundle_status_updated.connect(self.sync_llm_model_ui_state)
+            self.controller.llm_bundle_status_updated.connect(
+                self.sync_llm_model_ui_state
+            )
 
         # Load initial settings
         self.logger.info("Loading settings from controller")
@@ -73,7 +81,10 @@ class QtSettingsView(QWidget):
         """Build single-box layout with per-section controls."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(
-            theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large, theme.config.spacing.large
+            theme.config.spacing.large,
+            theme.config.spacing.large,
+            theme.config.spacing.large,
+            theme.config.spacing.large,
         )
         main_layout.setSpacing(theme.config.spacing.large)
 
@@ -134,25 +145,40 @@ class QtSettingsView(QWidget):
             for path, field in fields_by_path.items():
                 category, key = path.split(".", 1)
                 value = None
-                if category in self.settings and isinstance(self.settings[category], dict):
+                if category in self.settings and isinstance(
+                    self.settings[category], dict
+                ):
                     value = self.settings[category].get(key)
 
                 if value is None:
                     continue
 
-                inp = TextInput()
-                inp.setText(str(value))
-                self.scroll_container.add(FormField(field.label, inp))
-                self.setting_widgets[path] = inp
-                section_widgets_dict[path] = inp
+                if field.choices:
+                    widget = QComboBox(self)
+                    for stored, label in field.choices:
+                        widget.addItem(label, stored)
+                    selected = widget.findData(str(value))
+                    if selected >= 0:
+                        widget.setCurrentIndex(selected)
+                else:
+                    widget = TextInput()
+                    widget.setText(str(value))
+                self.scroll_container.add(FormField(field.label, widget))
+                self.setting_widgets[path] = widget
+                section_widgets_dict[path] = widget
 
             self.section_widgets[section_name] = {"widgets": section_widgets_dict}
 
             button_layout = QHBoxLayout()
             button_layout.setSpacing(theme.config.spacing.medium)
-            save_btn = PrimaryButton(text="Save", command=partial(self.on_save_section_clicked, section_name))
+            save_btn = PrimaryButton(
+                text="Save", command=partial(self.on_save_section_clicked, section_name)
+            )
             button_layout.addWidget(save_btn)
-            reset_btn = DangerButton(text="Reset to Defaults", command=partial(self.on_reset_section_clicked, section_name))
+            reset_btn = DangerButton(
+                text="Reset to Defaults",
+                command=partial(self.on_reset_section_clicked, section_name),
+            )
             button_layout.addWidget(reset_btn)
             button_layout.addStretch()
             self.scroll_container.content_layout.addLayout(button_layout)
@@ -198,7 +224,9 @@ class QtSettingsView(QWidget):
 
         download_row = QHBoxLayout()
         download_row.setSpacing(theme.config.spacing.medium)
-        self.llm_download_btn = PrimaryButton(text="Download", command=self.on_llm_download_clicked)
+        self.llm_download_btn = PrimaryButton(
+            text="Download", command=self.on_llm_download_clicked
+        )
         download_row.addWidget(self.llm_download_btn)
         download_row.addStretch()
         self.scroll_container.content_layout.addLayout(download_row)
@@ -219,9 +247,14 @@ class QtSettingsView(QWidget):
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(theme.config.spacing.medium)
-        save_btn = PrimaryButton(text="Save", command=partial(self.on_save_section_clicked, section_name))
+        save_btn = PrimaryButton(
+            text="Save", command=partial(self.on_save_section_clicked, section_name)
+        )
         button_layout.addWidget(save_btn)
-        reset_btn = DangerButton(text="Reset to Defaults", command=partial(self.on_reset_section_clicked, section_name))
+        reset_btn = DangerButton(
+            text="Reset to Defaults",
+            command=partial(self.on_reset_section_clicked, section_name),
+        )
         button_layout.addWidget(reset_btn)
         button_layout.addStretch()
         self.scroll_container.content_layout.addLayout(button_layout)
@@ -254,7 +287,11 @@ class QtSettingsView(QWidget):
             return
         raw = combo.currentData()
         combo_mid = str(raw) if raw else DEFAULT_LLM_MODEL_ID
-        llm_settings = self.settings.get("llm") if isinstance(self.settings.get("llm"), dict) else {}
+        llm_settings = (
+            self.settings.get("llm")
+            if isinstance(self.settings.get("llm"), dict)
+            else {}
+        )
         eff = str(llm_settings.get("selected_model_id") or DEFAULT_LLM_MODEL_ID)
         eff_ok = self.controller.llm_bundle_on_disk(eff)
         combo_ok = self.controller.llm_bundle_on_disk(combo_mid)
@@ -276,9 +313,13 @@ class QtSettingsView(QWidget):
         lbl.setVisible(True)
         btn.setVisible(True)
         if not eff_ok:
-            lbl.setText("The saved model is not fully on this device. Download it, or choose another installed model.")
+            lbl.setText(
+                "The saved model is not fully on this device. Download it, or choose another installed model."
+            )
         else:
-            lbl.setText("This model is not on this device. Download to use it; until then the saved model stays active.")
+            lbl.setText(
+                "This model is not on this device. Download to use it; until then the saved model stays active."
+            )
 
     def on_llm_model_combo_changed(self, _index: int) -> None:
         if getattr(self, "suppress_llm_combo_events", False) or not self.controller:
@@ -317,17 +358,30 @@ class QtSettingsView(QWidget):
         self.sync_llm_model_ui_state()
 
         self.controller.llm_download_progress.connect(dlg.set_status)
-        self.controller.llm_cancellable_download_finished.connect(self.on_llm_cancellable_download_finished)
+        self.controller.llm_cancellable_download_finished.connect(
+            self.on_llm_cancellable_download_finished
+        )
         self.controller.llm_download_cancelled.connect(self.on_llm_download_cancelled)
-        self.controller.llm_download_integrity_error.connect(self.on_llm_download_integrity_error)
+        self.controller.llm_download_integrity_error.connect(
+            self.on_llm_download_integrity_error
+        )
         try:
             self.controller.schedule_llm_cancellable_download(mid)
             dlg.exec()
         finally:
             for sig, slot in (
-                (self.controller.llm_cancellable_download_finished, self.on_llm_cancellable_download_finished),
-                (self.controller.llm_download_cancelled, self.on_llm_download_cancelled),
-                (self.controller.llm_download_integrity_error, self.on_llm_download_integrity_error),
+                (
+                    self.controller.llm_cancellable_download_finished,
+                    self.on_llm_cancellable_download_finished,
+                ),
+                (
+                    self.controller.llm_download_cancelled,
+                    self.on_llm_download_cancelled,
+                ),
+                (
+                    self.controller.llm_download_integrity_error,
+                    self.on_llm_download_integrity_error,
+                ),
             ):
                 try:
                     sig.disconnect(slot)
@@ -347,7 +401,9 @@ class QtSettingsView(QWidget):
     def on_llm_cancellable_download_finished(self, ok: bool, msg: str) -> None:
         ctx = getattr(self, "llm_active_download", None)
         if not ctx or not self.controller:
-            self.logger.warning("LLM download finished without active context (ok=%s)", ok)
+            self.logger.warning(
+                "LLM download finished without active context (ok=%s)", ok
+            )
             return
         dlg = ctx["dlg"]
         mid = ctx["mid"]
@@ -358,7 +414,9 @@ class QtSettingsView(QWidget):
             ctx["download_msg"] = msg
 
             async def persist() -> Tuple[bool, str]:
-                return await self.controller.update_setting_async("llm.selected_model_id", mid)
+                return await self.controller.update_setting_async(
+                    "llm.selected_model_id", mid
+                )
 
             fut = asyncio.create_task(persist())
             fut.add_done_callback(self.on_llm_persist_future_done)
@@ -445,18 +503,28 @@ class QtSettingsView(QWidget):
                 try:
                     value = field.value_type(text_value)
                 except (ValueError, TypeError):
-                    self.show_error(f"Invalid value for '{field.label}'. Expected {field.value_type.__name__}.")
+                    self.show_error(
+                        f"Invalid value for '{field.label}'. Expected {field.value_type.__name__}."
+                    )
                     return
                 min_val, max_val = get_config_field_bounds(setting_key)
-                if (min_val is not None and value < min_val) or (max_val is not None and value > max_val):
-                    self.show_error(f"'{field.label}' must be between {min_val} and {max_val}.")
+                if (min_val is not None and value < min_val) or (
+                    max_val is not None and value > max_val
+                ):
+                    self.show_error(
+                        f"'{field.label}' must be between {min_val} and {max_val}."
+                    )
                     return
                 settings_to_save[setting_key] = value
 
         if settings_to_save:
             self.pending_save_section = section_name
             self.controller.update_settings(settings_to_save)
-            self.logger.info("Saved %s settings from section: %s", len(settings_to_save), section_name)
+            self.logger.info(
+                "Saved %s settings from section: %s",
+                len(settings_to_save),
+                section_name,
+            )
 
     def on_reset_section_clicked(self, section_name: str) -> None:
         """Handle reset button clicked for a specific section."""
@@ -476,7 +544,9 @@ class QtSettingsView(QWidget):
             setting_keys = list(section_info["widgets"].keys())
             self.controller.reset_section_settings(setting_keys)
             self.logger.info("Reset section to defaults: %s", section_name)
-            QMessageBox.information(self, "Success", f"{section_name} reset to defaults!")
+            QMessageBox.information(
+                self, "Success", f"{section_name} reset to defaults!"
+            )
 
     def show_error(self, message: str) -> None:
         """Show error message dialog."""

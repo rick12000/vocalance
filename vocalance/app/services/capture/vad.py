@@ -37,6 +37,7 @@ class AudioProcessor:
         self.sample_rate = sample_rate
         self.enable_normalization = enable_normalization
         self.target_peak = target_peak
+        self.noise_floor_percentile = self.NOISE_FLOOR_PERCENTILE
 
         self.energy_history: deque[float] = deque(maxlen=self.NOISE_FLOOR_WINDOW_SIZE)
         self.noise_floor = self.NOISE_FLOOR_INITIAL
@@ -54,7 +55,9 @@ class AudioProcessor:
         energy = self.calculate_rms_energy(audio)
         return audio, energy
 
-    def update_noise_floor(self, energy: float, is_likely_speech: bool) -> NoiseFloorEstimate:
+    def update_noise_floor(
+        self, energy: float, is_likely_speech: bool
+    ) -> NoiseFloorEstimate:
         self.bootstrap_count += 1
 
         if self.bootstrap_count <= self.BOOTSTRAP_CHUNKS:
@@ -63,10 +66,14 @@ class AudioProcessor:
             self.energy_history.append(energy)
 
         if len(self.energy_history) >= self.MIN_SAMPLES_FOR_STABLE:
-            self.noise_floor = float(np.percentile(list(self.energy_history), self.NOISE_FLOOR_PERCENTILE))
+            self.noise_floor = float(
+                np.percentile(list(self.energy_history), self.noise_floor_percentile)
+            )
             self.noise_floor_stable = True
         elif len(self.energy_history) > 0:
-            self.noise_floor = float(np.percentile(list(self.energy_history), self.NOISE_FLOOR_PERCENTILE))
+            self.noise_floor = float(
+                np.percentile(list(self.energy_history), self.noise_floor_percentile)
+            )
             self.noise_floor_stable = False
 
         return NoiseFloorEstimate(
@@ -110,9 +117,13 @@ class AudioProcessor:
             if reference_peak > self.MIN_PEAK_FOR_NORMALIZATION:
                 target_gain = self.target_peak / reference_peak
                 if target_gain < self.calibrated_gain:
-                    self.calibrated_gain = 0.7 * self.calibrated_gain + 0.3 * target_gain
+                    self.calibrated_gain = (
+                        0.7 * self.calibrated_gain + 0.3 * target_gain
+                    )
                 else:
-                    self.calibrated_gain = 0.98 * self.calibrated_gain + 0.02 * target_gain
+                    self.calibrated_gain = (
+                        0.98 * self.calibrated_gain + 0.02 * target_gain
+                    )
                 self.calibrated_gain = max(0.5, min(5.0, self.calibrated_gain))
 
         return audio * self.calibrated_gain
@@ -145,8 +156,12 @@ class AdaptiveVADThreshold:
         speech = noise_floor * self.speech_multiplier
         silence = noise_floor * self.silence_multiplier
 
-        self.speech_threshold_value = max(self.min_threshold, min(self.max_threshold, speech))
-        self.silence_threshold_value = max(self.min_threshold * 0.5, min(self.max_threshold * 0.5, silence))
+        self.speech_threshold_value = max(
+            self.min_threshold, min(self.max_threshold, speech)
+        )
+        self.silence_threshold_value = max(
+            self.min_threshold * 0.5, min(self.max_threshold * 0.5, silence)
+        )
 
         return self.speech_threshold_value, self.silence_threshold_value
 
@@ -196,7 +211,9 @@ class SegmentConfig:
 class UtteranceSegmenter:
     """Stateful VAD over mono PCM chunks; yields ``Onset`` or ``Clip`` hits."""
 
-    def __init__(self, segment_config: SegmentConfig, analyzer: AudioProcessor, sample_rate: int) -> None:
+    def __init__(
+        self, segment_config: SegmentConfig, analyzer: AudioProcessor, sample_rate: int
+    ) -> None:
         self.config = segment_config
         self.analyzer = analyzer
         self.sample_rate = sample_rate
@@ -214,7 +231,9 @@ class UtteranceSegmenter:
         self.peak_energy = 0.0
         self.state_lock = threading.Lock()
 
-    def feed_pcm_chunk(self, pcm_bytes: bytes, ts: float, skip_scoring: bool = False) -> list[SegmentHit]:
+    def feed_pcm_chunk(
+        self, pcm_bytes: bytes, ts: float, skip_scoring: bool = False
+    ) -> list[SegmentHit]:
         float_chunk, rms_energy = self.analyzer.process_chunk(pcm_bytes)
         with self.state_lock:
             if skip_scoring:
@@ -222,7 +241,9 @@ class UtteranceSegmenter:
                 return []
             return self.advance_from_chunk(float_chunk, rms_energy, ts)
 
-    def advance_from_chunk(self, float_chunk: np.ndarray, rms_energy: float, ts: float) -> list[SegmentHit]:
+    def advance_from_chunk(
+        self, float_chunk: np.ndarray, rms_energy: float, ts: float
+    ) -> list[SegmentHit]:
         hits: list[SegmentHit] = []
         likely_speech = rms_energy > self.energy_gate.speech_threshold
         noise = self.analyzer.update_noise_floor(rms_energy, likely_speech)
@@ -237,7 +258,6 @@ class UtteranceSegmenter:
                 self.capturing = True
                 self.peak_energy = rms_energy
                 self.segment_buffer.extend(self.pre_roll)
-                self.segment_buffer.append(float_chunk)
                 self.silence_streak = 0
                 if self.config.emit_onset and self.onset_pending:
                     hits.append(Onset(ts=ts))
@@ -261,7 +281,11 @@ class UtteranceSegmenter:
             self.reset_state()
             return []
         limits = self.config
-        if limits.min_peak_ratio > 0 and self.peak_energy < self.energy_gate.speech_threshold * limits.min_peak_ratio:
+        if (
+            limits.min_peak_ratio > 0
+            and self.peak_energy
+            < self.energy_gate.speech_threshold * limits.min_peak_ratio
+        ):
             self.reset_state()
             return []
         raw = np.concatenate(self.segment_buffer)
@@ -280,3 +304,21 @@ class UtteranceSegmenter:
     def set_silence_tail(self, chunks: int) -> None:
         with self.state_lock:
             self.config.silent_chunks_for_end = chunks
+
+    def set_voice_gate(
+        self, speech_multiplier: float, silence_multiplier: float, silent_chunks: int
+    ) -> None:
+        """Apply a new onset margin and trailing-silence length without rebuilding the gate."""
+        with self.state_lock:
+            self.config.speech_multiplier = speech_multiplier
+            self.config.silence_multiplier = silence_multiplier
+            self.config.silent_chunks_for_end = silent_chunks
+            self.energy_gate.speech_multiplier = speech_multiplier
+            self.energy_gate.silence_multiplier = silence_multiplier
+            floor = self.analyzer.get_noise_floor()
+            if floor.is_stable:
+                self.energy_gate.update(floor.value)
+            else:
+                gate = self.energy_gate
+                gate.speech_threshold_value = gate.min_threshold * speech_multiplier
+                gate.silence_threshold_value = gate.min_threshold * silence_multiplier
