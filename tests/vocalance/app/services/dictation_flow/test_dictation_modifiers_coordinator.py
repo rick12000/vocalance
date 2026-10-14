@@ -19,11 +19,11 @@ from vocalance.app.services.dictation_flow.types import DictationMode
 @pytest.mark.parametrize(
     "mode,modifier,expected_add_trailing,expected_skip_join",
     [
-        (DictationMode.STANDARD, None, True, False),
-        (DictationMode.STANDARD, "upper", True, False),
-        (DictationMode.STANDARD, "camel", False, True),
-        (DictationMode.STANDARD, "snake", False, True),
-        (DictationMode.STANDARD, "spelling", False, True),
+        (DictationMode.HIDDEN, None, True, False),
+        (DictationMode.HIDDEN, "upper", True, False),
+        (DictationMode.HIDDEN, "camel", False, True),
+        (DictationMode.HIDDEN, "snake", False, True),
+        (DictationMode.HIDDEN, "spelling", False, True),
         (DictationMode.TYPE, None, False, False),
         (DictationMode.TYPE, "camel", False, True),
     ],

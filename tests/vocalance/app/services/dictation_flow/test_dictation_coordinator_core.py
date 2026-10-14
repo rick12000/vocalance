@@ -54,11 +54,11 @@ def test_substitute_alias_placeholders(text, alias_map, expected):
 @pytest.mark.parametrize("noise", ["?", ".", "  ", "！"])
 def test_segment_pipeline_prepare_final_drops_noise(app_config, noop_alias_service, noise):
     pipeline = DictationSegmentPipeline(app_config.dictation, noop_alias_service)
-    session = DictationSession(session_id="s", mode=DictationMode.STANDARD, start_time=0.0)
+    session = DictationSession(session_id="s", mode=DictationMode.HIDDEN, start_time=0.0)
     assert pipeline.prepare_final(noise, session) == ""
 
 
 def test_segment_pipeline_prepare_final_processes_real_text(app_config, noop_alias_service):
     pipeline = DictationSegmentPipeline(app_config.dictation, noop_alias_service)
-    session = DictationSession(session_id="s", mode=DictationMode.STANDARD, start_time=0.0)
+    session = DictationSession(session_id="s", mode=DictationMode.HIDDEN, start_time=0.0)
     assert pipeline.prepare_final("hello world", session) == "hello world"

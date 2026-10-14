@@ -26,7 +26,7 @@ async def test_finalized_clip_published_for_sound_recognition(sound_segmenter_se
 @pytest.mark.parametrize("dictation_active", [True, False])
 async def test_dictation_mute_forwarded_to_segmenter(sound_segmenter_service, dictation_active):
     sound_segmenter_service._handle_dictation_mode(
-        DictationModeDisableOthersEvent(dictation_mode_active=dictation_active, dictation_mode="standard")
+        DictationModeDisableOthersEvent(dictation_mode_active=dictation_active, dictation_mode="hidden")
     )
     sound_segmenter_service.segmenter.feed_pcm_chunk = Mock(return_value=[])
 

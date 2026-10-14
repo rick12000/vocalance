@@ -9,7 +9,6 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
     AutomationCommand,
     DictationAmendStartCommand,
-    DictationHiddenStartCommand,
     DictationPauseToggleCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
@@ -55,7 +54,6 @@ class CommandParserTriggers(BaseModel):
     dictation_type_trigger: str
     dictation_smart_trigger: str
     dictation_visual_trigger: str
-    dictation_hidden_trigger: str
     dictation_amend_trigger: str
 
 
@@ -79,7 +77,6 @@ def build_triggers_from_config(config: GlobalAppConfig) -> CommandParserTriggers
         dictation_type_trigger=d.type_trigger.lower(),
         dictation_smart_trigger=d.smart_start_trigger.lower(),
         dictation_visual_trigger=d.visual_start_trigger.lower(),
-        dictation_hidden_trigger=d.hidden_start_trigger.lower(),
         dictation_amend_trigger=d.amend_start_trigger.lower(),
     )
 
@@ -112,8 +109,6 @@ def parse_dictation(normalized_text: str, triggers: CommandParserTriggers) -> Pa
         return DictationSmartStartCommand()
     if normalized_text == triggers.dictation_visual_trigger:
         return DictationVisualStartCommand()
-    if normalized_text == triggers.dictation_hidden_trigger:
-        return DictationHiddenStartCommand()
     if normalized_text == triggers.dictation_amend_trigger:
         return DictationAmendStartCommand()
     return NoMatchResult()

@@ -7,7 +7,6 @@ skip_if_headless()
 
 from vocalance.app.config.command_types import (
     DictationAmendStartCommand,
-    DictationHiddenStartCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -47,7 +46,7 @@ from vocalance.app.services.command_flow.parsing.text_command_parse import (
         ("type", DictationTypeCommand),
         ("smart green", DictationSmartStartCommand),
         ("visual green", DictationVisualStartCommand),
-        ("hidden green", DictationHiddenStartCommand),
+        ("hidden green", NoMatchResult),
         ("amend", DictationAmendStartCommand),
     ],
 )

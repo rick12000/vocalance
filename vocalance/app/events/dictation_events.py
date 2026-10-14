@@ -11,7 +11,7 @@ class DictationStatusChangedEvent(BaseEvent):
     """Event fired when dictation status changes for UI synchronization."""
 
     is_active: bool = Field(description="Whether dictation is currently active")
-    mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden", "amend"] = Field(
+    mode: Literal["inactive", "type", "smart", "visual", "hidden", "amend"] = Field(
         description="Current dictation mode"
     )
     show_ui: bool = Field(default=False, description="Whether to show the dictation UI indicator")
@@ -22,7 +22,7 @@ class DictationModeDisableOthersEvent(BaseEvent):
     """Event fired to disable other speech/sound processing during dictation."""
 
     dictation_mode_active: bool = Field(description="Whether dictation mode is active, disabling other processing")
-    dictation_mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden", "amend"]
+    dictation_mode: Literal["inactive", "type", "smart", "visual", "hidden", "amend"]
 
 
 class DictationSessionEvent(BaseEvent):
@@ -135,14 +135,14 @@ class DictationAliasUiOperationEvent(BaseEvent):
 class DictationStopWordDetectedEvent(BaseEvent):
     """Event fired when the dictation stop word is detected."""
 
-    mode: Literal["standard", "type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
+    mode: Literal["type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
 
 
 class DictationPausedStateEvent(BaseEvent):
     """Event fired when an active dictation session enters or exits the paused state."""
 
     is_paused: bool = Field(description="True when entering paused state, False when resuming recording")
-    mode: Literal["standard", "type", "smart", "visual", "hidden", "amend"] = Field(description="Active dictation mode")
+    mode: Literal["type", "smart", "visual", "hidden", "amend"] = Field(description="Active dictation mode")
 
 
 class DictationModifierPhraseEvent(BaseEvent):

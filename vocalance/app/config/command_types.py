@@ -53,10 +53,10 @@ class DictationCommand(BaseCommand):
 
 
 class DictationStartCommand(DictationCommand):
-    """Command to start standard dictation mode.
+    """Command to start hidden dictation, activated by the configured start trigger.
 
-    Activates dictation with the configured start trigger phrase, capturing speech
-    for text generation without formatting.
+    Accumulates speech without showing partial text, then pastes the full
+    transcript when dictation stops. The listening indicator is a sound wave only.
     """
 
 
@@ -99,16 +99,6 @@ class DictationVisualStartCommand(DictationCommand):
     """
 
 
-class DictationHiddenStartCommand(DictationCommand):
-    """Command to start hidden dictation mode with silent accumulation.
-
-    Activates dictation that accumulates text in memory without displaying
-    partial/final text in UI. Shows only a sound wave indicator like standard
-    mode. Text is pasted when stopped, with buffer flushed to capture any
-    trailing audio.
-    """
-
-
 class DictationAmendStartCommand(DictationCommand):
     """Command to start amend mode: copy selection, dictate instructions, LLM applies them."""
 
@@ -134,10 +124,10 @@ class ResumeCommand(SystemControlCommand):
 
 
 class RepeatCommand(SystemControlCommand):
-    """Command to re-execute the last non-system command.
+    """Replay the last automation command or the go command that shows the grid.
 
-    When triggered, replays the most recently executed command that was not
-    itself a system control command (pause, resume, repeat).
+    Pause, resume, and repeat itself are not replayed. Dictation, marks, grid
+    cell selection, and the hover and drag grid phrases are not replayed.
     """
 
 
@@ -405,7 +395,6 @@ DictationCommandType = Union[
     DictationTypeCommand,
     DictationSmartStartCommand,
     DictationVisualStartCommand,
-    DictationHiddenStartCommand,
     DictationAmendStartCommand,
 ]
 

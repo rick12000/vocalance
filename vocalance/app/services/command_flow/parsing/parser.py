@@ -8,7 +8,6 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
     BaseCommand,
     DictationAmendStartCommand,
-    DictationHiddenStartCommand,
     DictationPauseToggleCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
@@ -57,7 +56,6 @@ PARSED_EVENT_BY_COMMAND: Dict[Type[BaseCommand], Type[BaseEvent]] = {
     DictationTypeCommand: DictationCommandParsedEvent,
     DictationSmartStartCommand: DictationCommandParsedEvent,
     DictationVisualStartCommand: DictationCommandParsedEvent,
-    DictationHiddenStartCommand: DictationCommandParsedEvent,
     DictationAmendStartCommand: DictationCommandParsedEvent,
     ExactMatchCommand: AutomationCommandParsedEvent,
     ParameterizedCommand: AutomationCommandParsedEvent,
@@ -72,6 +70,18 @@ PARSED_EVENT_BY_COMMAND: Dict[Type[BaseCommand], Type[BaseEvent]] = {
     PauseCommand: SystemControlCommandParsedEvent,
     ResumeCommand: SystemControlCommandParsedEvent,
 }
+
+
+def is_repeatable_command(command: BaseCommand) -> bool:
+    """Return whether ``repeat`` should replay ``command``.
+
+    Automation commands are repeatable. So is the go command, which is a grid
+    show in click mode, including ``go`` with a cell count. Hover, drag, cell
+    selection, marks, and dictation are not.
+    """
+    if isinstance(command, (ExactMatchCommand, ParameterizedCommand)):
+        return True
+    return isinstance(command, GridShowCommand) and command.click_mode == "click"
 
 
 class CentralizedCommandParser(Service):
@@ -127,7 +137,7 @@ class CentralizedCommandParser(Service):
 
                 await self.publish_command_event(parsed, src)
                 self._last_command_executed_mono = time.monotonic()
-                if not isinstance(parsed, (PauseCommand, ResumeCommand)):
+                if is_repeatable_command(parsed):
                     self._last_repeatable_command = parsed
 
     async def publish_command_event(self, command: BaseCommand, source: Optional[str]) -> None:

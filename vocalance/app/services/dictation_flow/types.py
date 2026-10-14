@@ -9,7 +9,6 @@ from vocalance.app.events.dictation_events import DictationModifierId
 
 class DictationMode(StrEnum):
     INACTIVE = "inactive"
-    STANDARD = "standard"
     SMART = "smart"
     TYPE = "type"
     VISUAL = "visual"

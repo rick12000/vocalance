@@ -11,7 +11,6 @@ from typing import Optional
 from vocalance.app.config.app_config import DictationConfig, GlobalAppConfig
 from vocalance.app.config.command_types import (
     DictationAmendStartCommand,
-    DictationHiddenStartCommand,
     DictationPauseToggleCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
@@ -63,7 +62,6 @@ from vocalance.app.services.storage.storage_service import StorageService
 from vocalance.app.utils.llm_dep_check import llm_deps_available
 
 ASR_CHUNK_DICTATION_MODES: tuple[DictationMode, ...] = (
-    DictationMode.STANDARD,
     DictationMode.TYPE,
     DictationMode.SMART,
     DictationMode.VISUAL,
@@ -199,18 +197,12 @@ class DictationASRController:
             logger.error("XASREngine unavailable — cannot start dictation stream")
             return
         mode = self.coordinator.current_session.mode if self.coordinator.current_session else None
-        provisional_override = None
-        if mode == DictationMode.STANDARD:
-            cfg = self.coordinator.config.stt.xasr
-            provisional_override = cfg.provisional_words + cfg.green_mode_extra_provisional_words
 
-        # STANDARD/TYPE: 3-second silence commit so that long pauses eventually produce
-        # output while accepting the punctuation trade-off.
-        # All other modes: 15-second threshold — effectively disabled, relying on the
-        # stability window (mid-session) and session-end finalization for maximum
-        # punctuation quality. The provisional tail is always visible in the UI (VISUAL)
-        # or irrelevant to the user (HIDDEN/SMART/AMEND) until the session ends.
-        if mode in (DictationMode.STANDARD, DictationMode.TYPE):
+        # TYPE uses a short silence commit so long pauses still produce output.
+        # Other modes use 15 seconds, so punctuation comes from the stability window
+        # and from session-end finalization. The provisional tail is shown in VISUAL
+        # and held until stop for HIDDEN, SMART, and AMEND.
+        if mode == DictationMode.TYPE:
             silence_threshold = 1.0
         else:
             silence_threshold = 15.0
@@ -221,7 +213,6 @@ class DictationASRController:
             self.coordinator.gui_event_loop,
             self.on_committed,
             self.on_provisional,
-            provisional_words_override=provisional_override,
             silence_commit_threshold_override=silence_threshold,
         )
         self.asr_ingress_epoch += 1
@@ -267,7 +258,7 @@ class DictationASRController:
         if is_likely_hallucination_fragment(delta, ""):
             return
 
-        if session.mode in (DictationMode.STANDARD, DictationMode.TYPE):
+        if session.mode == DictationMode.TYPE:
             await self.coordinator.event_bus.publish(
                 DictationTextRecognizedEvent(
                     text=delta,
@@ -310,7 +301,7 @@ class DictationASRController:
 
         if not session or session.mode not in ASR_CHUNK_DICTATION_MODES:
             return
-        if session.mode in (DictationMode.HIDDEN, DictationMode.STANDARD, DictationMode.TYPE):
+        if session.mode in (DictationMode.HIDDEN, DictationMode.TYPE):
             return
         if self.coordinator.current_state != DictationState.RECORDING:
             return
@@ -670,7 +661,7 @@ class DictationCoordinator(Service):
     async def handle_dictation_command(self, parsed_dictation: DictationCommandParsedEvent) -> None:
         command = parsed_dictation.command
         if isinstance(command, DictationStartCommand):
-            await self.start_session(DictationMode.STANDARD)
+            await self.start_session(DictationMode.HIDDEN)
         elif isinstance(command, DictationStopCommand):
             await self.stop_session()
         elif isinstance(command, DictationPauseToggleCommand):
@@ -687,8 +678,6 @@ class DictationCoordinator(Service):
                 await self.start_session(DictationMode.SMART)
         elif isinstance(command, DictationVisualStartCommand):
             await self.start_session(DictationMode.VISUAL)
-        elif isinstance(command, DictationHiddenStartCommand):
-            await self.start_session(DictationMode.HIDDEN)
         elif isinstance(command, DictationAmendStartCommand):
             if self.llm_service is not None:
                 await self.start_amend_session()
@@ -705,7 +694,7 @@ class DictationCoordinator(Service):
     async def stop_streaming_mode(self, session: DictationSession) -> None:
         accumulated_text, final_tail = self.asr.halt_streaming_capturer()
 
-        if session.mode in (DictationMode.STANDARD, DictationMode.TYPE):
+        if session.mode == DictationMode.TYPE:
             add_trailing, _ = dictation_segment_input_options(session.mode, session.active_modifiers)
             # Flush any words that were still held in the streaming buffer (not yet
             # committed because the word threshold had not been reached).

@@ -50,7 +50,7 @@ async def test_stop_trigger_during_dictation_emits_stop_and_command_text(
     recognized = event_collector(CommandTextRecognizedEvent)
 
     await command_speech_service.event_bus.publish(
-        DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard")
+        DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="hidden")
     )
     await asyncio.sleep(0.05)
     await command_speech_service.event_bus.publish(
@@ -59,7 +59,7 @@ async def test_stop_trigger_during_dictation_emits_stop_and_command_text(
     await asyncio.sleep(0.1)
 
     assert len(stop_events) == 1
-    assert stop_events[0].mode == "standard"
+    assert stop_events[0].mode == "hidden"
     assert len(recognized) == 1
     assert recognized[0].text == "amber"
 
@@ -71,7 +71,7 @@ async def test_modifier_phrase_during_dictation_emits_modifier_event(command_spe
     recognized = event_collector(CommandTextRecognizedEvent)
 
     await command_speech_service.event_bus.publish(
-        DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard")
+        DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="hidden")
     )
     await asyncio.sleep(0.05)
     await command_speech_service.event_bus.publish(
@@ -91,7 +91,7 @@ async def test_ordinary_command_suppressed_during_dictation(command_speech_servi
     modifier_events = event_collector(DictationModifierPhraseEvent)
 
     await command_speech_service.event_bus.publish(
-        DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="standard")
+        DictationModeDisableOthersEvent(dictation_mode_active=True, dictation_mode="hidden")
     )
     await asyncio.sleep(0.05)
     await command_speech_service.event_bus.publish(

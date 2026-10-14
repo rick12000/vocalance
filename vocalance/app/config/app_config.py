@@ -87,9 +87,6 @@ class XASRConfig(BaseModel):
     - ``provisional_words`` (default 4): The last N words of the hypothesis are always kept
       provisional regardless of stability. Prevents committing words that may still change as
       context arrives.
-    - ``green_mode_extra_provisional_words`` (default 2): Additional provisional words held back
-      only in green mode (external cursor injection), for a more conservative commitment policy
-      since external text cannot be recalled.
 
     **Performance tuning:**
     - ``num_threads`` (default 2): ONNX Runtime CPU thread count. Benchmark 1/2/4 on target
@@ -111,24 +108,15 @@ class XASRConfig(BaseModel):
         le=20,
         description="Trailing words always kept provisional regardless of stability_window.",
     )
-    green_mode_extra_provisional_words: int = Field(
-        default=2,
-        ge=0,
-        le=10,
-        description=(
-            "Additional provisional words held back in green mode beyond provisional_words, "
-            "giving a more conservative commitment policy for external-cursor text injection."
-        ),
-    )
     silence_commit_threshold_sec: float = Field(
         default=1.0,
         ge=0.1,
         le=60.0,
         description=(
             "Default seconds of hypothesis stability before the provisional tail is force-committed "
-            "mid-session. The coordinator overrides this per-mode: STANDARD/TYPE use 3 s (accepting "
-            "a punctuation trade-off in exchange for eventual output on long pauses); all other modes "
-            "use 15 s (effectively relying on session-end finalization for maximum punctuation quality)."
+            "mid-session. The coordinator overrides this per-mode: TYPE uses a short threshold so "
+            "long pauses still produce output; all other modes use 15 s and rely on session-end "
+            "finalization for punctuation quality."
         ),
     )
     audio_queue_maxsize: int = Field(
@@ -296,7 +284,6 @@ class DictationConfig(BaseModel):
     type_trigger: str = "type"
     smart_start_trigger: str = "smart green"
     visual_start_trigger: str = "visual green"
-    hidden_start_trigger: str = "hidden green"
     amend_start_trigger: str = "amend"
 
     use_clipboard: bool = True

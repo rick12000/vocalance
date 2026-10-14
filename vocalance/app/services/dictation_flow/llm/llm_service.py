@@ -3,10 +3,11 @@ import gc
 import logging
 import multiprocessing
 import os
+import sys
 import threading
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set, Tuple
 
-from llama_cpp import Llama
+from llama_cpp import Llama, llama_supports_gpu_offload
 
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfig, LocalLLMArtifact, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
@@ -31,7 +32,7 @@ _AMEND_SYSTEM_BASE = (
 
 
 class LLMService(Service):
-    """Loads a GGUF model with llama.cpp for CPU inference and unloads when idle."""
+    """Loads a GGUF model with llama.cpp (GPU when available) and unloads when idle."""
 
     def __init__(
         self,
@@ -155,22 +156,42 @@ class LLMService(Service):
 
     def load_model(self, model_path: str, disable_thinking: bool = False) -> Llama:
         cfg = self.config.llm
-        model = Llama(
-            model_path=model_path,
-            n_ctx=cfg.context_length,
-            n_threads=self.n_threads,
-            n_threads_batch=self.n_threads_batch,
-            n_batch=cfg.n_batch,
-            n_gpu_layers=0,
-            flash_attn=cfg.flash_attn,
-            use_mmap=True,
-            use_mlock=cfg.use_mlock,
-            chat_format=None if disable_thinking else "chatml",
-            seed=-1,
-            type_k=cfg.type_k,
-            type_v=cfg.type_v,
-            verbose=cfg.verbose,
-        )
+        model: Llama
+        n_gpu_layers = 0
+        for i, attempt_layers in enumerate((-1, 0)):
+            try:
+                model = Llama(
+                    model_path=model_path,
+                    n_ctx=cfg.context_length,
+                    n_threads=self.n_threads,
+                    n_threads_batch=self.n_threads_batch,
+                    n_batch=cfg.n_batch,
+                    n_gpu_layers=attempt_layers,
+                    flash_attn=cfg.flash_attn,
+                    use_mmap=True,
+                    use_mlock=cfg.use_mlock,
+                    chat_format=None if disable_thinking else "chatml",
+                    seed=-1,
+                    type_k=cfg.type_k,
+                    type_v=cfg.type_v,
+                    verbose=cfg.verbose,
+                )
+                n_gpu_layers = attempt_layers
+                break
+            except Exception:
+                if i == 1:
+                    raise
+                logger.warning("LLM GPU offload failed; falling back to CPU", exc_info=True)
+        if n_gpu_layers == -1 and llama_supports_gpu_offload():
+            logger.info("LLM loaded with GPU offload")
+        elif n_gpu_layers == -1:
+            logger.warning(
+                "LLM requested GPU offload but this llama-cpp-python build has no GPU backend; running on CPU. "
+                "Install a CUDA/Vulkan build into the Python that runs Vocalance (%s).",
+                sys.executable,
+            )
+        else:
+            logger.info("LLM loaded on CPU (n_gpu_layers=0)")
         if disable_thinking:
             base_handler = model.chat_handler or model._chat_handlers.get(model.chat_format)
             if base_handler is not None:

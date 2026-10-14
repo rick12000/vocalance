@@ -28,7 +28,6 @@ def strip_dictation_triggers(text: str, cfg: DictationConfig) -> str:
         cfg.type_trigger,
         cfg.smart_start_trigger,
         cfg.visual_start_trigger,
-        cfg.hidden_start_trigger,
         cfg.amend_start_trigger,
     )
     stripped: str = strip_config_phrases_case_insensitive(text, trigger_phrases)

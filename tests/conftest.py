@@ -837,10 +837,10 @@ def parser_triggers():
         mark_cancel_visualize_phrases=("cancel marks", "hide marks"),
         dictation_start_trigger="green",
         dictation_stop_trigger="amber",
+        dictation_pause_trigger="yellow",
         dictation_type_trigger="type",
         dictation_smart_trigger="smart green",
         dictation_visual_trigger="visual green",
-        dictation_hidden_trigger="hidden green",
         dictation_amend_trigger="amend",
     )
 

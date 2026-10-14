@@ -72,7 +72,6 @@ class ProtectedTermsValidator(Service):
         protected.add(dictation.type_trigger.lower().strip())
         protected.add(dictation.smart_start_trigger.lower().strip())
         protected.add(dictation.visual_start_trigger.lower().strip())
-        protected.add(dictation.hidden_start_trigger.lower().strip())
         protected.add(dictation.amend_start_trigger.lower().strip())
 
         protected.add("pause")
