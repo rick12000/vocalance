@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -83,16 +82,10 @@ class CommandSegmenterService(Service):
 
     def _dispatch_hit(self, hit: SegmentHit) -> None:
         if isinstance(hit, Onset):
-            asyncio.create_task(
-                self.event_bus.publish(AudioDetectedEvent(timestamp=hit.ts))
-            )
+            self.event_bus.submit(AudioDetectedEvent(timestamp=hit.ts))
         elif isinstance(hit, Clip):
-            asyncio.create_task(
-                self.event_bus.publish(
-                    CommandAudioSegmentReadyEvent(
-                        audio_bytes=hit.pcm_bytes, sample_rate=hit.sample_rate
-                    )
-                )
+            self.event_bus.submit(
+                CommandAudioSegmentReadyEvent(audio_bytes=hit.pcm_bytes, sample_rate=hit.sample_rate)
             )
 
     def _handle_settings_changed(self, event: SettingsChangedEvent) -> None:

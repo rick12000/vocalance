@@ -86,6 +86,7 @@ Vocalance downloads AI model files on first launch only, to your local machine. 
 - **When:** Automatically on first launch if not already present. A download progress indicator is shown during startup.
 - **Source:** Downloaded from [Hugging Face Hub](https://huggingface.co).
 - **Default model:** Qwen3.5 2B (GGUF, Q4_K_M), licensed under [Apache 2.0](https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE).
+- **Optional local endpoint:** You may opt in to send dictation/amend requests to an OpenAI-compatible server on loopback only (e.g. Ollama, llama-server). No cloud API key is configured in the app.
 - **Other models, downloaded only if you choose them in Settings:**
   - [Qwen3 4B Instruct 2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) — [Apache 2.0](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE)
   - [Granite 4.2 3B](https://huggingface.co/ibm-granite/granite-4.2-3b) — [Apache 2.0](https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE)

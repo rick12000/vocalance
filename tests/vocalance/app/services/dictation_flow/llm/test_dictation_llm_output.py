@@ -27,6 +27,16 @@ def test_sanitize_strips_reformatted_preamble_and_wrapper_echo():
     assert sanitize_llm_formatter_output(raw) == "The actual content we want."
 
 
+def test_sanitize_keeps_reply_after_echoed_transcript_markers():
+    raw = (
+        "=== TRANSCRIPT ===\n"
+        "this is a quick test\n"
+        "=== END TRANSCRIPT ===\n"
+        "This is a quick test."
+    )
+    assert sanitize_llm_formatter_output(raw) == "This is a quick test."
+
+
 def test_dictation_stop_sequences_for_formatter_messages():
     messages = [
         {"role": "system", "content": "You reformat dictated speech."},

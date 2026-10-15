@@ -41,6 +41,31 @@ USER_CONFIGURABLE_FIELDS: Tuple[UserConfigurableField, ...] = (
         llm_session_stale=True,
     ),
     UserConfigurableField(
+        path="llm.provider",
+        label="Inference",
+        section="LLM model",
+        value_type=str,
+        llm_session_stale=True,
+        choices=(
+            ("shipped", "Shipped on-device models"),
+            ("local_endpoint", "Local OpenAI-compatible endpoint"),
+        ),
+    ),
+    UserConfigurableField(
+        path="llm.local_endpoint_base_url",
+        label="Endpoint base URL",
+        section="LLM model",
+        value_type=str,
+        llm_session_stale=True,
+    ),
+    UserConfigurableField(
+        path="llm.local_endpoint_model",
+        label="Endpoint model name",
+        section="LLM model",
+        value_type=str,
+        llm_session_stale=True,
+    ),
+    UserConfigurableField(
         path="llm.selected_model_id",
         label="Model",
         section="LLM model",

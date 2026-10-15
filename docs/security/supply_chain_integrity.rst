@@ -82,6 +82,12 @@ The six permitted models are pinned GGUF builds of these checkpoints:
 Any model ID not in this list is rejected by the ``LLMConfig`` field validator
 before a download is ever attempted.
 
+Optional **local endpoint** mode (user opt-in in Settings) sends chat completions to
+an OpenAI-compatible HTTP API on **loopback only** (``localhost``, ``127.0.0.1``, or
+``::1``). No API key field is offered. The server (e.g. Ollama or ``llama-server``)
+is outside Vocalance's SHA-256 allowlist; the user is responsible for what runs on
+that port. Shipped GGUF downloads are skipped at startup when endpoint mode is active.
+
 Redirect pinning
 ----------------
 

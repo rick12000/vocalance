@@ -3,7 +3,7 @@ import logging
 from functools import partial
 from typing import Any, Dict, Optional, Tuple
 
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
@@ -40,6 +40,7 @@ class QtSettingsView(QWidget):
     """
 
     llm_persist_finished = Signal(bool, str)
+    endpoint_test_result = Signal(bool, str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         """Initialize settings view."""
@@ -48,6 +49,7 @@ class QtSettingsView(QWidget):
         self.logger = logging.getLogger(self.__class__.__name__)
         self._llm_enabled = llm_deps_available()
         self.llm_persist_finished.connect(self.on_llm_persist_finished_main)
+        self.endpoint_test_result.connect(self.on_llm_endpoint_test_finished, Qt.ConnectionType.QueuedConnection)
         self.controller = None
         self.settings: Dict[str, Any] = {}
         self.setting_widgets = {}
@@ -191,59 +193,103 @@ class QtSettingsView(QWidget):
         self.scroll_container.add(SectionTitle(section_name))
 
         llm_widgets: dict = {}
-        field_specs = [
-            ("llm", "selected_model_id", "Model"),
-            ("llm", "context_length", "Max Context Tokens"),
-            ("llm", "max_tokens", "Max Output Tokens"),
-        ]
+        llm_settings = self.settings.get("llm") if isinstance(self.settings.get("llm"), dict) else {}
+        current_provider = str(llm_settings.get("provider") or "shipped")
+
+        provider_combo = QComboBox(self)
+        provider_field = FIELD_BY_PATH["llm.provider"]
+        for stored, label in provider_field.choices:
+            provider_combo.addItem(label, stored)
+        idx = provider_combo.findData(current_provider)
+        if idx >= 0:
+            provider_combo.setCurrentIndex(idx)
+        provider_combo.currentIndexChanged.connect(self.on_llm_provider_changed)
+        self.scroll_container.add(FormField("Inference", provider_combo))
+        llm_widgets["llm.provider"] = provider_combo
+        self.setting_widgets["llm.provider"] = provider_combo
+
+        self.llm_shipped_panel = QWidget(self)
+        shipped_layout = QVBoxLayout(self.llm_shipped_panel)
+        shipped_layout.setContentsMargins(0, 0, 0, 0)
+        shipped_layout.setSpacing(theme.config.spacing.medium)
 
         combo = QComboBox(self)
         self.apply_llm_model_combo_style(combo)
         for m in local_llm_allowlist().artifacts:
             combo.addItem(m.label, m.id)
         current_id = DEFAULT_LLM_MODEL_ID
-        if "llm" in self.settings and isinstance(self.settings["llm"], dict):
-            current_id = self.settings["llm"].get("selected_model_id") or current_id
+        current_id = llm_settings.get("selected_model_id") or current_id
         combo.currentIndexChanged.connect(self.on_llm_model_combo_changed)
         self.suppress_llm_combo_events = True
         try:
-            idx = combo.findData(current_id)
-            if idx >= 0:
-                combo.setCurrentIndex(idx)
+            midx = combo.findData(current_id)
+            if midx >= 0:
+                combo.setCurrentIndex(midx)
         finally:
             self.suppress_llm_combo_events = False
-
-        group = FormField("Model", combo)
-        self.scroll_container.add(group)
+        shipped_layout.addWidget(FormField("Model", combo))
         llm_widgets["llm.selected_model_id"] = combo
         self.setting_widgets["llm.selected_model_id"] = combo
 
         self.llm_availability_label = SmallLabel("", color=theme.config.text.medium)
         self.llm_availability_label.setWordWrap(True)
-        self.scroll_container.add(self.llm_availability_label)
+        shipped_layout.addWidget(self.llm_availability_label)
 
         download_row = QHBoxLayout()
         download_row.setSpacing(theme.config.spacing.medium)
-        self.llm_download_btn = PrimaryButton(
-            text="Download", command=self.on_llm_download_clicked
-        )
+        self.llm_download_btn = PrimaryButton(text="Download", command=self.on_llm_download_clicked)
         download_row.addWidget(self.llm_download_btn)
         download_row.addStretch()
-        self.scroll_container.content_layout.addLayout(download_row)
+        shipped_layout.addLayout(download_row)
 
-        for category, key, label_text in field_specs[1:]:
-            value = None
-            if category in self.settings and isinstance(self.settings[category], dict):
-                value = self.settings[category].get(key)
+        for setting_key in ("llm.context_length", "llm.max_tokens"):
+            field = FIELD_BY_PATH[setting_key]
+            category, key = setting_key.split(".", 1)
+            value = llm_settings.get(key)
             if value is None:
                 continue
-            setting_key = f"{category}.{key}"
             inp = TextInput()
             inp.setText(str(value))
-            group = FormField(label_text, inp)
-            self.scroll_container.add(group)
+            shipped_layout.addWidget(FormField(field.label, inp))
             llm_widgets[setting_key] = inp
             self.setting_widgets[setting_key] = inp
+
+        self.scroll_container.add(self.llm_shipped_panel)
+
+        self.llm_endpoint_panel = QWidget(self)
+        endpoint_layout = QVBoxLayout(self.llm_endpoint_panel)
+        endpoint_layout.setContentsMargins(0, 0, 0, 0)
+        endpoint_layout.setSpacing(theme.config.spacing.medium)
+
+        for setting_key in ("llm.local_endpoint_base_url", "llm.local_endpoint_model"):
+            field = FIELD_BY_PATH[setting_key]
+            _, key = setting_key.split(".", 1)
+            inp = TextInput()
+            inp.setText(str(llm_settings.get(key) or ""))
+            endpoint_layout.addWidget(FormField(field.label, inp))
+            llm_widgets[setting_key] = inp
+            self.setting_widgets[setting_key] = inp
+
+        endpoint_hint = SmallLabel(
+            "Loopback only (localhost / 127.0.0.1 / ::1). Compatible with Ollama and llama-server OpenAI APIs.",
+            color=theme.config.text.medium,
+        )
+        endpoint_hint.setWordWrap(True)
+        endpoint_layout.addWidget(endpoint_hint)
+
+        test_row = QHBoxLayout()
+        self.llm_endpoint_test_btn = PrimaryButton(
+            text="Test connection", command=self.on_llm_endpoint_test_clicked
+        )
+        test_row.addWidget(self.llm_endpoint_test_btn)
+        test_row.addStretch()
+        endpoint_layout.addLayout(test_row)
+        self.llm_endpoint_test_status = SmallLabel("", color=theme.config.text.medium)
+        self.llm_endpoint_test_status.setWordWrap(True)
+        endpoint_layout.addWidget(self.llm_endpoint_test_status)
+
+        self.scroll_container.add(self.llm_endpoint_panel)
+        self.sync_llm_provider_panels()
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(theme.config.spacing.medium)
@@ -262,6 +308,51 @@ class QtSettingsView(QWidget):
 
         self.section_widgets[section_name] = {"widgets": llm_widgets}
         self.sync_llm_model_ui_state()
+
+    def sync_llm_provider_panels(self) -> None:
+        combo = self.setting_widgets.get("llm.provider")
+        if not isinstance(combo, QComboBox):
+            return
+        provider = combo.currentData() or "shipped"
+        shipped = provider == "shipped"
+        self.llm_shipped_panel.setVisible(shipped)
+        self.llm_endpoint_panel.setVisible(not shipped)
+
+    def on_llm_provider_changed(self, _index: int) -> None:
+        self.sync_llm_provider_panels()
+
+    def on_llm_endpoint_test_clicked(self) -> None:
+        if not self.controller:
+            return
+        updates: dict = {"llm.provider": "local_endpoint"}
+        for setting_key in ("llm.local_endpoint_base_url", "llm.local_endpoint_model"):
+            widget = self.setting_widgets.get(setting_key)
+            if isinstance(widget, TextInput):
+                updates[setting_key] = widget.text().strip()
+        self.llm_endpoint_test_btn.setEnabled(False)
+        asyncio.create_task(self._run_endpoint_test(updates))
+
+    async def _run_endpoint_test(self, updates: dict) -> None:
+        ok, msg = await self.controller.update_settings_async(updates)
+        if ok:
+            ok, msg = await self.controller.test_local_endpoint_async()
+        elif not msg:
+            msg = "Could not save endpoint settings."
+        self.endpoint_test_result.emit(ok, msg)
+
+    @Slot(bool, str)
+    def on_llm_endpoint_test_finished(self, ok: bool, message: str) -> None:
+        btn = getattr(self, "llm_endpoint_test_btn", None)
+        if btn:
+            btn.setEnabled(True)
+        label = getattr(self, "llm_endpoint_test_status", None)
+        if label is None:
+            return
+        label.setText(message)
+        color = theme.config.text.light if ok else theme.config.shapes.orange
+        pal = label.palette()
+        pal.setColor(QPalette.ColorRole.WindowText, QColor(color))
+        label.setPalette(pal)
 
     def apply_llm_model_combo_style(self, combo: QComboBox) -> None:
         combo.setFont(theme.get_font(size="medium"))
@@ -484,7 +575,14 @@ class QtSettingsView(QWidget):
 
         settings_to_save = {}
         for setting_key, widget in section_info["widgets"].items():
-            if setting_key == "llm.selected_model_id":
+            if setting_key in ("llm.selected_model_id",):
+                continue
+            if setting_key == "llm.provider" and isinstance(widget, QComboBox):
+                value = widget.currentData()
+                if value is None:
+                    self.show_error(f"Invalid value for {setting_key}")
+                    return
+                settings_to_save[setting_key] = str(value)
                 continue
             if isinstance(widget, Checkbox):
                 settings_to_save[setting_key] = widget.isChecked()

@@ -1,6 +1,8 @@
 import re
 from typing import List, Sequence
 
+from vocalance.app.services.dictation_flow.llm.reasoning_stream import strip_reasoning_from_text
+
 DICTATION_META_STOP_SEQUENCES: tuple[str, ...] = (
     "\n\nHere is the",
     "\n\nHere is ",
@@ -57,10 +59,18 @@ def _capitalize_first_letter(fragment: str) -> str:
 
 
 def strip_dictation_wrapper_echo(text: str) -> str:
-    if "--- DICTATION TO REFORMAT ---" in text:
+    end_dictation = re.split(r"---\s*END DICTATION\s*---", text, maxsplit=1, flags=re.IGNORECASE)
+    if len(end_dictation) == 2 and end_dictation[1].strip():
+        text = end_dictation[1]
+    elif "--- DICTATION TO REFORMAT ---" in text:
         _, text = text.split("--- DICTATION TO REFORMAT ---", 1)
-    if "--- END DICTATION ---" in text:
-        text = text.split("--- END DICTATION ---", 1)[0]
+        if "--- END DICTATION ---" in text:
+            text = text.split("--- END DICTATION ---", 1)[0]
+
+    end_transcript = re.split(r"===\s*END TRANSCRIPT\s*===", text, flags=re.IGNORECASE)
+    if len(end_transcript) > 1 and end_transcript[-1].strip():
+        return end_transcript[-1].strip()
+
     match = re.search(r"=== TRANSCRIPT ===\s*(.*?)\s*=== END TRANSCRIPT ===", text, re.DOTALL | re.IGNORECASE)
     if match and match.group(1).strip():
         return match.group(1).strip()
@@ -141,6 +151,19 @@ def strip_dictation_meta_tail(text: str, min_body_chars: int = 40) -> str:
     if match is None or match.start() < min_body_chars:
         return text
     return text[: match.start()].rstrip()
+
+
+def postprocess_llm_completion(
+    raw: str,
+    messages: Sequence[dict],
+    start_inside_reasoning: bool = False,
+) -> str:
+    from vocalance.app.services.dictation_flow.llm.dictation_messages import uses_shared_formatter_output_pipeline
+
+    text = strip_reasoning_from_text(raw, start_inside=start_inside_reasoning)
+    if uses_shared_formatter_output_pipeline(list(messages)):
+        text = sanitize_llm_formatter_output(text)
+    return text.strip()
 
 
 def sanitize_llm_formatter_output(text: str) -> str:

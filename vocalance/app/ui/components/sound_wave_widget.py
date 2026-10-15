@@ -2,7 +2,7 @@ import math
 from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPaintEvent
+from PySide6.QtGui import QBrush, QColor, QHideEvent, QLinearGradient, QPainter, QPaintEvent, QShowEvent
 from PySide6.QtWidgets import QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -76,7 +76,23 @@ class SoundWaveWidget(QWidget):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._animate)
-        self.timer.start(16)
+        self.timer.setInterval(16)
+
+    def start_animation(self) -> None:
+        if not self.timer.isActive():
+            self.timer.start()
+
+    def stop_animation(self) -> None:
+        if self.timer.isActive():
+            self.timer.stop()
+
+    def showEvent(self, show_event: QShowEvent) -> None:
+        super().showEvent(show_event)
+        self.start_animation()
+
+    def hideEvent(self, hide_event: QHideEvent) -> None:
+        super().hideEvent(hide_event)
+        self.stop_animation()
 
     def update_level(self, level: float) -> None:
         """Update target amplitude based on audio level (0.0 - 1.0)."""

@@ -68,6 +68,12 @@ class ReasoningTokenFilter:
         return text
 
 
+def strip_reasoning_from_text(text: str, start_inside: bool = False) -> str:
+    stream = ReasoningTokenFilter(start_inside=start_inside)
+    visible = stream.push(text) + stream.finish()
+    return visible
+
+
 def _partial_marker_suffix(text: str, marker: str) -> str:
     """Return the trailing prefix of ``marker`` that ``text`` might be starting."""
     limit = min(len(text), len(marker) - 1)

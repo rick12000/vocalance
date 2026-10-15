@@ -1,6 +1,6 @@
 import pytest
 
-from vocalance.app.services.dictation_flow.llm.reasoning_stream import ReasoningTokenFilter
+from vocalance.app.services.dictation_flow.llm.reasoning_stream import ReasoningTokenFilter, strip_reasoning_from_text
 
 
 def test_reasoning_filter_emits_text_that_has_no_think_span():
@@ -43,6 +43,12 @@ def test_reasoning_filter_discards_reasoning_that_never_closes():
     stream.push("unfinished thought")
 
     assert stream.finish() == ""
+
+
+def test_strip_reasoning_from_text_on_complete_string():
+    raw = "<think>plan</think>Only this."
+
+    assert strip_reasoning_from_text(raw) == "Only this."
 
 
 def test_reasoning_filter_flushes_a_partial_tag_that_is_real_text():

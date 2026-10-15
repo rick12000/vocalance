@@ -7,11 +7,11 @@ from typing import Callable, Optional, cast
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QPainter, QMoveEvent, QPaintEvent, QPalette, QTextCharFormat
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
 from vocalance.app.ui.components.sound_wave_widget import SoundWaveWidget
-from vocalance.app.ui.components.spinner_widget import SpinnerWidget
+from vocalance.app.ui.components.spinner_widget import OrangeArcSpinner, SpinnerWidget
 from vocalance.app.ui.components.text_display import TextDisplayContainer
 from vocalance.app.ui.qt_theme import theme
 
@@ -31,9 +31,11 @@ class QtDictationPopupView(QMainWindow):
     show_llm_processing_signal = Signal()  # Signal to show LLM processing on main thread
     modifier_banner_signal = Signal(str, bool)  # display_label, active
 
-    # Window sizes (determined by the sound wave widget)
-    SIMPLE_WIDTH = 60  # Exact fit for sound wave widget
-    SIMPLE_HEIGHT = 30  # Exact fit for sound wave widget
+    # Listening pill. The real size is derived from the indicator after the UI exists.
+    PILL_BORDER_WIDTH = 3
+    PILL_INNER_GAP = 8
+    SIMPLE_WIDTH = 72
+    SIMPLE_HEIGHT = 48
     SMART_WIDTH = 800
     SMART_HEIGHT = 550
     VISUAL_WIDTH = 400
@@ -59,6 +61,8 @@ class QtDictationPopupView(QMainWindow):
         self.pending_flush = False
 
         self.current_mode: Optional[str] = None
+        self.llm_processing_active = False
+        self.wave_listening = False
 
         self.border_is_orange = False
         self.border_is_yellow = False
@@ -124,11 +128,19 @@ class QtDictationPopupView(QMainWindow):
             gradient.setColorAt(1, QColor(gradient_colors[1]))
             painter.setBrush(gradient)
 
-        painter.drawRoundedRect(rect, 16, 16)
+        outer_radius, inner_radius = self.popup_corner_radii(rect.height(), border_width)
+        painter.drawRoundedRect(rect, outer_radius, outer_radius)
 
         inner_rect = rect.adjusted(border_width, border_width, -border_width, -border_width)
         painter.setBrush(QColor(theme.config.shapes.darkest))
-        painter.drawRoundedRect(inner_rect, 12, 12)
+        painter.drawRoundedRect(inner_rect, inner_radius, inner_radius)
+
+    def popup_corner_radii(self, height: int, border_width: int) -> tuple[float, float]:
+        """Capsule ends on the listening pill; milder corners on the large panes."""
+        if height <= self.SIMPLE_HEIGHT:
+            outer = height / 2
+            return outer, max(0.0, (height - (border_width * 2)) / 2)
+        return 16.0, 12.0
 
     def modifier_status_accent_color(self) -> str:
         gc = theme.config.text.gradient_colors
@@ -187,7 +199,25 @@ class QtDictationPopupView(QMainWindow):
         simple_layout.setSpacing(0)
 
         self.sound_wave_widget = SoundWaveWidget()
-        simple_layout.addWidget(self.sound_wave_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.pill_spinner = OrangeArcSpinner()
+        self.pill_spinner.setFixedSize(self.sound_wave_widget.size())
+        self._wave_opacity = QGraphicsOpacityEffect(self.sound_wave_widget)
+        self._wave_opacity.setOpacity(1.0)
+        self.sound_wave_widget.setGraphicsEffect(self._wave_opacity)
+        self._spinner_opacity = QGraphicsOpacityEffect(self.pill_spinner)
+        self._spinner_opacity.setOpacity(0.0)
+        self.pill_spinner.setGraphicsEffect(self._spinner_opacity)
+        self._pill_fade_anims: list[QPropertyAnimation] = []
+        self.pill_stage = QWidget()
+        self.pill_stage.setFixedSize(self.sound_wave_widget.size())
+        self.pill_stage.setAutoFillBackground(False)
+        pill_grid = QGridLayout(self.pill_stage)
+        pill_grid.setContentsMargins(0, 0, 0, 0)
+        pill_grid.setSpacing(0)
+        pill_grid.addWidget(self.sound_wave_widget, 0, 0)
+        pill_grid.addWidget(self.pill_spinner, 0, 0)
+        simple_layout.addWidget(self.pill_stage, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.fit_pill_window_to_indicator()
 
         self.simple_widget.setVisible(False)
         main_layout.addWidget(self.simple_widget)
@@ -365,6 +395,74 @@ class QtDictationPopupView(QMainWindow):
             self.border_is_yellow = False
             self.update()
 
+    def fit_pill_window_to_indicator(self) -> None:
+        """Size the listening window so the indicator sits inside the border.
+
+        The central layout margins and the painted border both consume space.
+        The window has to include both, plus a gap, or the wave and spinner
+        are clipped by the pill edge.
+        """
+        margins = self.centralWidget().layout().contentsMargins()
+        stage = self.pill_stage.size()
+        chrome = self.PILL_BORDER_WIDTH + self.PILL_INNER_GAP
+        width = stage.width() + margins.left() + margins.right()
+        height = stage.height() + margins.top() + margins.bottom()
+        inner_width = width - (self.PILL_BORDER_WIDTH * 2)
+        inner_height = height - (self.PILL_BORDER_WIDTH * 2)
+        if stage.width() + (chrome * 2) > inner_width:
+            width += (stage.width() + (chrome * 2)) - inner_width
+        if stage.height() + (chrome * 2) > inner_height:
+            height += (stage.height() + (chrome * 2)) - inner_height
+        self.SIMPLE_WIDTH = width
+        self.SIMPLE_HEIGHT = height
+
+    def lock_pill_window_size(self) -> None:
+        self.setFixedSize(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT)
+
+    def unlock_window_size(self) -> None:
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+
+    def stop_pill_fades(self) -> None:
+        for anim in self._pill_fade_anims:
+            if anim.state() == QPropertyAnimation.State.Running:
+                anim.stop()
+        self._pill_fade_anims.clear()
+
+    def fade_indicator_opacity(self, effect: QGraphicsOpacityEffect, end: float, on_finished: Optional[Callable[[], None]] = None) -> None:
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(280)
+        anim.setStartValue(effect.opacity())
+        anim.setEndValue(end)
+        anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        if on_finished is not None:
+            anim.finished.connect(on_finished)
+        anim.start()
+        self._pill_fade_anims.append(anim)
+
+    def reset_listening_indicator(self) -> None:
+        self.stop_pill_fades()
+        self._wave_opacity.setOpacity(1.0)
+        self._spinner_opacity.setOpacity(0.0)
+        self.pill_spinner.stop_now()
+        self.sound_wave_widget.start_animation()
+
+    def crossfade_to_processing(self) -> None:
+        self.stop_pill_fades()
+        self.pill_spinner.start_now()
+        self.fade_indicator_opacity(self._wave_opacity, 0.0, on_finished=self.sound_wave_widget.stop_animation)
+        self.fade_indicator_opacity(self._spinner_opacity, 1.0)
+
+    def finish_entrance_animation(self) -> None:
+        if self.animation_in and self.animation_in.state() == QPropertyAnimation.State.Running:
+            end = self.animation_in.endValue()
+            self.animation_in.stop()
+            if end is not None:
+                self.setGeometry(end)
+        if self.opacity_animation_in and self.opacity_animation_in.state() == QPropertyAnimation.State.Running:
+            self.opacity_animation_in.stop()
+            self.setWindowOpacity(1.0)
+
     @Slot()
     def show_simple_listening(self) -> None:
         """Show simple listening indicator - thread-safe."""
@@ -377,8 +475,12 @@ class QtDictationPopupView(QMainWindow):
             self.hide_all_modes()
             self.border_is_orange = False
             self.border_is_yellow = False
+            self.llm_processing_active = False
             self.simple_widget.setVisible(True)
+            self.reset_listening_indicator()
+            self.wave_listening = True
             self.current_mode = "simple"
+            self.lock_pill_window_size()
             if self._simple_modifier_label:
                 self._simple_modifier_fade_token = object()
                 self.prepare_simple_modifier_label(self._simple_modifier_label)
@@ -398,30 +500,31 @@ class QtDictationPopupView(QMainWindow):
         """Show amend mode: left = spoken instructions, right = LLM output (same layout as smart)."""
         QMetaObject.invokeMethod(self, "do_show_amend", Qt.ConnectionType.QueuedConnection)
 
-    def apply_dual_pane_layout(self, mode: str, left_column_title: str) -> None:
-        """Apply the dual-pane window layout on the Qt main thread (via calling slots)."""
+    def show_wave_listening(self, mode: str) -> None:
         with self.ui_lock:
             self._simple_modifier_label = ""
             self.hide_all_modes()
+            self.llm_processing_active = False
+            self.wave_listening = True
             self.border_is_orange = False
             self.border_is_yellow = False
+            self.simple_widget.setVisible(True)
+            self.reset_listening_indicator()
             self.current_mode = mode
-            self.dictation_column_label.setText(left_column_title)
-            self.smart_widget.setVisible(True)
-            self.clear_smart_content()
-            self.position_window(self.SMART_WIDTH, self.SMART_HEIGHT, "center_left")
+            self.lock_pill_window_size()
+            self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
             self.show_window_with_animation()
-            self.logger.info(f"Dual-pane dictation shown, mode={self.current_mode}")
+            self.logger.info("Wave listening shown, mode=%s", self.current_mode)
 
     @Slot()
     def do_show_smart(self) -> None:
         """Internal show smart - MUST run on main Qt thread."""
-        self.apply_dual_pane_layout("smart", "Dictation")
+        self.show_wave_listening("smart")
 
     @Slot()
     def do_show_amend(self) -> None:
         """Internal show amend mode; must run on the Qt main thread."""
-        self.apply_dual_pane_layout("amend", "Prompt")
+        self.show_wave_listening("amend")
 
     @Slot()
     def show_visual_dictation(self) -> None:
@@ -439,9 +542,11 @@ class QtDictationPopupView(QMainWindow):
         """Internal show visual - MUST run on main Qt thread."""
         with self.ui_lock:
             self._simple_modifier_label = ""
+            self.unlock_window_size()
             self.hide_all_modes()
             self.border_is_orange = False
             self.border_is_yellow = False
+            self.wave_listening = False
             self.current_mode = "visual"
             self.visual_widget.setVisible(True)
             self.clear_visual_content()
@@ -452,13 +557,23 @@ class QtDictationPopupView(QMainWindow):
     @Slot()
     def do_show_llm_processing(self) -> None:
         """Internal show LLM processing - MUST run on main Qt thread."""
-        # Keep smart widget visible, just update the status
-        # This is called after dictation stops and before LLM processing starts
-        if self.current_mode in self.DUAL_PANE_MODES:
-            self.llm_label.setText("Processing...")
-            # Start spinner when LLM processing begins
-            self.llm_spinner.start()
-            self.logger.debug("Switched to LLM processing mode with spinner")
+        with self.ui_lock:
+            already_visible = self.isVisible()
+            self.llm_processing_active = True
+            self.wave_listening = False
+            self.border_is_orange = True
+            self.border_is_yellow = False
+            self.smart_widget.setVisible(False)
+            self.visual_widget.setVisible(False)
+            self.simple_widget.setVisible(True)
+            self.finish_entrance_animation()
+            self.lock_pill_window_size()
+            self.crossfade_to_processing()
+            if not already_visible:
+                self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
+                self.show_window_with_animation()
+            self.update()
+            self.logger.debug("LLM processing UI: orange border and spinner")
 
     @Slot()
     def hide_popup(self) -> None:
@@ -469,8 +584,11 @@ class QtDictationPopupView(QMainWindow):
     def do_hide_popup(self) -> None:
         """Internal hide popup - MUST run on main Qt thread."""
         with self.ui_lock:
-            # Stop spinner when hiding popup
+            self.llm_processing_active = False
+            self.wave_listening = False
             self.llm_spinner.stop()
+            self.pill_spinner.stop_now()
+            self.stop_pill_fades()
             self.reset_reserved_modifier_slot(self.dictation_modifier_status)
             self.reset_reserved_modifier_slot(self.visual_modifier_status)
             self._simple_modifier_label = ""
@@ -487,7 +605,7 @@ class QtDictationPopupView(QMainWindow):
     @Slot(float)
     def do_update_audio_level(self, level: float) -> None:
         """Internal update audio level - MUST run on main Qt thread."""
-        if self.current_mode == "simple":
+        if self.current_mode in ("simple", "smart", "amend") and not self.llm_processing_active:
             self.sound_wave_widget.update_level(level)
 
     def append_dictation_text(self, text: str) -> None:

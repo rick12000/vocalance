@@ -12,7 +12,7 @@ from llama_cpp import Llama, llama_supports_gpu_offload
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfig, LocalLLMArtifact, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiNotificationKind, LlmUiRequestEvent, SettingsChangedEvent
-from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent
+from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.base_service import Service
@@ -21,10 +21,14 @@ from vocalance.app.services.dictation_flow.llm.dictation_messages import (
     build_dictation_chat_messages,
     is_dictation_formatter_messages,
 )
-from vocalance.app.services.dictation_flow.llm.dictation_messages import uses_shared_formatter_output_pipeline
 from vocalance.app.services.dictation_flow.llm.dictation_llm_output import (
     dictation_stop_sequences_for_messages,
-    sanitize_llm_formatter_output,
+    postprocess_llm_completion,
+)
+from vocalance.app.services.dictation_flow.llm.local_endpoint import validate_local_endpoint_base_url
+from vocalance.app.services.dictation_flow.llm.openai_compatible_client import (
+    OpenAICompatibleChatError,
+    chat_completions_sync,
 )
 from vocalance.app.services.dictation_flow.llm.formatter_output_rules import OUTPUT_SLOP_AND_FORMATTING_RULE
 from vocalance.app.services.dictation_flow.llm.reasoning_stream import ReasoningTokenFilter
@@ -113,6 +117,8 @@ class LLMService(Service):
             ev = self.download_cancel_events.get(rid)
             if ev is not None:
                 ev.set()
+        elif op == "test_local_endpoint":
+            schedule_on_loop(asyncio.get_running_loop(), self._run_endpoint_test(event.request_id))
 
     async def _run_download_workflow(
         self,
@@ -279,56 +285,141 @@ class LLMService(Service):
             self.model_downloader.revert_partial_bundle(fns, had_before)
             raise
 
+    async def _run_endpoint_test(self, request_id: str) -> None:
+        task = asyncio.current_task()
+        if task is not None:
+            self.active_download_tasks.add(task)
+            task.add_done_callback(self.active_download_tasks.discard)
+        ok, msg = await self.test_local_endpoint()
+        kind: LlmUiNotificationKind = "endpoint_test_finished"
+        await self.event_bus.publish(
+            LlmUiNotificationEvent(kind=kind, request_id=request_id, ok=ok, message=msg)
+        )
+
+    async def test_local_endpoint(self) -> Tuple[bool, str]:
+        cfg = self.config.llm
+        if not cfg.uses_local_endpoint():
+            return False, "Configure a loopback endpoint URL and model name first."
+        try:
+            validate_local_endpoint_base_url(cfg.local_endpoint_base_url)
+        except ValueError as exc:
+            return False, str(exc)
+        messages = [{"role": "user", "content": "Reply with the single word: ok"}]
+        try:
+            await run_blocking(
+                chat_completions_sync,
+                cfg.local_endpoint_base_url,
+                cfg.local_endpoint_model.strip(),
+                messages,
+                16,
+                cfg.local_endpoint_timeout_sec,
+                None,
+                name="llm-endpoint-test",
+            )
+            return True, "Endpoint responded successfully."
+        except OpenAICompatibleChatError as exc:
+            return False, str(exc)
+        except Exception as exc:
+            return False, f"Endpoint request failed: {exc}"
+
+    async def _complete_via_local_endpoint(
+        self,
+        messages: List[Dict[str, str]],
+        fallback_text: str,
+        agentic_prompt: str,
+    ) -> Optional[str]:
+        cfg = self.config.llm
+        stop_sequences = dictation_stop_sequences_for_messages(messages)
+        try:
+            raw = await run_blocking(
+                chat_completions_sync,
+                cfg.local_endpoint_base_url,
+                cfg.local_endpoint_model.strip(),
+                messages,
+                cfg.max_tokens,
+                cfg.local_endpoint_timeout_sec,
+                stop_sequences or None,
+                name="llm-endpoint-chat",
+            )
+        except OpenAICompatibleChatError as exc:
+            await self.emit_failed(str(exc), fallback_text)
+            return fallback_text.strip()
+        except Exception as exc:
+            await self.emit_failed(f"Local endpoint request failed: {exc}", fallback_text)
+            return fallback_text.strip()
+
+        result = postprocess_llm_completion(raw, messages, start_inside_reasoning=False)
+        final_result = result if result else fallback_text.strip()
+        await self.emit_completed(final_result, agentic_prompt)
+        return final_result
+
+    async def _complete_via_shipped_model(
+        self,
+        messages: List[Dict[str, str]],
+        fallback_text: str,
+        agentic_prompt: str,
+    ) -> Optional[str]:
+        spec = self.active_spec()
+        if not spec:
+            await self.emit_failed("Invalid LLM configuration", fallback_text)
+            return fallback_text.strip()
+
+        if not self.model_downloader.model_bundle_complete(spec.gguf_filenames):
+            msg = "LLM model files missing. Download the selected model in Settings."
+            await self.emit_failed(msg, fallback_text)
+            return fallback_text.strip()
+
+        model_path = self.model_downloader.get_model_path(spec.load_path_filename)
+        if not os.path.exists(model_path) or os.path.getsize(model_path) <= 0:
+            await self.emit_failed("LLM model file missing or empty", fallback_text)
+            return fallback_text.strip()
+
+        try:
+            self.llm = await run_blocking(self.load_model, model_path, spec, name="llm-load")
+            self.loaded_spec = spec
+        except Exception as e:
+            await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
+            return fallback_text.strip()
+
+        self.model_loaded = True
+        stop_sequences = dictation_stop_sequences_for_messages(messages)
+        try:
+            full_text: List[str] = []
+            async for token in self.generate_streaming(messages, stop=stop_sequences):
+                full_text.append(token)
+
+            raw = "".join(full_text)
+            result = postprocess_llm_completion(
+                raw,
+                messages,
+                start_inside_reasoning=spec.stream_starts_in_reasoning,
+            )
+            final_result = result if result else fallback_text.strip()
+            await self.emit_completed(final_result, agentic_prompt)
+            return final_result
+        except Exception as e:
+            await self.emit_failed(str(e), fallback_text)
+            return fallback_text.strip()
+        finally:
+            await self.dispose_loaded_model()
+
     async def run_chat_completion(
         self,
         messages: List[Dict[str, str]],
         fallback_text: str,
         agentic_prompt: str,
-        stream_session_id: Optional[str],
+        _stream_session_id: Optional[str],
     ) -> Optional[str]:
         async with self.request_lock:
-            spec = self.active_spec()
-            if not spec:
-                await self.emit_failed("Invalid LLM configuration", fallback_text)
-                return fallback_text.strip()
-
-            if not self.model_downloader.model_bundle_complete(spec.gguf_filenames):
-                msg = "LLM model files missing. Download the selected model in Settings."
-                await self.emit_failed(msg, fallback_text)
-                return fallback_text.strip()
-
-            model_path = self.model_downloader.get_model_path(spec.load_path_filename)
-            if not os.path.exists(model_path) or os.path.getsize(model_path) <= 0:
-                await self.emit_failed("LLM model file missing or empty", fallback_text)
-                return fallback_text.strip()
-
-            try:
-                self.llm = await run_blocking(self.load_model, model_path, spec, name="llm-load")
-                self.loaded_spec = spec
-            except Exception as e:
-                await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
-                return fallback_text.strip()
-
-            self.model_loaded = True
-            stop_sequences = dictation_stop_sequences_for_messages(messages)
-            try:
-                full_text: List[str] = []
-                async for token in self.generate_streaming(messages, stop=stop_sequences):
-                    full_text.append(token)
-                    if stream_session_id:
-                        await self.event_bus.publish(LLMTokenGeneratedEvent(token=token, session_id=stream_session_id))
-
-                result = "".join(full_text).strip()
-                if uses_shared_formatter_output_pipeline(messages):
-                    result = sanitize_llm_formatter_output(result)
-                final_result = result if result else fallback_text.strip()
-                await self.emit_completed(final_result, agentic_prompt)
-                return final_result
-            except Exception as e:
-                await self.emit_failed(str(e), fallback_text)
-                return fallback_text.strip()
-            finally:
-                await self.dispose_loaded_model()
+            if self.config.llm.provider == "local_endpoint":
+                if not self.config.llm.uses_local_endpoint():
+                    await self.emit_failed(
+                        "Local endpoint mode is enabled but URL or model name is missing.",
+                        fallback_text,
+                    )
+                    return fallback_text.strip()
+                return await self._complete_via_local_endpoint(messages, fallback_text, agentic_prompt)
+            return await self._complete_via_shipped_model(messages, fallback_text, agentic_prompt)
 
     async def process_dictation_streaming(self, raw_text: str, agentic_prompt: str, stream_session_id: str) -> Optional[str]:
         messages = self.build_messages(agentic_prompt, raw_text)

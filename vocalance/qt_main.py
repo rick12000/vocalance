@@ -295,7 +295,7 @@ async def run_initialization(
 
     from vocalance.app.utils.llm_dep_check import llm_deps_available
 
-    if llm_deps_available():
+    if llm_deps_available() and not config.llm.uses_local_endpoint():
         allow = config.local_llm_allowlist
         spec = allow.artifact_for(config.llm.selected_model_id) or allow.artifact_for(allow.default_id)
         if spec is not None:

@@ -2,7 +2,7 @@ import math
 from typing import Optional
 
 from PySide6.QtCore import QMetaObject, QRectF, Qt, QTimer, Slot
-from PySide6.QtGui import QBrush, QColor, QHideEvent, QPainter, QPaintEvent, QShowEvent
+from PySide6.QtGui import QBrush, QColor, QConicalGradient, QHideEvent, QPainter, QPaintEvent, QPen, QShowEvent
 from PySide6.QtWidgets import QWidget
 
 from vocalance.app.ui.qt_theme import theme
@@ -114,3 +114,58 @@ class SpinnerWidget(QWidget):
         super().hideEvent(hide_event)
         if self._timer.isActive():
             self._timer.stop()
+
+
+class OrangeArcSpinner(QWidget):
+    """Compact rotating arc in the processing-border orange gradient."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._angle = 0.0
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._advance)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
+
+    def start_now(self) -> None:
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def stop_now(self) -> None:
+        if self._timer.isActive():
+            self._timer.stop()
+
+    def _advance(self) -> None:
+        self._angle = (self._angle + 6.0) % 360.0
+        self.update()
+
+    def paintEvent(self, paint_event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen_width = max(2.0, min(self.width(), self.height()) * 0.12)
+        inset = (pen_width / 2) + 1
+        diameter = min(self.width(), self.height()) - (inset * 2)
+        if diameter < 4:
+            return
+        left = (self.width() - diameter) / 2
+        top = (self.height() - diameter) / 2
+        center_x = left + diameter / 2
+        center_y = top + diameter / 2
+        orange = QColor(theme.config.shapes.orange)
+        highlight = QColor(orange)
+        highlight.setRed(min(255, orange.red() + 50))
+        highlight.setGreen(min(255, orange.green() + 40))
+        shadow = QColor(orange).darker(140)
+        gradient = QConicalGradient(center_x, center_y, -self._angle)
+        gradient.setColorAt(0.0, highlight)
+        gradient.setColorAt(0.45, orange)
+        gradient.setColorAt(1.0, shadow)
+        pen = QPen(QBrush(gradient), max(2.0, diameter * 0.14))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawArc(QRectF(left, top, diameter, diameter), int(self._angle * 16), 110 * 16)
+
+    def hideEvent(self, hide_event: QHideEvent) -> None:
+        super().hideEvent(hide_event)
+        self.stop_now()

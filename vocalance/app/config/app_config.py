@@ -779,6 +779,21 @@ class LLMConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    provider: str = Field(
+        default="shipped",
+        description="shipped = bundled GGUF via llama.cpp; local_endpoint = OpenAI-compatible server on loopback.",
+    )
+
+    local_endpoint_base_url: str = Field(
+        default="",
+        description="Base URL for a local OpenAI-compatible server (loopback only).",
+    )
+
+    local_endpoint_model: str = Field(
+        default="",
+        description="Model name passed to the local server's chat completions API.",
+    )
+
     selected_model_id: str = Field(
         default=DEFAULT_LLM_MODEL_ID,
         description="Id of a built-in GGUF bundle (see LocalLLMAllowList).",
@@ -893,6 +908,32 @@ class LLMConfig(BaseModel):
     generation_timeout_sec: float = Field(
         default=45.0, description="Max time for generation before timeout"
     )
+
+    local_endpoint_timeout_sec: float = Field(
+        default=180.0,
+        description="Max time for a local HTTP chat completion",
+    )
+
+    def uses_local_endpoint(self) -> bool:
+        if self.provider != "local_endpoint":
+            return False
+        return bool(self.local_endpoint_base_url.strip()) and bool(self.local_endpoint_model.strip())
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        if v not in ("shipped", "local_endpoint"):
+            return "shipped"
+        return v
+
+    @field_validator("local_endpoint_base_url")
+    @classmethod
+    def validate_local_endpoint_base_url_field(cls, v: str) -> str:
+        from vocalance.app.services.dictation_flow.llm.local_endpoint import validate_local_endpoint_base_url
+
+        if not v or not v.strip():
+            return ""
+        return validate_local_endpoint_base_url(v)
 
     @field_validator("selected_model_id")
     @classmethod
