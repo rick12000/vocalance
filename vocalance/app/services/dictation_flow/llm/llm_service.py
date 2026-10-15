@@ -17,18 +17,28 @@ from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.base_service import Service
 from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
+from vocalance.app.services.dictation_flow.llm.dictation_messages import (
+    build_dictation_chat_messages,
+    is_dictation_formatter_messages,
+)
+from vocalance.app.services.dictation_flow.llm.dictation_messages import uses_shared_formatter_output_pipeline
+from vocalance.app.services.dictation_flow.llm.dictation_llm_output import (
+    dictation_stop_sequences_for_messages,
+    sanitize_llm_formatter_output,
+)
+from vocalance.app.services.dictation_flow.llm.formatter_output_rules import OUTPUT_SLOP_AND_FORMATTING_RULE
 from vocalance.app.services.dictation_flow.llm.reasoning_stream import ReasoningTokenFilter
 from vocalance.app.services.storage.user_configurable_settings import LLM_SESSION_SETTING_PATHS
 
 logger = logging.getLogger(__name__)
 
 _AMEND_SYSTEM_BASE = (
-    "You transform text according to instructions. The user message contains two labeled parts: "
-    "TEXT TO TRANSFORM (the source material copied from the user's selection) and "
-    "USER PROMPT (instructions they spoke).\n\n"
-    "Apply USER PROMPT to TEXT TO TRANSFORM. "
-    "Respond with only the transformed text: no explanations, preamble, markdown fences, "
-    "headings, apologies, or any text before or after the result."
+    "You transform text according to instructions. The user message contains two labeled parts.\n"
+    "- TEXT TO TRANSFORM (clipboard selection, source material)\n"
+    "- USER PROMPT (spoken instructions)\n\n"
+    "Apply USER PROMPT to TEXT TO TRANSFORM.\n\n"
+    "Reply with only the transformed text. No preamble, postscript, summary of edits, markdown "
+    "fences, headings, apologies, or other meta commentary before or after the result."
 )
 
 
@@ -202,7 +212,10 @@ class LLMService(Service):
         """Use the GGUF Jinja chat template and pass the model's thinking flag."""
         handler = model._chat_handlers.get("chat_template.default")
         if handler is None:
-            logger.warning("GGUF has no Jinja chat template; chat format stays %s", model.chat_format)
+            logger.error(
+                "GGUF has no Jinja chat template (chat_format=%s). System instructions may not reach the model.",
+                model.chat_format,
+            )
             return
         template_kwargs = spec.chat_template_kwargs()
 
@@ -297,14 +310,17 @@ class LLMService(Service):
                 return fallback_text.strip()
 
             self.model_loaded = True
+            stop_sequences = dictation_stop_sequences_for_messages(messages)
             try:
                 full_text: List[str] = []
-                async for token in self.generate_streaming(messages):
+                async for token in self.generate_streaming(messages, stop=stop_sequences):
                     full_text.append(token)
                     if stream_session_id:
                         await self.event_bus.publish(LLMTokenGeneratedEvent(token=token, session_id=stream_session_id))
 
                 result = "".join(full_text).strip()
+                if uses_shared_formatter_output_pipeline(messages):
+                    result = sanitize_llm_formatter_output(result)
                 final_result = result if result else fallback_text.strip()
                 await self.emit_completed(final_result, agentic_prompt)
                 return final_result
@@ -333,14 +349,14 @@ class LLMService(Service):
         return await self.run_chat_completion(messages, spoken_prompt, agentic_prompt, stream_session_id)
 
     def build_messages(self, agentic_prompt: str, raw_text: str) -> List[Dict[str, str]]:
-        return [
-            {"role": "system", "content": f"{agentic_prompt}"},
-            {"role": "user", "content": raw_text},
-        ]
+        return build_dictation_chat_messages(agentic_prompt, raw_text)
 
     def build_amend_messages(self, agentic_prompt: str, clipboard_text: str, spoken_prompt: str) -> List[Dict[str, str]]:
         extra = (agentic_prompt or "").strip()
-        system_content = _AMEND_SYSTEM_BASE if not extra else f"{_AMEND_SYSTEM_BASE}\n\n{extra}"
+        system_parts = [_AMEND_SYSTEM_BASE, OUTPUT_SLOP_AND_FORMATTING_RULE]
+        if extra:
+            system_parts.append(extra)
+        system_content = "\n\n".join(system_parts)
         user_content = (
             "--- TEXT TO TRANSFORM (clipboard) ---\n"
             f"{clipboard_text}\n"
@@ -354,12 +370,18 @@ class LLMService(Service):
             {"role": "user", "content": user_content},
         ]
 
-    async def generate_streaming(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+    async def generate_streaming(
+        self, messages: List[Dict[str, str]], stop: Optional[List[str]] = None
+    ) -> AsyncGenerator[str, None]:
         cfg = self.config.llm
         spec = self.loaded_spec or self.active_spec()
         if spec is None or self.llm is None:
             return
-        sampling = spec.active_sampling()
+        sampling = (
+            spec.formatter_sampling_profile()
+            if is_dictation_formatter_messages(messages)
+            else spec.amend_sampling_profile()
+        )
         reasoning_filter = ReasoningTokenFilter(start_inside=spec.stream_starts_in_reasoning)
         loop = asyncio.get_running_loop()
         token_queue: asyncio.Queue[Optional[str]] = asyncio.Queue(maxsize=50)
@@ -379,7 +401,7 @@ class LLMService(Service):
                 mirostat_mode=cfg.mirostat_mode,
                 mirostat_tau=cfg.mirostat_tau,
                 mirostat_eta=cfg.mirostat_eta,
-                stop=[],
+                stop=stop or [],
                 stream=True,
             )
             for chunk in stream:

@@ -677,9 +677,10 @@ class DictationCoordinator(Service):
                         if session.mode == DictationMode.SMART
                         else "Follow the spoken instructions when transforming the text."
                     )
-                    agentic_prompt = (
-                        self.agentic_service.get_current_prompt() if self.agentic_service is not None else None
-                    ) or default_prompt
+                    if self.agentic_service is not None:
+                        agentic_prompt = self.agentic_service.get_prompt_for_inference()
+                    else:
+                        agentic_prompt = default_prompt
                     llm_session_id = str(uuid.uuid4())
                     self.pending_llm_session = LLMSession(
                         session_id=llm_session_id,

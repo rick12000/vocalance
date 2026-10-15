@@ -12,7 +12,7 @@ from vocalance.app.config.hotkey_validation import is_valid_custom_hotkey
 
 logger = logging.getLogger(__name__)
 
-MAX_PROMPT_TEXT_LENGTH = 4000
+MAX_PROMPT_TEXT_LENGTH = 8000
 MAX_ALIAS_KEY_LENGTH = 100
 MAX_ALIAS_VALUE_LENGTH = 2000
 MAX_SOUND_MAPPING_PHRASE_LENGTH = 200
@@ -50,6 +50,7 @@ class AgenticPrompt(BaseModel):
     is_default: bool = False
     system_key: Optional[str] = None
     system_canonical_name: Optional[str] = None
+    system_canonical_text: Optional[str] = None
 
 
 class MarksData(StorageData):

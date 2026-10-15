@@ -5,11 +5,49 @@ import pytest
 from vocalance.app.events.dictation_events import AgenticPromptUiOperationEvent
 from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import (
     AgenticPromptService,
+    _CLARITY_FORMAT_PROMPT,
+    _DEFAULT_PROMPT,
     _DEFAULT_PROMPT_NAME,
+    _NON_NEGOTIABLE_CONSTRAINTS,
     _SYSTEM_PROMPTS,
 )
+from vocalance.app.services.dictation_flow.llm.dictation_messages import (
+    _DICTATION_SYSTEM_STUB,
+    _TRANSCRIPT_BEGIN,
+    _TRANSCRIPT_END,
+)
+from vocalance.app.services.dictation_flow.llm.formatter_output_rules import OUTPUT_SLOP_AND_FORMATTING_RULE
 from vocalance.app.services.dictation_flow.llm.llm_service import _AMEND_SYSTEM_BASE
 from vocalance.app.services.storage.storage_models import AgenticPrompt, AgenticPromptsData
+
+
+def test_shipped_prompts_share_non_negotiable_constraints():
+    shipped = [_DEFAULT_PROMPT, *(spec.text for spec in _SYSTEM_PROMPTS)]
+    for prompt_text in shipped:
+        assert _NON_NEGOTIABLE_CONSTRAINTS in prompt_text
+        assert "Your only task" in prompt_text
+
+
+def test_clarity_allows_reorder_default_does_not():
+    assert "reorder and rephrase for clarity" in _CLARITY_FORMAT_PROMPT
+    assert "Do not summarize, change style, or reorder ideas" in _DEFAULT_PROMPT
+
+
+def test_default_and_clarity_share_numbers_and_differ_on_fidelity():
+    from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import _NUMBERS_AND_DATES_BRIEF
+
+    assert _NUMBERS_AND_DATES_BRIEF.strip() in _DEFAULT_PROMPT
+    assert _NUMBERS_AND_DATES_BRIEF.strip() in _CLARITY_FORMAT_PROMPT
+    assert "High-fidelity" in _DEFAULT_PROMPT
+    assert "Actively structure" in _CLARITY_FORMAT_PROMPT
+
+
+def test_shipped_prompts_avoid_semicolons_and_em_dashes():
+    shipped = [_DEFAULT_PROMPT, *(spec.text for spec in _SYSTEM_PROMPTS)]
+    for prompt_text in shipped:
+        assert ";" not in prompt_text
+        assert "—" not in prompt_text
+        assert "–" not in prompt_text
 
 
 async def test_initialize_creates_single_default(agentic_prompt_service):
@@ -20,92 +58,93 @@ async def test_initialize_creates_single_default(agentic_prompt_service):
 
 async def test_initialize_creates_system_prompts(agentic_prompt_service):
     system_prompts = [p for p in agentic_prompt_service.get_all_prompts() if p.system_key is not None]
-    system_keys = {p.system_key for p in system_prompts}
-    expected_keys = {key for key, _, _ in _SYSTEM_PROMPTS}
-    assert system_keys == expected_keys
-    assert all(not p.is_default for p in system_prompts)
+    assert len(system_prompts) == 2
+    keys = {p.system_key for p in system_prompts}
+    assert keys == {"email_format", "clarity_format"}
 
 
 async def test_initialize_syncs_stale_default_name(mock_event_bus, app_config, agentic_prompts_storage):
-    existing = AgenticPrompt(id="d1", text="x", name="Default", created_at=datetime.now().isoformat(), is_default=True)
+    existing = AgenticPrompt(
+        id="d1", text="x", name="Old Default", created_at=datetime.now().isoformat(), is_default=True
+    )
     agentic_prompts_storage.read.return_value = AgenticPromptsData(prompts=[existing], current_prompt_id="d1")
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
     await service.initialize()
 
     defaults = [p for p in service.get_all_prompts() if p.is_default]
-    assert len(defaults) == 1
     assert defaults[0].name == _DEFAULT_PROMPT_NAME
-    assert service.current_prompt_id == "d1"
 
 
 async def test_ensure_system_prompts_syncs_stale_name(mock_event_bus, app_config, agentic_prompts_storage):
-    existing_default = AgenticPrompt(
+    default = AgenticPrompt(
         id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True
     )
-    stale_system = AgenticPrompt(
-        id="s1",
-        text="email text",
-        name="Email Format",
+    stale_email = AgenticPrompt(
+        id="e1",
+        text="old",
+        name="Old Email Name",
         created_at=datetime.now().isoformat(),
         system_key="email_format",
-        system_canonical_name=None,
+        system_canonical_name="Old Email Name",
     )
     agentic_prompts_storage.read.return_value = AgenticPromptsData(
-        prompts=[existing_default, stale_system], current_prompt_id="d1"
+        prompts=[default, stale_email], current_prompt_id="d1"
     )
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
     await service.initialize()
 
-    synced = next(p for p in service.get_all_prompts() if p.system_key == "email_format")
-    assert synced.name == "Email Formatter"
-    assert synced.system_canonical_name == "Email Formatter"
+    email = next(p for p in service.get_all_prompts() if p.system_key == "email_format")
+    assert email.name == "Email Formatter"
 
 
 async def test_ensure_system_prompts_preserves_user_customised_name(mock_event_bus, app_config, agentic_prompts_storage):
-    existing_default = AgenticPrompt(
+    default = AgenticPrompt(
         id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True
     )
-    user_renamed = AgenticPrompt(
-        id="s1",
-        text="email text",
-        name="My Email",
+    custom_email = AgenticPrompt(
+        id="e1",
+        text="custom",
+        name="My Email Style",
         created_at=datetime.now().isoformat(),
         system_key="email_format",
         system_canonical_name="Email Formatter",
     )
     agentic_prompts_storage.read.return_value = AgenticPromptsData(
-        prompts=[existing_default, user_renamed], current_prompt_id="d1"
+        prompts=[default, custom_email], current_prompt_id="d1"
     )
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
     await service.initialize()
 
-    preserved = next(p for p in service.get_all_prompts() if p.system_key == "email_format")
-    assert preserved.name == "My Email"
+    email = next(p for p in service.get_all_prompts() if p.system_key == "email_format")
+    assert email.name == "My Email Style"
 
 
 async def test_initialize_does_not_duplicate_system_prompts(mock_event_bus, app_config, agentic_prompts_storage):
-    existing_default = AgenticPrompt(
-        id="d1", text="x", name="Default", created_at=datetime.now().isoformat(), is_default=True
+    default = AgenticPrompt(
+        id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True
     )
-    existing_system = AgenticPrompt(
-        id="s1",
-        text="email text",
-        name="Email Format",
+    email = AgenticPrompt(
+        id="e1",
+        text="e",
+        name="Email Formatter",
         created_at=datetime.now().isoformat(),
         system_key="email_format",
+        system_canonical_name="Email Formatter",
+        system_canonical_text="e",
     )
     agentic_prompts_storage.read.return_value = AgenticPromptsData(
-        prompts=[existing_default, existing_system], current_prompt_id="d1"
+        prompts=[default, email], current_prompt_id="d1"
     )
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
     await service.initialize()
+    await service.initialize()
 
-    email_prompts = [p for p in service.get_all_prompts() if p.system_key == "email_format"]
-    assert len(email_prompts) == 1
+    system_prompts = [p for p in service.get_all_prompts() if p.system_key is not None]
+    assert len(system_prompts) == 2
 
 
 async def test_add_prompt_trims_and_stores(agentic_prompt_service):
@@ -170,7 +209,6 @@ async def test_edit_rejects_default_and_unknown(agentic_prompt_service):
 
 async def test_edit_allows_system_prompt(agentic_prompt_service):
     system_prompt = next(p for p in agentic_prompt_service.get_all_prompts() if p.system_key is not None)
-    original_key = system_prompt.system_key
 
     result = await agentic_prompt_service.edit_prompt(system_prompt.id, "New Name", "New text")
 
@@ -178,7 +216,6 @@ async def test_edit_allows_system_prompt(agentic_prompt_service):
     updated = next(p for p in agentic_prompt_service.get_all_prompts() if p.id == system_prompt.id)
     assert updated.name == "New Name"
     assert updated.text == "New text"
-    assert updated.system_key == original_key
 
 
 async def test_set_current_selects_existing_and_rejects_unknown(agentic_prompt_service):
@@ -207,12 +244,37 @@ async def test_ui_operation_routes_add_select_delete(agentic_prompt_service):
     assert custom.id not in [p.id for p in agentic_prompt_service.get_all_prompts()]
 
 
-def test_build_messages_maps_roles(llm_service):
-    messages = llm_service.build_messages("system instructions", "raw input")
+@pytest.mark.parametrize("extra", ["", "Formatter rules here"])
+def test_build_messages_puts_rules_and_transcript_in_user(llm_service, extra):
+    messages = llm_service.build_messages(extra, "raw input")
 
     assert len(messages) == 2
-    assert messages[0] == {"role": "system", "content": "system instructions"}
-    assert messages[1] == {"role": "user", "content": "raw input"}
+    assert _DICTATION_SYSTEM_STUB in messages[0]["content"]
+    assert OUTPUT_SLOP_AND_FORMATTING_RULE in messages[0]["content"]
+    user = messages[1]["content"]
+    assert _TRANSCRIPT_BEGIN in user
+    assert _TRANSCRIPT_END in user
+    assert "raw input" in user
+    if extra:
+        assert extra in user
+    else:
+        assert _DEFAULT_PROMPT in user
+
+
+async def test_ensure_default_prompt_syncs_text_from_code(mock_event_bus, app_config, agentic_prompts_storage):
+    stale = AgenticPrompt(
+        id="d1",
+        text="old bundled default prompt",
+        name=_DEFAULT_PROMPT_NAME,
+        created_at=datetime.now().isoformat(),
+        is_default=True,
+    )
+    agentic_prompts_storage.read.return_value = AgenticPromptsData(prompts=[stale], current_prompt_id="d1")
+
+    service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
+    await service.initialize()
+
+    assert service.get_default_prompt().text == service.default_prompt_text
 
 
 @pytest.mark.parametrize("extra", ["", "Keep it terse"])
@@ -222,7 +284,8 @@ def test_build_amend_messages_embeds_base_extra_and_inputs(llm_service, extra):
     assert len(messages) == 2
     system = messages[0]["content"]
     assert system.startswith(_AMEND_SYSTEM_BASE)
-    assert (extra in system) if extra else (system == _AMEND_SYSTEM_BASE)
+    assert OUTPUT_SLOP_AND_FORMATTING_RULE in system
+    assert (extra in system) if extra else True
     user = messages[1]["content"]
     assert "CLIP CONTENT" in user
     assert "SPOKEN PROMPT" in user

@@ -419,6 +419,17 @@ class LLMSamplingProfile(BaseModel):
     repeat_penalty: float = 1.0
 
 
+_FORMATTER_SAMPLING = LLMSamplingProfile(
+    temperature=0.5,
+    top_p=0.9,
+    top_k=40,
+    min_p=0.05,
+    presence_penalty=0.0,
+    frequency_penalty=0.0,
+    repeat_penalty=1.06,
+)
+
+
 class LocalLLMArtifact(BaseModel):
     """One built-in GGUF bundle (Hugging Face repo + filenames + UI label)."""
 
@@ -431,6 +442,8 @@ class LocalLLMArtifact(BaseModel):
     model_card_url: str
     license_url: str
     sampling: LLMSamplingProfile
+    formatter_sampling: Optional[LLMSamplingProfile] = None
+    amend_sampling: Optional[LLMSamplingProfile] = None
     thinking_sampling: Optional[LLMSamplingProfile] = None
     supports_thinking: bool = False
     disable_thinking: bool = True
@@ -447,6 +460,14 @@ class LocalLLMArtifact(BaseModel):
         if self.supports_thinking and not self.disable_thinking and self.thinking_sampling is not None:
             return self.thinking_sampling
         return self.sampling
+
+    def formatter_sampling_profile(self) -> LLMSamplingProfile:
+        """Tighter sampling for smart dictation formatting."""
+        return self.formatter_sampling or _FORMATTER_SAMPLING
+
+    def amend_sampling_profile(self) -> LLMSamplingProfile:
+        """More open sampling for amend (spoken instructions on a selection)."""
+        return self.amend_sampling or self.active_sampling()
 
     def chat_template_kwargs(self) -> Dict[str, bool]:
         """Jinja arguments that turn thinking on or off for this artifact.
@@ -534,16 +555,40 @@ _GRANITE_42 = LLMSamplingProfile(
     presence_penalty=0.0,
     repeat_penalty=1.0,
 )
+_QWEN3_8B_DIRECT = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN3_8B_THINKING = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_MINISTRAL_8B_INSTRUCT = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=0.0,
+    repeat_penalty=1.0,
+)
 
 
 def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
     return LocalLLMAllowList(
         artifacts=(
             LocalLLMArtifact(
-                id="qwen3.5-2b-q5km",
-                label="Qwen3.5 2B (Q5_K_M)",
+                id="qwen3.5-2b-q4km",
+                label="Qwen3.5 2B (Q4_K_M)",
                 repo_id="unsloth/Qwen3.5-2B-GGUF",
-                gguf_filenames=("Qwen3.5-2B-Q5_K_M.gguf",),
+                gguf_filenames=("Qwen3.5-2B-Q4_K_M.gguf",),
                 model_card_url="https://huggingface.co/Qwen/Qwen3.5-2B",
                 license_url="https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE",
                 sampling=_QWEN35_2B_DIRECT,
@@ -551,28 +596,28 @@ def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
                 supports_thinking=True,
                 disable_thinking=True,
                 gguf_sha256={
-                    "Qwen3.5-2B-Q5_K_M.gguf": "1885b3a9195f8cc09da9a7a7a75afdc1e8d5cbf9fc4a499c3961dddea37098ac",
+                    "Qwen3.5-2B-Q4_K_M.gguf": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
                 },
             ),
             LocalLLMArtifact(
-                id="qwen3-4b-instruct-2507-q5km",
-                label="Qwen3 4B Instruct 2507 (Q5_K_M)",
+                id="qwen3-4b-instruct-2507-q4km",
+                label="Qwen3 4B Instruct 2507 (Q4_K_M)",
                 repo_id="unsloth/Qwen3-4B-Instruct-2507-GGUF",
-                gguf_filenames=("Qwen3-4B-Instruct-2507-Q5_K_M.gguf",),
+                gguf_filenames=("Qwen3-4B-Instruct-2507-Q4_K_M.gguf",),
                 model_card_url="https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507",
                 license_url="https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE",
                 sampling=_QWEN3_INSTRUCT_2507,
                 supports_thinking=False,
                 disable_thinking=False,
                 gguf_sha256={
-                    "Qwen3-4B-Instruct-2507-Q5_K_M.gguf": "5bde5e9d883622acb02bf77fe7dcbc56a8b9a9ad4be78a72ca23a532658b4ecb",
+                    "Qwen3-4B-Instruct-2507-Q4_K_M.gguf": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
                 },
             ),
             LocalLLMArtifact(
-                id="granite-4.2-3b-q5km",
-                label="Granite 4.2 3B (Q5_K_M)",
+                id="granite-4.2-3b-q4km",
+                label="Granite 4.2 3B (Q4_K_M)",
                 repo_id="ibm-granite/granite-4.2-3b-GGUF",
-                gguf_filenames=("granite-4.2-3b-Q5_K_M.gguf",),
+                gguf_filenames=("granite-4.2-3b-Q4_K_M.gguf",),
                 model_card_url="https://huggingface.co/ibm-granite/granite-4.2-3b",
                 license_url="https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE",
                 sampling=_GRANITE_42,
@@ -580,14 +625,14 @@ def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
                 supports_thinking=True,
                 disable_thinking=True,
                 gguf_sha256={
-                    "granite-4.2-3b-Q5_K_M.gguf": "982e797413f842329266a00c2a85ce540bb5c1b65ac4646276bfb9d2886c5efe",
+                    "granite-4.2-3b-Q4_K_M.gguf": "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5",
                 },
             ),
             LocalLLMArtifact(
-                id="qwen3.5-4b-q5km",
-                label="Qwen3.5 4B (Q5_K_M)",
+                id="qwen3.5-4b-q4km",
+                label="Qwen3.5 4B (Q4_K_M)",
                 repo_id="unsloth/Qwen3.5-4B-GGUF",
-                gguf_filenames=("Qwen3.5-4B-Q5_K_M.gguf",),
+                gguf_filenames=("Qwen3.5-4B-Q4_K_M.gguf",),
                 model_card_url="https://huggingface.co/Qwen/Qwen3.5-4B",
                 license_url="https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE",
                 sampling=_QWEN35_4B_DIRECT,
@@ -595,7 +640,36 @@ def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
                 supports_thinking=True,
                 disable_thinking=True,
                 gguf_sha256={
-                    "Qwen3.5-4B-Q5_K_M.gguf": "8814232b85594dcd46c50e5b8b29324a7efe9e746edbe8a3d1df3d3fce7aad39",
+                    "Qwen3.5-4B-Q4_K_M.gguf": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+                },
+            ),
+            LocalLLMArtifact(
+                id="ministral-3-8b-iq3xs",
+                label="Ministral 3 8B Instruct (IQ3_XS)",
+                repo_id="bartowski/mistralai_Ministral-3-8B-Instruct-2512-GGUF",
+                gguf_filenames=("mistralai_Ministral-3-8B-Instruct-2512-IQ3_XS.gguf",),
+                model_card_url="https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512",
+                license_url="https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512/blob/main/LICENSE",
+                sampling=_MINISTRAL_8B_INSTRUCT,
+                supports_thinking=False,
+                disable_thinking=False,
+                gguf_sha256={
+                    "mistralai_Ministral-3-8B-Instruct-2512-IQ3_XS.gguf": "064bb57b8e61dbe19bd1b826411124461119f14fa51a76d5937e7b44c5397852",
+                },
+            ),
+            LocalLLMArtifact(
+                id="qwen3-8b-iq3m",
+                label="Qwen3 8B (IQ3_M)",
+                repo_id="bartowski/Qwen_Qwen3-8B-GGUF",
+                gguf_filenames=("Qwen_Qwen3-8B-IQ3_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3-8B",
+                license_url="https://huggingface.co/Qwen/Qwen3-8B/blob/main/LICENSE",
+                sampling=_QWEN3_8B_DIRECT,
+                thinking_sampling=_QWEN3_8B_THINKING,
+                supports_thinking=True,
+                disable_thinking=True,
+                gguf_sha256={
+                    "Qwen_Qwen3-8B-IQ3_M.gguf": "de1982c971c26a256dc2ac6d04b04f1cd20ea35e0d3ec3263320756dea66bee3",
                 },
             ),
         )
@@ -711,17 +785,17 @@ class LLMConfig(BaseModel):
     )
 
     context_length: int = Field(
-        default=2048,
+        default=4096,
         ge=512,
         le=32768,
-        description="Model context window - 2048 is optimal for dictation (faster than 4096)",
+        description="Model context window in tokens",
     )
 
     max_tokens: int = Field(
-        default=1500,
+        default=3000,
         ge=1,
         le=8192,
-        description="Max output tokens - sufficient for most dictation, faster than 2600",
+        description="Max output tokens per completion",
     )
 
     n_threads: Optional[int] = Field(
