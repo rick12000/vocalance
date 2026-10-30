@@ -42,4 +42,13 @@
    uv sync --extra dev --frozen
    ```
 
+5. **Update third-party notices** (when dependencies change):
+   - Run `uv run python scripts/licensing/compare_lock_to_notices.py` to list missing packages, version mismatches, and stale folders.
+   - Run `uv run python scripts/licensing/sync_pypi_notices.py` to drop orphan dirs, rename preserved manual trees to the pinned `{name}-{version}` folder, and fetch PyPI license files only for packages that have no notice folder yet.
+   - Optional: `uv run python scripts/licensing/sync_pypi_notices.py --refresh PACKAGE [PACKAGE ...]` re-downloads license material from PyPI for named distributions (overwrites that package’s folder). Use when upstream license files changed or a preserved tree should be replaced by the sdist/wheel contents.
+   - Run `uv run python scripts/licensing/validate_notice_dirs.py` to confirm every locked dependency (except the first-party package) has license material under `NOTICES/PYPI_LICENSES/`.
+   - Do **not** run `scripts/licensing/fetch_licenses.py` wholesale; it deletes `NOTICES/PYPI_LICENSES` and drops manually curated license trees.
+   - If sync reports **metadata-only** or **missing** packages, add or restore full license text manually (for example from the project’s upstream repository or tag when the wheel/sdist omits a `LICENSE` file).
+   - Update `NOTICES/NOTICE.txt` when bundled assets or runtime-downloaded models (not PyPI packages) change; keep `DISCLAIMER.md` aligned for user-facing summaries.
+
 Reproducible installs for releases and CI use `uv.lock` with `uv sync --frozen` (and the appropriate `--extra` flags). There are no separate `requirements*.txt` files.

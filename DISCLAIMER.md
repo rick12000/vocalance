@@ -56,8 +56,7 @@ Vocalance uses multiple AI and machine learning models. All AI processing runs *
 | Feature | AI Technology |
 |---|---|
 | Voice command recognition | Vosk (small English ASR model, bundled) |
-| Dictation (speech-to-text) | Moonshine Voice (streaming STT, downloaded on first run) |
-| Voice activity detection | Silero VAD (via Moonshine, downloaded on first run) |
+| Dictation (speech-to-text) | X-ASR streaming transducer via sherpa-onnx (model downloaded on first run) |
 | Environmental sound recognition | YAMNet + k-NN classifier (bundled) |
 | Dictation post-processing / agentic | Large language model via llama-cpp-python (downloaded on first run) |
 
@@ -74,12 +73,13 @@ The following features do **not** use AI:
 
 Vocalance downloads AI model files on first launch only, to your local machine. **No user data, voice, or activity is ever uploaded.** The only outbound network activity Vocalance initiates is the download of these model files.
 
-### 6.1 Moonshine Speech-to-Text Model
+### 6.1 X-ASR Dictation Model
 
 - **When:** Automatically on first launch if not already present.
-- **Source:** Downloaded by the `moonshine-voice` Python package from its model distribution endpoint.
-- **Stored at:** A system cache directory managed by the `moonshine-voice` package.
-- **License:** Apache 2.0.
+- **Runtime:** The `sherpa-onnx` Python package (pinned in `uv.lock`) loads ONNX transducer weights locally.
+- **Model weights:** Downloaded from [Hugging Face](https://huggingface.co/GilgameshWind/X-ASR-zh-en) (`GilgameshWind/X-ASR-zh-en`, revision pinned in application config).
+- **Stored at:** Under the Vocalance application data directory (ASR model cache managed by the app).
+- **License:** Governed by the X-ASR model repository and `sherpa-onnx` package licenses; see [NOTICES/PYPI_LICENSES/](NOTICES/PYPI_LICENSES/) and the model card on Hugging Face.
 
 ### 6.2 Language Model (LLM)
 
@@ -174,7 +174,8 @@ Key third-party components:
 | Component | Purpose | Licence |
 |---|---|---|
 | Vosk | Command speech recognition | Apache 2.0 |
-| Moonshine Voice | Dictation speech-to-text | Apache 2.0 |
+| sherpa-onnx | Dictation inference runtime (ONNX streaming ASR) | Apache 2.0 |
+| X-ASR (Hugging Face model) | Dictation transducer weights | Apache 2.0 |
 | YAMNet (TensorFlow Hub) | Environmental sound classification | Apache 2.0 |
 | Qwen3.5 2B (GGUF) | Default LLM for dictation post-processing | Apache 2.0 |
 | Qwen3 4B Instruct 2507 (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |

@@ -549,6 +549,13 @@ but is not distributed in the final executable. Instead, these dependencies
 are dynamically loaded at runtime by the user. We report their licenses below
 for completeness. 
 
+Dictation streaming ASR model weights (ONNX transducer) loaded by:
+vocalance\app\services\dictation_flow\speech_recognition\asr_model_downloader.py
+
+- X-ASR-zh-en (480 ms streaming chunk bundle; Apache 2.0)
+  https://huggingface.co/GilgameshWind/X-ASR-zh-en
+  https://github.com/Gilgamesh-J/X-ASR/blob/main/LICENSE
+
 Local language models loaded by:
 vocalance\app\services\dictation_flow\llm\llm_service.py
 
