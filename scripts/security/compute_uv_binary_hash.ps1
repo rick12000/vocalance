@@ -11,7 +11,7 @@
     into the $UV_ZIP_SHA256 hashtable (one entry per architecture).
 
 .PARAMETER UvVersion
-    The UV release version to fetch (e.g. "0.11.22"). Defaults to the version
+    The UV release version to fetch (e.g. "0.13.6"). Defaults to the version
     currently hardcoded in setup.ps1.
 
 .PARAMETER Arch
@@ -20,10 +20,10 @@
 .EXAMPLE
     .\compute_uv_binary_hash.ps1
     .\compute_uv_binary_hash.ps1 -UvVersion 0.11.23
-    .\compute_uv_binary_hash.ps1 -UvVersion 0.11.22 -Arch aarch64
+    .\compute_uv_binary_hash.ps1 -UvVersion 0.13.6 -Arch aarch64
 #>
 param(
-    [string] $UvVersion = '0.11.22',
+    [string] $UvVersion = '0.13.6',
     [ValidateSet('x86_64', 'aarch64', 'all')]
     [string] $Arch = 'all'
 )

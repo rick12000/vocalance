@@ -16,10 +16,10 @@ $ErrorActionPreference = 'Stop'
 $VOCALANCE_VERSION = '0.1.0'
 $VOCALANCE_REPO    = 'rick12000/vocalance'
 
-$UV_VERSION    = '0.11.22'
+$UV_VERSION    = '0.13.6'
 $UV_ZIP_SHA256 = @{
-    'x86_64'  = 'b56939bac92d29996d351647f7c6f15b31cc69cf952d06d136de3e1e62eb64d1'  # scripts/security/compute_uv_binary_hash.ps1 -Arch x86_64
-    'aarch64' = '30fa01e0fc7c78bdaf6f369ebac401f22f0f865d650f0732a26f1df3e2c6971e'  # scripts/security/compute_uv_binary_hash.ps1 -Arch aarch64
+    'x86_64'  = 'a2a8820d5eea32f08ef467ef3b7f66883a9b076d5737a2fc2fbb5f458d1bb50f'  # scripts/security/compute_uv_binary_hash.ps1 -Arch x86_64
+    'aarch64' = 'c2426c0c8e28b53d8c440e47a18d96ad4db51e159866c0e81435b196d7f0081c'  # scripts/security/compute_uv_binary_hash.ps1 -Arch aarch64
 }
 
 $INSTALL_ROOT = Join-Path $env:LOCALAPPDATA 'Programs\Vocalance'

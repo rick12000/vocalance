@@ -26,7 +26,7 @@ computed offline and hard-coded at development time:
 
 .. code-block:: powershell
 
-   $UV_VERSION    = '0.11.22'
+   $UV_VERSION    = '0.13.6'
    $UV_ZIP_SHA256 = @{
        'x86_64'  = '<hex digest>'
        'aarch64' = '<hex digest>'
