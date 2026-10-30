@@ -6,8 +6,8 @@ sys.path.insert(0, os.path.abspath(".."))
 project = "Vocalance"
 copyright = "2025, Riccardo Doyle"
 author = "Riccardo Doyle"
-release = "1.0.0"
-version = "1.0.0"
+release = "1.0.1"
+version = "1.0.1"
 
 extensions = [
     "sphinx.ext.autodoc",

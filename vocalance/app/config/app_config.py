@@ -1278,7 +1278,7 @@ class GlobalAppConfig(BaseModel):
     Automatically initializes storage directory structure on instantiation.
     """
 
-    logging: LoggingConfigModel = LoggingConfigModel(appdata_dir_name=APPDATA_DIR_NAME, enable_logs=True)
+    logging: LoggingConfigModel = LoggingConfigModel(appdata_dir_name=APPDATA_DIR_NAME)
     activity_tracking: ActivityTrackingConfig = ActivityTrackingConfig()
     app_info: AppInfoConfig = AppInfoConfig()
     asset_paths: AssetPathsConfig = AssetPathsConfig()

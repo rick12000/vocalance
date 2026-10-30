@@ -14,7 +14,7 @@ Production `setup.ps1` downloads the app release zip from GitHub (`rick12000/voc
 1. At the top of `setup.ps1`, after `$VOCALANCE_REPO`, set a local zip path:
 
    ```powershell
-   $LOCAL_RELEASE_ZIP = 'C:\path\to\vocalance-v1.0.0.zip'
+   $LOCAL_RELEASE_ZIP = 'C:\path\to\vocalance-v1.0.1.zip'
    ```
 
    Omit this variable in production (GitHub download only).
@@ -41,7 +41,7 @@ Production `setup.ps1` downloads the app release zip from GitHub (`rick12000/voc
 From the repository root (same contents as `.github/workflows/ci-cd.yml` release step):
 
 ```powershell
-$zip = '.\.test-artifacts\vocalance-v1.0.0.zip'
+$zip = '.\.test-artifacts\vocalance-v1.0.1.zip'
 New-Item -ItemType Directory -Force -Path (Split-Path $zip) | Out-Null
 Compress-Archive -Path vocalance, vocalance.py, pyproject.toml, uv.lock, README.md, DISCLAIMER.md, NOTICES -DestinationPath $zip -Force
 ```
