@@ -30,6 +30,8 @@
 
    - Restore the `dev` and `docs` sections to `pyproject.toml`.
 
+   When bumping **`sherpa-onnx`**, also update the matching pin in `[tool.uv] dependency-metadata` (`requires-dist` for `sherpa-onnx-core`). The PyPI sdist omits that dependency; wheels declare it, but uv resolves from sdist metadata unless this override is present.
+
 3. **Verify** — check that `uv.lock`:
    - Contains only production dependencies when dev/docs sections were removed for the lock step (no pytest, black, sphinx in that intermediate lock if you inspect before restoring extras).
    - Contains `llama-cpp-python` and `huggingface-hub` with `marker = "extra == 'llm'"`.
