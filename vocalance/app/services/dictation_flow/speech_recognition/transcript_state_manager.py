@@ -6,7 +6,9 @@ DEFAULT_PROVISIONAL_WORDS: int = 4
 
 class TranscriptStateManager:
 
-    def __init__(self, stability_window: int = DEFAULT_STABILITY_WINDOW, provisional_words: int = DEFAULT_PROVISIONAL_WORDS) -> None:
+    def __init__(
+        self, stability_window: int = DEFAULT_STABILITY_WINDOW, provisional_words: int = DEFAULT_PROVISIONAL_WORDS
+    ) -> None:
         self.stability_window = max(1, stability_window)
         self.provisional_words = max(0, provisional_words)
         self.prev_words: list[str] = []

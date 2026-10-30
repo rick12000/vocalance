@@ -35,7 +35,7 @@ def test_committed_count_never_shrinks():
 def test_finalize_commits_everything(tsm):
     tsm.update("the quick brown fox")
     tsm.update("the quick brown fox")
-    delta = tsm.finalize("the quick brown fox jumps")
+    tsm.finalize("the quick brown fox jumps")
     full = tsm.total_committed_text
     assert "jumps" in full
     assert full == "the quick brown fox jumps"

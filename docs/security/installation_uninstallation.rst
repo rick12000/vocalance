@@ -31,7 +31,7 @@ Installation flow
    from the immutable GitHub releases page for the pinned version and unpacks it to
    ``%LOCALAPPDATA%\Programs\Vocalance\app\``.
 
-3. **Create virtual environment** — ``uv venv --python 3.13.9``.
+3. **Create virtual environment** — ``uv venv --python 3.13``.
 
 4. **Install dependencies** — prompts the user on whether to include LLM features,
    then runs ``uv sync --frozen`` if features are excluded and ``uv sync --frozen --extra llm`` otherwise.

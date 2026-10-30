@@ -25,7 +25,6 @@ def test_apply_base_postprocess_normalises_whitespace(raw: str, expected: str) -
     assert apply_base_postprocess(raw) == expected
 
 
-
 @pytest.mark.parametrize(
     "modifier_id,expected_label",
     [
@@ -136,5 +135,3 @@ def test_clean_dictation_text(raw: str, add_trailing_space: bool, expected: str)
 )
 def test_remove_formatting(raw: str, is_first: bool, expected: str) -> None:
     assert remove_formatting(raw, is_first_word_of_session=is_first) == expected
-
-

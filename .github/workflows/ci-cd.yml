@@ -7,7 +7,7 @@ on:
     branches: [ '**' ]
 
 env:
-  PYTHON_VERSION: "3.13.9"
+  PYTHON_VERSION: "3.13"
   REPO: "rick12000/vocalance"
 
 jobs:
@@ -29,16 +29,10 @@ jobs:
       uses: astral-sh/setup-uv@v5
 
     - name: Install dependencies
-      run: uv pip install --system pre-commit
+      run: uv sync --extra dev --frozen
 
-    - name: Cache pre-commit
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pre-commit
-        key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-
-    - name: Run pre-commit
-      run: pre-commit run --all-files
+    - name: Run prek
+      run: uv run prek run --all-files
 
   security-scan:
     name: Security Scan (Trivy)
@@ -101,11 +95,11 @@ jobs:
     - name: Install system dependencies
       run: sudo apt-get install -y libportaudio2 xvfb
 
-    - name: Install application with dev dependencies
-      run: uv pip install --system -e ".[dev,llm]"
+    - name: Install application with dev and LLM dependencies
+      run: uv sync --extra dev --extra llm --frozen
 
     - name: Run unit tests
-      run: xvfb-run --auto-servernum pytest --ignore=tests/integration -m "not slow and not integration and not memory and not stress"
+      run: xvfb-run --auto-servernum uv run pytest --ignore=tests/integration -m "not slow and not integration and not memory and not stress"
 
   verify-logging-default-off:
     name: Verify enable_logs defaults to false
@@ -239,7 +233,6 @@ jobs:
             with urllib.request.urlopen(req) as r:
                 return json.load(r)
 
-        # Skip if a release for this version already exists (idempotent)
         try:
             gh_get(f"https://api.github.com/repos/{repo}/releases/tags/v{current_str}")
             print(f"Release v{current_str} already exists, skipping.")
@@ -247,7 +240,6 @@ jobs:
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 raise
-            # Any version bump vs latest release triggers a draft
             try:
                 latest_str = gh_get(f"https://api.github.com/repos/{repo}/releases/latest")['tag_name']
             except urllib.error.HTTPError as e2:

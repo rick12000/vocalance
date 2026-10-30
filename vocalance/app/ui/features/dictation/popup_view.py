@@ -6,7 +6,7 @@ from collections import deque
 from typing import Callable, Optional, cast
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QPainter, QMoveEvent, QPaintEvent, QPalette, QTextCharFormat
+from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QMoveEvent, QPainter, QPaintEvent, QPalette, QTextCharFormat
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
@@ -429,7 +429,9 @@ class QtDictationPopupView(QMainWindow):
                 anim.stop()
         self._pill_fade_anims.clear()
 
-    def fade_indicator_opacity(self, effect: QGraphicsOpacityEffect, end: float, on_finished: Optional[Callable[[], None]] = None) -> None:
+    def fade_indicator_opacity(
+        self, effect: QGraphicsOpacityEffect, end: float, on_finished: Optional[Callable[[], None]] = None
+    ) -> None:
         anim = QPropertyAnimation(effect, b"opacity", self)
         anim.setDuration(280)
         anim.setStartValue(effect.opacity())

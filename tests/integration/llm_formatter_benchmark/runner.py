@@ -6,13 +6,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from vocalance.app.config.app_config import GlobalAppConfig, get_whitelisted_llm_model
-from vocalance.app.event_bus import EventBus
-from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import AgenticPromptService
-from vocalance.app.services.dictation_flow.llm.llm_service import LLMService
-from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore
-from vocalance.app.services.storage.storage_service import StorageService
-
 from tests.integration.llm_formatter_benchmark.cases import (
     AMEND_CASES,
     BENCHMARK_MODEL_IDS,
@@ -20,6 +13,12 @@ from tests.integration.llm_formatter_benchmark.cases import (
     SMART_DICTATION_CASES,
 )
 from tests.integration.llm_formatter_benchmark.scoring import score_amend, score_smart
+from vocalance.app.config.app_config import GlobalAppConfig, get_whitelisted_llm_model
+from vocalance.app.event_bus import EventBus
+from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import AgenticPromptService
+from vocalance.app.services.dictation_flow.llm.llm_service import LLMService
+from vocalance.app.services.storage.runtime_configuration import RuntimeConfigurationStore
+from vocalance.app.services.storage.storage_service import StorageService
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OUTPUT_DIR = REPO_ROOT / "cache" / "llm_formatter_benchmark"
@@ -50,9 +49,7 @@ def _aggregate(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
             if run.get("error") or run["model_id"] != model_id or run["route"] != route:
                 continue
             all_pass.append(all(run["scores"].values()))
-        summary[model_id][route]["all_criteria_pass"] = round(
-            sum(all_pass) / len(all_pass) if all_pass else 0.0, 3
-        )
+        summary[model_id][route]["all_criteria_pass"] = round(sum(all_pass) / len(all_pass) if all_pass else 0.0, 3)
     return summary
 
 

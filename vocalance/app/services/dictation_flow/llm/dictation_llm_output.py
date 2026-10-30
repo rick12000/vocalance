@@ -51,6 +51,7 @@ _META_PREFIX_LINE = re.compile(
     re.IGNORECASE,
 )
 
+
 def _capitalize_first_letter(fragment: str) -> str:
     for index, character in enumerate(fragment):
         if character.isalpha():
@@ -105,10 +106,7 @@ def normalize_forbidden_output_punctuation(text: str) -> str:
                 parts.append(line[cursor:])
                 break
             time_colon = (
-                colon_at > 0
-                and line[colon_at - 1].isdigit()
-                and colon_at + 1 < len(line)
-                and line[colon_at + 1].isdigit()
+                colon_at > 0 and line[colon_at - 1].isdigit() and colon_at + 1 < len(line) and line[colon_at + 1].isdigit()
             )
             if time_colon:
                 parts.append(line[cursor : colon_at + 1])

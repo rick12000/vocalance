@@ -18,12 +18,7 @@ def _system_with_output_style_rule(base: str) -> str:
 
 def build_dictation_chat_messages(formatter_rules: str, raw_transcript: str) -> List[Dict[str, str]]:
     rules = (formatter_rules or _DEFAULT_PROMPT).strip()
-    user_content = (
-        f"{rules}\n\n"
-        f"{_TRANSCRIPT_BEGIN}\n"
-        f"{raw_transcript.strip()}\n"
-        f"{_TRANSCRIPT_END}"
-    )
+    user_content = f"{rules}\n\n" f"{_TRANSCRIPT_BEGIN}\n" f"{raw_transcript.strip()}\n" f"{_TRANSCRIPT_END}"
     return [
         {"role": "system", "content": _system_with_output_style_rule(_DICTATION_SYSTEM_STUB)},
         {"role": "user", "content": user_content},

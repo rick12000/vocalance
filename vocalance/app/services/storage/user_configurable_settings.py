@@ -15,9 +15,7 @@ class UserConfigurableField(BaseModel):
     path: str = Field(description="Dot path, e.g. llm.max_tokens")
     label: str = Field(description="Short UI label")
     section: str = Field(description="UI section heading")
-    value_type: type = Field(
-        default=str, description="Python type used for coercion (int, float, str)"
-    )
+    value_type: type = Field(default=str, description="Python type used for coercion (int, float, str)")
     llm_session_stale: bool = Field(default=False)
     choices: Tuple[Tuple[str, str], ...] = Field(
         default=(),
@@ -110,15 +108,11 @@ USER_CONFIGURABLE_FIELDS: Tuple[UserConfigurableField, ...] = (
     ),
 )
 
-FIELD_BY_PATH: Dict[str, UserConfigurableField] = {
-    f.path: f for f in USER_CONFIGURABLE_FIELDS
-}
+FIELD_BY_PATH: Dict[str, UserConfigurableField] = {f.path: f for f in USER_CONFIGURABLE_FIELDS}
 
 ALLOWED_USER_SETTING_PATHS: FrozenSet[str] = frozenset(FIELD_BY_PATH)
 
-LLM_SESSION_SETTING_PATHS: FrozenSet[str] = frozenset(
-    f.path for f in USER_CONFIGURABLE_FIELDS if f.llm_session_stale
-)
+LLM_SESSION_SETTING_PATHS: FrozenSet[str] = frozenset(f.path for f in USER_CONFIGURABLE_FIELDS if f.llm_session_stale)
 
 
 def get_config_field_bounds(path: str) -> Tuple[Optional[float], Optional[float]]:

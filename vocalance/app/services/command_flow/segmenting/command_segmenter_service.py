@@ -62,31 +62,21 @@ class CommandSegmenterService(Service):
             max_threshold=vad.command_max_threshold,
             silent_chunks_for_end=PAUSE_CHUNKS[vad.command_end_pause],
             pre_roll_chunks=vad.command_pre_roll_buffers,
-            min_duration_chunks=int(
-                vad.command_min_recording_duration * chunks_per_second
-            ),
-            max_duration_chunks=int(
-                vad.command_max_recording_duration * chunks_per_second
-            ),
+            min_duration_chunks=int(vad.command_min_recording_duration * chunks_per_second),
+            max_duration_chunks=int(vad.command_max_recording_duration * chunks_per_second),
             emit_onset=True,
         )
-        return UtteranceSegmenter(
-            segment_config, self.audio_processor, self.config.audio.sample_rate
-        )
+        return UtteranceSegmenter(segment_config, self.audio_processor, self.config.audio.sample_rate)
 
     def _handle_audio_chunk(self, event: AudioChunkCapturedEvent) -> None:
-        for hit in self.segmenter.feed_pcm_chunk(
-            event.pcm_bytes, event.timestamp, False
-        ):
+        for hit in self.segmenter.feed_pcm_chunk(event.pcm_bytes, event.timestamp, False):
             self._dispatch_hit(hit)
 
     def _dispatch_hit(self, hit: SegmentHit) -> None:
         if isinstance(hit, Onset):
             self.event_bus.submit(AudioDetectedEvent(timestamp=hit.ts))
         elif isinstance(hit, Clip):
-            self.event_bus.submit(
-                CommandAudioSegmentReadyEvent(audio_bytes=hit.pcm_bytes, sample_rate=hit.sample_rate)
-            )
+            self.event_bus.submit(CommandAudioSegmentReadyEvent(audio_bytes=hit.pcm_bytes, sample_rate=hit.sample_rate))
 
     def _handle_settings_changed(self, event: SettingsChangedEvent) -> None:
         if _VOICE_SETTING_PATHS.intersection(event.updated_settings):

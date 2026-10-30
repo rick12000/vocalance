@@ -1,8 +1,7 @@
 """Compute SHA-256 hashes for whitelisted LLM GGUF files (and optionally download them).
 
 Usage:
-    conda activate vocalance_env_dev
-    python scripts/security/compute_llm_hashes.py
+    uv run python scripts/security/compute_llm_hashes.py
     python scripts/security/compute_llm_hashes.py --download
     python scripts/security/compute_llm_hashes.py --download --only ministral-3-8b-iq3xs qwen3-8b-iq3m
 """

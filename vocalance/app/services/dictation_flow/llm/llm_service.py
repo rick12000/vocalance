@@ -16,21 +16,21 @@ from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, L
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.base_service import Service
-from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
-from vocalance.app.services.dictation_flow.llm.dictation_messages import (
-    build_dictation_chat_messages,
-    is_dictation_formatter_messages,
-)
 from vocalance.app.services.dictation_flow.llm.dictation_llm_output import (
     dictation_stop_sequences_for_messages,
     postprocess_llm_completion,
 )
+from vocalance.app.services.dictation_flow.llm.dictation_messages import (
+    build_dictation_chat_messages,
+    is_dictation_formatter_messages,
+)
+from vocalance.app.services.dictation_flow.llm.formatter_output_rules import OUTPUT_SLOP_AND_FORMATTING_RULE
+from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
 from vocalance.app.services.dictation_flow.llm.local_endpoint import validate_local_endpoint_base_url
 from vocalance.app.services.dictation_flow.llm.openai_compatible_client import (
     OpenAICompatibleChatError,
     chat_completions_sync,
 )
-from vocalance.app.services.dictation_flow.llm.formatter_output_rules import OUTPUT_SLOP_AND_FORMATTING_RULE
 from vocalance.app.services.dictation_flow.llm.reasoning_stream import ReasoningTokenFilter
 from vocalance.app.services.storage.user_configurable_settings import LLM_SESSION_SETTING_PATHS
 
@@ -292,9 +292,7 @@ class LLMService(Service):
             task.add_done_callback(self.active_download_tasks.discard)
         ok, msg = await self.test_local_endpoint()
         kind: LlmUiNotificationKind = "endpoint_test_finished"
-        await self.event_bus.publish(
-            LlmUiNotificationEvent(kind=kind, request_id=request_id, ok=ok, message=msg)
-        )
+        await self.event_bus.publish(LlmUiNotificationEvent(kind=kind, request_id=request_id, ok=ok, message=msg))
 
     async def test_local_endpoint(self) -> Tuple[bool, str]:
         cfg = self.config.llm
@@ -469,9 +467,7 @@ class LLMService(Service):
         if spec is None or self.llm is None:
             return
         sampling = (
-            spec.formatter_sampling_profile()
-            if is_dictation_formatter_messages(messages)
-            else spec.amend_sampling_profile()
+            spec.formatter_sampling_profile() if is_dictation_formatter_messages(messages) else spec.amend_sampling_profile()
         )
         reasoning_filter = ReasoningTokenFilter(start_inside=spec.stream_starts_in_reasoning)
         loop = asyncio.get_running_loop()

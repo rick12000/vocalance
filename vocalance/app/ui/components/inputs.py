@@ -40,8 +40,7 @@ class TextInput(QLineEdit):
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
-        self.setStyleSheet(
-            f"""
+        self.setStyleSheet(f"""
             TextInput {{
                 background-color: transparent;
                 border: 1px solid {theme.config.shapes.light};
@@ -51,8 +50,7 @@ class TextInput(QLineEdit):
             TextInput:focus {{
                 border-color: {theme.config.blue.blue_2};
             }}
-        """
-        )
+        """)
 
 
 class PasswordInput(TextInput):
@@ -70,8 +68,7 @@ class PasswordInput(TextInput):
 
         self.setEchoMode(QLineEdit.EchoMode.Password)
 
-        self.setStyleSheet(
-            f"""
+        self.setStyleSheet(f"""
             PasswordInput {{
                 background-color: transparent;
                 border: 1px solid {theme.config.shapes.light};
@@ -81,8 +78,7 @@ class PasswordInput(TextInput):
             PasswordInput:focus {{
                 border-color: {theme.config.blue.blue_2};
             }}
-        """
-        )
+        """)
 
 
 class ExpandableTextArea(QPlainTextEdit):
@@ -121,8 +117,7 @@ class ExpandableTextArea(QPlainTextEdit):
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
-        self.setStyleSheet(
-            f"""
+        self.setStyleSheet(f"""
             ExpandableTextArea {{
                 background-color: transparent;
                 border: 1px solid {theme.config.shapes.light};
@@ -145,8 +140,7 @@ class ExpandableTextArea(QPlainTextEdit):
             ExpandableTextArea::-webkit-scrollbar-thumb:hover {{
                 background: {theme.config.shapes.lightest};
             }}
-        """
-        )
+        """)
 
     def _calculate_height_from_placeholder(self) -> None:
         """Calculate and set minimum height based on placeholder text."""

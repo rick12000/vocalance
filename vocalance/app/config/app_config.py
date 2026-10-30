@@ -47,9 +47,7 @@ class AudioDeviceCaptureMessages(BaseModel):
             Formatted named-device message, or the generic unknown-device message.
         """
         if launch_device_name:
-            return self.mic_unavailable_named_device.format(
-                device_name=launch_device_name
-            )
+            return self.mic_unavailable_named_device.format(device_name=launch_device_name)
         return self.mic_unavailable_unknown_device
 
 
@@ -73,9 +71,7 @@ class AudioConfig(BaseModel):
         le=0.2,
         description="PortAudio input block duration in seconds (chunk length for capture callback).",
     )
-    device_capture_messages: AudioDeviceCaptureMessages = Field(
-        default_factory=AudioDeviceCaptureMessages
-    )
+    device_capture_messages: AudioDeviceCaptureMessages = Field(default_factory=AudioDeviceCaptureMessages)
 
 
 class XASRConfig(BaseModel):
@@ -160,12 +156,8 @@ class SoundRecognizerConfig(BaseModel):
     thresholds, training sample counts, and sound detection parameters.
     """
 
-    target_sample_rate: int = Field(
-        16000, description="Target sample rate for YAMNet (do not change)"
-    )
-    energy_threshold: float = Field(
-        0.005, description="Minimum audio energy for processing"
-    )
+    target_sample_rate: int = Field(16000, description="Target sample rate for YAMNet (do not change)")
+    energy_threshold: float = Field(0.005, description="Minimum audio energy for processing")
 
     confidence_threshold: float = Field(
         0.15,
@@ -192,16 +184,10 @@ class SoundRecognizerConfig(BaseModel):
         1000,
         description="Hard upper bound on samples collected in a single training session",
     )
-    sample_duration_sec: float = Field(
-        2.0, description="Duration of training samples in seconds"
-    )
+    sample_duration_sec: float = Field(2.0, description="Duration of training samples in seconds")
 
-    max_esc50_samples_per_category: int = Field(
-        15, description="Max samples per ESC-50 category"
-    )
-    max_total_esc50_samples: int = Field(
-        40, description="Maximum total ESC-50 samples (2:1 negative:positive ratio)"
-    )
+    max_esc50_samples_per_category: int = Field(15, description="Max samples per ESC-50 category")
+    max_total_esc50_samples: int = Field(40, description="Maximum total ESC-50 samples (2:1 negative:positive ratio)")
 
     esc50_categories: Dict[str, str] = Field(
         default_factory=lambda: {
@@ -216,20 +202,12 @@ class SoundRecognizerConfig(BaseModel):
         description="ESC-50 categories used as negative examples",
     )
 
-    silence_threshold: float = Field(
-        0.005, description="RMS energy threshold for silence detection"
-    )
-    min_sound_duration: float = Field(
-        0.1, description="Minimum sound duration in seconds"
-    )
-    max_sound_duration: float = Field(
-        2.0, description="Maximum sound duration in seconds"
-    )
+    silence_threshold: float = Field(0.005, description="RMS energy threshold for silence detection")
+    min_sound_duration: float = Field(0.1, description="Minimum sound duration in seconds")
+    max_sound_duration: float = Field(2.0, description="Maximum sound duration in seconds")
     frame_length: int = Field(1024, description="Frame length for RMS energy analysis")
     hop_length: int = Field(512, description="Hop length for RMS energy analysis")
-    normalization_level: float = Field(
-        0.7, description="Peak normalization level (0.0-1.0)"
-    )
+    normalization_level: float = Field(0.7, description="Peak normalization level (0.0-1.0)")
 
 
 class MarkTriggersConfig(BaseModel):
@@ -358,47 +336,29 @@ class DictationConfig(BaseModel):
         default=0.01,
         description="Global pause interval between pyautogui operations (seconds)",
     )
-    clipboard_paste_delay_pre: float = Field(
-        default=0.05, description="Delay before clipboard paste operation (seconds)"
-    )
-    clipboard_paste_delay_post: float = Field(
-        default=0.2, description="Delay after clipboard paste operation (seconds)"
-    )
-    type_text_post_delay: float = Field(
-        default=0.1, description="Delay after typing text (seconds)"
-    )
+    clipboard_paste_delay_pre: float = Field(default=0.05, description="Delay before clipboard paste operation (seconds)")
+    clipboard_paste_delay_post: float = Field(default=0.2, description="Delay after clipboard paste operation (seconds)")
+    type_text_post_delay: float = Field(default=0.1, description="Delay after typing text (seconds)")
 
     enable_dictation_formatting: bool = Field(
         default=True,
         description="Enable automatic formatting (punctuation, capitalization) in dictation output",
     )
 
-    modifier_upper_phrase: str = Field(
-        default="upper", description="Voice phrase to toggle title-case modifier"
-    )
-    modifier_capitals_phrase: str = Field(
-        default="capitals", description="Voice phrase to toggle ALL CAPS modifier"
-    )
+    modifier_upper_phrase: str = Field(default="upper", description="Voice phrase to toggle title-case modifier")
+    modifier_capitals_phrase: str = Field(default="capitals", description="Voice phrase to toggle ALL CAPS modifier")
     modifier_camel_phrase: str = Field(
         default="camel",
         description="Voice phrase to toggle UpperCamelCase (PascalCase) identifier modifier",
     )
-    modifier_snake_phrase: str = Field(
-        default="snake", description="Voice phrase to toggle snake_case modifier"
-    )
+    modifier_snake_phrase: str = Field(default="snake", description="Voice phrase to toggle snake_case modifier")
     modifier_spelling_phrase: str = Field(
         default="spelling",
         description="Voice phrase to toggle spoken-punctuation modifier",
     )
-    modifier_kebab_phrase: str = Field(
-        default="kebab", description="Voice phrase to toggle kebab-case modifier"
-    )
-    modifier_diminish_phrase: str = Field(
-        default="diminish", description="Voice phrase to toggle lowercase modifier"
-    )
-    modifier_strip_phrase: str = Field(
-        default="strip", description="Voice phrase to toggle strip punctuation modifier"
-    )
+    modifier_kebab_phrase: str = Field(default="kebab", description="Voice phrase to toggle kebab-case modifier")
+    modifier_diminish_phrase: str = Field(default="diminish", description="Voice phrase to toggle lowercase modifier")
+    modifier_strip_phrase: str = Field(default="strip", description="Voice phrase to toggle strip punctuation modifier")
     modifier_numeral_phrase: str = Field(
         default="numeral",
         description="Voice phrase to toggle spoken-number-to-digit conversion modifier",
@@ -876,16 +836,10 @@ class LLMConfig(BaseModel):
         le=2,
         description="Disabled - standard sampling is faster on most CPUs",
     )
-    mirostat_tau: float = Field(
-        default=5.0, ge=0.0, le=10.0, description="Not used when mirostat_mode=0"
-    )
-    mirostat_eta: float = Field(
-        default=0.1, ge=0.0, le=1.0, description="Not used when mirostat_mode=0"
-    )
+    mirostat_tau: float = Field(default=5.0, ge=0.0, le=10.0, description="Not used when mirostat_mode=0")
+    mirostat_eta: float = Field(default=0.1, ge=0.0, le=1.0, description="Not used when mirostat_mode=0")
 
-    verbose: bool = Field(
-        default=False, description="Enable verbose llama.cpp logging for debugging"
-    )
+    verbose: bool = Field(default=False, description="Enable verbose llama.cpp logging for debugging")
 
     flash_attn: bool = Field(
         default=True,
@@ -905,9 +859,7 @@ class LLMConfig(BaseModel):
         description="KV cache value type: 0=f32, 1=f16 (recommended), 2=q8_0. Lower = faster with less memory",
     )
 
-    generation_timeout_sec: float = Field(
-        default=45.0, description="Max time for generation before timeout"
-    )
+    generation_timeout_sec: float = Field(default=45.0, description="Max time for generation before timeout")
 
     local_endpoint_timeout_sec: float = Field(
         default=180.0,
@@ -955,9 +907,7 @@ class VADConfig(BaseModel):
     NOTE: All chunk-based parameters assume 30ms chunks (industry standard for VAD).
     """
 
-    noise_floor_estimation: bool = Field(
-        default=True, description="Enable automatic noise floor estimation."
-    )
+    noise_floor_estimation: bool = Field(default=True, description="Enable automatic noise floor estimation.")
 
     enable_audio_normalization: bool = Field(
         default=True,
@@ -986,9 +936,7 @@ class VADConfig(BaseModel):
         le=200,
         description="Number of consecutive silent chunks to end recording in command mode (5 chunks = 150ms at 30ms/chunk).",
     )
-    command_max_recording_duration: float = Field(
-        default=4, description="Maximum recording duration for command mode."
-    )
+    command_max_recording_duration: float = Field(default=4, description="Maximum recording duration for command mode.")
     command_pre_roll_buffers: int = Field(
         default=7,
         description="Pre-roll buffers for command mode (210ms at 30ms chunks) - captures word attack.",
@@ -1052,9 +1000,7 @@ class VADConfig(BaseModel):
         default=100,
         description="Rolling window size for noise floor estimation (~5 seconds at 50ms chunks)",
     )
-    noise_floor_initial_value: float = Field(
-        default=0.002, description="Initial noise floor value before estimation"
-    )
+    noise_floor_initial_value: float = Field(default=0.002, description="Initial noise floor value before estimation")
     noise_floor_percentile: int = Field(
         default=50,
         description="Percentile for noise floor calculation (50=median, more robust)",
@@ -1090,23 +1036,15 @@ class AutomationServiceConfig(BaseModel):
         description="Delay in seconds between individual key presses in a key sequence",
     )
 
-    scroll_total_clicks: int = Field(
-        default=600, description="Total number of scroll clicks for animated scrolling"
-    )
-    scroll_animation_steps: int = Field(
-        default=20, description="Number of animation steps for scrolling"
-    )
-    scroll_animation_delay_seconds: float = Field(
-        default=0.01, description="Delay between scroll animation steps in seconds"
-    )
+    scroll_total_clicks: int = Field(default=600, description="Total number of scroll clicks for animated scrolling")
+    scroll_animation_steps: int = Field(default=20, description="Number of animation steps for scrolling")
+    scroll_animation_delay_seconds: float = Field(default=0.01, description="Delay between scroll animation steps in seconds")
 
 
 class ProtectedTermsValidatorConfig(BaseModel):
     """Configuration for protected terms validator."""
 
-    cache_ttl_seconds: float = Field(
-        default=60.0, description="Cache time-to-live in seconds for protected terms"
-    )
+    cache_ttl_seconds: float = Field(default=60.0, description="Cache time-to-live in seconds for protected terms")
 
 
 class AppInfoConfig(BaseModel):
@@ -1353,9 +1291,7 @@ class GlobalAppConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     command_parser: CommandParserConfig = CommandParserConfig()
     automation_service: AutomationServiceConfig = AutomationServiceConfig()
-    protected_terms_validator: ProtectedTermsValidatorConfig = (
-        ProtectedTermsValidatorConfig()
-    )
+    protected_terms_validator: ProtectedTermsValidatorConfig = ProtectedTermsValidatorConfig()
     automation_cooldown_seconds: float = Field(
         default=0.5,
         description="Cooldown period between automation command executions.",
@@ -1382,9 +1318,7 @@ class GlobalAppConfig(BaseModel):
         user_data_root = get_default_user_data_root(app_info=app_info)
         sound_model_dir = os.path.join(user_data_root, storage.sound_model_subdir)
         sound_samples_dir = os.path.join(user_data_root, storage.sound_samples_subdir)
-        external_non_target_sounds_dir = os.path.join(
-            sound_samples_dir, storage.external_non_target_sounds_subdir
-        )
+        external_non_target_sounds_dir = os.path.join(sound_samples_dir, storage.external_non_target_sounds_subdir)
         settings_dir = os.path.join(user_data_root, storage.settings_subdir)
         marks_dir = os.path.join(user_data_root, storage.marks_subdir)
         click_tracker_dir = os.path.join(user_data_root, storage.click_tracker_subdir)
@@ -1451,15 +1385,11 @@ def get_config_path(
         os.makedirs(settings_dir, exist_ok=True)
         return os.path.join(settings_dir, config_file)
 
-    project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    )
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     return os.path.join(project_root, DEFAULT_CONFIG_DIR_NAME, config_file)
 
 
-def load_app_config(
-    config_path: Optional[str] = None, app_info: Optional[AppInfoConfig] = None
-) -> GlobalAppConfig:
+def load_app_config(config_path: Optional[str] = None, app_info: Optional[AppInfoConfig] = None) -> GlobalAppConfig:
     """Load application configuration from YAML file with fallback to defaults.
 
     Attempts to load configuration from the specified or computed path. Returns default
@@ -1485,9 +1415,7 @@ def load_app_config(
             return GlobalAppConfig()
         return GlobalAppConfig(**config_data.get("app", {}))
     except FileNotFoundError:
-        logger.warning(
-            f"Configuration file not found at {actual_config_path}. Using default GlobalAppConfig."
-        )
+        logger.warning(f"Configuration file not found at {actual_config_path}. Using default GlobalAppConfig.")
         return GlobalAppConfig()
     except yaml.YAMLError as e:
         logger.error(f"Error parsing YAML configuration file {actual_config_path}: {e}")

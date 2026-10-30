@@ -1,6 +1,9 @@
+default_language_version:
+    python: "3.13"
+
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v3.4.0
+    rev: v6.0.0
     hooks:
     -   id: trailing-whitespace
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
@@ -10,7 +13,7 @@ repos:
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: check-added-large-files
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
-        args: ['--maxkb=20000']  # Allow larger files for models
+        args: ['--maxkb=20000']
     -   id: debug-statements
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
     -   id: detect-private-key
@@ -22,26 +25,26 @@ repos:
     -   id: pretty-format-json
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ['--autofix']
--   repo: https://github.com/psf/black
-    rev: 22.10.0
+-   repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 26.3.1
     hooks:
     -   id: black
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ['--line-length=131']
 -   repo: https://github.com/PyCQA/flake8
-    rev: 7.0.0
+    rev: 7.3.0
     hooks:
     -   id: flake8
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ['--config=.flake8']
 -   repo: https://github.com/PyCQA/autoflake
-    rev: v2.2.0
+    rev: v2.3.1
     hooks:
     -   id: autoflake
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)
         args: ["--remove-all-unused-imports", "--remove-unused-variables", "--in-place"]
 -   repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+    rev: 6.0.1
     hooks:
     -   id: isort
         exclude: ^(NOTICE\.txt|LICENSE\.txt|NOTICES/)

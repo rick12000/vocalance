@@ -39,8 +39,7 @@ class TabButton(QPushButton):
         """Apply styling based on selection state - pill-shaped buttons."""
         if self.chosen:
             # Selected state: dark background with full styling
-            self.setStyleSheet(
-                f"""
+            self.setStyleSheet(f"""
                 TabButton {{
                     background-color: {theme.config.shapes.dark};
                     color: {theme.config.text.light};
@@ -51,12 +50,10 @@ class TabButton(QPushButton):
                 TabButton:hover {{
                     background-color: {theme.config.shapes.dark};
                 }}
-                """
-            )
+                """)
         else:
             # Unselected state: transparent background
-            self.setStyleSheet(
-                f"""
+            self.setStyleSheet(f"""
                 TabButton {{
                     background-color: transparent;
                     color: {theme.config.text.medium};
@@ -68,8 +65,7 @@ class TabButton(QPushButton):
                     background-color: {theme.config.shapes.dark};
                     color: {theme.config.text.light};
                 }}
-                """
-            )
+                """)
 
     def set_selected(self, selected: bool) -> None:
         """Set the selection state of the button."""

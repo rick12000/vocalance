@@ -87,7 +87,9 @@ STREAMING_LLM_MODES: tuple[DictationMode, ...] = (DictationMode.SMART, Dictation
 
 VALID_DICTATION_STATE_TRANSITIONS: dict[DictationState, frozenset[DictationState]] = {
     DictationState.IDLE: frozenset({DictationState.RECORDING, DictationState.SHUTTING_DOWN}),
-    DictationState.RECORDING: frozenset({DictationState.PAUSED, DictationState.PROCESSING_LLM, DictationState.IDLE, DictationState.SHUTTING_DOWN}),
+    DictationState.RECORDING: frozenset(
+        {DictationState.PAUSED, DictationState.PROCESSING_LLM, DictationState.IDLE, DictationState.SHUTTING_DOWN}
+    ),
     DictationState.PAUSED: frozenset({DictationState.RECORDING, DictationState.IDLE, DictationState.SHUTTING_DOWN}),
     DictationState.PROCESSING_LLM: frozenset({DictationState.IDLE, DictationState.SHUTTING_DOWN}),
     DictationState.SHUTTING_DOWN: frozenset(),
@@ -274,9 +276,7 @@ class DictationASRController:
             return
 
         if session.mode in TRANSCRIPT_UI_MODES:
-            await self.coordinator.event_bus.publish(
-                FinalDictationTextEvent(text=processed, segment_id=str(uuid.uuid4()))
-            )
+            await self.coordinator.event_bus.publish(FinalDictationTextEvent(text=processed, segment_id=str(uuid.uuid4())))
 
         sep = " " if self.streaming_finalized_text else ""
         self.streaming_finalized_text += sep + processed
@@ -713,9 +713,7 @@ class DictationCoordinator(Service):
 
     async def paste_finished_transcript(self, session: DictationSession, final_text: str) -> None:
         if session.mode in (DictationMode.VISUAL, DictationMode.HIDDEN):
-            await self.event_bus.publish(
-                DictationSessionEvent(mode=session.mode, state="stopped", accumulated_text=final_text)
-            )
+            await self.event_bus.publish(DictationSessionEvent(mode=session.mode, state="stopped", accumulated_text=final_text))
         if final_text:
             await self.text_service.input_text(text=final_text, add_trailing_space=True)
             self.activity_tracker.log_dictation(

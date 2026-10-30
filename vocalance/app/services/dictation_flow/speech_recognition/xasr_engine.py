@@ -154,20 +154,23 @@ class XASRStreamSession:
             self.recognizer.decode_stream(self.stream)
 
         decode_ms = (time.monotonic() - decode_start) * 1000.0
-        batch_audio_ms = sum(
-            len(np.frombuffer(ab, dtype=np.int16)) / sr * 1000.0 for ab, sr in batch
-        )
+        batch_audio_ms = sum(len(np.frombuffer(ab, dtype=np.int16)) / sr * 1000.0 for ab, sr in batch)
         if batch_audio_ms > 0:
             rtf = decode_ms / batch_audio_ms
             if rtf > 1.0:
                 logger.warning(
                     "XASR inference slower than real-time: RTF=%.2f (decode=%.1f ms, audio=%.1f ms)",
-                    rtf, decode_ms, batch_audio_ms,
+                    rtf,
+                    decode_ms,
+                    batch_audio_ms,
                 )
             else:
                 logger.debug(
                     "XASR decode RTF=%.3f (decode=%.1f ms, audio=%.1f ms, queue_depth=%d)",
-                    rtf, decode_ms, batch_audio_ms, self.audio_queue.qsize(),
+                    rtf,
+                    decode_ms,
+                    batch_audio_ms,
+                    self.audio_queue.qsize(),
                 )
 
         self.dispatch_hypothesis()

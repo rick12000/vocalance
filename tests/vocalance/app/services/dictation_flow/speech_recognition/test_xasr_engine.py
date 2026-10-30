@@ -89,9 +89,12 @@ def test_backpressure_drops_oldest_on_overflow():
 
 def test_xasr_engine_uses_greedy_search_without_bpe_vocab(stt_config, tmp_path):
     missing = tmp_path / "bpe.vocab"
-    with patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory, patch(
-        "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
-        return_value=missing,
+    with (
+        patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory,
+        patch(
+            "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
+            return_value=missing,
+        ),
     ):
         mock_factory.return_value = Mock()
         from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
@@ -104,9 +107,12 @@ def test_xasr_engine_uses_greedy_search_without_bpe_vocab(stt_config, tmp_path):
 def test_xasr_engine_uses_beam_search_when_bpe_vocab_exists(stt_config, tmp_path):
     vocab = tmp_path / "bpe.vocab"
     vocab.write_text("▁A 0\n", encoding="utf-8")
-    with patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory, patch(
-        "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
-        return_value=vocab,
+    with (
+        patch("sherpa_onnx.OnlineRecognizer.from_transducer") as mock_factory,
+        patch(
+            "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
+            return_value=vocab,
+        ),
     ):
         mock_factory.return_value = Mock()
         from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
@@ -130,9 +136,12 @@ def test_create_session_passes_hotwords_only_when_beam_search_is_active(stt_conf
     recognizer.create_stream.return_value = stream
     recognizer.is_ready.return_value = False
     recognizer.get_result.return_value = ""
-    with patch("sherpa_onnx.OnlineRecognizer.from_transducer", return_value=recognizer), patch(
-        "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
-        return_value=vocab,
+    with (
+        patch("sherpa_onnx.OnlineRecognizer.from_transducer", return_value=recognizer),
+        patch(
+            "vocalance.app.services.dictation_flow.speech_recognition.xasr_engine.bpe_vocab_path",
+            return_value=vocab,
+        ),
     ):
         from vocalance.app.services.dictation_flow.speech_recognition.xasr_engine import XASREngine
 

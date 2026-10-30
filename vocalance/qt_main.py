@@ -221,9 +221,11 @@ async def run_initialization(
         and os.path.exists(os.path.join(yamnet_path, "variables"))
     )
     progress.update_status_animated(
-        status="Initializing sound recognition"
-        if yamnet_ready
-        else "Loading YAMNet model. This should take 1-2 minutes on first use."
+        status=(
+            "Initializing sound recognition"
+            if yamnet_ready
+            else "Loading YAMNet model. This should take 1-2 minutes on first use."
+        )
     )
     await services.sound_service.initialize()
     lifecycle.spawn(
@@ -332,9 +334,11 @@ async def run_initialization(
                 logger.info("LLM model bundle ready: %s", downloaded_path)
 
     progress.update_sub_step(
-        sub_step_name="Initializing dictation"
-        if xasr_assets_ready()
-        else "X-ASR model assets missing — check vocalance/app/assets/asr/chunk-480ms-model/",
+        sub_step_name=(
+            "Initializing dictation"
+            if xasr_assets_ready()
+            else "X-ASR model assets missing — check vocalance/app/assets/asr/chunk-480ms-model/"
+        ),
         progress=0.75,
     )
     if not await services.dictation.initialize():

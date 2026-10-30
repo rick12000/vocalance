@@ -30,9 +30,7 @@ def test_apply_dot_path_updates_nested_config(path, value):
 def test_effective_settings_projection_covers_all_allowed_paths():
     projection = effective_settings_projection(GlobalAppConfig())
 
-    flattened = {
-        f"{category}.{key}" for category, items in projection.items() for key in items
-    }
+    flattened = {f"{category}.{key}" for category, items in projection.items() for key in items}
     assert flattened == set(ALLOWED_USER_SETTING_PATHS)
 
 

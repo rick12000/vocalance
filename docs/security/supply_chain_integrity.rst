@@ -147,6 +147,15 @@ A mismatch deletes the file and raises ``IntegrityError``, surfaced to the user
 as an explicit error. The application will not load a model that failed
 verification.
 
+TLS certificate stores
+======================
+
+Following the eMudhra / emSign CA incident, the project pins a minimum
+``certifi`` version in ``pyproject.toml``. Git hooks are run with
+`prek <https://github.com/j178/prek>`_, which provisions Python hook
+environments through ``uv`` using the project lockfile rather than ad hoc
+per-hook ``pip`` bootstraps.
+
 Bundled Models
 ==============
 

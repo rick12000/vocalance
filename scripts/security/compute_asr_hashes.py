@@ -7,8 +7,7 @@ project documentation), then paste the output into the ``sha256`` field of
 ``_ASR_MODEL_ARTIFACT`` in ``vocalance/app/config/app_config.py``.
 
 Usage:
-    conda activate vocalance_env_dev
-    python scripts/security/compute_asr_hashes.py
+    uv run python scripts/security/compute_asr_hashes.py
 """
 
 import hashlib

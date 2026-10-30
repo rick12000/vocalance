@@ -22,8 +22,7 @@ T = TypeVar("T")
 class AsyncCloseable(Protocol):
     """Resource that the lifecycle can tear down via ``shutdown`` (sync or async)."""
 
-    async def shutdown(self) -> None:
-        ...
+    async def shutdown(self) -> None: ...
 
 
 _BACKGROUND_GRACE_S = 3.0

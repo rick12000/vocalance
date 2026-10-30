@@ -4,12 +4,12 @@ import pytest
 
 from vocalance.app.events.dictation_events import AgenticPromptUiOperationEvent
 from vocalance.app.services.dictation_flow.llm.agentic_prompt_service import (
-    AgenticPromptService,
     _CLARITY_FORMAT_PROMPT,
     _DEFAULT_PROMPT,
     _DEFAULT_PROMPT_NAME,
     _NON_NEGOTIABLE_CONSTRAINTS,
     _SYSTEM_PROMPTS,
+    AgenticPromptService,
 )
 from vocalance.app.services.dictation_flow.llm.dictation_messages import (
     _DICTATION_SYSTEM_STUB,
@@ -64,9 +64,7 @@ async def test_initialize_creates_system_prompts(agentic_prompt_service):
 
 
 async def test_initialize_syncs_stale_default_name(mock_event_bus, app_config, agentic_prompts_storage):
-    existing = AgenticPrompt(
-        id="d1", text="x", name="Old Default", created_at=datetime.now().isoformat(), is_default=True
-    )
+    existing = AgenticPrompt(id="d1", text="x", name="Old Default", created_at=datetime.now().isoformat(), is_default=True)
     agentic_prompts_storage.read.return_value = AgenticPromptsData(prompts=[existing], current_prompt_id="d1")
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
@@ -77,9 +75,7 @@ async def test_initialize_syncs_stale_default_name(mock_event_bus, app_config, a
 
 
 async def test_ensure_system_prompts_syncs_stale_name(mock_event_bus, app_config, agentic_prompts_storage):
-    default = AgenticPrompt(
-        id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True
-    )
+    default = AgenticPrompt(id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True)
     stale_email = AgenticPrompt(
         id="e1",
         text="old",
@@ -88,9 +84,7 @@ async def test_ensure_system_prompts_syncs_stale_name(mock_event_bus, app_config
         system_key="email_format",
         system_canonical_name="Old Email Name",
     )
-    agentic_prompts_storage.read.return_value = AgenticPromptsData(
-        prompts=[default, stale_email], current_prompt_id="d1"
-    )
+    agentic_prompts_storage.read.return_value = AgenticPromptsData(prompts=[default, stale_email], current_prompt_id="d1")
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
     await service.initialize()
@@ -100,9 +94,7 @@ async def test_ensure_system_prompts_syncs_stale_name(mock_event_bus, app_config
 
 
 async def test_ensure_system_prompts_preserves_user_customised_name(mock_event_bus, app_config, agentic_prompts_storage):
-    default = AgenticPrompt(
-        id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True
-    )
+    default = AgenticPrompt(id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True)
     custom_email = AgenticPrompt(
         id="e1",
         text="custom",
@@ -111,9 +103,7 @@ async def test_ensure_system_prompts_preserves_user_customised_name(mock_event_b
         system_key="email_format",
         system_canonical_name="Email Formatter",
     )
-    agentic_prompts_storage.read.return_value = AgenticPromptsData(
-        prompts=[default, custom_email], current_prompt_id="d1"
-    )
+    agentic_prompts_storage.read.return_value = AgenticPromptsData(prompts=[default, custom_email], current_prompt_id="d1")
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
     await service.initialize()
@@ -123,9 +113,7 @@ async def test_ensure_system_prompts_preserves_user_customised_name(mock_event_b
 
 
 async def test_initialize_does_not_duplicate_system_prompts(mock_event_bus, app_config, agentic_prompts_storage):
-    default = AgenticPrompt(
-        id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True
-    )
+    default = AgenticPrompt(id="d1", text="x", name=_DEFAULT_PROMPT_NAME, created_at=datetime.now().isoformat(), is_default=True)
     email = AgenticPrompt(
         id="e1",
         text="e",
@@ -135,9 +123,7 @@ async def test_initialize_does_not_duplicate_system_prompts(mock_event_bus, app_
         system_canonical_name="Email Formatter",
         system_canonical_text="e",
     )
-    agentic_prompts_storage.read.return_value = AgenticPromptsData(
-        prompts=[default, email], current_prompt_id="d1"
-    )
+    agentic_prompts_storage.read.return_value = AgenticPromptsData(prompts=[default, email], current_prompt_id="d1")
 
     service = AgenticPromptService(event_bus=mock_event_bus, config=app_config, storage=agentic_prompts_storage)
     await service.initialize()

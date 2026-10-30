@@ -13,8 +13,8 @@ from vocalance.app.ui.components.labels import LargeLabel
 from vocalance.app.ui.features.commands.controller import QtCommandsController
 from vocalance.app.ui.features.commands.view import QtCommandsView
 from vocalance.app.ui.features.dictation.alias_controller import QtDictationAliasController
-from vocalance.app.ui.features.dictation.hotword_controller import QtHotwordController
 from vocalance.app.ui.features.dictation.controller import QtDictationController
+from vocalance.app.ui.features.dictation.hotword_controller import QtHotwordController
 from vocalance.app.ui.features.dictation.popup_controller import QtDictationPopupController
 from vocalance.app.ui.features.dictation.view import QtDictationView
 from vocalance.app.ui.features.marks.controller import QtMarksController

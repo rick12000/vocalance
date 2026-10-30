@@ -117,7 +117,6 @@ def test_xasr_streaming_dictation_accuracy(xasr_engine, dictation_file, sample_r
     Audio is chunked at 480 ms intervals to simulate the streaming use-case.
     The test collects the final hypothesis via finalize() and checks word accuracy.
     """
-    import asyncio
 
     from vocalance.app.services.dictation_flow.speech_recognition.transcript_state_manager import TranscriptStateManager
 

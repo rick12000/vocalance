@@ -5,7 +5,13 @@ from conftest import skip_if_headless
 
 skip_if_headless()
 
-from vocalance.app.config.command_types import ExactMatchCommand, GridShowCommand, ParameterizedCommand, ResumeCommand, SoundTrainCommand
+from vocalance.app.config.command_types import (
+    ExactMatchCommand,
+    GridShowCommand,
+    ParameterizedCommand,
+    ResumeCommand,
+    SoundTrainCommand,
+)
 from vocalance.app.events.command_events import AutomationCommandParsedEvent, SystemControlCommandParsedEvent
 from vocalance.app.events.core_events import CustomSoundRecognizedEvent
 from vocalance.app.services.command_flow.parsing.parser import CentralizedCommandParser

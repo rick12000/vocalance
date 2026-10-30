@@ -6,7 +6,6 @@ from PySide6.QtCore import Signal
 
 from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.automation_command_registry import AutomationCommandRegistry
-from vocalance.app.services.command_flow.parsing.text_command_parse import SYSTEM_CONTROL_PHRASES
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.mark_events import MarksChangedEventData, MarkUiRequestEvent
 from vocalance.app.events.sound_events import (
@@ -19,6 +18,7 @@ from vocalance.app.events.sound_events import (
     SoundTrainingProgressEvent,
     SoundUiOperationEvent,
 )
+from vocalance.app.services.command_flow.parsing.text_command_parse import SYSTEM_CONTROL_PHRASES
 from vocalance.app.ui.controls.qt_base_controller import QtBaseController
 
 

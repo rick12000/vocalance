@@ -7,17 +7,11 @@ from vocalance.app.services.dictation_flow.llm.local_endpoint import (
 
 
 def test_normalize_chat_completions_url_appends_v1():
-    assert (
-        normalize_chat_completions_url("http://127.0.0.1:11434")
-        == "http://127.0.0.1:11434/v1/chat/completions"
-    )
+    assert normalize_chat_completions_url("http://127.0.0.1:11434") == "http://127.0.0.1:11434/v1/chat/completions"
 
 
 def test_normalize_chat_completions_url_respects_existing_v1():
-    assert (
-        normalize_chat_completions_url("http://localhost:8080/v1")
-        == "http://localhost:8080/v1/chat/completions"
-    )
+    assert normalize_chat_completions_url("http://localhost:8080/v1") == "http://localhost:8080/v1/chat/completions"
 
 
 def test_validate_accepts_loopback_hosts():

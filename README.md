@@ -68,67 +68,52 @@ Having issues with the installation steps? Reach out at: vocalance.contact@gmail
 ### 🛠️ **Developer Setup**
 
 > [!IMPORTANT]
-> If you want to enable AI features, ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed — download the installer, run it, and tick "**Desktop development with C++**" under workloads. Then install with `uv sync --extra llm` instead of `uv sync --active`.
+> If you want to enable AI features, ensure [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) are installed — download the installer, run it, and tick "**Desktop development with C++**" under workloads. Then use `uv sync --frozen --extra llm` instead of `uv sync --frozen` alone.
 
-#### 1. Set Up UV
+#### 1. Install uv
 
-1. Open Windows PowerShell and enter the script below to install [UV](https://github.com/astral-sh/uv) (Python package manager):
+1. Open Windows PowerShell and install [uv](https://github.com/astral-sh/uv):
+
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-2. Add UV to path (this is specific to this terminal session only, repeat this step every time, or add to permanent path to skip):
+2. Add uv to your PATH for this session (or add permanently):
+
    ```powershell
    $env:Path = "$HOME\.local\bin;$env:Path"
    ```
 
-#### 2. Set Up Vocalance
+#### 2. Set up Vocalance
 
-1. Create a 3.13.9 virtual environment named `vocalance_env` with UV:
-   ```bash
-   uv venv --python 3.13.9 vocalance_env
-   ```
+1. Clone the repository and enter the project directory:
 
-2. Activate the environment:
-   ```bash
-   vocalance_env\Scripts\activate
-   ```
-
-3. Clone the repository:
    ```bash
    git clone https://github.com/rick12000/vocalance.git
-   ```
-
-4. Go to the repository directory:
-   ```bash
    cd vocalance
    ```
 
-5. Install Vocalance from `uv.lock`:
+2. Install from the lockfile:
+
    ```bash
-   uv sync --active
+   uv sync --frozen
    ```
 
-   To include LLM features (smart dictation, text-amend), install with:
+   With LLM features:
+
    ```bash
-   uv sync --active --extra llm
+   uv sync --frozen --extra llm
    ```
 
-6. Run the application:
+3. Run the application:
+
    ```bash
-   python vocalance.py
+   uv run python vocalance.py
    ```
 
 The application will start up and download any required models (like speech recognition models) on first run. If LLM features are enabled, the local AI model is also downloaded on first launch. This may take several minutes depending on your internet connection.
 
 Then you're good to go! If you haven't already, refer to Vocalance's official website for [instructions](https://rick12000.github.io/vocalance-launch-site/instructions.html) on how to get started.
-
-
-### An Aside on Pip
-
-The recommended approach is to install Vocalance with uv, since the developers can freeze and document all recommended dependancies in a `uv.lock` file, which you then install with `uv sync --active`.
-
-If you're more familiar with a mixture of a virtual environment manager (eg. `venv` or `conda` or `pyenv`) + `pip` however, you can absolutely replace above uv steps with your environment manager and replace `uv sync --active` with `pip install .` to install Vocalance as a package. Note this is at your discretion, and license disclosures in this repository pertain to pinned package versions in `uv.lock`.
 
 ### 🧹 Cleanup
 
@@ -139,6 +124,37 @@ Invoke-WebRequest -Uri "https://github.com/rick12000/vocalance/releases/latest/d
 ```
 
 This removes the application files (`%LOCALAPPDATA%\Programs\Vocalance\`), user data (`%APPDATA%\Vocalance\`), and the Start Menu shortcut. It does not remove system-level tools such as UV.
+
+
+## Development
+
+1. Install the application as in **Developer Setup**, with the `dev` extra.
+
+   ```bash
+   uv sync --frozen --extra dev
+   ```
+
+2. Set up Git hooks with prek.
+
+   ```bash
+   uv run prek install
+   ```
+
+   After this, prek runs on every commit.
+
+3. To check the whole tree without committing.
+
+   ```bash
+   uv run prek run --all-files
+   ```
+
+4. After changing dependencies in `pyproject.toml`, refresh the lockfile.
+
+   ```bash
+   uv lock
+   ```
+
+   See [developer/documentation/dependency_updates.md](developer/documentation/dependency_updates.md) for the full lock workflow.
 
 
 ## ⚠️ Disclaimers

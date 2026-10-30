@@ -453,9 +453,7 @@ class QtGridView(QWidget):
         registration silently fails; the user can still dismiss via voice command.
         """
         hwnd = int(self.winId())
-        self.escape_hotkey_registered = bool(
-            ctypes.windll.user32.RegisterHotKey(hwnd, HOTKEY_ID_ESCAPE, 0, VK_ESCAPE)
-        )
+        self.escape_hotkey_registered = bool(ctypes.windll.user32.RegisterHotKey(hwnd, HOTKEY_ID_ESCAPE, 0, VK_ESCAPE))
         if not self.escape_hotkey_registered:
             self.logger.warning("Escape hotkey unavailable; dismiss the grid via voice command")
 

@@ -552,11 +552,12 @@ def mock_duplicate_filter():
 @pytest.fixture
 def vosk_engine_instance(mock_vosk_model, mock_vosk_recognizer, stt_config):
     """Create Vosk STT instance with mocked dependencies."""
-    with patch(
-        "vocalance.app.services.command_flow.speech_recognition.vosk_engine.vosk.Model", return_value=mock_vosk_model
-    ), patch(
-        "vocalance.app.services.command_flow.speech_recognition.vosk_engine.vosk.KaldiRecognizer",
-        return_value=mock_vosk_recognizer,
+    with (
+        patch("vocalance.app.services.command_flow.speech_recognition.vosk_engine.vosk.Model", return_value=mock_vosk_model),
+        patch(
+            "vocalance.app.services.command_flow.speech_recognition.vosk_engine.vosk.KaldiRecognizer",
+            return_value=mock_vosk_recognizer,
+        ),
     ):
         from vocalance.app.services.command_flow.speech_recognition.vosk_engine import VoskEngine
 
@@ -1038,11 +1039,13 @@ def dictation_coordinator(mock_event_bus, app_config, mock_storage_service):
     from vocalance.app.services.dictation_flow.dictation_coordinator import DictationCoordinator
 
     loop = asyncio.new_event_loop()
-    with patch("vocalance.app.services.dictation_flow.dictation_coordinator.DictationTextInput"), patch(
-        "vocalance.app.services.dictation_flow.dictation_coordinator.DictationAliasService"
-    ), patch(
-        "vocalance.app.services.dictation_flow.dictation_coordinator.llm_deps_available",
-        return_value=False,
+    with (
+        patch("vocalance.app.services.dictation_flow.dictation_coordinator.DictationTextInput"),
+        patch("vocalance.app.services.dictation_flow.dictation_coordinator.DictationAliasService"),
+        patch(
+            "vocalance.app.services.dictation_flow.dictation_coordinator.llm_deps_available",
+            return_value=False,
+        ),
     ):
         coordinator = DictationCoordinator(
             event_bus=mock_event_bus,

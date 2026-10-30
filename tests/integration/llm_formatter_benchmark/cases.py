@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -83,11 +83,7 @@ AMEND_CASES: List[AmendCase] = [
     AmendCase(
         id="dictated_reformat_structure",
         clipboard=(
-            "team update\n"
-            "we shipped dark mode\n"
-            "mobile still broken on ios 17\n"
-            "need qa signoff\n"
-            "docs are stale"
+            "team update\n" "we shipped dark mode\n" "mobile still broken on ios 17\n" "need qa signoff\n" "docs are stale"
         ),
         spoken=(
             "Reformat this into exactly three short paragraphs. First paragraph status on dark mode. "

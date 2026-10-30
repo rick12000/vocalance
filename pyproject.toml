@@ -10,7 +10,7 @@ readme = "README.md"
 authors = [
     {name = "Riccardo Doyle", email = "r.doyle.edu@gmail.com"}
 ]
-requires-python = "==3.13.9"
+requires-python = ">=3.13,<3.14"
 classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
@@ -35,7 +35,8 @@ dependencies = [
     "keras==3.14.1",
     "protobuf==7.35.1",
     "urllib3==2.7.0",
-    "msgpack==1.2.1"
+    "msgpack==1.2.1",
+    "certifi>=2026.10.19"
 ]
 
 [project.urls]
@@ -50,9 +51,11 @@ dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-timeout>=2.1.0",
-    "pre-commit>=3.4.0",
+    "prek>=0.5.7",
     "black>=26.3.1",
     "flake8>=7.0.0",
+    "autoflake>=2.3.0",
+    "isort>=6.0.0",
     "sphinx>=8.1.0",
     "sphinx-rtd-theme>=2.0.0",
     "myst-parser>=3.0.0",

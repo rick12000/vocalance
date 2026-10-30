@@ -102,7 +102,7 @@ try {
     Expand-Archive -Path $zipPath -DestinationPath $APP_DIR -Force
 
     Write-Host "Creating virtual environment..."
-    & $UV_EXE venv --python 3.13.9 $VENV_DIR
+    & $UV_EXE venv --python 3.13 $VENV_DIR
 
     $llmAnswer = Read-Host 'Enable LLM features? (requires ~2 GB and Microsoft C++ Build Tools) (yes/no)'
 

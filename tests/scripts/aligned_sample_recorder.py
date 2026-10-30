@@ -34,9 +34,7 @@ class AlignedSampleRecorder:
         self.running = True
 
         self.sample_rate = int(self.config.audio.sample_rate)
-        self.chunk_size = int(
-            self.sample_rate * float(self.config.audio.capture_chunk_duration_seconds)
-        )
+        self.chunk_size = int(self.sample_rate * float(self.config.audio.capture_chunk_duration_seconds))
         self._stream: Optional[sd.InputStream] = None
         self._lock = threading.Lock()
 
@@ -72,9 +70,7 @@ class AlignedSampleRecorder:
             f.write(pcm_bytes)
 
         duration = len(pcm_bytes) / (self.sample_rate * 2)
-        self.logger.info(
-            f"Saved segment {seq}: {filename} ({duration:.2f}s, {len(pcm_bytes)} bytes)"
-        )
+        self.logger.info(f"Saved segment {seq}: {filename} ({duration:.2f}s, {len(pcm_bytes)} bytes)")
 
     def start(self) -> None:
         self.logger.info(f"Starting {self.mode} mode recorder")
@@ -82,9 +78,7 @@ class AlignedSampleRecorder:
         self.logger.info("Press Ctrl+C to stop recording")
 
         if self.mode == "command":
-            self.logger.info(
-                f"pickup={self.config.vad.command_pickup}, end_pause={self.config.vad.command_end_pause}"
-            )
+            self.logger.info(f"pickup={self.config.vad.command_pickup}, end_pause={self.config.vad.command_end_pause}")
         else:
             self.logger.info(
                 "dictation label: continuous raw chunks only (in-app dictation uses Moonshine streaming, not VAD segments)"
@@ -131,15 +125,11 @@ class AlignedSampleRecorder:
             except Exception as e:
                 self.logger.warning("Error while closing audio stream: %s", e)
             self._stream = None
-        self.logger.info(
-            f"Recording stopped. Total segments saved: {self.segment_count}"
-        )
+        self.logger.info(f"Recording stopped. Total segments saved: {self.segment_count}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Record audio using Vocalance capture parameters"
-    )
+    parser = argparse.ArgumentParser(description="Record audio using Vocalance capture parameters")
     parser.add_argument(
         "--mode",
         choices=["command", "dictation"],

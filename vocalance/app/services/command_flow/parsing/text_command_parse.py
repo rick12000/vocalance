@@ -29,8 +29,8 @@ from vocalance.app.config.command_types import (
     ParameterizedCommand,
     ParseResultType,
     PauseCommand,
-    ResumeCommand,
     RepeatCommand,
+    ResumeCommand,
 )
 from vocalance.app.utils.number_parser import parse_number
 

@@ -146,9 +146,7 @@ class AudioCaptureService(Service):
 
     def _publish_chunk(self, pcm_bytes: bytes, timestamp: float) -> None:
         """Main-loop entry point: publish a captured chunk on the bus."""
-        self.event_bus.submit(
-            AudioChunkCapturedEvent(pcm_bytes=pcm_bytes, timestamp=timestamp, sample_rate=self.sample_rate)
-        )
+        self.event_bus.submit(AudioChunkCapturedEvent(pcm_bytes=pcm_bytes, timestamp=timestamp, sample_rate=self.sample_rate))
 
     def _publish_device_error(self, message: str) -> None:
         if self._device_error_published:

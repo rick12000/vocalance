@@ -14,8 +14,8 @@ from huggingface_hub import hf_hub_url
 from huggingface_hub.utils import build_hf_headers, hf_raise_for_status
 
 from vocalance.app.config.app_config import GlobalAppConfig, asr_model_artifact, bpe_vocab_artifact
-from vocalance.app.services.dictation_flow.hotwords import export_bpe_vocab, vocab_matches_tokens
 from vocalance.app.lifecycle.worker import run_blocking
+from vocalance.app.services.dictation_flow.hotwords import export_bpe_vocab, vocab_matches_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -180,9 +180,7 @@ class ASRModelDownloader:
             actual = sha256_of_file(partial_path)
             if actual != expected.lower():
                 shutil.rmtree(temp_file_dir, ignore_errors=True)
-                raise IntegrityError(
-                    f"SHA-256 mismatch for {filename!r}: expected {expected} got {actual}"
-                )
+                raise IntegrityError(f"SHA-256 mismatch for {filename!r}: expected {expected} got {actual}")
             logger.info("SHA-256 verified: %s", filename)
         else:
             logger.error(
