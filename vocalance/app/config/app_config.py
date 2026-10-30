@@ -116,13 +116,14 @@ class XASRConfig(BaseModel):
         description="Trailing words always kept provisional regardless of stability_window.",
     )
     silence_commit_threshold_sec: float = Field(
-        default=1.0,
+        default=20.0,
         ge=0.1,
         le=60.0,
         description=(
-            "Default seconds of hypothesis stability before the provisional tail is force-committed "
-            "mid-session. Dictation sessions override this to 15 s and rely on session-end "
-            "finalization for punctuation quality."
+            "Seconds the full ASR hypothesis must stay unchanged before an interim dictation segment "
+            "is force-finalized (provisional tail committed; session keeps recording). Shorter pauses "
+            "within the same utterance do not end the session. Session stop still uses manual stop, "
+            "TYPE mode type_dictation_silence_timeout, or end-of-stream finalization."
         ),
     )
     audio_queue_maxsize: int = Field(
@@ -313,10 +314,13 @@ class DictationConfig(BaseModel):
     typing_delay: float = 0.01
 
     type_dictation_silence_timeout: float = Field(
-        default=2.0,
+        default=1.0,
         ge=0.5,
         le=30.0,
-        description="Seconds the type-mode transcript must stay unchanged before the session ends and the text is pasted once.",
+        description=(
+            "TYPE dictation only: seconds of unchanged hypothesis before the whole session auto-stops "
+            "and pastes once (independent of stt.xasr.silence_commit_threshold_sec segment finalization)."
+        ),
     )
 
     modifier_suppress_sec: float = Field(

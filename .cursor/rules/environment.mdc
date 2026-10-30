@@ -1,5 +1,0 @@
----
-alwaysApply: true
----
-When executing code in the terminal during development, run commands from the project root with uv (for example `uv run pytest`, `uv sync --extra dev --frozen`).
-Always explicitly use cmd not powershell to run Python code.

@@ -69,8 +69,6 @@ ASR_CHUNK_DICTATION_MODES: tuple[DictationMode, ...] = (
     DictationMode.AMEND,
 )
 
-DICTATION_SILENCE_COMMIT_SEC: float = 15.0
-
 TRANSCRIPT_UI_MODES: tuple[DictationMode, ...] = (
     DictationMode.SMART,
     DictationMode.VISUAL,
@@ -216,7 +214,6 @@ class DictationASRController:
             self.coordinator.gui_event_loop,
             self.on_committed,
             self.on_provisional,
-            silence_commit_threshold_override=DICTATION_SILENCE_COMMIT_SEC,
             hotwords=self.coordinator.hotword_service.stream_hotwords(),
         )
         self.asr_ingress_epoch += 1
@@ -715,7 +712,8 @@ class DictationCoordinator(Service):
         if session.mode in (DictationMode.VISUAL, DictationMode.HIDDEN):
             await self.event_bus.publish(DictationSessionEvent(mode=session.mode, state="stopped", accumulated_text=final_text))
         if final_text:
-            await self.text_service.input_text(text=final_text, add_trailing_space=True)
+            add_trailing_space = session.mode != DictationMode.TYPE
+            await self.text_service.input_text(text=final_text, add_trailing_space=add_trailing_space)
             self.activity_tracker.log_dictation(
                 text=final_text,
                 mode=str(session.mode),
