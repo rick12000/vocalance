@@ -1,4 +1,5 @@
 """CI guard: ActivityTrackingConfig.enabled must default to False (privacy)."""
+
 import ast
 import sys
 from pathlib import Path

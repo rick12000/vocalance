@@ -6,10 +6,10 @@ This directory contains the Sphinx documentation for the Vocalance voice command
 
 ### Prerequisites
 
-Install the project with documentation dependencies (run from the repository root):
+Install documentation dependencies from the lockfile (run from the repository root):
 
 ```bash
-pip install -e ".[docs]"
+uv sync --frozen --extra docs
 ```
 
 ### Building HTML Documentation
@@ -72,9 +72,7 @@ styling is defined in:
 ## ReadTheDocs Integration
 
 The documentation is configured for ReadTheDocs via `.readthedocs.yaml` in the
-project root. RTD installs the project with `pip install --ignore-requires-python -e ".[docs]"`
-because the application's own `pyproject.toml` pins Python 3.13.9 exactly while
-RTD ships only the 3.13 minor series.
+project root. RTD installs docs dependencies with `uv sync --frozen --extra docs`.
 
 ## Contributing
 

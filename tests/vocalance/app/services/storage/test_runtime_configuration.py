@@ -7,7 +7,7 @@ from vocalance.app.services.storage.storage_models import AppUserConfigDocument
     "path, expected",
     [
         ("grid.default_rect_count", 500),
-        ("llm.max_tokens", 1500),
+        ("llm.max_tokens", 3000),
     ],
 )
 async def test_get_setting_returns_live_value_for_allowed_path(runtime_config_store, path, expected):

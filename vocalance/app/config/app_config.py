@@ -74,190 +74,79 @@ class AudioConfig(BaseModel):
     device_capture_messages: AudioDeviceCaptureMessages = Field(default_factory=AudioDeviceCaptureMessages)
 
 
-class MoonshineStreamingConfig(BaseModel):
-    """Tuning for Moonshine streaming dictation.
+class XASRConfig(BaseModel):
+    """Configuration for the X-ASR sherpa-onnx streaming transducer engine.
 
-    The Moonshine VAD and decoder have many tunable parameters. This config exposes the most
-    impactful ones for real-time dictation, with sensible defaults that balance latency,
-    quality, and performance.
+    X-ASR uses a 480-ms Zipformer Transducer. When the SentencePiece vocab has been
+    downloaded, decoding is modified beam search so hotwords can bias spellings.
+    Otherwise decoding stays greedy search. The model maintains bounded cached encoder
+    state between 480-ms chunks, giving O(1) per-chunk inference cost regardless of
+    session duration.
 
-    **Decoder tuning (affects per-refresh computational cost and latency):**
-    - ``transcription_interval`` (default 1.5 s): How often the decoder runs. Raised from
-      the library default (0.5 s) to substantially reduce per-segment O(D²) decoder work
-      with no effect on final transcription quality.
-    - ``max_tokens_per_second`` (default 6.5): Tokens per second hallucination ceiling for
-      English. Decoder is force-stopped if it generates >this rate for the segment duration.
-      The default (6.5) is designed for English. Non-Latin languages need higher values
-      (e.g. 13.0) but English dictation benefits from the aggressive default.
+    **Stability tuning (controls committed vs. provisional boundary):**
+    - ``stability_window`` (default 2): A word is eligible for commitment once it has appeared
+      at the same position in the hypothesis unchanged for this many consecutive decode cycles.
+    - ``provisional_words`` (default 4): The last N words of the hypothesis are always kept
+      provisional regardless of stability. Prevents committing words that may still change as
+      context arrives.
 
-    **VAD tuning (affects segment boundaries, latency, and noise sensitivity):**
-    - ``vad_threshold`` (default 0.4): Voice probability threshold (0–1) for segment start/end
-      detection. Higher values (0.6–0.8) reduce noise sensitivity, better for noisy environments
-      but risk clipping weak syllables. Lower values (0.2–0.4) are more inclusive but pick up
-      background noise. 0.4 captures soft speech well; raise toward 0.6 for noisy environments.
-    - ``vad_window_duration`` (default 0.75 s): Time window for VAD probability smoothing. Shorter
-      (0.1–0.3 s) reacts faster to speech/silence transitions but with lower accuracy. Longer
-      (0.5–1.0 s) is more accurate but lags behind real transitions. 0.75 s reduces false positives
-      on brief pauses mid-sentence.
-    - ``vad_hop_size`` (default 512 samples = 32 ms at 16 kHz): The VAD runs this often. Larger
-      hops (1024) reduce CPU but miss fast transitions. Smaller hops (256) react faster but cost
-      more CPU. 512 is the balanced default. Only change if you need faster VAD reaction.
-    - ``vad_look_behind_sample_count`` (default 8192 = 0.512 s): Samples pre-pended when a new
-      segment begins, to recover audio just before the VAD threshold was crossed. On natural
-      pauses this is silence (no effect). On force-closes at continuous speech, this becomes
-      padding that can cause hallucination. Kept at full default for natural-pause quality;
-      application-layer deduplication handles force-close overlap.
-    - ``vad_max_segment_duration`` (default 20 s): Hard cap on segment length. The VAD begins
-      a graceful fade at 2/3 of this value (~13.3 s) and force-closes at the cap. Higher values
-      (20–30 s) allow long sentences to finish naturally; lower values (10–15 s) reduce peak
-      decoder cost for continuous non-stop speech at the cost of more forced cuts.
-
-    **Feature control (affects inference cost):**
-    - ``identify_speakers`` (default False): Whether to run the speaker-embedding model. Disabled
-      because dictation doesn't use speaker IDs and embedding inference is expensive.
-    - ``return_audio_data`` (default False): Whether to copy segment audio back to Python. Disabled
-      because we transcribe-and-discard; keeping audio copies wastes memory and CPU.
+    **Performance tuning:**
+    - ``num_threads`` (default 2): ONNX Runtime CPU thread count. Benchmark 1/2/4 on target
+      hardware; more threads do not always mean lower latency.
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    stream_update_interval: float = Field(
-        default=1,
-        ge=0.05,
-        le=5.0,
+    num_threads: int = Field(
+        default=2,
+        ge=1,
+        le=8,
+        description="ONNX Runtime CPU thread count for the transducer encoder.",
+    )
+    stability_window: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Consecutive unchanged hypothesis positions before a word is promoted to committed.",
+    )
+    provisional_words: int = Field(
+        default=4,
+        ge=1,
+        le=20,
+        description="Trailing words always kept provisional regardless of stability_window.",
+    )
+    silence_commit_threshold_sec: float = Field(
+        default=20.0,
+        ge=0.1,
+        le=60.0,
         description=(
-            "Seconds of stream time between partial refresh calls (Python wrapper cadence). "
-            "Typically set equal to transcription_interval so the Python cadence aligns with the native decode cadence."
+            "Seconds the full ASR hypothesis must stay unchanged before an interim dictation segment "
+            "is force-finalized (provisional tail committed; session keeps recording). Shorter pauses "
+            "within the same utterance do not end the session. Session stop still uses manual stop, "
+            "TYPE mode type_dictation_silence_timeout, or end-of-stream finalization."
         ),
     )
-    transcription_interval: float = Field(
-        default=1,
-        ge=0.05,
-        le=5.0,
-        description=(
-            "Native transcription_interval (seconds): minimum buffered audio before each decoder pass. "
-            "Raised from the library default (0.5 s) to substantially reduce per-segment O(D²) decoder work."
-        ),
+    audio_queue_maxsize: int = Field(
+        default=1024,
+        ge=64,
+        le=4096,
+        description="Maximum audio chunks buffered between the microphone callback and the ASR worker. Drops oldest on overflow.",
     )
-    vad_threshold: float = Field(
-        default=0.6,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Voice probability threshold (0–1) for VAD segment start/end detection. Higher values (0.6–0.8) "
-            "reduce noise sensitivity at the cost of clipping weak syllables. Lower values (0.2–0.4) are more "
-            "inclusive but pick up background noise. 0.4 captures soft speech well; raise toward 0.6 for noisy environments."
-        ),
-    )
-    vad_window_duration: float = Field(
-        default=0.5,
-        ge=0.05,
-        le=1.0,
-        description=(
-            "VAD probability smoothing window (seconds). Shorter windows (0.1–0.3 s) react faster to speech/silence "
-            "transitions but with lower accuracy. Longer windows (0.5–1.0 s) are more accurate but lag behind real "
-            "transitions. 0.6 s reduces false positives on brief pauses mid-sentence."
-        ),
-    )
-    vad_hop_size: int = Field(
-        default=512,
-        ge=256,
-        le=1024,
-        description=(
-            "VAD processing hop size (samples at 16 kHz). The VAD runs every hop_size / 16000 seconds. "
-            "512 samples = 32 ms (default). Larger hops (1024) reduce CPU but miss fast transitions. "
-            "Smaller hops (256) react faster but cost more CPU. Only change if you need faster VAD reaction."
-        ),
-    )
-    vad_look_behind_sample_count: int = Field(
-        default=8192,
-        ge=0,
-        le=16000,
-        description=(
-            "Samples of audio pre-pended to a new segment when voice activity begins (at 16 kHz). "
-            "Default 8192 samples = 0.512 s. On natural-pause closes the look-behind buffer is zeroed "
-            "before reuse (no effect). On force-closes mid-speech, the buffer contains real audio from the "
-            "tail of the closing segment, which can cause hallucination at the start of the next segment. "
-            "Kept at full default for natural-pause quality; application-layer deduplication handles force-close overlap."
-        ),
-    )
-    vad_max_segment_duration: float = Field(
-        default=10.0,
-        ge=3.0,
-        le=30.0,
-        description=(
-            "Hard ceiling on one VAD segment (seconds). The VAD begins a graceful fade at 2/3 of this value "
-            "and force-closes the segment at the cap. Lower values (10–15 s) reduce peak decoder cost for "
-            "pathological non-stop speech. Higher values (20–30 s) allow longer natural sentences to complete "
-            "before a forced cut. Tune to typical speaking patterns and available hardware."
-        ),
-    )
-    max_tokens_per_second: float = Field(
-        default=6.5,
-        ge=1.0,
-        le=30.0,
-        description=(
-            "Tokens-per-second hallucination ceiling. Decoder is force-stopped if it generates more tokens than "
-            "this rate × segment_duration. Default 6.5 is designed for English and aggressively catches the "
-            "infinite-repetition hallucination pattern. Non-Latin languages often need 13.0 or higher due to "
-            "different tokenization. For English dictation, keep at the default."
-        ),
-    )
-    identify_speakers: bool = Field(
-        default=False,
-        description="Disable the native speaker-embedding stage; dictation doesn't use speaker IDs and this inference is expensive.",
-    )
-    return_audio_data: bool = Field(
-        default=False,
-        description="Disable copying segment audio back to Python; we transcribe-and-discard and never read the audio buffer.",
-    )
-
-    def transcriber_load_options(self) -> dict[str, str]:
-        """Key/value strings for ``Transcriber(..., options=...)`` at model load."""
-        return {
-            "transcription_interval": str(self.transcription_interval),
-            "vad_threshold": str(self.vad_threshold),
-            "vad_window_duration": str(self.vad_window_duration),
-            "vad_hop_size": str(self.vad_hop_size),
-            "vad_look_behind_sample_count": str(self.vad_look_behind_sample_count),
-            "vad_max_segment_duration": str(self.vad_max_segment_duration),
-            "max_tokens_per_second": str(self.max_tokens_per_second),
-            "identify_speakers": "true" if self.identify_speakers else "false",
-            "return_audio_data": "true" if self.return_audio_data else "false",
-        }
 
 
 class STTConfig(BaseModel):
     """Configuration for speech-to-text engines and processing parameters.
 
-    Dictation uses Moonshine Voice (streaming + batch). Command mode uses Vosk.
+    Dictation uses X-ASR via sherpa-onnx (streaming transducer). Command mode uses Vosk.
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    moonshine_language: str = Field(default="en", description="Two-letter language code for Moonshine models")
-    moonshine_model_arch: str = Field(
-        default="small-streaming",
-        description=(
-            "Moonshine architecture id: tiny, base, tiny-streaming, base-streaming, small-streaming, medium-streaming. "
-            "medium-streaming is larger than small-streaming and usually more accurate (higher latency, bigger download)."
-        ),
+    xasr: XASRConfig = Field(
+        default_factory=XASRConfig,
+        description="X-ASR streaming transducer configuration.",
     )
-    moonshine_streaming: MoonshineStreamingConfig = Field(
-        default_factory=MoonshineStreamingConfig,
-        description="Streaming partial cadence and native Moonshine transcriber options (VAD, decode interval, silence-aware rotation).",
-    )
-    moonshine_max_retries: int = Field(default=3, description="Maximum retry attempts for Moonshine model loading")
-    moonshine_retry_delay_seconds: int = Field(default=5, description="Delay in seconds between Moonshine load retries")
-
     sample_rate: int = 16000
-
-    @field_validator("moonshine_model_arch", mode="before")
-    @classmethod
-    def default_moonshine_arch_if_empty(cls, v: object) -> object:
-        if v is None or (isinstance(v, str) and not v.strip()):
-            return "medium-streaming"
-        return v
 
 
 class SoundRecognizerConfig(BaseModel):
@@ -272,17 +161,30 @@ class SoundRecognizerConfig(BaseModel):
     energy_threshold: float = Field(0.005, description="Minimum audio energy for processing")
 
     confidence_threshold: float = Field(
-        0.15, ge=0.0, le=1.0, description="Minimum similarity for recognition (optimized for enhanced features)"
+        0.15,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity for recognition (optimized for enhanced features)",
     )
-    k_neighbors: int = Field(7, description="Number of neighbors for k-NN voting (increased for better discrimination)")
+    k_neighbors: int = Field(
+        7,
+        description="Number of neighbors for k-NN voting (increased for better discrimination)",
+    )
     vote_threshold: float = Field(
-        0.35, ge=0.0, le=1.0, description="Minimum vote alignment percentage (optimized for enhanced voting)"
+        0.35,
+        ge=0.0,
+        le=1.0,
+        description="Minimum vote alignment percentage (optimized for enhanced voting)",
     )
 
     default_samples_per_sound: int = Field(
-        12, description="Default training samples per sound (increased for better discrimination)"
+        12,
+        description="Default training samples per sound (increased for better discrimination)",
     )
-    max_training_samples: int = Field(1000, description="Hard upper bound on samples collected in a single training session")
+    max_training_samples: int = Field(
+        1000,
+        description="Hard upper bound on samples collected in a single training session",
+    )
     sample_duration_sec: float = Field(2.0, description="Duration of training samples in seconds")
 
     max_esc50_samples_per_category: int = Field(15, description="Max samples per ESC-50 category")
@@ -332,7 +234,8 @@ class MarkConfig(BaseModel):
 
     triggers: MarkTriggersConfig = MarkTriggersConfig()
     shutdown_grace_period_seconds: float = Field(
-        default=0.1, description="Time to wait for pending writes during service shutdown"
+        default=0.1,
+        description="Time to wait for pending writes during service shutdown",
     )
 
 
@@ -401,22 +304,30 @@ class DictationConfig(BaseModel):
 
     start_trigger: str = "green"
     stop_trigger: str = "amber"
+    pause_trigger: str = "yellow"
     type_trigger: str = "type"
     smart_start_trigger: str = "smart green"
     visual_start_trigger: str = "visual green"
-    hidden_start_trigger: str = "hidden green"
     amend_start_trigger: str = "amend"
 
     use_clipboard: bool = True
     typing_delay: float = 0.01
 
-    type_dictation_silence_timeout: float = 0.1
+    type_dictation_silence_timeout: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=30.0,
+        description=(
+            "TYPE dictation only: seconds of unchanged hypothesis before the whole session auto-stops "
+            "and pastes once (independent of stt.xasr.silence_commit_threshold_sec segment finalization)."
+        ),
+    )
 
-    moonshine_modifier_suppress_sec: float = Field(
+    modifier_suppress_sec: float = Field(
         default=0.55,
         ge=0.0,
         le=10.0,
-        description="After a modifier phrase, drop Moonshine partial/final output for this many seconds",
+        description="After a modifier phrase, suppress ASR output for this many seconds to prevent the keyword from being transcribed.",
     )
     type_silence_monitor_max_seconds: int = Field(
         default=300,
@@ -425,25 +336,62 @@ class DictationConfig(BaseModel):
         description="Safety cap for TYPE dictation silence watcher (seconds)",
     )
 
-    pyautogui_pause: float = Field(default=0.01, description="Global pause interval between pyautogui operations (seconds)")
+    pyautogui_pause: float = Field(
+        default=0.01,
+        description="Global pause interval between pyautogui operations (seconds)",
+    )
     clipboard_paste_delay_pre: float = Field(default=0.05, description="Delay before clipboard paste operation (seconds)")
-    clipboard_paste_delay_post: float = Field(default=0.1, description="Delay after clipboard paste operation (seconds)")
+    clipboard_paste_delay_post: float = Field(default=0.2, description="Delay after clipboard paste operation (seconds)")
     type_text_post_delay: float = Field(default=0.1, description="Delay after typing text (seconds)")
 
     enable_dictation_formatting: bool = Field(
-        default=True, description="Enable automatic formatting (punctuation, capitalization) in dictation output"
+        default=True,
+        description="Enable automatic formatting (punctuation, capitalization) in dictation output",
     )
 
     modifier_upper_phrase: str = Field(default="upper", description="Voice phrase to toggle title-case modifier")
     modifier_capitals_phrase: str = Field(default="capitals", description="Voice phrase to toggle ALL CAPS modifier")
     modifier_camel_phrase: str = Field(
-        default="camel", description="Voice phrase to toggle UpperCamelCase (PascalCase) identifier modifier"
+        default="camel",
+        description="Voice phrase to toggle UpperCamelCase (PascalCase) identifier modifier",
     )
     modifier_snake_phrase: str = Field(default="snake", description="Voice phrase to toggle snake_case modifier")
-    modifier_spelling_phrase: str = Field(default="spelling", description="Voice phrase to toggle spoken-punctuation modifier")
+    modifier_spelling_phrase: str = Field(
+        default="spelling",
+        description="Voice phrase to toggle spoken-punctuation modifier",
+    )
     modifier_kebab_phrase: str = Field(default="kebab", description="Voice phrase to toggle kebab-case modifier")
     modifier_diminish_phrase: str = Field(default="diminish", description="Voice phrase to toggle lowercase modifier")
     modifier_strip_phrase: str = Field(default="strip", description="Voice phrase to toggle strip punctuation modifier")
+    modifier_numeral_phrase: str = Field(
+        default="numeral",
+        description="Voice phrase to toggle spoken-number-to-digit conversion modifier",
+    )
+
+
+class LLMSamplingProfile(BaseModel):
+    """llama.cpp sampling values for one generation mode."""
+
+    model_config = ConfigDict(frozen=True)
+
+    temperature: float
+    top_p: float
+    top_k: int
+    min_p: float = 0.0
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    repeat_penalty: float = 1.0
+
+
+_FORMATTER_SAMPLING = LLMSamplingProfile(
+    temperature=0.5,
+    top_p=0.9,
+    top_k=40,
+    min_p=0.05,
+    presence_penalty=0.0,
+    frequency_penalty=0.0,
+    repeat_penalty=1.06,
+)
 
 
 class LocalLLMArtifact(BaseModel):
@@ -456,7 +404,13 @@ class LocalLLMArtifact(BaseModel):
     repo_id: str
     gguf_filenames: tuple[str, ...]
     model_card_url: str
-    disable_thinking: bool = False
+    license_url: str
+    sampling: LLMSamplingProfile
+    formatter_sampling: Optional[LLMSamplingProfile] = None
+    amend_sampling: Optional[LLMSamplingProfile] = None
+    thinking_sampling: Optional[LLMSamplingProfile] = None
+    supports_thinking: bool = False
+    disable_thinking: bool = True
     gguf_sha256: Dict[str, str] = Field(
         description="Required SHA-256 hex digest per GGUF filename. Verified after each download.",
     )
@@ -464,6 +418,36 @@ class LocalLLMArtifact(BaseModel):
     @property
     def load_path_filename(self) -> str:
         return self.gguf_filenames[0]
+
+    def active_sampling(self) -> LLMSamplingProfile:
+        """Sampling for the mode this artifact will actually run in."""
+        if self.supports_thinking and not self.disable_thinking and self.thinking_sampling is not None:
+            return self.thinking_sampling
+        return self.sampling
+
+    def formatter_sampling_profile(self) -> LLMSamplingProfile:
+        """Tighter sampling for smart dictation formatting."""
+        return self.formatter_sampling or _FORMATTER_SAMPLING
+
+    def amend_sampling_profile(self) -> LLMSamplingProfile:
+        """More open sampling for amend (spoken instructions on a selection)."""
+        return self.amend_sampling or self.active_sampling()
+
+    def chat_template_kwargs(self) -> Dict[str, bool]:
+        """Jinja arguments that turn thinking on or off for this artifact.
+
+        Models whose template has no thinking switch get an empty dict.
+        Thinking-capable models always receive an explicit ``enable_thinking``
+        flag so a template default cannot turn reasoning back on.
+        """
+        if not self.supports_thinking:
+            return {}
+        return {"enable_thinking": not self.disable_thinking}
+
+    @property
+    def stream_starts_in_reasoning(self) -> bool:
+        """True when the chat template pre-opens a think block before generation."""
+        return self.supports_thinking and not self.disable_thinking
 
 
 class LocalLLMAllowList(BaseModel):
@@ -487,39 +471,169 @@ class LocalLLMAllowList(BaseModel):
         return self.artifacts[0].id
 
 
+_QWEN35_2B_DIRECT = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=1.0,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=2.0,
+    repeat_penalty=1.0,
+)
+_QWEN35_2B_THINKING = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN35_4B_DIRECT = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN35_4B_THINKING = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN3_INSTRUCT_2507 = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=0.0,
+    repeat_penalty=1.0,
+)
+_GRANITE_42 = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=40,
+    min_p=0.0,
+    presence_penalty=0.0,
+    repeat_penalty=1.0,
+)
+_QWEN3_8B_DIRECT = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_QWEN3_8B_THINKING = LLMSamplingProfile(
+    temperature=1.0,
+    top_p=0.95,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=1.5,
+    repeat_penalty=1.0,
+)
+_MINISTRAL_8B_INSTRUCT = LLMSamplingProfile(
+    temperature=0.7,
+    top_p=0.8,
+    top_k=20,
+    min_p=0.0,
+    presence_penalty=0.0,
+    repeat_penalty=1.0,
+)
+
+
 def _builtin_local_llm_allowlist() -> LocalLLMAllowList:
     return LocalLLMAllowList(
         artifacts=(
             LocalLLMArtifact(
-                id="qwen2.5-1.5b-q5km",
-                label="Qwen 2.5 1.5B (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-                gguf_filenames=("qwen2.5-1.5b-instruct-q5_k_m.gguf",),
-                model_card_url="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+                id="qwen3.5-2b-q4km",
+                label="Qwen3.5 2B (Q4_K_M)",
+                repo_id="unsloth/Qwen3.5-2B-GGUF",
+                gguf_filenames=("Qwen3.5-2B-Q4_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3.5-2B",
+                license_url="https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE",
+                sampling=_QWEN35_2B_DIRECT,
+                thinking_sampling=_QWEN35_2B_THINKING,
+                supports_thinking=True,
+                disable_thinking=True,
                 gguf_sha256={
-                    "qwen2.5-1.5b-instruct-q5_k_m.gguf": "b46661073c18e5b56a41fa320975f866a00def1ff08feef4718e013258896f8c",
+                    "Qwen3.5-2B-Q4_K_M.gguf": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
                 },
             ),
             LocalLLMArtifact(
-                id="qwen3-4b-q5km",
-                label="Qwen3 4B (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen3-4B-GGUF",
-                gguf_filenames=("Qwen3-4B-Q5_K_M.gguf",),
-                model_card_url="https://huggingface.co/Qwen/Qwen3-4B-GGUF",
-                disable_thinking=True,
+                id="qwen3-4b-instruct-2507-q4km",
+                label="Qwen3 4B Instruct 2507 (Q4_K_M)",
+                repo_id="unsloth/Qwen3-4B-Instruct-2507-GGUF",
+                gguf_filenames=("Qwen3-4B-Instruct-2507-Q4_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507",
+                license_url="https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE",
+                sampling=_QWEN3_INSTRUCT_2507,
+                supports_thinking=False,
+                disable_thinking=False,
                 gguf_sha256={
-                    "Qwen3-4B-Q5_K_M.gguf": "aca596860e8cb40af6539e3f2ea40df305f42515deac56d49c08d39a02e6533f",
+                    "Qwen3-4B-Instruct-2507-Q4_K_M.gguf": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
                 },
             ),
             LocalLLMArtifact(
-                id="qwen3-8b-q5km",
-                label="Qwen3 8B (Q5_K_M, CPU)",
-                repo_id="Qwen/Qwen3-8B-GGUF",
-                gguf_filenames=("Qwen3-8B-Q5_K_M.gguf",),
-                model_card_url="https://huggingface.co/Qwen/Qwen3-8B-GGUF",
+                id="granite-4.2-3b-q4km",
+                label="Granite 4.2 3B (Q4_K_M)",
+                repo_id="ibm-granite/granite-4.2-3b-GGUF",
+                gguf_filenames=("granite-4.2-3b-Q4_K_M.gguf",),
+                model_card_url="https://huggingface.co/ibm-granite/granite-4.2-3b",
+                license_url="https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE",
+                sampling=_GRANITE_42,
+                thinking_sampling=_GRANITE_42,
+                supports_thinking=True,
                 disable_thinking=True,
                 gguf_sha256={
-                    "Qwen3-8B-Q5_K_M.gguf": "068bae163faa96ad48032daf4e071a6a28fe67d8dcc95367609c2ff165e52738",
+                    "granite-4.2-3b-Q4_K_M.gguf": "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5",
+                },
+            ),
+            LocalLLMArtifact(
+                id="qwen3.5-4b-q4km",
+                label="Qwen3.5 4B (Q4_K_M)",
+                repo_id="unsloth/Qwen3.5-4B-GGUF",
+                gguf_filenames=("Qwen3.5-4B-Q4_K_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3.5-4B",
+                license_url="https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE",
+                sampling=_QWEN35_4B_DIRECT,
+                thinking_sampling=_QWEN35_4B_THINKING,
+                supports_thinking=True,
+                disable_thinking=True,
+                gguf_sha256={
+                    "Qwen3.5-4B-Q4_K_M.gguf": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+                },
+            ),
+            LocalLLMArtifact(
+                id="ministral-3-8b-iq3xs",
+                label="Ministral 3 8B Instruct (IQ3_XS)",
+                repo_id="bartowski/mistralai_Ministral-3-8B-Instruct-2512-GGUF",
+                gguf_filenames=("mistralai_Ministral-3-8B-Instruct-2512-IQ3_XS.gguf",),
+                model_card_url="https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512",
+                license_url="https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512/blob/main/LICENSE",
+                sampling=_MINISTRAL_8B_INSTRUCT,
+                supports_thinking=False,
+                disable_thinking=False,
+                gguf_sha256={
+                    "mistralai_Ministral-3-8B-Instruct-2512-IQ3_XS.gguf": "064bb57b8e61dbe19bd1b826411124461119f14fa51a76d5937e7b44c5397852",
+                },
+            ),
+            LocalLLMArtifact(
+                id="qwen3-8b-iq3m",
+                label="Qwen3 8B (IQ3_M)",
+                repo_id="bartowski/Qwen_Qwen3-8B-GGUF",
+                gguf_filenames=("Qwen_Qwen3-8B-IQ3_M.gguf",),
+                model_card_url="https://huggingface.co/Qwen/Qwen3-8B",
+                license_url="https://huggingface.co/Qwen/Qwen3-8B/blob/main/LICENSE",
+                sampling=_QWEN3_8B_DIRECT,
+                thinking_sampling=_QWEN3_8B_THINKING,
+                supports_thinking=True,
+                disable_thinking=True,
+                gguf_sha256={
+                    "Qwen_Qwen3-8B-IQ3_M.gguf": "de1982c971c26a256dc2ac6d04b04f1cd20ea35e0d3ec3263320756dea66bee3",
                 },
             ),
         )
@@ -542,10 +656,107 @@ def local_llm_allowlist() -> LocalLLMAllowList:
     return _LOCAL_LLM_ALLOWLIST
 
 
+class ASRModelArtifact(BaseModel):
+    """X-ASR model bundle (Hugging Face repo + filenames + expected SHA-256 hashes).
+
+    sha256 maps each local filename to its expected SHA-256 hex digest. Populate
+    these by running ``scripts/security/compute_asr_hashes.py`` after placing the
+    downloaded model files in ``vocalance/app/assets/asr/chunk-480ms-model/``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    repo_id: str
+    revision: str
+    remote_folder: str
+    local_folder_name: str
+    filenames: tuple[str, ...]
+    sha256: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "SHA-256 hex digest per filename. Verified after download. "
+            "Run scripts/security/compute_asr_hashes.py and paste the output here."
+        ),
+    )
+
+
+ASR_MODEL_ARTIFACT: ASRModelArtifact = ASRModelArtifact(
+    repo_id="GilgameshWind/X-ASR-zh-en",
+    revision="5a82c956caaf43d73237d9123b009665e4d36fb8",
+    remote_folder="deployment/models/chunk-480ms-model",
+    local_folder_name="chunk-480ms-model",
+    filenames=(
+        "encoder-480ms.onnx",
+        "decoder-480ms.onnx",
+        "joiner-480ms.onnx",
+        "tokens.txt",
+    ),
+    sha256={
+        "encoder-480ms.onnx": "0c3454033d249081df124ddcd7adaf3deca07d0b999b26f2ee5d2475d37abc74",
+        "decoder-480ms.onnx": "3658368d274a5d5fd39a7ac20c46bed0ad9cfea1f0feddef30d5d89797c1f499",
+        "joiner-480ms.onnx": "03781c98165a2385024c9cecdd2b6b13310d81db23a62c7da420782c2915cf81",
+        "tokens.txt": "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c",
+    },
+)
+
+
+def asr_model_artifact() -> ASRModelArtifact:
+    """Return the built-in ASR model artifact descriptor."""
+    return ASR_MODEL_ARTIFACT
+
+
+class BpeVocabArtifact(BaseModel):
+    """SentencePiece model used to encode hotwords for the X-ASR transducer.
+
+    sherpa-onnx reads the exported ``vocab_filename`` (piece and score per line).
+    The published asset is the ``.model`` at ``url``, pinned by commit. The vocab
+    file is exported locally after download and is not committed.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    url: str
+    sha256: str
+    model_filename: str
+    vocab_filename: str
+
+
+BPE_VOCAB_ARTIFACT: BpeVocabArtifact = BpeVocabArtifact(
+    url=(
+        "https://raw.githubusercontent.com/Gilgamesh-J/X-ASR/"
+        "8f98e2b8ffdfef06542609410281d7ee4eb76b99/"
+        "X-ASR-zh-en/zipformer/data/lang_5000_with_punctuation/bpe_punc.model"
+    ),
+    sha256="f87a38025a5fdd1e4e9591f6a44bb81295097ce0b80df6f4ab9f44e52c64ca5f",
+    model_filename="bpe_punc.model",
+    vocab_filename="bpe.vocab",
+)
+
+
+def bpe_vocab_artifact() -> BpeVocabArtifact:
+    """Return the pinned SentencePiece asset used to encode hotwords."""
+    return BPE_VOCAB_ARTIFACT
+
+
 class LLMConfig(BaseModel):
-    """Local LLM (llama.cpp, CPU): built-in Qwen GGUF bundles only."""
+    """Local LLM runtime (llama.cpp). Sampling is chosen per whitelisted model."""
 
     model_config = ConfigDict(extra="ignore")
+
+    provider: str = Field(
+        default="shipped",
+        description="shipped = bundled GGUF via llama.cpp; local_endpoint = OpenAI-compatible server on loopback.",
+    )
+
+    local_endpoint_base_url: str = Field(
+        default="",
+        description="Base URL for a local OpenAI-compatible server (loopback only).",
+    )
+
+    local_endpoint_model: str = Field(
+        default="",
+        description="Model name passed to the local server's chat completions API.",
+    )
 
     selected_model_id: str = Field(
         default=DEFAULT_LLM_MODEL_ID,
@@ -553,44 +764,97 @@ class LLMConfig(BaseModel):
     )
 
     context_length: int = Field(
-        default=2048, ge=512, le=32768, description="Model context window - 2048 is optimal for dictation (faster than 4096)"
+        default=4096,
+        ge=512,
+        le=32768,
+        description="Model context window in tokens",
     )
 
     max_tokens: int = Field(
-        default=1500, ge=1, le=8192, description="Max output tokens - sufficient for most dictation, faster than 2600"
+        default=3000,
+        ge=1,
+        le=8192,
+        description="Max output tokens per completion",
     )
 
-    n_threads: Optional[int] = Field(default=None, description="Threads for token generation (None = auto: cpu_count - 1, max 6)")
+    n_threads: Optional[int] = Field(
+        default=None,
+        description="Threads for token generation (None = auto: cpu_count - 1, max 6)",
+    )
 
     n_threads_batch: Optional[int] = Field(
-        default=None, description="Threads for prompt processing (None = auto: same as n_threads). CRITICAL for performance!"
+        default=None,
+        description="Threads for prompt processing (None = auto: same as n_threads). CRITICAL for performance!",
     )
 
     n_batch: int = Field(
-        default=2048, description="Prompt processing batch size - 2048 matches Ollama optimal, 4x faster than 512"
+        default=2048,
+        description="Prompt processing batch size - 2048 matches Ollama optimal, 4x faster than 512",
     )
 
-    use_mlock: bool = Field(default=False, description="Lock model in RAM - disable on 8GB systems to prevent OOM")
+    use_mlock: bool = Field(
+        default=False,
+        description="Lock model in RAM - disable on 8GB systems to prevent OOM",
+    )
 
     temperature: float = Field(
-        default=0.5, ge=0.0, le=2.0, description="High temperature for creative rewriting and instruction-following"
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="Retained for saved settings. Generation uses the selected model's sampling profile.",
     )
-    top_p: float = Field(default=0.95, ge=0.0, le=1.0, description="High top_p for diverse vocabulary and creative rewrites")
-    top_k: int = Field(default=30, ge=1, le=100, description="Higher top_k for creative vocabulary choices")
-    min_p: float = Field(default=0.05, ge=0.0, le=1.0, description="Filter low-probability tokens for quality")
-    repeat_penalty: float = Field(default=1.15, ge=1.0, le=2.0, description="Strong penalty to prevent copying input text")
-    frequency_penalty: float = Field(default=0.2, ge=0.0, le=2.0, description="Strong encouragement for vocabulary diversity")
+    top_p: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="High top_p for diverse vocabulary and creative rewrites",
+    )
+    top_k: int = Field(
+        default=30,
+        ge=1,
+        le=100,
+        description="Higher top_k for creative vocabulary choices",
+    )
+    min_p: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Filter low-probability tokens for quality",
+    )
+    repeat_penalty: float = Field(
+        default=1.15,
+        ge=1.0,
+        le=2.0,
+        description="Strong penalty to prevent copying input text",
+    )
+    frequency_penalty: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=2.0,
+        description="Strong encouragement for vocabulary diversity",
+    )
 
-    mirostat_mode: int = Field(default=0, ge=0, le=2, description="Disabled - standard sampling is faster on most CPUs")
+    mirostat_mode: int = Field(
+        default=0,
+        ge=0,
+        le=2,
+        description="Disabled - standard sampling is faster on most CPUs",
+    )
     mirostat_tau: float = Field(default=5.0, ge=0.0, le=10.0, description="Not used when mirostat_mode=0")
     mirostat_eta: float = Field(default=0.1, ge=0.0, le=1.0, description="Not used when mirostat_mode=0")
 
     verbose: bool = Field(default=False, description="Enable verbose llama.cpp logging for debugging")
 
-    flash_attn: bool = Field(default=True, description="Enable flash attention for faster computation (recommended)")
+    flash_attn: bool = Field(
+        default=True,
+        description="Enable flash attention for faster computation (recommended)",
+    )
 
     type_k: int = Field(
-        default=1, ge=0, le=2, description="KV cache key type: 0=f32, 1=f16 (recommended), 2=q8_0. Lower = faster with less memory"
+        default=1,
+        ge=0,
+        le=2,
+        description="KV cache key type: 0=f32, 1=f16 (recommended), 2=q8_0. Lower = faster with less memory",
     )
     type_v: int = Field(
         default=1,
@@ -601,11 +865,37 @@ class LLMConfig(BaseModel):
 
     generation_timeout_sec: float = Field(default=45.0, description="Max time for generation before timeout")
 
+    local_endpoint_timeout_sec: float = Field(
+        default=180.0,
+        description="Max time for a local HTTP chat completion",
+    )
+
+    def uses_local_endpoint(self) -> bool:
+        if self.provider != "local_endpoint":
+            return False
+        return bool(self.local_endpoint_base_url.strip()) and bool(self.local_endpoint_model.strip())
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        if v not in ("shipped", "local_endpoint"):
+            return "shipped"
+        return v
+
+    @field_validator("local_endpoint_base_url")
+    @classmethod
+    def validate_local_endpoint_base_url_field(cls, v: str) -> str:
+        from vocalance.app.services.dictation_flow.llm.local_endpoint import validate_local_endpoint_base_url
+
+        if not v or not v.strip():
+            return ""
+        return validate_local_endpoint_base_url(v)
+
     @field_validator("selected_model_id")
     @classmethod
     def validate_selected_model_id(cls, v: str) -> str:
         if not _LOCAL_LLM_ALLOWLIST.has_id(v):
-            raise ValueError(f"selected_model_id must be a built-in LLM id, got {v!r}")
+            return _LOCAL_LLM_ALLOWLIST.default_id
         return v
 
 
@@ -614,12 +904,9 @@ class VADConfig(BaseModel):
 
     Dictation uses continuous audio chunks fed to Moonshine streaming (no separate VAD segment pipeline).
 
-    The VAD system uses continuous adaptive noise floor estimation with audio normalization
-    to work robustly across different microphones. Key features:
-    - DC offset removal and peak normalization before energy calculation
-    - Rolling window noise floor estimation with bootstrap period
-    - Thresholds adapt continuously to changing acoustic environments
-    - Works with dynamic mics, condensers, headsets, and USB devices
+    Command clips are cut by an energy gate on the raw waveform. Peak gain is not applied
+    before that decision, because it lifts the noise floor and quiet speech together.
+    The trailing pause stays short so a one-word command is sent as soon as it ends.
 
     NOTE: All chunk-based parameters assume 30ms chunks (industry standard for VAD).
     """
@@ -628,9 +915,17 @@ class VADConfig(BaseModel):
 
     enable_audio_normalization: bool = Field(
         default=True,
-        description="Enable audio preprocessing (DC offset removal, peak normalization) for microphone-robust VAD.",
+        description="Peak-normalize sound clips. Command detection leaves this off so quiet speech is not compared to a boosted noise floor.",
     )
 
+    command_pickup: Literal["quiet", "normal", "noisy"] = Field(
+        default="normal",
+        description="How easily a quiet voice opens a command. quiet is a 1.6x margin, normal is 2.2x, noisy is 3.5x.",
+    )
+    command_end_pause: Literal["short", "medium", "long"] = Field(
+        default="short",
+        description="Silence after a command before it is sent. short is 150 ms, medium is 240 ms, long is 360 ms.",
+    )
     command_energy_threshold: float = Field(
         default=0.0005,
         description="Minimum energy threshold for command mode (used as floor when noise is very low).",
@@ -651,45 +946,58 @@ class VADConfig(BaseModel):
         description="Pre-roll buffers for command mode (210ms at 30ms chunks) - captures word attack.",
     )
     command_min_recording_duration: float = Field(
-        default=0.05, description="Minimum recording duration for command mode in seconds"
+        default=0.05,
+        description="Minimum recording duration for command mode in seconds",
     )
-    command_max_threshold: float = Field(default=0.1, description="Upper clamp on the adaptive speech threshold for command mode.")
+    command_max_threshold: float = Field(
+        default=0.1,
+        description="Upper clamp on the adaptive speech threshold for command mode.",
+    )
 
     sound_silent_chunks_for_end: int = Field(
         default=5,
         description="Number of consecutive silent chunks to end recording in sound mode (5 chunks = 150ms at 30ms/chunk).",
     )
     sound_max_recording_duration: float = Field(
-        default=1.02, description="Maximum recording duration for sound mode in seconds (~34 chunks at 30ms/chunk)."
+        default=1.02,
+        description="Maximum recording duration for sound mode in seconds (~34 chunks at 30ms/chunk).",
     )
     sound_pre_roll_buffers: int = Field(
         default=5,
         description="Pre-roll buffers for sound mode (150ms at 30ms chunks) - captures the leading edge of a transient.",
     )
     sound_min_recording_duration: float = Field(
-        default=0.15, description="Minimum recording duration for sound mode in seconds (~5 chunks at 30ms/chunk)."
+        default=0.15,
+        description="Minimum recording duration for sound mode in seconds (~5 chunks at 30ms/chunk).",
     )
     sound_min_peak_ratio: float = Field(
         default=1.5,
         description="Minimum ratio of clip peak energy to speech threshold for sound clips - filters background noise.",
     )
-    sound_max_threshold: float = Field(default=0.15, description="Upper clamp on the adaptive speech threshold for sound mode.")
+    sound_max_threshold: float = Field(
+        default=0.15,
+        description="Upper clamp on the adaptive speech threshold for sound mode.",
+    )
 
     silence_threshold_multiplier: float = Field(
-        default=0.45, description="Multiplier for silence threshold relative to speech threshold"
+        default=0.45,
+        description="Multiplier for silence threshold relative to speech threshold",
     )
     command_adaptive_margin_multiplier: float = Field(
-        default=3.5, description="Multiplier applied to noise floor for command speech threshold."
+        default=3.5,
+        description="Multiplier applied to noise floor for command speech threshold.",
     )
     sound_adaptive_margin_multiplier: float = Field(
         default=5.0,
         description="Multiplier applied to noise floor for sound detection - higher than speech to reduce false triggers.",
     )
     adaptive_threshold_max_multiplier: float = Field(
-        default=2.0, description="Maximum multiplier before applying adaptive threshold (legacy, kept for compatibility)"
+        default=2.0,
+        description="Maximum multiplier before applying adaptive threshold (legacy, kept for compatibility)",
     )
     adaptive_silence_threshold_multiplier: float = Field(
-        default=0.65, description="Adjustment factor for silence threshold after adaptation (legacy, kept for compatibility)"
+        default=0.65,
+        description="Adjustment factor for silence threshold after adaptation (legacy, kept for compatibility)",
     )
 
     max_noise_samples: int = Field(
@@ -697,7 +1005,10 @@ class VADConfig(BaseModel):
         description="Rolling window size for noise floor estimation (~5 seconds at 50ms chunks)",
     )
     noise_floor_initial_value: float = Field(default=0.002, description="Initial noise floor value before estimation")
-    noise_floor_percentile: int = Field(default=50, description="Percentile for noise floor calculation (50=median, more robust)")
+    noise_floor_percentile: int = Field(
+        default=50,
+        description="Percentile for noise floor calculation (50=median, more robust)",
+    )
 
 
 class CommandParserConfig(BaseModel):
@@ -714,14 +1025,19 @@ class CommandParserConfig(BaseModel):
 class AutomationServiceConfig(BaseModel):
     """Configuration for automation command execution."""
 
-    thread_pool_max_workers: int = Field(default=2, description="Maximum number of worker threads for automation action execution")
+    thread_pool_max_workers: int = Field(
+        default=2,
+        description="Maximum number of worker threads for automation action execution",
+    )
 
     max_repeat_count: int = Field(
-        default=100, description="Upper bound on how many times a single parameterized command may repeat in one invocation"
+        default=100,
+        description="Upper bound on how many times a single parameterized command may repeat in one invocation",
     )
 
     key_sequence_delay_seconds: float = Field(
-        default=0.25, description="Delay in seconds between individual key presses in a key sequence"
+        default=0.25,
+        description="Delay in seconds between individual key presses in a key sequence",
     )
 
     scroll_total_clicks: int = Field(default=600, description="Total number of scroll clicks for animated scrolling")
@@ -742,7 +1058,10 @@ class AppInfoConfig(BaseModel):
     where application state and user data are persisted.
     """
 
-    appdata_dir_name: str = Field(default=APPDATA_DIR_NAME, description="Directory name under %APPDATA% for all runtime data")
+    appdata_dir_name: str = Field(
+        default=APPDATA_DIR_NAME,
+        description="Directory name under %APPDATA% for all runtime data",
+    )
 
 
 class AssetPathsConfig(BaseModel):
@@ -928,7 +1247,8 @@ class StorageConfig(BaseModel):
     click_tracker_dir: Optional[str] = None
     activity_logs_dir: Optional[str] = None
     cache_ttl_seconds: float = Field(
-        default=300.0, description="Cache time-to-live in seconds for storage service read operations"
+        default=300.0,
+        description="Cache time-to-live in seconds for storage service read operations",
     )
 
 
@@ -958,7 +1278,7 @@ class GlobalAppConfig(BaseModel):
     Automatically initializes storage directory structure on instantiation.
     """
 
-    logging: LoggingConfigModel = LoggingConfigModel(appdata_dir_name=APPDATA_DIR_NAME)
+    logging: LoggingConfigModel = LoggingConfigModel(appdata_dir_name=APPDATA_DIR_NAME, enable_logs=True)
     activity_tracking: ActivityTrackingConfig = ActivityTrackingConfig()
     app_info: AppInfoConfig = AppInfoConfig()
     asset_paths: AssetPathsConfig = AssetPathsConfig()
@@ -976,7 +1296,10 @@ class GlobalAppConfig(BaseModel):
     command_parser: CommandParserConfig = CommandParserConfig()
     automation_service: AutomationServiceConfig = AutomationServiceConfig()
     protected_terms_validator: ProtectedTermsValidatorConfig = ProtectedTermsValidatorConfig()
-    automation_cooldown_seconds: float = Field(default=0.5, description="Cooldown period between automation command executions.")
+    automation_cooldown_seconds: float = Field(
+        default=0.5,
+        description="Cooldown period between automation command executions.",
+    )
 
     def __init__(self, **data: Any) -> None:
         """Initialize global configuration and create storage directory structure.
@@ -1038,7 +1361,9 @@ DEFAULT_CONFIG_DIR_NAME = "config"
 
 
 def get_config_path(
-    config_dir: Optional[str] = None, config_file: str = CONFIG_FILE_NAME, app_info: Optional[AppInfoConfig] = None
+    config_dir: Optional[str] = None,
+    config_file: str = CONFIG_FILE_NAME,
+    app_info: Optional[AppInfoConfig] = None,
 ) -> str:
     """Get configuration file path with fallback hierarchy.
 

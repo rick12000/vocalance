@@ -5,7 +5,13 @@ from conftest import skip_if_headless
 
 skip_if_headless()
 
-from vocalance.app.config.command_types import ExactMatchCommand, ResumeCommand, SoundTrainCommand
+from vocalance.app.config.command_types import (
+    ExactMatchCommand,
+    GridShowCommand,
+    ParameterizedCommand,
+    ResumeCommand,
+    SoundTrainCommand,
+)
 from vocalance.app.events.command_events import AutomationCommandParsedEvent, SystemControlCommandParsedEvent
 from vocalance.app.events.core_events import CustomSoundRecognizedEvent
 from vocalance.app.services.command_flow.parsing.parser import CentralizedCommandParser
@@ -77,3 +83,48 @@ async def test_handle_custom_sound_resolves_label_mapping(command_parser):
     event = command_parser.event_bus.publish.await_args.args[0]
     assert isinstance(event.command, ExactMatchCommand)
     assert event.source == "sound"
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("copy", ExactMatchCommand),
+        ("sky 3", ParameterizedCommand),
+        ("go", GridShowCommand),
+        ("go 9", GridShowCommand),
+    ],
+)
+@pytest.mark.asyncio
+async def test_repeat_replays_automation_and_go(command_parser, text, expected):
+    command_parser.app_config.command_parser.min_command_interval_ms = 0
+
+    await command_parser.process_text_input(text, source="stt")
+    await command_parser.process_text_input("repeat", source="stt")
+
+    replay = command_parser.event_bus.publish.await_args.args[0]
+    assert isinstance(replay.command, expected)
+    assert replay.source == "stt"
+    if isinstance(replay.command, ParameterizedCommand):
+        assert replay.command.count == 3
+    if text == "go 9":
+        assert replay.command.num_rects == 9
+
+
+@pytest.mark.parametrize("text", ["green", "show marks", "five", "hover", "home"])
+@pytest.mark.asyncio
+async def test_repeat_ignores_non_automation_and_non_go_commands(command_parser, text):
+    command_parser.app_config.command_parser.min_command_interval_ms = 0
+
+    await command_parser.process_text_input("copy", source="stt")
+    await command_parser.process_text_input(text, source="stt")
+    await command_parser.process_text_input("repeat", source="stt")
+
+    replay = command_parser.event_bus.publish.await_args.args[0]
+    assert isinstance(replay.command, ExactMatchCommand)
+    assert replay.command.command_key == "copy"
+
+
+@pytest.mark.asyncio
+async def test_repeat_with_no_history_publishes_nothing(command_parser):
+    await command_parser.process_text_input("repeat", source="stt")
+    command_parser.event_bus.publish.assert_not_awaited()

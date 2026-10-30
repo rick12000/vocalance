@@ -36,6 +36,7 @@ class QtSettingsController(QtBaseController):
         self.cached_settings: Dict[str, Any] = {}
         self.llm_bundle_status: Dict[str, bool] = {}
         self.pending_setting_futures: Dict[str, asyncio.Future[Tuple[bool, str]]] = {}
+        self.pending_endpoint_test_futures: Dict[str, asyncio.Future[Tuple[bool, str]]] = {}
         self.active_llm_download_rid: Optional[str] = None
         self.subscribe(SettingsChangedEvent, self.on_settings_changed)
         self.subscribe(RuntimeConfigResponseEvent, self.on_runtime_config_response)
@@ -53,7 +54,7 @@ class QtSettingsController(QtBaseController):
             self.cached_settings = event.all_settings
             self.settings_loaded.emit(self.cached_settings)
             if self._llm_enabled:
-                asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+                self.event_bus.submit(LlmUiRequestEvent(op="refresh_bundle_status"))
             return
         if event.op == "update_result":
             fut = self.pending_setting_futures.pop(event.correlation_id, None)
@@ -73,17 +74,22 @@ class QtSettingsController(QtBaseController):
             if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
                 self.llm_cancellable_download_finished.emit(event.ok, event.message)
                 self.active_llm_download_rid = None
-            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+            self.event_bus.submit(LlmUiRequestEvent(op="refresh_bundle_status"))
         elif event.kind == "download_cancelled":
             if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
                 self.llm_download_cancelled.emit()
                 self.active_llm_download_rid = None
-            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+            self.event_bus.submit(LlmUiRequestEvent(op="refresh_bundle_status"))
         elif event.kind == "download_integrity_error":
             if self.active_llm_download_rid and event.request_id == self.active_llm_download_rid:
                 self.llm_download_integrity_error.emit(event.message)
                 self.active_llm_download_rid = None
-            asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="refresh_bundle_status")))
+            self.event_bus.submit(LlmUiRequestEvent(op="refresh_bundle_status"))
+        elif event.kind == "endpoint_test_finished":
+            rid = event.request_id or ""
+            fut = self.pending_endpoint_test_futures.pop(rid, None)
+            if fut is not None and not fut.done():
+                fut.set_result((event.ok, event.message or ""))
 
     def load_settings(self) -> None:
         asyncio.create_task(self.event_bus.publish(RuntimeConfigRequestEvent(op="get_effective")))
@@ -125,6 +131,14 @@ class QtSettingsController(QtBaseController):
     def cancel_llm_download(self) -> None:
         rid = self.active_llm_download_rid or ""
         asyncio.create_task(self.event_bus.publish(LlmUiRequestEvent(op="cancel_download", request_id=rid)))
+
+    async def test_local_endpoint_async(self) -> Tuple[bool, str]:
+        rid = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Tuple[bool, str]] = loop.create_future()
+        self.pending_endpoint_test_futures[rid] = fut
+        await self.event_bus.publish(LlmUiRequestEvent(op="test_local_endpoint", request_id=rid))
+        return await fut
 
     async def update_settings_async(self, settings: Dict[str, Any]) -> Tuple[bool, str]:
         cid = str(uuid.uuid4())

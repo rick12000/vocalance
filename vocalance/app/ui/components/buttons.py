@@ -139,8 +139,7 @@ class GhostButton(QPushButton):
         self.setFixedHeight(height)
         border_radius = height // 2
 
-        self.setStyleSheet(
-            f"""
+        self.setStyleSheet(f"""
             GhostButton {{
                 background-color: transparent;
                 color: {theme.config.text.light};
@@ -157,8 +156,7 @@ class GhostButton(QPushButton):
             GhostButton:disabled {{
                 color: {theme.config.text.medium};
             }}
-        """
-        )
+        """)
 
         if command:
             self.clicked.connect(command)

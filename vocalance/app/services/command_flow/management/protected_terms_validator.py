@@ -72,11 +72,11 @@ class ProtectedTermsValidator(Service):
         protected.add(dictation.type_trigger.lower().strip())
         protected.add(dictation.smart_start_trigger.lower().strip())
         protected.add(dictation.visual_start_trigger.lower().strip())
-        protected.add(dictation.hidden_start_trigger.lower().strip())
         protected.add(dictation.amend_start_trigger.lower().strip())
 
         protected.add("pause")
         protected.add("resume")
+        protected.add("repeat")
 
         marks_data = await self.storage.read(model_type=MarksData)
         protected.update(name.lower().strip() for name in marks_data.marks.keys())

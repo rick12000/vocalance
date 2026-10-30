@@ -14,6 +14,7 @@ from vocalance.app.ui.features.commands.controller import QtCommandsController
 from vocalance.app.ui.features.commands.view import QtCommandsView
 from vocalance.app.ui.features.dictation.alias_controller import QtDictationAliasController
 from vocalance.app.ui.features.dictation.controller import QtDictationController
+from vocalance.app.ui.features.dictation.hotword_controller import QtHotwordController
 from vocalance.app.ui.features.dictation.popup_controller import QtDictationPopupController
 from vocalance.app.ui.features.dictation.view import QtDictationView
 from vocalance.app.ui.features.marks.controller import QtMarksController
@@ -50,6 +51,7 @@ class UiRegistry:
         self.commands_controller = QtCommandsController(event_bus, config)
         self.dictation_controller = QtDictationController(event_bus, config)
         self.dictation_alias_controller = QtDictationAliasController(event_bus)
+        self.hotword_controller = QtHotwordController(event_bus)
         self.settings_controller = QtSettingsController(event_bus, config)
 
         self.dictation_popup_controller: Optional[QtDictationPopupController] = QtDictationPopupController(event_bus)
@@ -83,6 +85,7 @@ class UiRegistry:
             view = QtDictationView()
             view.set_controller(self.dictation_controller)
             view.set_alias_controller(self.dictation_alias_controller)
+            view.set_hotword_controller(self.hotword_controller)
             return view
         if tab_name == "Settings":
             view = QtSettingsView()
@@ -104,6 +107,7 @@ class UiRegistry:
             "grid_controller",
             "commands_controller",
             "settings_controller",
+            "hotword_controller",
             "dictation_alias_controller",
             "dictation_controller",
             "sound_controller",

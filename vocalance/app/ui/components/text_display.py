@@ -34,8 +34,7 @@ class TransparentTextEdit(QPlainTextEdit):
         palette.setColor(QPalette.ColorRole.Window, QColor("transparent"))
         self.setPalette(palette)
 
-        self.setStyleSheet(
-            """
+        self.setStyleSheet("""
             TransparentTextEdit {{
                 background-color: transparent;
                 border: none;
@@ -48,8 +47,7 @@ class TransparentTextEdit(QPlainTextEdit):
                 border: none;
                 selection-background-color: transparent;
             }}
-        """
-        )
+        """)
 
 
 class TextDisplayContainer(QWidget):

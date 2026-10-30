@@ -26,7 +26,7 @@ computed offline and hard-coded at development time:
 
 .. code-block:: powershell
 
-   $UV_VERSION    = '0.11.22'
+   $UV_VERSION    = '0.13.6'
    $UV_ZIP_SHA256 = @{
        'x86_64'  = '<hex digest>'
        'aarch64' = '<hex digest>'
@@ -57,7 +57,7 @@ Three controls are applied in sequence to every download.
 Model allowlist
 ---------------
 
-Only three models are permitted. The allowlist is hard-coded as a frozen Pydantic
+Only six models are permitted. The allowlist is hard-coded as a frozen Pydantic
 model in
 `vocalance/app/config/app_config.py <https://github.com/rick12000/vocalance/blob/main/vocalance/app/config/app_config.py>`_:
 
@@ -70,14 +70,23 @@ model in
        gguf_filenames: tuple[str, ...]
        gguf_sha256: Dict[str, str]  # filename → expected SHA-256
 
-The three permitted models are:
+The six permitted models are pinned GGUF builds of these checkpoints:
 
-- ``qwen2.5-1.5b-q5km`` — Qwen2.5 1.5B Instruct (Q5_K_M)
-- ``qwen3-4b-q5km`` — Qwen3 4B (Q5_K_M)
-- ``qwen3-8b-q5km`` — Qwen3 8B (Q5_K_M)
+- ``qwen3.5-2b-q4km`` — Qwen3.5 2B (default), Q4_K_M from ``unsloth/Qwen3.5-2B-GGUF``
+- ``qwen3-4b-instruct-2507-q4km`` — Qwen3 4B Instruct 2507, Q4_K_M from ``unsloth/Qwen3-4B-Instruct-2507-GGUF``
+- ``granite-4.2-3b-q4km`` — Granite 4.2 3B, Q4_K_M from ``ibm-granite/granite-4.2-3b-GGUF``
+- ``qwen3.5-4b-q4km`` — Qwen3.5 4B, Q4_K_M from ``unsloth/Qwen3.5-4B-GGUF``
+- ``ministral-3-8b-iq3xs`` — Ministral 3 8B Instruct, IQ3_XS from ``bartowski/mistralai_Ministral-3-8B-Instruct-2512-GGUF``
+- ``qwen3-8b-iq3m`` — Qwen3 8B, IQ3_M from ``bartowski/Qwen_Qwen3-8B-GGUF``
 
 Any model ID not in this list is rejected by the ``LLMConfig`` field validator
 before a download is ever attempted.
+
+Optional **local endpoint** mode (user opt-in in Settings) sends chat completions to
+an OpenAI-compatible HTTP API on **loopback only** (``localhost``, ``127.0.0.1``, or
+``::1``). No API key field is offered. The server (e.g. Ollama or ``llama-server``)
+is outside Vocalance's SHA-256 allowlist; the user is responsible for what runs on
+that port. Shipped GGUF downloads are skipped at startup when endpoint mode is active.
 
 Redirect pinning
 ----------------
@@ -137,6 +146,15 @@ After every completed download:
 A mismatch deletes the file and raises ``IntegrityError``, surfaced to the user
 as an explicit error. The application will not load a model that failed
 verification.
+
+TLS certificate stores
+======================
+
+Following the eMudhra / emSign CA incident, the project pins a minimum
+``certifi`` version in ``pyproject.toml``. Git hooks are run with
+`prek <https://github.com/j178/prek>`_, which provisions Python hook
+environments through ``uv`` using the project lockfile rather than ad hoc
+per-hook ``pip`` bootstraps.
 
 Bundled Models
 ==============

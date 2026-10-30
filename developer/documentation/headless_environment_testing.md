@@ -95,15 +95,15 @@ The 8 affected modules skip at collection time with reason messages visible in t
 To run tests locally with the same environment:
 
 ```bash
-conda activate vocalance_env_dev
-xvfb-run pytest tests/vocalance
+uv sync --extra dev --frozen
+xvfb-run uv run pytest tests/vocalance
 ```
 
 Or if a display is available:
 
 ```bash
-conda activate vocalance_env_dev
-pytest tests/vocalance
+uv sync --extra dev --frozen
+uv run pytest tests/vocalance
 ```
 
 If running on Windows or macOS with a display, `skip_if_headless()` will never trigger and all 551 tests execute.

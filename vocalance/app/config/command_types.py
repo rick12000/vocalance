@@ -53,10 +53,10 @@ class DictationCommand(BaseCommand):
 
 
 class DictationStartCommand(DictationCommand):
-    """Command to start standard dictation mode.
+    """Command to start hidden dictation, activated by the configured start trigger.
 
-    Activates dictation with the configured start trigger phrase, capturing speech
-    for text generation without formatting.
+    Accumulates speech without showing partial text, then pastes the full
+    transcript when dictation stops. The listening indicator is a sound wave only.
     """
 
 
@@ -64,6 +64,14 @@ class DictationStopCommand(DictationCommand):
     """Command to stop dictation mode and return to command mode.
 
     Triggered by the configured stop phrase to end dictation capture.
+    """
+
+
+class DictationPauseToggleCommand(DictationCommand):
+    """Command to toggle pause on an active dictation session.
+
+    When recording, freezes audio ingestion and re-enables command flow while preserving
+    session state. When already paused, resumes audio ingestion and suppresses command flow.
     """
 
 
@@ -91,16 +99,6 @@ class DictationVisualStartCommand(DictationCommand):
     """
 
 
-class DictationHiddenStartCommand(DictationCommand):
-    """Command to start hidden dictation mode with silent accumulation.
-
-    Activates dictation that accumulates text in memory without displaying
-    partial/final text in UI. Shows only a sound wave indicator like standard
-    mode. Text is pasted when stopped, with buffer flushed to capture any
-    trailing audio.
-    """
-
-
 class DictationAmendStartCommand(DictationCommand):
     """Command to start amend mode: copy selection, dictate instructions, LLM applies them."""
 
@@ -122,6 +120,14 @@ class ResumeCommand(SystemControlCommand):
 
     Lifts the pause state and allows normal audio processing and command
     execution to continue.
+    """
+
+
+class RepeatCommand(SystemControlCommand):
+    """Replay the last automation command or the go command that shows the grid.
+
+    Pause, resume, and repeat itself are not replayed. Dictation, marks, grid
+    cell selection, and the hover and drag grid phrases are not replayed.
     """
 
 
@@ -385,10 +391,10 @@ class SoundMapCommand(SoundCommand):
 DictationCommandType = Union[
     DictationStartCommand,
     DictationStopCommand,
+    DictationPauseToggleCommand,
     DictationTypeCommand,
     DictationSmartStartCommand,
     DictationVisualStartCommand,
-    DictationHiddenStartCommand,
     DictationAmendStartCommand,
 ]
 
@@ -402,7 +408,7 @@ GridCommandType = Union[GridShowCommand, GridSelectCommand]
 
 SoundCommandType = Union[SoundTrainCommand, SoundDeleteCommand, SoundResetAllCommand, SoundListAllCommand, SoundMapCommand]
 
-SystemControlCommandType = Union[PauseCommand, ResumeCommand]
+SystemControlCommandType = Union[PauseCommand, ResumeCommand, RepeatCommand]
 
 AnyCommand = Union[
     DictationCommandType, AutomationCommandType, MarkCommandType, GridCommandType, SoundCommandType, SystemControlCommandType

@@ -61,16 +61,6 @@ class CommandTextRecognizedEvent(BaseEvent):
     mode: str = "command"
 
 
-class DictationTextRecognizedEvent(BaseEvent):
-    """Text recognized in dictation mode."""
-
-    text: str
-    confidence: float = 1.0
-    engine: str = "unknown"
-    processing_time_ms: float = 0.0
-    mode: str = "command"
-
-
 class AudioDeviceErrorEvent(BaseEvent):
     """Event published when the default input device is lost or capture fails."""
 
@@ -130,13 +120,19 @@ class RuntimeConfigResponseEvent(BaseEvent):
     message: str = ""
 
 
-LlmUiRequestOp = Literal["refresh_bundle_status", "start_download", "cancel_download"]
+LlmUiRequestOp = Literal[
+    "refresh_bundle_status",
+    "start_download",
+    "cancel_download",
+    "test_local_endpoint",
+]
 LlmUiNotificationKind = Literal[
     "bundle_status",
     "download_progress",
     "download_finished",
     "download_cancelled",
     "download_integrity_error",
+    "endpoint_test_finished",
 ]
 
 

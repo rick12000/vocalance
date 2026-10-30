@@ -6,12 +6,12 @@ from collections import deque
 from typing import Callable, Optional, cast
 
 from PySide6.QtCore import QEasingCurve, QMetaObject, QPointF, QPropertyAnimation, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QPainter, QPaintEvent, QPalette, QTextCharFormat
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtGui import QBrush, QColor, QKeyEvent, QLinearGradient, QMoveEvent, QPainter, QPaintEvent, QPalette, QTextCharFormat
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from vocalance.app.ui.components.labels import BoxTitleLabel
 from vocalance.app.ui.components.sound_wave_widget import SoundWaveWidget
-from vocalance.app.ui.components.spinner_widget import SpinnerWidget
+from vocalance.app.ui.components.spinner_widget import OrangeArcSpinner, SpinnerWidget
 from vocalance.app.ui.components.text_display import TextDisplayContainer
 from vocalance.app.ui.qt_theme import theme
 
@@ -31,15 +31,18 @@ class QtDictationPopupView(QMainWindow):
     show_llm_processing_signal = Signal()  # Signal to show LLM processing on main thread
     modifier_banner_signal = Signal(str, bool)  # display_label, active
 
-    # Window sizes (determined by the sound wave widget)
-    SIMPLE_WIDTH = 60  # Exact fit for sound wave widget
-    SIMPLE_HEIGHT = 30  # Exact fit for sound wave widget
+    # Listening pill. The real size is derived from the indicator after the UI exists.
+    PILL_BORDER_WIDTH = 3
+    PILL_INNER_GAP = 8
+    SIMPLE_WIDTH = 72
+    SIMPLE_HEIGHT = 48
     SMART_WIDTH = 800
     SMART_HEIGHT = 550
     VISUAL_WIDTH = 400
     VISUAL_HEIGHT = 550
     WINDOW_MARGIN_X = 80
     WINDOW_MARGIN_Y = 80
+    SIMPLE_MODIFIER_GAP = 8
     DUAL_PANE_MODES: frozenset[str] = frozenset({"smart", "amend"})
 
     def __init__(self) -> None:
@@ -58,9 +61,11 @@ class QtDictationPopupView(QMainWindow):
         self.pending_flush = False
 
         self.current_mode: Optional[str] = None
+        self.llm_processing_active = False
+        self.wave_listening = False
 
-        # Border color state (for stop word indication)
         self.border_is_orange = False
+        self.border_is_yellow = False
 
         # Animation properties
         self.animation_in = None
@@ -86,6 +91,8 @@ class QtDictationPopupView(QMainWindow):
         self.modifier_banner_signal.connect(self.do_set_modifier_banner, Qt.ConnectionType.QueuedConnection)
 
         self.modifier_fade_anim: Optional[QPropertyAnimation] = None
+        self._simple_modifier_label = ""
+        self._simple_modifier_fade_token: object = object()
 
         self.logger.info("QtDictationPopupView initialized")
 
@@ -99,35 +106,41 @@ class QtDictationPopupView(QMainWindow):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Draw rounded background with 3px gradient or orange border."""
+        """Draw rounded background with 3px border: gradient normally, orange on stop, yellow on pause."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
         border_width = 3
+        painter.setPen(Qt.PenStyle.NoPen)
 
-        # Use orange border if stop word detected, otherwise use gradient
         if self.border_is_orange:
-            # Solid orange border
             painter.setBrush(QColor(theme.config.shapes.orange))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(rect, 16, 16)
+        elif self.border_is_yellow:
+            gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
+            gradient.setColorAt(0.0, QColor(theme.config.shapes.pause_yellow))
+            gradient.setColorAt(1.0, QColor(theme.config.shapes.pause_yellow_dark))
+            painter.setBrush(gradient)
         else:
-            # Create gradient for border
             gradient_colors = theme.config.text.gradient_colors
             gradient = QLinearGradient(QPointF(0, 0), QPointF(rect.width(), rect.height()))
             gradient.setColorAt(0, QColor(gradient_colors[0]))
             gradient.setColorAt(1, QColor(gradient_colors[1]))
-
-            # Draw outer rounded rect with gradient (this is the border)
             painter.setBrush(gradient)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(rect, 16, 16)
 
-        # Draw inner rounded rect with background color (creates border effect)
+        outer_radius, inner_radius = self.popup_corner_radii(rect.height(), border_width)
+        painter.drawRoundedRect(rect, outer_radius, outer_radius)
+
         inner_rect = rect.adjusted(border_width, border_width, -border_width, -border_width)
         painter.setBrush(QColor(theme.config.shapes.darkest))
-        painter.drawRoundedRect(inner_rect, 12, 12)
+        painter.drawRoundedRect(inner_rect, inner_radius, inner_radius)
+
+    def popup_corner_radii(self, height: int, border_width: int) -> tuple[float, float]:
+        """Capsule ends on the listening pill; milder corners on the large panes."""
+        if height <= self.SIMPLE_HEIGHT:
+            outer = height / 2
+            return outer, max(0.0, (height - (border_width * 2)) / 2)
+        return 16.0, 12.0
 
     def modifier_status_accent_color(self) -> str:
         gc = theme.config.text.gradient_colors
@@ -143,6 +156,27 @@ class QtDictationPopupView(QMainWindow):
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         label.setText("")
         label.setVisible(True)
+        eff = QGraphicsOpacityEffect(label)
+        eff.setOpacity(0.0)
+        label.setGraphicsEffect(eff)
+
+    def configure_simple_modifier_status_label(self, label: QLabel) -> None:
+        """Caption under the listening pill. It is its own window so it cannot resize the pill."""
+        label.setFont(theme.get_font(size="medium", weight="semibold", display=False))
+        accent = self.modifier_status_accent_color()
+        label.setStyleSheet(f"QLabel {{ background: transparent; color: {accent}; }}")
+        label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        label.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        label.setAutoFillBackground(False)
+        label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        label.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        label.setText("")
         eff = QGraphicsOpacityEffect(label)
         eff.setOpacity(0.0)
         label.setGraphicsEffect(eff)
@@ -165,10 +199,32 @@ class QtDictationPopupView(QMainWindow):
         simple_layout.setSpacing(0)
 
         self.sound_wave_widget = SoundWaveWidget()
-        simple_layout.addWidget(self.sound_wave_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.pill_spinner = OrangeArcSpinner()
+        self.pill_spinner.setFixedSize(self.sound_wave_widget.size())
+        self._wave_opacity = QGraphicsOpacityEffect(self.sound_wave_widget)
+        self._wave_opacity.setOpacity(1.0)
+        self.sound_wave_widget.setGraphicsEffect(self._wave_opacity)
+        self._spinner_opacity = QGraphicsOpacityEffect(self.pill_spinner)
+        self._spinner_opacity.setOpacity(0.0)
+        self.pill_spinner.setGraphicsEffect(self._spinner_opacity)
+        self._pill_fade_anims: list[QPropertyAnimation] = []
+        self.pill_stage = QWidget()
+        self.pill_stage.setFixedSize(self.sound_wave_widget.size())
+        self.pill_stage.setAutoFillBackground(False)
+        pill_grid = QGridLayout(self.pill_stage)
+        pill_grid.setContentsMargins(0, 0, 0, 0)
+        pill_grid.setSpacing(0)
+        pill_grid.addWidget(self.sound_wave_widget, 0, 0)
+        pill_grid.addWidget(self.pill_spinner, 0, 0)
+        simple_layout.addWidget(self.pill_stage, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.fit_pill_window_to_indicator()
 
         self.simple_widget.setVisible(False)
         main_layout.addWidget(self.simple_widget)
+
+        self.simple_modifier_status = QLabel(self)
+        self.configure_simple_modifier_status_label(self.simple_modifier_status)
+        self.simple_modifier_status.hide()
 
         # Smart mode: Dictation + AI output (side by side)
         self.smart_widget = QWidget()
@@ -310,11 +366,25 @@ class QtDictationPopupView(QMainWindow):
         """Internal set border orange - MUST run on main Qt thread."""
         with self.ui_lock:
             self.border_is_orange = True
-            self.update()  # Trigger repaint
+            self.border_is_yellow = False
+            self.update()
+
+    @Slot()
+    def set_border_yellow(self) -> None:
+        """Set border to yellow gradient (session paused) - thread-safe."""
+        QMetaObject.invokeMethod(self, "do_set_border_yellow", Qt.ConnectionType.QueuedConnection)
+
+    @Slot()
+    def do_set_border_yellow(self) -> None:
+        """Internal set border yellow - MUST run on main Qt thread."""
+        with self.ui_lock:
+            self.border_is_yellow = True
+            self.border_is_orange = False
+            self.update()
 
     @Slot()
     def reset_border_color(self) -> None:
-        """Reset border to gradient color - thread-safe."""
+        """Reset border to default gradient - thread-safe."""
         QMetaObject.invokeMethod(self, "do_reset_border_color", Qt.ConnectionType.QueuedConnection)
 
     @Slot()
@@ -322,7 +392,78 @@ class QtDictationPopupView(QMainWindow):
         """Internal reset border color - MUST run on main Qt thread."""
         with self.ui_lock:
             self.border_is_orange = False
-            self.update()  # Trigger repaint
+            self.border_is_yellow = False
+            self.update()
+
+    def fit_pill_window_to_indicator(self) -> None:
+        """Size the listening window so the indicator sits inside the border.
+
+        The central layout margins and the painted border both consume space.
+        The window has to include both, plus a gap, or the wave and spinner
+        are clipped by the pill edge.
+        """
+        margins = self.centralWidget().layout().contentsMargins()
+        stage = self.pill_stage.size()
+        chrome = self.PILL_BORDER_WIDTH + self.PILL_INNER_GAP
+        width = stage.width() + margins.left() + margins.right()
+        height = stage.height() + margins.top() + margins.bottom()
+        inner_width = width - (self.PILL_BORDER_WIDTH * 2)
+        inner_height = height - (self.PILL_BORDER_WIDTH * 2)
+        if stage.width() + (chrome * 2) > inner_width:
+            width += (stage.width() + (chrome * 2)) - inner_width
+        if stage.height() + (chrome * 2) > inner_height:
+            height += (stage.height() + (chrome * 2)) - inner_height
+        self.SIMPLE_WIDTH = width
+        self.SIMPLE_HEIGHT = height
+
+    def lock_pill_window_size(self) -> None:
+        self.setFixedSize(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT)
+
+    def unlock_window_size(self) -> None:
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+
+    def stop_pill_fades(self) -> None:
+        for anim in self._pill_fade_anims:
+            if anim.state() == QPropertyAnimation.State.Running:
+                anim.stop()
+        self._pill_fade_anims.clear()
+
+    def fade_indicator_opacity(
+        self, effect: QGraphicsOpacityEffect, end: float, on_finished: Optional[Callable[[], None]] = None
+    ) -> None:
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(280)
+        anim.setStartValue(effect.opacity())
+        anim.setEndValue(end)
+        anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        if on_finished is not None:
+            anim.finished.connect(on_finished)
+        anim.start()
+        self._pill_fade_anims.append(anim)
+
+    def reset_listening_indicator(self) -> None:
+        self.stop_pill_fades()
+        self._wave_opacity.setOpacity(1.0)
+        self._spinner_opacity.setOpacity(0.0)
+        self.pill_spinner.stop_now()
+        self.sound_wave_widget.start_animation()
+
+    def crossfade_to_processing(self) -> None:
+        self.stop_pill_fades()
+        self.pill_spinner.start_now()
+        self.fade_indicator_opacity(self._wave_opacity, 0.0, on_finished=self.sound_wave_widget.stop_animation)
+        self.fade_indicator_opacity(self._spinner_opacity, 1.0)
+
+    def finish_entrance_animation(self) -> None:
+        if self.animation_in and self.animation_in.state() == QPropertyAnimation.State.Running:
+            end = self.animation_in.endValue()
+            self.animation_in.stop()
+            if end is not None:
+                self.setGeometry(end)
+        if self.opacity_animation_in and self.opacity_animation_in.state() == QPropertyAnimation.State.Running:
+            self.opacity_animation_in.stop()
+            self.setWindowOpacity(1.0)
 
     @Slot()
     def show_simple_listening(self) -> None:
@@ -334,11 +475,21 @@ class QtDictationPopupView(QMainWindow):
         """Internal show simple - MUST run on main Qt thread."""
         with self.ui_lock:
             self.hide_all_modes()
-            self.border_is_orange = False  # Reset border color for new session
+            self.border_is_orange = False
+            self.border_is_yellow = False
+            self.llm_processing_active = False
             self.simple_widget.setVisible(True)
+            self.reset_listening_indicator()
+            self.wave_listening = True
             self.current_mode = "simple"
+            self.lock_pill_window_size()
+            if self._simple_modifier_label:
+                self._simple_modifier_fade_token = object()
+                self.prepare_simple_modifier_label(self._simple_modifier_label)
             self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
             self.show_window_with_animation()
+            if self._simple_modifier_label:
+                self.fade_modifier_label_opacity(self.simple_modifier_status, 1.0)
             # Animation runs automatically in widget
 
     @Slot()
@@ -351,28 +502,31 @@ class QtDictationPopupView(QMainWindow):
         """Show amend mode: left = spoken instructions, right = LLM output (same layout as smart)."""
         QMetaObject.invokeMethod(self, "do_show_amend", Qt.ConnectionType.QueuedConnection)
 
-    def apply_dual_pane_layout(self, mode: str, left_column_title: str) -> None:
-        """Apply the dual-pane window layout on the Qt main thread (via calling slots)."""
+    def show_wave_listening(self, mode: str) -> None:
         with self.ui_lock:
+            self._simple_modifier_label = ""
             self.hide_all_modes()
+            self.llm_processing_active = False
+            self.wave_listening = True
             self.border_is_orange = False
+            self.border_is_yellow = False
+            self.simple_widget.setVisible(True)
+            self.reset_listening_indicator()
             self.current_mode = mode
-            self.dictation_column_label.setText(left_column_title)
-            self.smart_widget.setVisible(True)
-            self.clear_smart_content()
-            self.position_window(self.SMART_WIDTH, self.SMART_HEIGHT, "center_left")
+            self.lock_pill_window_size()
+            self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
             self.show_window_with_animation()
-            self.logger.info(f"Dual-pane dictation shown, mode={self.current_mode}")
+            self.logger.info("Wave listening shown, mode=%s", self.current_mode)
 
     @Slot()
     def do_show_smart(self) -> None:
         """Internal show smart - MUST run on main Qt thread."""
-        self.apply_dual_pane_layout("smart", "Dictation")
+        self.show_wave_listening("smart")
 
     @Slot()
     def do_show_amend(self) -> None:
         """Internal show amend mode; must run on the Qt main thread."""
-        self.apply_dual_pane_layout("amend", "Prompt")
+        self.show_wave_listening("amend")
 
     @Slot()
     def show_visual_dictation(self) -> None:
@@ -389,8 +543,12 @@ class QtDictationPopupView(QMainWindow):
     def do_show_visual(self) -> None:
         """Internal show visual - MUST run on main Qt thread."""
         with self.ui_lock:
+            self._simple_modifier_label = ""
+            self.unlock_window_size()
             self.hide_all_modes()
-            self.border_is_orange = False  # Reset border color for new session
+            self.border_is_orange = False
+            self.border_is_yellow = False
+            self.wave_listening = False
             self.current_mode = "visual"
             self.visual_widget.setVisible(True)
             self.clear_visual_content()
@@ -401,13 +559,23 @@ class QtDictationPopupView(QMainWindow):
     @Slot()
     def do_show_llm_processing(self) -> None:
         """Internal show LLM processing - MUST run on main Qt thread."""
-        # Keep smart widget visible, just update the status
-        # This is called after dictation stops and before LLM processing starts
-        if self.current_mode in self.DUAL_PANE_MODES:
-            self.llm_label.setText("Processing...")
-            # Start spinner when LLM processing begins
-            self.llm_spinner.start()
-            self.logger.debug("Switched to LLM processing mode with spinner")
+        with self.ui_lock:
+            already_visible = self.isVisible()
+            self.llm_processing_active = True
+            self.wave_listening = False
+            self.border_is_orange = True
+            self.border_is_yellow = False
+            self.smart_widget.setVisible(False)
+            self.visual_widget.setVisible(False)
+            self.simple_widget.setVisible(True)
+            self.finish_entrance_animation()
+            self.lock_pill_window_size()
+            self.crossfade_to_processing()
+            if not already_visible:
+                self.position_window(self.SIMPLE_WIDTH, self.SIMPLE_HEIGHT, "bottom_left")
+                self.show_window_with_animation()
+            self.update()
+            self.logger.debug("LLM processing UI: orange border and spinner")
 
     @Slot()
     def hide_popup(self) -> None:
@@ -418,10 +586,17 @@ class QtDictationPopupView(QMainWindow):
     def do_hide_popup(self) -> None:
         """Internal hide popup - MUST run on main Qt thread."""
         with self.ui_lock:
-            # Stop spinner when hiding popup
+            self.llm_processing_active = False
+            self.wave_listening = False
             self.llm_spinner.stop()
+            self.pill_spinner.stop_now()
+            self.stop_pill_fades()
             self.reset_reserved_modifier_slot(self.dictation_modifier_status)
             self.reset_reserved_modifier_slot(self.visual_modifier_status)
+            self._simple_modifier_label = ""
+            self._simple_modifier_fade_token = object()
+            self.reset_reserved_modifier_slot(self.simple_modifier_status)
+            self.simple_modifier_status.setVisible(False)
             self.hide_window_with_animation()
             self.current_mode = None
 
@@ -432,7 +607,7 @@ class QtDictationPopupView(QMainWindow):
     @Slot(float)
     def do_update_audio_level(self, level: float) -> None:
         """Internal update audio level - MUST run on main Qt thread."""
-        if self.current_mode == "simple":
+        if self.current_mode in ("simple", "smart", "amend") and not self.llm_processing_active:
             self.sound_wave_widget.update_level(level)
 
     def append_dictation_text(self, text: str) -> None:
@@ -579,24 +754,23 @@ class QtDictationPopupView(QMainWindow):
             self.logger.error("No text box for current mode; final text ignored (mode=%s)", self.current_mode)
             return
 
-        # Remove partial text for this segment before inserting the final text.
-        if segment_id in self.partial_segments:
-            start_pos, end_pos = self.partial_segments[segment_id]
-            doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
-
-            # Validate positions are within document bounds
-            if start_pos >= 0 and end_pos <= doc_length and start_pos < end_pos:
+        # Remove ALL partial segments before inserting final text. The partial event always
+        # uses segment_id="" while the final event uses a UUID, so they never match by id.
+        # Clearing all partials ensures there is no gray text visible when white is appended.
+        doc_length = text_box.document().characterCount() - 1  # -1 for trailing newline
+        for old_id in list(self.partial_segments.keys()):
+            old_start, old_end = self.partial_segments[old_id]
+            if old_start >= 0 and old_end <= doc_length and old_start < old_end:
                 cursor = text_box.textCursor()
-                cursor.setPosition(min(start_pos, doc_length))
-                cursor.setPosition(min(end_pos, doc_length), cursor.MoveMode.KeepAnchor)
+                cursor.setPosition(min(old_start, doc_length))
+                cursor.setPosition(min(old_end, doc_length), cursor.MoveMode.KeepAnchor)
                 cursor.removeSelectedText()
-                self.logger.debug(f"Removed partial text for segment {segment_id} at {start_pos}-{end_pos}")
+                self.logger.debug(f"Removed partial segment {old_id} at {old_start}-{old_end} before inserting final")
             else:
                 self.logger.warning(
-                    f"Skipping invalid partial segment {segment_id}: pos {start_pos}-{end_pos} (doc_length={doc_length})"
+                    f"Skipping invalid partial segment {old_id}: pos {old_start}-{old_end} (doc_length={doc_length})"
                 )
-
-            del self.partial_segments[segment_id]
+        self.partial_segments.clear()
 
         # Insert final text at end with light color formatting (stable/permanent)
         cursor = text_box.textCursor()
@@ -778,44 +952,110 @@ class QtDictationPopupView(QMainWindow):
 
     @Slot(str, bool)
     def do_set_modifier_banner(self, display_label: str, active: bool) -> None:
-        """Show or clear the modifier label on smart/amend/visual layouts; no-op for wave-only modes."""
+        """Fade modifier status in or out for the active dictation layout."""
         if self.modifier_fade_anim and self.modifier_fade_anim.state() == QPropertyAnimation.State.Running:
             self.modifier_fade_anim.stop()
 
         reserved_slots = (self.dictation_modifier_status, self.visual_modifier_status)
 
-        if not active:
+        if not active or not display_label.strip():
             for lbl in reserved_slots:
                 self.reset_reserved_modifier_slot(lbl)
+            self.clear_simple_modifier_label()
             return
 
         for lbl in reserved_slots:
             self.reset_reserved_modifier_slot(lbl)
 
-        if not display_label.strip():
-            return
-
         mode = self.current_mode
         if mode in self.DUAL_PANE_MODES:
+            self._simple_modifier_label = ""
             chip = self.dictation_modifier_status
             chip.setText(display_label)
         elif mode == "visual":
+            self._simple_modifier_label = ""
             chip = self.visual_modifier_status
             chip.setText(display_label)
+        elif mode == "simple":
+            self.show_simple_modifier_label(display_label)
+            return
         else:
+            self._simple_modifier_label = display_label
             return
 
         eff = cast(QGraphicsOpacityEffect, chip.graphicsEffect())
         eff.setOpacity(0.0)
         self.fade_modifier_label_opacity(chip, 1.0)
 
+    def simple_modifier_text_size(self, display_label: str) -> tuple[int, int]:
+        """Tight bounds for the caption so it can sit centered under the pill."""
+        metrics = self.simple_modifier_status.fontMetrics()
+        return metrics.horizontalAdvance(display_label) + 2, metrics.height()
+
+    def place_simple_modifier_caption(self) -> None:
+        """Center the caption on the listening pill's bottom edge, outside the pill."""
+        label = self.simple_modifier_status
+        if not label.text().strip():
+            return
+        text_width, text_height = self.simple_modifier_text_size(label.text())
+        pill = self.geometry()
+        x = pill.x() + (pill.width() - text_width) // 2
+        y = pill.bottom() + 1 + self.SIMPLE_MODIFIER_GAP
+        label.setGeometry(x, y, text_width, text_height)
+
+    def prepare_simple_modifier_label(self, display_label: str) -> None:
+        """Size the caption without touching the listening pill."""
+        label = self.simple_modifier_status
+        label.setText(display_label)
+        text_width, text_height = self.simple_modifier_text_size(display_label)
+        label.setFixedSize(text_width, text_height)
+        eff = label.graphicsEffect()
+        if isinstance(eff, QGraphicsOpacityEffect):
+            eff.setOpacity(0.0)
+        self.place_simple_modifier_caption()
+        label.show()
+
+    def moveEvent(self, event: QMoveEvent) -> None:
+        """Keep the caption glued to the pill while the pill slides on screen."""
+        super().moveEvent(event)
+        if self.current_mode == "simple":
+            self.place_simple_modifier_caption()
+
+    def show_simple_modifier_label(self, display_label: str) -> None:
+        """Fade modifier text in under the type/green listening indicator."""
+        self._simple_modifier_label = display_label
+        self._simple_modifier_fade_token = object()
+        self.prepare_simple_modifier_label(display_label)
+        self.fade_modifier_label_opacity(self.simple_modifier_status, 1.0)
+
+    def clear_simple_modifier_label(self) -> None:
+        """Fade modifier text out and shrink the listening window back to the box."""
+        self._simple_modifier_label = ""
+        label = self.simple_modifier_status
+        if not label.isVisible():
+            self.reset_reserved_modifier_slot(label)
+            return
+        token = object()
+        self._simple_modifier_fade_token = token
+
+        def finished() -> None:
+            if self._simple_modifier_fade_token is not token:
+                return
+            self.reset_reserved_modifier_slot(label)
+            label.hide()
+
+        self.fade_modifier_label_opacity(label, 0.0, on_finished=finished)
+
     def hide_all_modes(self) -> None:
         """Hide all mode widgets."""
         self.simple_widget.setVisible(False)
         self.smart_widget.setVisible(False)
         self.visual_widget.setVisible(False)
+        self._simple_modifier_fade_token = object()
         self.reset_reserved_modifier_slot(self.dictation_modifier_status)
         self.reset_reserved_modifier_slot(self.visual_modifier_status)
+        self.reset_reserved_modifier_slot(self.simple_modifier_status)
+        self.simple_modifier_status.hide()
 
     def clear_smart_content(self) -> None:
         """Clear smart mode content."""

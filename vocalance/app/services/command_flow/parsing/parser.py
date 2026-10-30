@@ -8,7 +8,7 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
     BaseCommand,
     DictationAmendStartCommand,
-    DictationHiddenStartCommand,
+    DictationPauseToggleCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -25,6 +25,7 @@ from vocalance.app.config.command_types import (
     MarkVisualizeCommand,
     ParameterizedCommand,
     PauseCommand,
+    RepeatCommand,
     ResumeCommand,
 )
 from vocalance.app.event_bus import EventBus
@@ -51,10 +52,10 @@ from vocalance.app.services.storage.storage_service import StorageService
 PARSED_EVENT_BY_COMMAND: Dict[Type[BaseCommand], Type[BaseEvent]] = {
     DictationStartCommand: DictationCommandParsedEvent,
     DictationStopCommand: DictationCommandParsedEvent,
+    DictationPauseToggleCommand: DictationCommandParsedEvent,
     DictationTypeCommand: DictationCommandParsedEvent,
     DictationSmartStartCommand: DictationCommandParsedEvent,
     DictationVisualStartCommand: DictationCommandParsedEvent,
-    DictationHiddenStartCommand: DictationCommandParsedEvent,
     DictationAmendStartCommand: DictationCommandParsedEvent,
     ExactMatchCommand: AutomationCommandParsedEvent,
     ParameterizedCommand: AutomationCommandParsedEvent,
@@ -69,6 +70,18 @@ PARSED_EVENT_BY_COMMAND: Dict[Type[BaseCommand], Type[BaseEvent]] = {
     PauseCommand: SystemControlCommandParsedEvent,
     ResumeCommand: SystemControlCommandParsedEvent,
 }
+
+
+def is_repeatable_command(command: BaseCommand) -> bool:
+    """Return whether ``repeat`` should replay ``command``.
+
+    Automation commands are repeatable. So is the go command, which is a grid
+    show in click mode, including ``go`` with a cell count. Hover, drag, cell
+    selection, marks, and dictation are not.
+    """
+    if isinstance(command, (ExactMatchCommand, ParameterizedCommand)):
+        return True
+    return isinstance(command, GridShowCommand) and command.click_mode == "click"
 
 
 class CentralizedCommandParser(Service):
@@ -89,6 +102,7 @@ class CentralizedCommandParser(Service):
         self.triggers: CommandParserTriggers = build_triggers_from_config(app_config)
         self._command_interval_lock = asyncio.Lock()
         self._last_command_executed_mono: Optional[float] = None
+        self._last_repeatable_command: Optional[BaseCommand] = None
 
         self.subscribe(CommandTextRecognizedEvent, self.handle_command_text_recognized)
         self.subscribe(CustomSoundRecognizedEvent, self.handle_custom_sound_recognized)
@@ -115,8 +129,16 @@ class CentralizedCommandParser(Service):
                     if self.pause_state_manager.is_paused():
                         return
 
+                if isinstance(parsed, RepeatCommand):
+                    if self._last_repeatable_command is not None:
+                        await self.publish_command_event(self._last_repeatable_command, src)
+                        self._last_command_executed_mono = time.monotonic()
+                    return
+
                 await self.publish_command_event(parsed, src)
                 self._last_command_executed_mono = time.monotonic()
+                if is_repeatable_command(parsed):
+                    self._last_repeatable_command = parsed
 
     async def publish_command_event(self, command: BaseCommand, source: Optional[str]) -> None:
         """Instantiate the parsed-event type for ``command`` and publish it on the bus."""

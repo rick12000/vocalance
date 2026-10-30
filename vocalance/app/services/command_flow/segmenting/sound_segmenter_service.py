@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from vocalance.app.config.app_config import GlobalAppConfig
@@ -57,10 +56,8 @@ class SoundSegmenterService(Service):
     def _handle_audio_chunk(self, event: AudioChunkCapturedEvent) -> None:
         for hit in self.segmenter.feed_pcm_chunk(event.pcm_bytes, event.timestamp, self._muted):
             if isinstance(hit, Clip):
-                asyncio.create_task(
-                    self.event_bus.publish(
-                        ProcessAudioChunkForSoundRecognitionEvent(audio_chunk=hit.pcm_bytes, sample_rate=hit.sample_rate)
-                    )
+                self.event_bus.submit(
+                    ProcessAudioChunkForSoundRecognitionEvent(audio_chunk=hit.pcm_bytes, sample_rate=hit.sample_rate)
                 )
 
     def _handle_dictation_mode(self, event: DictationModeDisableOthersEvent) -> None:

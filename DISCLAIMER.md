@@ -56,8 +56,7 @@ Vocalance uses multiple AI and machine learning models. All AI processing runs *
 | Feature | AI Technology |
 |---|---|
 | Voice command recognition | Vosk (small English ASR model, bundled) |
-| Dictation (speech-to-text) | Moonshine Voice (streaming STT, downloaded on first run) |
-| Voice activity detection | Silero VAD (via Moonshine, downloaded on first run) |
+| Dictation (speech-to-text) | X-ASR streaming transducer via sherpa-onnx (model downloaded on first run) |
 | Environmental sound recognition | YAMNet + k-NN classifier (bundled) |
 | Dictation post-processing / agentic | Large language model via llama-cpp-python (downloaded on first run) |
 
@@ -74,18 +73,24 @@ The following features do **not** use AI:
 
 Vocalance downloads AI model files on first launch only, to your local machine. **No user data, voice, or activity is ever uploaded.** The only outbound network activity Vocalance initiates is the download of these model files.
 
-### 6.1 Moonshine Speech-to-Text Model
+### 6.1 X-ASR Dictation Model
 
 - **When:** Automatically on first launch if not already present.
-- **Source:** Downloaded by the `moonshine-voice` Python package from its model distribution endpoint.
-- **Stored at:** A system cache directory managed by the `moonshine-voice` package.
-- **License:** Apache 2.0.
+- **Runtime:** The `sherpa-onnx` Python package (pinned in `uv.lock`) loads ONNX transducer weights locally.
+- **Model weights:** Downloaded from [Hugging Face](https://huggingface.co/GilgameshWind/X-ASR-zh-en) (`GilgameshWind/X-ASR-zh-en`, revision pinned in application config).
+- **Stored at:** Under the Vocalance application data directory (ASR model cache managed by the app).
+- **License:** Governed by the X-ASR model repository and `sherpa-onnx` package licenses; see [NOTICES/PYPI_LICENSES/](NOTICES/PYPI_LICENSES/) and the model card on Hugging Face.
 
 ### 6.2 Language Model (LLM)
 
 - **When:** Automatically on first launch if not already present. A download progress indicator is shown during startup.
 - **Source:** Downloaded from [Hugging Face Hub](https://huggingface.co).
-- **Default model:** Qwen 2.5 1.5B Instruct (GGUF format), licensed under Apache 2.0.
+- **Default model:** Qwen3.5 2B (GGUF, Q4_K_M), licensed under [Apache 2.0](https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE).
+- **Optional local endpoint:** You may opt in to send dictation/amend requests to an OpenAI-compatible server on loopback only (e.g. Ollama, llama-server). No cloud API key is configured in the app.
+- **Other models, downloaded only if you choose them in Settings:**
+  - [Qwen3 4B Instruct 2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) — [Apache 2.0](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE)
+  - [Granite 4.2 3B](https://huggingface.co/ibm-granite/granite-4.2-3b) — [Apache 2.0](https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE)
+  - [Qwen3.5 4B](https://huggingface.co/Qwen/Qwen3.5-4B) — [Apache 2.0](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE)
 - **Stored at:**
   ```
   %APPDATA%\Vocalance\llm_models\
@@ -169,9 +174,15 @@ Key third-party components:
 | Component | Purpose | Licence |
 |---|---|---|
 | Vosk | Command speech recognition | Apache 2.0 |
-| Moonshine Voice | Dictation speech-to-text | Apache 2.0 |
+| sherpa-onnx | Dictation inference runtime (ONNX streaming ASR) | Apache 2.0 |
+| X-ASR (Hugging Face model) | Dictation transducer weights | Apache 2.0 |
 | YAMNet (TensorFlow Hub) | Environmental sound classification | Apache 2.0 |
-| Qwen 2.5 1.5B (GGUF) | Default LLM for dictation post-processing | Apache 2.0 |
+| Qwen3.5 2B (GGUF) | Default LLM for dictation post-processing | Apache 2.0 |
+| Qwen3 4B Instruct 2507 (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
+| Granite 4.2 3B (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
+| Qwen3.5 4B (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
+| Ministral 3 8B Instruct (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
+| Qwen3 8B (GGUF) | Optional LLM for dictation post-processing | Apache 2.0 |
 | llama-cpp-python | LLM inference runtime | MIT |
 | TensorFlow CPU | ML inference framework | Apache 2.0 |
 | PySide6 | Desktop GUI framework | LGPL v3 |

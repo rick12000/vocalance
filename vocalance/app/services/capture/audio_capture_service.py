@@ -146,12 +146,10 @@ class AudioCaptureService(Service):
 
     def _publish_chunk(self, pcm_bytes: bytes, timestamp: float) -> None:
         """Main-loop entry point: publish a captured chunk on the bus."""
-        asyncio.create_task(
-            self.event_bus.publish(AudioChunkCapturedEvent(pcm_bytes=pcm_bytes, timestamp=timestamp, sample_rate=self.sample_rate))
-        )
+        self.event_bus.submit(AudioChunkCapturedEvent(pcm_bytes=pcm_bytes, timestamp=timestamp, sample_rate=self.sample_rate))
 
     def _publish_device_error(self, message: str) -> None:
         if self._device_error_published:
             return
         self._device_error_published = True
-        asyncio.create_task(self.event_bus.publish(AudioDeviceErrorEvent(error_message=message)))
+        self.event_bus.submit(AudioDeviceErrorEvent(error_message=message))

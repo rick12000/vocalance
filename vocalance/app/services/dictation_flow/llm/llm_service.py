@@ -3,35 +3,51 @@ import gc
 import logging
 import multiprocessing
 import os
+import sys
 import threading
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set, Tuple
 
-from llama_cpp import Llama
+from llama_cpp import Llama, llama_supports_gpu_offload
 
 from vocalance.app.config.app_config import DEFAULT_LLM_MODEL_ID, GlobalAppConfig, LocalLLMArtifact, get_whitelisted_llm_model
 from vocalance.app.event_bus import EventBus
 from vocalance.app.events.core_events import LlmUiNotificationEvent, LlmUiNotificationKind, LlmUiRequestEvent, SettingsChangedEvent
-from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent, LLMTokenGeneratedEvent
+from vocalance.app.events.dictation_events import LLMProcessingCompletedEvent, LLMProcessingFailedEvent
 from vocalance.app.lifecycle.cancellation import CancellationToken
 from vocalance.app.lifecycle.worker import run_blocking, schedule_on_loop
 from vocalance.app.services.base_service import Service
+from vocalance.app.services.dictation_flow.llm.dictation_llm_output import (
+    dictation_stop_sequences_for_messages,
+    postprocess_llm_completion,
+)
+from vocalance.app.services.dictation_flow.llm.dictation_messages import (
+    build_dictation_chat_messages,
+    is_dictation_formatter_messages,
+)
+from vocalance.app.services.dictation_flow.llm.formatter_output_rules import OUTPUT_SLOP_AND_FORMATTING_RULE
 from vocalance.app.services.dictation_flow.llm.llm_model_downloader import IntegrityError, LLMModelDownloader
+from vocalance.app.services.dictation_flow.llm.local_endpoint import validate_local_endpoint_base_url
+from vocalance.app.services.dictation_flow.llm.openai_compatible_client import (
+    OpenAICompatibleChatError,
+    chat_completions_sync,
+)
+from vocalance.app.services.dictation_flow.llm.reasoning_stream import ReasoningTokenFilter
 from vocalance.app.services.storage.user_configurable_settings import LLM_SESSION_SETTING_PATHS
 
 logger = logging.getLogger(__name__)
 
 _AMEND_SYSTEM_BASE = (
-    "You transform text according to instructions. The user message contains two labeled parts: "
-    "TEXT TO TRANSFORM (the source material copied from the user's selection) and "
-    "USER PROMPT (instructions they spoke).\n\n"
-    "Apply USER PROMPT to TEXT TO TRANSFORM. "
-    "Respond with only the transformed text: no explanations, preamble, markdown fences, "
-    "headings, apologies, or any text before or after the result."
+    "You transform text according to instructions. The user message contains two labeled parts.\n"
+    "- TEXT TO TRANSFORM (clipboard selection, source material)\n"
+    "- USER PROMPT (spoken instructions)\n\n"
+    "Apply USER PROMPT to TEXT TO TRANSFORM.\n\n"
+    "Reply with only the transformed text. No preamble, postscript, summary of edits, markdown "
+    "fences, headings, apologies, or other meta commentary before or after the result."
 )
 
 
 class LLMService(Service):
-    """Loads a GGUF model with llama.cpp for CPU inference and unloads when idle."""
+    """Loads a GGUF model with llama.cpp (GPU when available) and unloads when idle."""
 
     def __init__(
         self,
@@ -45,6 +61,7 @@ class LLMService(Service):
         self.gui_event_loop = gui_event_loop
         self.cancel_token = cancel_token
         self.llm: Optional[Llama] = None
+        self.loaded_spec: Optional[LocalLLMArtifact] = None
         self.model_loaded = False
         self.model_downloader = LLMModelDownloader(config)
         cpu_count = multiprocessing.cpu_count()
@@ -100,6 +117,8 @@ class LLMService(Service):
             ev = self.download_cancel_events.get(rid)
             if ev is not None:
                 ev.set()
+        elif op == "test_local_endpoint":
+            schedule_on_loop(asyncio.get_running_loop(), self._run_endpoint_test(event.request_id))
 
     async def _run_download_workflow(
         self,
@@ -153,38 +172,67 @@ class LLMService(Service):
     def initialize(self) -> bool:
         return True
 
-    def load_model(self, model_path: str, disable_thinking: bool = False) -> Llama:
+    def load_model(self, model_path: str, spec: LocalLLMArtifact) -> Llama:
         cfg = self.config.llm
-        model = Llama(
-            model_path=model_path,
-            n_ctx=cfg.context_length,
-            n_threads=self.n_threads,
-            n_threads_batch=self.n_threads_batch,
-            n_batch=cfg.n_batch,
-            n_gpu_layers=0,
-            flash_attn=cfg.flash_attn,
-            use_mmap=True,
-            use_mlock=cfg.use_mlock,
-            chat_format=None if disable_thinking else "chatml",
-            seed=-1,
-            type_k=cfg.type_k,
-            type_v=cfg.type_v,
-            verbose=cfg.verbose,
-        )
-        if disable_thinking:
-            base_handler = model.chat_handler or model._chat_handlers.get(model.chat_format)
-            if base_handler is not None:
-                _h = base_handler
-
-                def _no_think(*args: Any, **kwargs: Any) -> Any:
-                    return _h(*args, **{"enable_thinking": False, **kwargs})
-
-                model.chat_handler = _no_think
-            else:
-                logger.warning("Could not locate chat handler for thinking model; thinking will not be suppressed")
+        model: Llama
+        n_gpu_layers = 0
+        for i, attempt_layers in enumerate((-1, 0)):
+            try:
+                model = Llama(
+                    model_path=model_path,
+                    n_ctx=cfg.context_length,
+                    n_threads=self.n_threads,
+                    n_threads_batch=self.n_threads_batch,
+                    n_batch=cfg.n_batch,
+                    n_gpu_layers=attempt_layers,
+                    flash_attn=cfg.flash_attn,
+                    use_mmap=True,
+                    use_mlock=cfg.use_mlock,
+                    chat_format=None,
+                    seed=-1,
+                    type_k=cfg.type_k,
+                    type_v=cfg.type_v,
+                    verbose=cfg.verbose,
+                )
+                n_gpu_layers = attempt_layers
+                break
+            except Exception:
+                if i == 1:
+                    raise
+                logger.warning("LLM GPU offload failed; falling back to CPU", exc_info=True)
+        if n_gpu_layers == -1 and llama_supports_gpu_offload():
+            logger.info("LLM loaded with GPU offload")
+        elif n_gpu_layers == -1:
+            logger.warning(
+                "LLM requested GPU offload but this llama-cpp-python build has no GPU backend; running on CPU. "
+                "Install a CUDA/Vulkan build into the Python that runs Vocalance (%s).",
+                sys.executable,
+            )
+        else:
+            logger.info("LLM loaded on CPU (n_gpu_layers=0)")
+        self.bind_jinja_chat_template(model, spec)
         return model
 
+    @staticmethod
+    def bind_jinja_chat_template(model: Llama, spec: LocalLLMArtifact) -> None:
+        """Use the GGUF Jinja chat template and pass the model's thinking flag."""
+        handler = model._chat_handlers.get("chat_template.default")
+        if handler is None:
+            logger.error(
+                "GGUF has no Jinja chat template (chat_format=%s). System instructions may not reach the model.",
+                model.chat_format,
+            )
+            return
+        template_kwargs = spec.chat_template_kwargs()
+
+        def chat_handler(**kwargs: Any) -> Any:
+            return handler(**{**template_kwargs, **kwargs})
+
+        model.chat_format = "chat_template.default"
+        model.chat_handler = chat_handler
+
     async def dispose_loaded_model(self) -> None:
+        self.loaded_spec = None
         if not self.llm:
             self.model_loaded = False
             return
@@ -237,52 +285,139 @@ class LLMService(Service):
             self.model_downloader.revert_partial_bundle(fns, had_before)
             raise
 
+    async def _run_endpoint_test(self, request_id: str) -> None:
+        task = asyncio.current_task()
+        if task is not None:
+            self.active_download_tasks.add(task)
+            task.add_done_callback(self.active_download_tasks.discard)
+        ok, msg = await self.test_local_endpoint()
+        kind: LlmUiNotificationKind = "endpoint_test_finished"
+        await self.event_bus.publish(LlmUiNotificationEvent(kind=kind, request_id=request_id, ok=ok, message=msg))
+
+    async def test_local_endpoint(self) -> Tuple[bool, str]:
+        cfg = self.config.llm
+        if not cfg.uses_local_endpoint():
+            return False, "Configure a loopback endpoint URL and model name first."
+        try:
+            validate_local_endpoint_base_url(cfg.local_endpoint_base_url)
+        except ValueError as exc:
+            return False, str(exc)
+        messages = [{"role": "user", "content": "Reply with the single word: ok"}]
+        try:
+            await run_blocking(
+                chat_completions_sync,
+                cfg.local_endpoint_base_url,
+                cfg.local_endpoint_model.strip(),
+                messages,
+                16,
+                cfg.local_endpoint_timeout_sec,
+                None,
+                name="llm-endpoint-test",
+            )
+            return True, "Endpoint responded successfully."
+        except OpenAICompatibleChatError as exc:
+            return False, str(exc)
+        except Exception as exc:
+            return False, f"Endpoint request failed: {exc}"
+
+    async def _complete_via_local_endpoint(
+        self,
+        messages: List[Dict[str, str]],
+        fallback_text: str,
+        agentic_prompt: str,
+    ) -> Optional[str]:
+        cfg = self.config.llm
+        stop_sequences = dictation_stop_sequences_for_messages(messages)
+        try:
+            raw = await run_blocking(
+                chat_completions_sync,
+                cfg.local_endpoint_base_url,
+                cfg.local_endpoint_model.strip(),
+                messages,
+                cfg.max_tokens,
+                cfg.local_endpoint_timeout_sec,
+                stop_sequences or None,
+                name="llm-endpoint-chat",
+            )
+        except OpenAICompatibleChatError as exc:
+            await self.emit_failed(str(exc), fallback_text)
+            return fallback_text.strip()
+        except Exception as exc:
+            await self.emit_failed(f"Local endpoint request failed: {exc}", fallback_text)
+            return fallback_text.strip()
+
+        result = postprocess_llm_completion(raw, messages, start_inside_reasoning=False)
+        final_result = result if result else fallback_text.strip()
+        await self.emit_completed(final_result, agentic_prompt)
+        return final_result
+
+    async def _complete_via_shipped_model(
+        self,
+        messages: List[Dict[str, str]],
+        fallback_text: str,
+        agentic_prompt: str,
+    ) -> Optional[str]:
+        spec = self.active_spec()
+        if not spec:
+            await self.emit_failed("Invalid LLM configuration", fallback_text)
+            return fallback_text.strip()
+
+        if not self.model_downloader.model_bundle_complete(spec.gguf_filenames):
+            msg = "LLM model files missing. Download the selected model in Settings."
+            await self.emit_failed(msg, fallback_text)
+            return fallback_text.strip()
+
+        model_path = self.model_downloader.get_model_path(spec.load_path_filename)
+        if not os.path.exists(model_path) or os.path.getsize(model_path) <= 0:
+            await self.emit_failed("LLM model file missing or empty", fallback_text)
+            return fallback_text.strip()
+
+        try:
+            self.llm = await run_blocking(self.load_model, model_path, spec, name="llm-load")
+            self.loaded_spec = spec
+        except Exception as e:
+            await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
+            return fallback_text.strip()
+
+        self.model_loaded = True
+        stop_sequences = dictation_stop_sequences_for_messages(messages)
+        try:
+            full_text: List[str] = []
+            async for token in self.generate_streaming(messages, stop=stop_sequences):
+                full_text.append(token)
+
+            raw = "".join(full_text)
+            result = postprocess_llm_completion(
+                raw,
+                messages,
+                start_inside_reasoning=spec.stream_starts_in_reasoning,
+            )
+            final_result = result if result else fallback_text.strip()
+            await self.emit_completed(final_result, agentic_prompt)
+            return final_result
+        except Exception as e:
+            await self.emit_failed(str(e), fallback_text)
+            return fallback_text.strip()
+        finally:
+            await self.dispose_loaded_model()
+
     async def run_chat_completion(
         self,
         messages: List[Dict[str, str]],
         fallback_text: str,
         agentic_prompt: str,
-        stream_session_id: Optional[str],
+        _stream_session_id: Optional[str],
     ) -> Optional[str]:
         async with self.request_lock:
-            spec = self.active_spec()
-            if not spec:
-                await self.emit_failed("Invalid LLM configuration", fallback_text)
-                return fallback_text.strip()
-
-            if not self.model_downloader.model_bundle_complete(spec.gguf_filenames):
-                msg = "LLM model files missing. Download the selected model in Settings."
-                await self.emit_failed(msg, fallback_text)
-                return fallback_text.strip()
-
-            model_path = self.model_downloader.get_model_path(spec.load_path_filename)
-            if not os.path.exists(model_path) or os.path.getsize(model_path) <= 0:
-                await self.emit_failed("LLM model file missing or empty", fallback_text)
-                return fallback_text.strip()
-
-            try:
-                self.llm = await run_blocking(self.load_model, model_path, spec.disable_thinking, name="llm-load")
-            except Exception as e:
-                await self.emit_failed(f"LLM failed to load: {e}", fallback_text)
-                return fallback_text.strip()
-
-            self.model_loaded = True
-            try:
-                full_text: List[str] = []
-                async for token in self.generate_streaming(messages):
-                    full_text.append(token)
-                    if stream_session_id:
-                        await self.event_bus.publish(LLMTokenGeneratedEvent(token=token, session_id=stream_session_id))
-
-                result = "".join(full_text).strip()
-                final_result = result if result else fallback_text.strip()
-                await self.emit_completed(final_result, agentic_prompt)
-                return final_result
-            except Exception as e:
-                await self.emit_failed(str(e), fallback_text)
-                return fallback_text.strip()
-            finally:
-                await self.dispose_loaded_model()
+            if self.config.llm.provider == "local_endpoint":
+                if not self.config.llm.uses_local_endpoint():
+                    await self.emit_failed(
+                        "Local endpoint mode is enabled but URL or model name is missing.",
+                        fallback_text,
+                    )
+                    return fallback_text.strip()
+                return await self._complete_via_local_endpoint(messages, fallback_text, agentic_prompt)
+            return await self._complete_via_shipped_model(messages, fallback_text, agentic_prompt)
 
     async def process_dictation_streaming(self, raw_text: str, agentic_prompt: str, stream_session_id: str) -> Optional[str]:
         messages = self.build_messages(agentic_prompt, raw_text)
@@ -303,14 +438,14 @@ class LLMService(Service):
         return await self.run_chat_completion(messages, spoken_prompt, agentic_prompt, stream_session_id)
 
     def build_messages(self, agentic_prompt: str, raw_text: str) -> List[Dict[str, str]]:
-        return [
-            {"role": "system", "content": f"{agentic_prompt}"},
-            {"role": "user", "content": raw_text},
-        ]
+        return build_dictation_chat_messages(agentic_prompt, raw_text)
 
     def build_amend_messages(self, agentic_prompt: str, clipboard_text: str, spoken_prompt: str) -> List[Dict[str, str]]:
         extra = (agentic_prompt or "").strip()
-        system_content = _AMEND_SYSTEM_BASE if not extra else f"{_AMEND_SYSTEM_BASE}\n\n{extra}"
+        system_parts = [_AMEND_SYSTEM_BASE, OUTPUT_SLOP_AND_FORMATTING_RULE]
+        if extra:
+            system_parts.append(extra)
+        system_content = "\n\n".join(system_parts)
         user_content = (
             "--- TEXT TO TRANSFORM (clipboard) ---\n"
             f"{clipboard_text}\n"
@@ -324,38 +459,45 @@ class LLMService(Service):
             {"role": "user", "content": user_content},
         ]
 
-    async def generate_streaming(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+    async def generate_streaming(
+        self, messages: List[Dict[str, str]], stop: Optional[List[str]] = None
+    ) -> AsyncGenerator[str, None]:
         cfg = self.config.llm
+        spec = self.loaded_spec or self.active_spec()
+        if spec is None or self.llm is None:
+            return
+        sampling = (
+            spec.formatter_sampling_profile() if is_dictation_formatter_messages(messages) else spec.amend_sampling_profile()
+        )
+        reasoning_filter = ReasoningTokenFilter(start_inside=spec.stream_starts_in_reasoning)
         loop = asyncio.get_running_loop()
         token_queue: asyncio.Queue[Optional[str]] = asyncio.Queue(maxsize=50)
-
-        if not self.llm:
-            return
-
         llm_ref = self.llm
 
         def sync_generate() -> None:
             stream = llm_ref.create_chat_completion(
                 messages=messages,
                 max_tokens=cfg.max_tokens,
-                temperature=cfg.temperature,
-                top_p=cfg.top_p,
-                top_k=cfg.top_k,
-                min_p=cfg.min_p,
-                repeat_penalty=cfg.repeat_penalty,
-                frequency_penalty=cfg.frequency_penalty,
+                temperature=sampling.temperature,
+                top_p=sampling.top_p,
+                top_k=sampling.top_k,
+                min_p=sampling.min_p,
+                repeat_penalty=sampling.repeat_penalty,
+                presence_penalty=sampling.presence_penalty,
+                frequency_penalty=sampling.frequency_penalty,
                 mirostat_mode=cfg.mirostat_mode,
                 mirostat_tau=cfg.mirostat_tau,
                 mirostat_eta=cfg.mirostat_eta,
-                stop=[],
+                stop=stop or [],
                 stream=True,
             )
             for chunk in stream:
-                if chunk and chunk.get("choices"):
-                    delta = chunk["choices"][0].get("delta", {})
-                    token = delta.get("content", "")
-                    if token:
-                        loop.call_soon_threadsafe(token_queue.put_nowait, token)
+                if not chunk or not chunk.get("choices"):
+                    continue
+                delta = chunk["choices"][0].get("delta") or {}
+                token = delta.get("content") or ""
+                if token:
+                    loop.call_soon_threadsafe(token_queue.put_nowait, token)
             loop.call_soon_threadsafe(token_queue.put_nowait, None)
 
         executor_task = asyncio.create_task(run_blocking(sync_generate, name="llm-generate"))
@@ -365,9 +507,17 @@ class LLMService(Service):
                 token = await asyncio.wait_for(token_queue.get(), timeout=cfg.generation_timeout_sec)
                 if token is None:
                     break
-                yield token
+                visible = reasoning_filter.push(token)
+                if visible:
+                    yield visible
+            tail = reasoning_filter.finish()
+            if tail:
+                yield tail
         except asyncio.TimeoutError:
             logger.debug("LLM token stream timed out waiting for next token")
+            tail = reasoning_filter.finish()
+            if tail:
+                yield tail
         finally:
             await executor_task
 

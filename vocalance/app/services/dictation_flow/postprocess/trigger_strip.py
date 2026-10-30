@@ -24,10 +24,10 @@ def strip_dictation_triggers(text: str, cfg: DictationConfig) -> str:
     trigger_phrases: tuple[str, ...] = (
         cfg.start_trigger,
         cfg.stop_trigger,
+        cfg.pause_trigger,
         cfg.type_trigger,
         cfg.smart_start_trigger,
         cfg.visual_start_trigger,
-        cfg.hidden_start_trigger,
         cfg.amend_start_trigger,
     )
     stripped: str = strip_config_phrases_case_insensitive(text, trigger_phrases)
@@ -40,5 +40,6 @@ def strip_dictation_triggers(text: str, cfg: DictationConfig) -> str:
         cfg.modifier_kebab_phrase,
         cfg.modifier_diminish_phrase,
         cfg.modifier_strip_phrase,
+        cfg.modifier_numeral_phrase,
     )
     return strip_config_phrases_case_insensitive(stripped, modifier_phrases)

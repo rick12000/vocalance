@@ -4,16 +4,24 @@ from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent
 
-DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling", "kebab", "diminish", "strip"]
+DictationModifierId = Literal[
+    "upper",
+    "capitals",
+    "camel",
+    "snake",
+    "spelling",
+    "kebab",
+    "diminish",
+    "strip",
+    "numeral",
+]
 
 
 class DictationStatusChangedEvent(BaseEvent):
     """Event fired when dictation status changes for UI synchronization."""
 
     is_active: bool = Field(description="Whether dictation is currently active")
-    mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden", "amend"] = Field(
-        description="Current dictation mode"
-    )
+    mode: Literal["inactive", "type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
     show_ui: bool = Field(default=False, description="Whether to show the dictation UI indicator")
     stop_command: Optional[str] = Field(default=None, description="The command to stop this dictation mode")
 
@@ -22,7 +30,7 @@ class DictationModeDisableOthersEvent(BaseEvent):
     """Event fired to disable other speech/sound processing during dictation."""
 
     dictation_mode_active: bool = Field(description="Whether dictation mode is active, disabling other processing")
-    dictation_mode: Literal["inactive", "standard", "type", "smart", "visual", "hidden", "amend"]
+    dictation_mode: Literal["inactive", "type", "smart", "visual", "hidden", "amend"]
 
 
 class DictationSessionEvent(BaseEvent):
@@ -31,7 +39,10 @@ class DictationSessionEvent(BaseEvent):
     mode: Literal["smart", "visual", "hidden", "amend"] = Field(description="Which dictation mode is starting or stopping")
     state: Literal["started", "stopped"] = Field(description="Whether the session is starting or stopping")
     raw_text: Optional[str] = Field(default=None, description="Raw text before LLM (for smart/amend stopped)")
-    accumulated_text: Optional[str] = Field(default=None, description="Accumulated text to be pasted (for visual/hidden stopped)")
+    accumulated_text: Optional[str] = Field(
+        default=None,
+        description="Accumulated text to be pasted (for visual/hidden stopped)",
+    )
 
 
 class LLMProcessingStartedEvent(BaseEvent):
@@ -39,7 +50,10 @@ class LLMProcessingStartedEvent(BaseEvent):
 
     raw_text: str = Field(description="Raw dictated text to be processed")
     agentic_prompt: str = Field(description="The agentic prompt being used")
-    session_id: Optional[str] = Field(default=None, description="LLM session identifier for correlating ready/token events")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="LLM session identifier for correlating ready/token events",
+    )
 
 
 class LLMProcessingCompletedEvent(BaseEvent):
@@ -132,10 +146,39 @@ class DictationAliasUiOperationEvent(BaseEvent):
     value: str = ""
 
 
+class DictationHotwordListUpdatedEvent(BaseEvent):
+    """Published when the saved hotword list changes."""
+
+    hotwords: List[str] = Field(default_factory=list, description="Hotwords in editor order")
+
+
+class DictationHotwordSaveFailedEvent(BaseEvent):
+    """Published when a hotword save is rejected and storage is left unchanged."""
+
+    message: str = Field(description="Why the hotword list was not saved")
+
+
+DictationHotwordUiOp = Literal["save", "refresh_list"]
+
+
+class DictationHotwordUiOperationEvent(BaseEvent):
+    """UI-originated hotword edits; handled by ``DictationHotwordService``."""
+
+    op: DictationHotwordUiOp
+    text: str = ""
+
+
 class DictationStopWordDetectedEvent(BaseEvent):
     """Event fired when the dictation stop word is detected."""
 
-    mode: Literal["standard", "type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
+    mode: Literal["type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
+
+
+class DictationPausedStateEvent(BaseEvent):
+    """Event fired when an active dictation session enters or exits the paused state."""
+
+    is_paused: bool = Field(description="True when entering paused state, False when resuming recording")
+    mode: Literal["type", "smart", "visual", "hidden", "amend"] = Field(description="Active dictation mode")
 
 
 class DictationModifierPhraseEvent(BaseEvent):

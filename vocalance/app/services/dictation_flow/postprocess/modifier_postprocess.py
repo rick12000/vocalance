@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from vocalance.app.events.dictation_events import DictationModifierId
+from vocalance.app.utils.number_parser import replace_spoken_numbers_in_text
 
 MODIFIER_DISPLAY: dict[str, str] = {
     "upper": "Upper",
@@ -13,6 +14,7 @@ MODIFIER_DISPLAY: dict[str, str] = {
     "kebab": "Kebab",
     "diminish": "Diminish",
     "strip": "Strip",
+    "numeral": "Numeral",
 }
 
 
@@ -408,5 +410,7 @@ def apply_modifier_transform(
         text = to_snake_case(text)
     if "kebab" in active_modifiers:
         text = to_kebab_case(text)
+    if "numeral" in active_modifiers:
+        text = replace_spoken_numbers_in_text(text)
 
     return text

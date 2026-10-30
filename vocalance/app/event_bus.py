@@ -122,6 +122,28 @@ class EventBus:
             except asyncio.CancelledError:
                 pass
 
+    def submit(self, event: BaseEvent) -> None:
+        """Enqueue ``event`` without creating an asyncio task.
+
+        Synchronous bus handlers and ``call_soon`` callbacks already run inside a
+        QtAsyncio task. ``asyncio.create_task`` from there nests a second task and
+        crashes the loop. ``submit`` only enqueues; the bus worker dispatches later.
+        """
+        with self.bus_lock:
+            if self.closed:
+                return
+            if not self.started:
+                self.pending_events.append(event)
+                return
+
+        if self._queue is None:
+            return
+
+        try:
+            self._queue.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.warning("Event bus queue full; dropping %s", type(event).__name__)
+
     async def publish(self, event: BaseEvent) -> None:
         """Publish ``event`` to subscribers, queue if not started, or no-op if shut down.
 

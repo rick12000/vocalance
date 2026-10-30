@@ -16,6 +16,7 @@ from vocalance.app.ui.components.layouts import (
     TwoColumnLayout,
 )
 from vocalance.app.ui.features.dictation.alias_subview import QtDictationAliasSubView
+from vocalance.app.ui.features.dictation.hotword_subview import QtHotwordSubView
 from vocalance.app.ui.qt_theme import theme
 from vocalance.app.utils.llm_dep_check import llm_deps_available
 
@@ -38,8 +39,7 @@ class TabButton(QPushButton):
         """Apply styling based on selection state - pill-shaped buttons."""
         if self.chosen:
             # Selected state: dark background with full styling
-            self.setStyleSheet(
-                f"""
+            self.setStyleSheet(f"""
                 TabButton {{
                     background-color: {theme.config.shapes.dark};
                     color: {theme.config.text.light};
@@ -50,12 +50,10 @@ class TabButton(QPushButton):
                 TabButton:hover {{
                     background-color: {theme.config.shapes.dark};
                 }}
-                """
-            )
+                """)
         else:
             # Unselected state: transparent background
-            self.setStyleSheet(
-                f"""
+            self.setStyleSheet(f"""
                 TabButton {{
                     background-color: transparent;
                     color: {theme.config.text.medium};
@@ -67,8 +65,7 @@ class TabButton(QPushButton):
                     background-color: {theme.config.shapes.dark};
                     color: {theme.config.text.light};
                 }}
-                """
-            )
+                """)
 
     def set_selected(self, selected: bool) -> None:
         """Set the selection state of the button."""
@@ -229,11 +226,11 @@ class QtPromptsSubView(QWidget):
         item_layout.addWidget(edit_btn)
 
         # Delete button
-        is_default = prompt_data.get("is_default", False)
+        is_protected = prompt_data.get("is_default", False) or bool(prompt_data.get("system_key"))
         delete_btn = DeleteButton(
-            command=lambda checked, pid=prompt_data.get("id"): self.on_delete_prompt(pid) if not is_default else None
+            command=lambda checked, pid=prompt_data.get("id"): self.on_delete_prompt(pid) if not is_protected else None
         )
-        delete_btn.setEnabled(not is_default)
+        delete_btn.setEnabled(not is_protected)
         item_layout.addWidget(delete_btn)
 
         self.prompts_list_layout.insertWidget(self.prompts_list_layout.count() - 1, item_widget)
@@ -278,8 +275,8 @@ class QtPromptsSubView(QWidget):
                 self.logger.info(f"Edited prompt: {prompt_data['id']}")
 
     def on_delete_prompt(self, prompt_id: str) -> None:
-        if self.controller and self.controller.is_default_prompt(prompt_id):
-            QMessageBox.information(self, "Cannot Delete Default Prompt", "The default prompt cannot be deleted.")
+        if self.controller and self.controller.is_protected_prompt(prompt_id):
+            QMessageBox.information(self, "Cannot Delete Prompt", "This prompt cannot be deleted.")
             return
 
         if self.controller:
@@ -293,10 +290,11 @@ class QtDictationView(QWidget):
     """Qt-based dictation view with tabbed sub-views.
 
     Features:
-    - Horizontal menu with tab buttons (Prompts, Aliases)
+    - Horizontal menu with tab buttons (Prompts, Aliases, Hot Words)
     - Stacked widget to switch between sub-views
     - Prompts sub-view: Add/edit/delete/select prompts
     - Aliases sub-view: Add/edit/delete alias substitutions
+    - Hot Words sub-view: edit the spellings biased on the next dictation session
     - Real-time updates from controllers
     """
 
@@ -308,6 +306,7 @@ class QtDictationView(QWidget):
         self._llm_enabled = llm_deps_available()
         self.dictation_controller = None
         self.alias_controller = None
+        self.hotword_controller = None
         self.tab_buttons: Dict[str, TabButton] = {}
 
         self.setup_main_ui()
@@ -324,6 +323,11 @@ class QtDictationView(QWidget):
         self.alias_controller = controller
         self.aliases_sub_view.set_controller(controller)
 
+    def set_hotword_controller(self, controller) -> None:
+        """Set the hotword controller and connect to the hot words sub-view."""
+        self.hotword_controller = controller
+        self.hotwords_sub_view.set_controller(controller)
+
     def setup_main_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -331,22 +335,20 @@ class QtDictationView(QWidget):
 
         self.prompts_sub_view: Optional[QtPromptsSubView] = QtPromptsSubView() if self._llm_enabled else None
         self.aliases_sub_view = QtDictationAliasSubView()
+        self.hotwords_sub_view = QtHotwordSubView()
 
-        if self._llm_enabled:
-            self.setup_tab_menu()
-            main_layout.addWidget(self.tab_menu_widget)
-            main_layout.addSpacing(theme.config.spacing.medium)
+        self.setup_tab_menu()
+        main_layout.addWidget(self.tab_menu_widget)
+        main_layout.addSpacing(theme.config.spacing.medium)
 
-            self.stacked_widget = QStackedWidget()
-            main_layout.addWidget(self.stacked_widget, stretch=1)
+        self.stacked_widget = QStackedWidget()
+        main_layout.addWidget(self.stacked_widget, stretch=1)
 
+        if self.prompts_sub_view is not None:
             self.stacked_widget.addWidget(self.prompts_sub_view)
-            self.stacked_widget.addWidget(self.aliases_sub_view)
-            self.select_tab("Prompts")
-        else:
-            self.tab_menu_widget = None
-            self.stacked_widget = None
-            main_layout.addWidget(self.aliases_sub_view, stretch=1)
+        self.stacked_widget.addWidget(self.aliases_sub_view)
+        self.stacked_widget.addWidget(self.hotwords_sub_view)
+        self.select_tab("Prompts" if self._llm_enabled else "Aliases")
 
     def setup_tab_menu(self) -> None:
         wrapper = TransparentBox(layout="horizontal", spacing=0)
@@ -360,14 +362,17 @@ class QtDictationView(QWidget):
             border_color=theme.config.shapes.medium,
             border_radius=20,
         )
-        outer_container.setMaximumWidth(500)
+        outer_container.setMaximumWidth(720)
 
         outer_layout = outer_container.layout()
         outer_layout.setContentsMargins(8, 4, 8, 4)
         outer_layout.setSpacing(theme.config.spacing.medium)
         outer_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        for tab_name in ["Prompts", "Aliases"]:
+        tab_names = ["Aliases", "Hot Words"]
+        if self._llm_enabled:
+            tab_names.insert(0, "Prompts")
+        for tab_name in tab_names:
             btn = TabButton(tab_name)
             btn.clicked.connect(lambda checked, name=tab_name: self.select_tab(name))
             self.tab_buttons[tab_name] = btn
@@ -383,13 +388,12 @@ class QtDictationView(QWidget):
         for name, btn in self.tab_buttons.items():
             btn.set_selected(name == tab_name)
 
-        if self.stacked_widget is None:
-            return
-
         if tab_name == "Prompts" and self.prompts_sub_view is not None:
             self.stacked_widget.setCurrentWidget(self.prompts_sub_view)
         elif tab_name == "Aliases":
             self.stacked_widget.setCurrentWidget(self.aliases_sub_view)
+        elif tab_name == "Hot Words":
+            self.stacked_widget.setCurrentWidget(self.hotwords_sub_view)
 
         self.logger.debug(f"Selected tab: {tab_name}")
 

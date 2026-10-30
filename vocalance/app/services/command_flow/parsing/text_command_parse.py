@@ -9,7 +9,7 @@ from vocalance.app.config.app_config import GlobalAppConfig
 from vocalance.app.config.command_types import (
     AutomationCommand,
     DictationAmendStartCommand,
-    DictationHiddenStartCommand,
+    DictationPauseToggleCommand,
     DictationSmartStartCommand,
     DictationStartCommand,
     DictationStopCommand,
@@ -29,6 +29,7 @@ from vocalance.app.config.command_types import (
     ParameterizedCommand,
     ParseResultType,
     PauseCommand,
+    RepeatCommand,
     ResumeCommand,
 )
 from vocalance.app.utils.number_parser import parse_number
@@ -49,10 +50,10 @@ class CommandParserTriggers(BaseModel):
     mark_cancel_visualize_phrases: tuple[str, ...]
     dictation_start_trigger: str
     dictation_stop_trigger: str
+    dictation_pause_trigger: str
     dictation_type_trigger: str
     dictation_smart_trigger: str
     dictation_visual_trigger: str
-    dictation_hidden_trigger: str
     dictation_amend_trigger: str
 
 
@@ -72,37 +73,42 @@ def build_triggers_from_config(config: GlobalAppConfig) -> CommandParserTriggers
         mark_cancel_visualize_phrases=tuple(p.lower() for p in m.visualization_cancel),
         dictation_start_trigger=d.start_trigger.lower(),
         dictation_stop_trigger=d.stop_trigger.lower(),
+        dictation_pause_trigger=d.pause_trigger.lower(),
         dictation_type_trigger=d.type_trigger.lower(),
         dictation_smart_trigger=d.smart_start_trigger.lower(),
         dictation_visual_trigger=d.visual_start_trigger.lower(),
-        dictation_hidden_trigger=d.hidden_start_trigger.lower(),
         dictation_amend_trigger=d.amend_start_trigger.lower(),
     )
 
 
+SYSTEM_CONTROL_PHRASES = ("pause", "resume", "repeat")
+
+
 def parse_system_control(normalized_text: str) -> ParseResultType:
-    """Match global pause/resume phrases."""
+    """Match global pause/resume/repeat phrases."""
     if normalized_text == "pause":
         return PauseCommand()
     if normalized_text == "resume":
         return ResumeCommand()
+    if normalized_text == "repeat":
+        return RepeatCommand()
     return NoMatchResult()
 
 
 def parse_dictation(normalized_text: str, triggers: CommandParserTriggers) -> ParseResultType:
-    """Match dictation mode start/stop and variant triggers."""
+    """Match dictation mode start/stop/pause and variant triggers."""
     if normalized_text == triggers.dictation_start_trigger:
         return DictationStartCommand()
     if normalized_text == triggers.dictation_stop_trigger:
         return DictationStopCommand()
+    if normalized_text == triggers.dictation_pause_trigger:
+        return DictationPauseToggleCommand()
     if normalized_text == triggers.dictation_type_trigger:
         return DictationTypeCommand()
     if normalized_text == triggers.dictation_smart_trigger:
         return DictationSmartStartCommand()
     if normalized_text == triggers.dictation_visual_trigger:
         return DictationVisualStartCommand()
-    if normalized_text == triggers.dictation_hidden_trigger:
-        return DictationHiddenStartCommand()
     if normalized_text == triggers.dictation_amend_trigger:
         return DictationAmendStartCommand()
     return NoMatchResult()

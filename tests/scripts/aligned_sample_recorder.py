@@ -40,10 +40,19 @@ class AlignedSampleRecorder:
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
         self.logger = logging.getLogger(__name__)
 
-    def _portaudio_callback(self, indata: NDArray[np.int16], frames: int, time_info: Any, status: Optional[Any]) -> None:
+    def _portaudio_callback(
+        self,
+        indata: NDArray[np.int16],
+        frames: int,
+        time_info: Any,
+        status: Optional[Any],
+    ) -> None:
         if status:
             self.logger.debug("Input stream status: %s", status)
         with self._lock:
@@ -69,11 +78,7 @@ class AlignedSampleRecorder:
         self.logger.info("Press Ctrl+C to stop recording")
 
         if self.mode == "command":
-            self.logger.info(
-                f"energy_threshold={self.config.vad.command_energy_threshold}, "
-                f"silent_chunks_for_end={self.config.vad.command_silent_chunks_for_end} "
-                f"(~{self.config.vad.command_silent_chunks_for_end * 50}ms)"
-            )
+            self.logger.info(f"pickup={self.config.vad.command_pickup}, end_pause={self.config.vad.command_end_pause}")
         else:
             self.logger.info(
                 "dictation label: continuous raw chunks only (in-app dictation uses Moonshine streaming, not VAD segments)"

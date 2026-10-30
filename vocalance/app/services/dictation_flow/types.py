@@ -9,7 +9,6 @@ from vocalance.app.events.dictation_events import DictationModifierId
 
 class DictationMode(StrEnum):
     INACTIVE = "inactive"
-    STANDARD = "standard"
     SMART = "smart"
     TYPE = "type"
     VISUAL = "visual"
@@ -20,6 +19,7 @@ class DictationMode(StrEnum):
 class DictationState(StrEnum):
     IDLE = "idle"
     RECORDING = "recording"
+    PAUSED = "paused"
     PROCESSING_LLM = "processing_llm"
     SHUTTING_DOWN = "shutting_down"
 
@@ -31,8 +31,6 @@ class DictationSession(BaseModel):
     mode: DictationMode
     start_time: float
     accumulated_text: str = ""
-    last_text_time: float | None = None
-    is_first_segment: bool = True
     active_modifiers: set[DictationModifierId] = Field(default_factory=set)
     explicit_modifiers: set[DictationModifierId] = Field(default_factory=set)
 

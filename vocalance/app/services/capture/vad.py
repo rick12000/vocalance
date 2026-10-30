@@ -37,6 +37,7 @@ class AudioProcessor:
         self.sample_rate = sample_rate
         self.enable_normalization = enable_normalization
         self.target_peak = target_peak
+        self.noise_floor_percentile = self.NOISE_FLOOR_PERCENTILE
 
         self.energy_history: deque[float] = deque(maxlen=self.NOISE_FLOOR_WINDOW_SIZE)
         self.noise_floor = self.NOISE_FLOOR_INITIAL
@@ -63,10 +64,10 @@ class AudioProcessor:
             self.energy_history.append(energy)
 
         if len(self.energy_history) >= self.MIN_SAMPLES_FOR_STABLE:
-            self.noise_floor = float(np.percentile(list(self.energy_history), self.NOISE_FLOOR_PERCENTILE))
+            self.noise_floor = float(np.percentile(list(self.energy_history), self.noise_floor_percentile))
             self.noise_floor_stable = True
         elif len(self.energy_history) > 0:
-            self.noise_floor = float(np.percentile(list(self.energy_history), self.NOISE_FLOOR_PERCENTILE))
+            self.noise_floor = float(np.percentile(list(self.energy_history), self.noise_floor_percentile))
             self.noise_floor_stable = False
 
         return NoiseFloorEstimate(
@@ -237,7 +238,6 @@ class UtteranceSegmenter:
                 self.capturing = True
                 self.peak_energy = rms_energy
                 self.segment_buffer.extend(self.pre_roll)
-                self.segment_buffer.append(float_chunk)
                 self.silence_streak = 0
                 if self.config.emit_onset and self.onset_pending:
                     hits.append(Onset(ts=ts))
@@ -280,3 +280,19 @@ class UtteranceSegmenter:
     def set_silence_tail(self, chunks: int) -> None:
         with self.state_lock:
             self.config.silent_chunks_for_end = chunks
+
+    def set_voice_gate(self, speech_multiplier: float, silence_multiplier: float, silent_chunks: int) -> None:
+        """Apply a new onset margin and trailing-silence length without rebuilding the gate."""
+        with self.state_lock:
+            self.config.speech_multiplier = speech_multiplier
+            self.config.silence_multiplier = silence_multiplier
+            self.config.silent_chunks_for_end = silent_chunks
+            self.energy_gate.speech_multiplier = speech_multiplier
+            self.energy_gate.silence_multiplier = silence_multiplier
+            floor = self.analyzer.get_noise_floor()
+            if floor.is_stable:
+                self.energy_gate.update(floor.value)
+            else:
+                gate = self.energy_gate
+                gate.speech_threshold_value = gate.min_threshold * speech_multiplier
+                gate.silence_threshold_value = gate.min_threshold * silence_multiplier

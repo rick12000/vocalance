@@ -19,7 +19,7 @@ producing a release.
 
 The draft release requires all quality gates to pass first:
 
-- Linting and pre-commit hooks
+- Linting and prek Git hooks
 - Trivy security scan
 - Unit tests
 - Logging and activity tracking default-off checks
@@ -51,7 +51,7 @@ NOTICES/     — third-party licence disclosures
 
 **Checksum**: `vocalance-v{VERSION}.zip.sha256`
 
-Dev-only files (tests, CI config, docs, pre-commit config, bootstrapping scripts) are excluded from the zip.
+Dev-only files (tests, CI config, docs, prek hook config, bootstrapping scripts) are excluded from the zip.
 
 Once published, a GitHub release is **immutable** — all assets are fixed artifacts and will not change.
 

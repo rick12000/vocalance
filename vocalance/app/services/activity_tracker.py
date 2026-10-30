@@ -15,7 +15,7 @@ class ActivityTracker:
     """Writes structured JSON activity events to a per-session JSONL log file.
 
     Tracks two classes of events when enabled:
-    - Final dictation outputs (standard, streaming, and LLM-enhanced modes).
+    - Final dictation outputs, including streamed and LLM-enhanced text.
     - PyAutoGUI automation executions with full upstream command context.
 
     All writes are no-ops when ``enabled`` is False, preserving privacy by
@@ -86,7 +86,7 @@ class ActivityTracker:
 
         Args:
             text: The final processed text that was typed into the target application.
-            mode: Dictation mode string (e.g. "standard", "smart", "visual").
+            mode: Dictation mode string (e.g. "hidden", "smart", "visual").
             session_id: UUID of the dictation session that produced this output.
             llm_enhanced: True when the text was processed by the LLM before output.
             active_modifiers: Set of active modifier IDs applied during the session.

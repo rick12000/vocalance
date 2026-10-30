@@ -549,8 +549,40 @@ but is not distributed in the final executable. Instead, these dependencies
 are dynamically loaded at runtime by the user. We report their licenses below
 for completeness. 
 
-QWEN pretrained large language model loaded in:
-vocalance\app\services\audio\dictation_handling\llm_support\llm_service.py
+Dictation streaming ASR model weights (ONNX transducer) loaded by:
+vocalance\app\services\dictation_flow\speech_recognition\asr_model_downloader.py
+
+- X-ASR-zh-en (480 ms streaming chunk bundle; Apache 2.0)
+  https://huggingface.co/GilgameshWind/X-ASR-zh-en
+  https://github.com/Gilgamesh-J/X-ASR/blob/main/LICENSE
+
+Local language models loaded by:
+vocalance\app\services\dictation_flow\llm\llm_service.py
+
+All six whitelisted models are Apache 2.0. Qwen weights are published by
+Alibaba Cloud / the Qwen team. Granite weights are published by IBM. Ministral
+weights are published by Mistral AI. Vocalance downloads Q4_K_M GGUF files for
+the smaller checkpoints (Unsloth Qwen conversions and IBM Granite) and Bartowski
+IQ3_XS / IQ3_M GGUF files for the 8B options.
+
+- Qwen3.5 2B (default, Q4_K_M)
+  https://huggingface.co/Qwen/Qwen3.5-2B
+  https://huggingface.co/Qwen/Qwen3.5-2B/blob/main/LICENSE
+- Qwen3 4B Instruct 2507 (Q4_K_M)
+  https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
+  https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE
+- Granite 4.2 3B (Q4_K_M)
+  https://huggingface.co/ibm-granite/granite-4.2-3b
+  https://github.com/ibm-granite/granite-4.2-language-models/blob/main/LICENSE
+- Qwen3.5 4B (Q4_K_M)
+  https://huggingface.co/Qwen/Qwen3.5-4B
+  https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE
+- Ministral 3 8B Instruct (IQ3_XS)
+  https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512
+  https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512/blob/main/LICENSE
+- Qwen3 8B (IQ3_M)
+  https://huggingface.co/Qwen/Qwen3-8B
+  https://huggingface.co/Qwen/Qwen3-8B/blob/main/LICENSE
 
 
                                  Apache License

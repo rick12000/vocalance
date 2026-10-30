@@ -12,30 +12,16 @@ def clean_dictation_text(text: str, add_trailing_space: bool = True) -> str:
     return cleaned
 
 
-def should_remove_previous_period(last_text: str, current_text: str) -> bool:
+def should_add_period_before(last_text: str, current_text: str) -> bool:
     if not last_text or not current_text:
         return False
-    return last_text.rstrip().endswith(".") and current_text.strip() and current_text.strip()[0].islower()
-
-
-def should_lowercase_current_start(last_text: str, current_text: str) -> bool:
-    if not last_text or not current_text:
+    if last_text[-1] in ".?!":
         return False
-    last_stripped: str = last_text.rstrip()
-    current_stripped: str = current_text.strip()
-    return last_stripped and not last_stripped.endswith(".") and current_stripped and current_stripped[0].isupper()
-
-
-def get_trailing_whitespace_count(text: str) -> int:
-    if not text:
-        return 0
-    return len(text) - len(text.rstrip())
-
-
-def lowercase_first_letter(text: str) -> str:
-    if not text:
-        return text
-    return text[0].lower() + text[1:] if len(text) > 1 else text[0].lower()
+    words = current_text.split(maxsplit=1)
+    if not words:
+        return False
+    first_word = words[0]
+    return first_word[0].isupper() and not first_word.isupper()
 
 
 def remove_formatting(text: str, is_first_word_of_session: bool = False) -> str:

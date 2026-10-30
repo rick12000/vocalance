@@ -8,10 +8,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from vocalance.app.config.alias_validation import is_valid_alias_text
 from vocalance.app.config.command_types import AutomationCommand
 from vocalance.app.config.hotkey_validation import is_valid_custom_hotkey
+from vocalance.app.services.dictation_flow.hotwords import HotwordValidationError, parse_hotword_text
 
 logger = logging.getLogger(__name__)
 
-MAX_PROMPT_TEXT_LENGTH = 4000
+MAX_PROMPT_TEXT_LENGTH = 8000
 MAX_ALIAS_KEY_LENGTH = 100
 MAX_ALIAS_VALUE_LENGTH = 2000
 MAX_SOUND_MAPPING_PHRASE_LENGTH = 200
@@ -47,6 +48,9 @@ class AgenticPrompt(BaseModel):
     name: str = Field(..., max_length=200)
     created_at: str
     is_default: bool = False
+    system_key: Optional[str] = None
+    system_canonical_name: Optional[str] = None
+    system_canonical_text: Optional[str] = None
 
 
 class MarksData(StorageData):
@@ -111,6 +115,20 @@ class SoundMappingsData(StorageData):
             if len(phrase) > MAX_SOUND_MAPPING_PHRASE_LENGTH:
                 raise ValueError(f"Sound mapping phrase for '{key}' exceeds {MAX_SOUND_MAPPING_PHRASE_LENGTH} characters")
         return v
+
+
+class DictationHotwordData(StorageData):
+    """Ordered hotwords biased during the next dictation session."""
+
+    hotwords: List[str] = Field(default_factory=list, description="One hotword per entry, case preserved")
+
+    @field_validator("hotwords")
+    @classmethod
+    def validate_hotwords(cls, value: List[str]) -> List[str]:
+        try:
+            return parse_hotword_text("\n".join(value))
+        except HotwordValidationError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class DictationAliasData(StorageData):

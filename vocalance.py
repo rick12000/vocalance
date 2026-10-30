@@ -14,6 +14,7 @@ if sys.stderr is None:
 
 os.environ.setdefault("TQDM_DISABLE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.pop("SSLKEYLOGFILE", None)
 
 if __name__ == "__main__":
     # Known PySide6.QtAsyncio bug: it leaks the shutdown_asyncgens coroutine
