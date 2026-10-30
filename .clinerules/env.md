@@ -4,7 +4,7 @@ Use this virtual environment for Python commands. If this repository is only a P
 
 ## Environment
 
-Directory: c:\Users\ricca\vocalance\.venv
+Directory: `<repo-root>\.venv`
 
 ## Activate
 
@@ -22,10 +22,8 @@ cmd:
 
 Run commands with either activation (above), or without activating:
 
-```powershell
-uv run python main.py
-uv run pytest tests/
-```
+    uv run python main.py
+    uv run pytest tests/
 
 `uv run` automatically uses `.venv` and synchronizes it with `pyproject.toml` and `uv.lock`.
 

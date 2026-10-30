@@ -4,16 +4,24 @@ from pydantic import Field
 
 from vocalance.app.events.base_event import BaseEvent
 
-DictationModifierId = Literal["upper", "capitals", "camel", "snake", "spelling", "kebab", "diminish", "strip", "numeral"]
+DictationModifierId = Literal[
+    "upper",
+    "capitals",
+    "camel",
+    "snake",
+    "spelling",
+    "kebab",
+    "diminish",
+    "strip",
+    "numeral",
+]
 
 
 class DictationStatusChangedEvent(BaseEvent):
     """Event fired when dictation status changes for UI synchronization."""
 
     is_active: bool = Field(description="Whether dictation is currently active")
-    mode: Literal["inactive", "type", "smart", "visual", "hidden", "amend"] = Field(
-        description="Current dictation mode"
-    )
+    mode: Literal["inactive", "type", "smart", "visual", "hidden", "amend"] = Field(description="Current dictation mode")
     show_ui: bool = Field(default=False, description="Whether to show the dictation UI indicator")
     stop_command: Optional[str] = Field(default=None, description="The command to stop this dictation mode")
 
@@ -31,7 +39,10 @@ class DictationSessionEvent(BaseEvent):
     mode: Literal["smart", "visual", "hidden", "amend"] = Field(description="Which dictation mode is starting or stopping")
     state: Literal["started", "stopped"] = Field(description="Whether the session is starting or stopping")
     raw_text: Optional[str] = Field(default=None, description="Raw text before LLM (for smart/amend stopped)")
-    accumulated_text: Optional[str] = Field(default=None, description="Accumulated text to be pasted (for visual/hidden stopped)")
+    accumulated_text: Optional[str] = Field(
+        default=None,
+        description="Accumulated text to be pasted (for visual/hidden stopped)",
+    )
 
 
 class LLMProcessingStartedEvent(BaseEvent):
@@ -39,7 +50,10 @@ class LLMProcessingStartedEvent(BaseEvent):
 
     raw_text: str = Field(description="Raw dictated text to be processed")
     agentic_prompt: str = Field(description="The agentic prompt being used")
-    session_id: Optional[str] = Field(default=None, description="LLM session identifier for correlating ready/token events")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="LLM session identifier for correlating ready/token events",
+    )
 
 
 class LLMProcessingCompletedEvent(BaseEvent):
